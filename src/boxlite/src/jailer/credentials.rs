@@ -47,7 +47,10 @@ pub(crate) fn check_clone_new_user_errno(error: i32) -> i32 {
 /// 2. Calls `unshare(CLONE_NEWUSER)` again (tests nested userns)
 ///
 /// Returns `Ok(())` if user namespaces work, `Err(errno)` with the
-/// specific failure code for diagnosis.
+/// specific failure code for diagnosis. The child encodes its failing
+/// syscall's errno into its exit code so the parent can surface the real
+/// cause (e.g., `EACCES` from AppArmor's `userns_create` denial, not just
+/// a generic `EPERM`).
 ///
 /// # Safety
 ///
@@ -85,26 +88,26 @@ pub(crate) fn can_create_process_in_new_user_ns() -> Result<(), i32> {
 
             // Write /proc/self/setgroups -> "deny" (required before gid_map)
             if write_proc_file("/proc/self/setgroups\0", b"deny").is_err() {
-                libc::_exit(1);
+                child_exit_with_errno();
             }
 
             // Write /proc/self/gid_map
             let mut gid_buf = [0u8; 32];
             let gid_len = format_id_map(&mut gid_buf, gid, gid);
             if write_proc_file("/proc/self/gid_map\0", &gid_buf[..gid_len]).is_err() {
-                libc::_exit(1);
+                child_exit_with_errno();
             }
 
             // Write /proc/self/uid_map
             let mut uid_buf = [0u8; 32];
             let uid_len = format_id_map(&mut uid_buf, uid, uid);
             if write_proc_file("/proc/self/uid_map\0", &uid_buf[..uid_len]).is_err() {
-                libc::_exit(1);
+                child_exit_with_errno();
             }
 
             // Chrome: sys_unshare(CLONE_NEWUSER) — test nested user namespace
             if libc::unshare(libc::CLONE_NEWUSER) != 0 {
-                libc::_exit(1);
+                child_exit_with_errno();
             }
 
             libc::_exit(0);
@@ -122,12 +125,51 @@ pub(crate) fn can_create_process_in_new_user_ns() -> Result<(), i32> {
             }
         }
 
-        if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 {
-            Ok(())
-        } else {
-            // Child failed — treat as permission error
-            Err(libc::EPERM)
-        }
+        decode_probe_status(status).map_err(check_clone_new_user_errno)
+    }
+}
+
+/// Read errno and `_exit` with it as the exit code, conveying the failing
+/// syscall's cause to the parent via `WEXITSTATUS`.
+///
+/// Standard Linux errnos all fit in `[1, 255]`. Anything outside that range
+/// (including the POSIX-violating errno == 0) is reported as 255 so the
+/// parent still sees a nonzero exit code (= failure) rather than a false
+/// success.
+///
+/// # Safety
+///
+/// Must be called from the child after fork. Reads thread-local errno.
+/// Both `*__errno_location()` and `_exit` are async-signal-safe.
+#[inline]
+unsafe fn child_exit_with_errno() -> ! {
+    let errno = unsafe { *libc::__errno_location() };
+    let code = if (1..=255).contains(&errno) {
+        errno
+    } else {
+        255
+    };
+    unsafe { libc::_exit(code) }
+}
+
+/// Decode the child's `waitpid` status into a `Result<(), i32>`.
+///
+/// The child uses [`child_exit_with_errno`] to encode its failing syscall's
+/// errno into the exit code. A clean exit (`_exit(0)`) means the probe
+/// succeeded. A signal-terminated child surfaces as `EINTR` — the probe
+/// child shouldn't normally be signaled, so this is a sentinel indicating
+/// the kernel did something unexpected.
+fn decode_probe_status(status: libc::c_int) -> Result<(), i32> {
+    if libc::WIFEXITED(status) {
+        let code = libc::WEXITSTATUS(status);
+        if code == 0 { Ok(()) } else { Err(code) }
+    } else if libc::WIFSIGNALED(status) {
+        // Child died from a signal — shouldn't happen in normal operation.
+        Err(libc::EINTR)
+    } else {
+        // waitpid(.., .., 0) doesn't report stopped/continued; if we got
+        // here the kernel did something we don't recognize.
+        Err(libc::EINVAL)
     }
 }
 
@@ -248,24 +290,79 @@ mod tests {
 
     #[test]
     fn test_can_create_process_in_new_user_ns() {
-        // This is a real probe — result depends on the system
+        // This is a real probe — result depends on the system. On failure
+        // the errno must be one of the documented cases. The test acts as
+        // a canary: a novel errno should panic so a maintainer reviews it
+        // and adds the new case explicitly (don't broaden silently).
+        //
+        // EACCES was added on top of Chrome's 2014 set after AppArmor's
+        // userns_create LSM hook (Linux 6.7+, Ubuntu 23.10+) became the
+        // default mechanism for blocking unprivileged userns creation.
         let result = can_create_process_in_new_user_ns();
         match result {
             Ok(()) => {
                 // User namespaces are available
             }
             Err(errno) => {
-                // Should be one of Chrome's expected errnos
                 assert!(
                     errno == libc::EPERM
                         || errno == libc::EUSERS
                         || errno == libc::EINVAL
-                        || errno == libc::ENOSPC,
+                        || errno == libc::ENOSPC
+                        || errno == libc::EACCES,
                     "Unexpected errno: {} ({})",
                     errno,
                     std::io::Error::from_raw_os_error(errno)
                 );
             }
         }
+    }
+
+    /// Construct a synthetic `wait` status that satisfies `WIFEXITED` with
+    /// the given exit code. Matches the encoding `WEXITSTATUS` decodes:
+    /// `((status >> 8) & 0xff)`.
+    fn make_exited_status(code: libc::c_int) -> libc::c_int {
+        (code & 0xff) << 8
+    }
+
+    #[test]
+    fn test_decode_probe_status_success() {
+        // _exit(0) → status low byte = 0, high byte = 0 → WEXITSTATUS == 0
+        assert_eq!(decode_probe_status(make_exited_status(0)), Ok(()));
+    }
+
+    #[test]
+    fn test_decode_probe_status_propagates_eperm() {
+        // Child encoded EPERM via _exit(EPERM); parent must surface EPERM.
+        assert_eq!(
+            decode_probe_status(make_exited_status(libc::EPERM)),
+            Err(libc::EPERM)
+        );
+    }
+
+    #[test]
+    fn test_decode_probe_status_propagates_eacces() {
+        // Regression: before this fix, the parent threw the child's errno
+        // away and always returned EPERM. On hosts with AppArmor's
+        // userns_create restriction active (Ubuntu 23.10+ with kernel
+        // 6.7+), the child fails with EACCES in nested userns / capability
+        // checks — that EACCES must now propagate through to the caller
+        // instead of being silently rewritten to EPERM.
+        assert_eq!(
+            decode_probe_status(make_exited_status(libc::EACCES)),
+            Err(libc::EACCES)
+        );
+    }
+
+    #[test]
+    fn test_decode_probe_status_signaled_returns_sentinel() {
+        // WIFSIGNALED: low 7 bits hold the signal, e.g., SIGKILL = 9.
+        // The probe child shouldn't be signaled in normal operation; we
+        // surface a sentinel (EINTR) so the caller sees a failure rather
+        // than a misleading "child succeeded".
+        let status: libc::c_int = libc::SIGKILL;
+        assert!(libc::WIFSIGNALED(status));
+        assert!(!libc::WIFEXITED(status));
+        assert_eq!(decode_probe_status(status), Err(libc::EINTR));
     }
 }
