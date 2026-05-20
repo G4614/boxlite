@@ -113,14 +113,14 @@ pub fn can_create_user_namespace() -> Result<(), String> {
     // Chrome-style raw probe for kernel-level diagnosis.
     // This may fail on AppArmor systems even when system bwrap works
     // (bwrap has its own AppArmor profile with userns permission).
-    let clone_errno = match super::credentials::can_create_process_in_new_user_ns() {
+    let clone_failure = match super::credentials::can_create_process_in_new_user_ns() {
         Ok(()) => None,
-        Err(errno) => {
+        Err(failure) => {
             tracing::debug!(
-                errno = errno,
+                failure = %failure,
                 "clone(CLONE_NEWUSER) failed — will still try bwrap (may have AppArmor profile)"
             );
-            Some(errno)
+            Some(failure)
         }
     };
 
@@ -139,7 +139,7 @@ pub fn can_create_user_namespace() -> Result<(), String> {
                 "bundled"
             };
             Err(build_diagnostic(
-                clone_errno,
+                clone_failure,
                 bwrap_source,
                 bwrap_path,
                 &stderr,
@@ -159,7 +159,7 @@ fn is_system_bwrap(path: &Path) -> bool {
 /// Reads sysctl files to detect the specific restriction and provides
 /// targeted fix commands for each scenario.
 fn build_diagnostic(
-    clone_errno: Option<i32>,
+    clone_failure: Option<super::credentials::ProbeFailure>,
     bwrap_source: &str,
     bwrap_path: &Path,
     bwrap_stderr: &str,
@@ -174,13 +174,9 @@ fn build_diagnostic(
         msg.push_str(&format!("\nbwrap stderr: {}", bwrap_stderr));
     }
 
-    // Chrome errno diagnosis
-    if let Some(errno) = clone_errno {
-        msg.push_str(&format!(
-            "\nclone(CLONE_NEWUSER) errno: {} ({})",
-            errno,
-            std::io::Error::from_raw_os_error(errno)
-        ));
+    // Chrome probe diagnosis (errno or non-errno failure mode)
+    if let Some(failure) = clone_failure {
+        msg.push_str(&format!("\nclone(CLONE_NEWUSER) {failure}"));
     }
 
     // Sysctl detection for targeted fix

@@ -7,6 +7,40 @@
 //! and checking if the child can set up uid/gid maps. This is more reliable
 //! than checking sysctl files because it tests the actual kernel code path.
 
+use std::fmt;
+
+/// How a `clone(CLONE_NEWUSER)` probe failed.
+///
+/// The probe either rolls up the child's failing-syscall errno via
+/// `WEXITSTATUS`, or it never got that far (signal-killed or kernel
+/// returned a status `waitpid` doesn't describe). We model the latter
+/// two as their own variants so they don't get smuggled inside a real
+/// errno value — earlier versions used `EINTR` as a "child was killed"
+/// sentinel, which collides with `EINTR`'s established "retry-the-syscall"
+/// semantics and produced misleading log lines downstream.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ProbeFailure {
+    /// Child exited with a non-zero errno encoded in its exit code.
+    Errno(i32),
+    /// Child was terminated by a signal (SIGKILL, SIGSEGV, ...). Not
+    /// expected in normal operation; surface so the caller can choose
+    /// to retry or report.
+    ChildKilled,
+    /// `waitpid` returned a status that is neither `WIFEXITED` nor
+    /// `WIFSIGNALED` (e.g. stopped/continued from a misuse of flags).
+    BadStatus,
+}
+
+impl fmt::Display for ProbeFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Errno(e) => write!(f, "errno {} ({})", e, std::io::Error::from_raw_os_error(*e)),
+            Self::ChildKilled => f.write_str("probe child terminated by signal"),
+            Self::BadStatus => f.write_str("unrecognized waitpid status"),
+        }
+    }
+}
+
 /// Port of Chrome's `CheckCloneNewUserErrno()`.
 ///
 /// Validates that `clone(CLONE_NEWUSER)` failed with an expected errno.
@@ -46,6 +80,33 @@ pub(crate) fn check_clone_new_user_errno(error: i32) -> i32 {
     error
 }
 
+/// Log a [`ProbeFailure`] at the appropriate level and return it unchanged.
+///
+/// Mirrors [`check_clone_new_user_errno`]'s expected/unexpected split for the
+/// `Errno` variant, and routes the non-errno variants to their own log
+/// messages so a future reader of the logs can tell `clone(...)` failed
+/// outright from the probe child dying mid-flight.
+pub(crate) fn log_probe_failure(failure: ProbeFailure) -> ProbeFailure {
+    match &failure {
+        ProbeFailure::Errno(error) => {
+            check_clone_new_user_errno(*error);
+        }
+        ProbeFailure::ChildKilled => {
+            tracing::warn!(
+                "clone(CLONE_NEWUSER) probe child terminated by signal; \
+                 treating as probe failure (no retry)"
+            );
+        }
+        ProbeFailure::BadStatus => {
+            tracing::error!(
+                "clone(CLONE_NEWUSER) probe returned an unrecognized waitpid \
+                 status; this should not happen with waitpid(.., .., 0)"
+            );
+        }
+    }
+    failure
+}
+
 /// Port of Chrome's `Credentials::CanCreateProcessInNewUserNS()`.
 ///
 /// Probes whether the current process can create a child in a new user
@@ -53,17 +114,19 @@ pub(crate) fn check_clone_new_user_errno(error: i32) -> i32 {
 /// 1. Writes uid/gid maps (Chrome's `SetGidAndUidMaps`)
 /// 2. Calls `unshare(CLONE_NEWUSER)` again (tests nested userns)
 ///
-/// Returns `Ok(())` if user namespaces work, `Err(errno)` with the
-/// specific failure code for diagnosis. The child encodes its failing
+/// Returns `Ok(())` if user namespaces work, `Err(ProbeFailure)` describing
+/// the specific failure for diagnosis. The child encodes its failing
 /// syscall's errno into its exit code so the parent can surface the real
 /// cause (e.g., `EACCES` from AppArmor's `userns_create` denial, not just
-/// a generic `EPERM`).
+/// a generic `EPERM`). Non-errno failure modes (child killed by signal,
+/// kernel returned an unrecognized status) get their own variants so
+/// they're not smuggled inside a misleading errno value.
 ///
 /// # Safety
 ///
 /// Uses raw `clone` syscall and `waitpid`. The child process only uses
 /// async-signal-safe operations (open/write/close/unshare/_exit).
-pub(crate) fn can_create_process_in_new_user_ns() -> Result<(), i32> {
+pub(crate) fn can_create_process_in_new_user_ns() -> Result<(), ProbeFailure> {
     // SAFETY: Uses clone(CLONE_NEWUSER | SIGCHLD) to fork a child process.
     // Child only performs async-signal-safe operations before _exit().
     // Parent waits for child with EINTR retry loop.
@@ -84,7 +147,7 @@ pub(crate) fn can_create_process_in_new_user_ns() -> Result<(), i32> {
 
         if pid == -1 {
             let errno = *libc::__errno_location();
-            return Err(check_clone_new_user_errno(errno));
+            return Err(log_probe_failure(ProbeFailure::Errno(errno)));
         }
 
         if pid == 0 {
@@ -128,11 +191,13 @@ pub(crate) fn can_create_process_in_new_user_ns() -> Result<(), i32> {
                 break;
             }
             if r == -1 && *libc::__errno_location() != libc::EINTR {
-                return Err(*libc::__errno_location());
+                return Err(log_probe_failure(ProbeFailure::Errno(
+                    *libc::__errno_location(),
+                )));
             }
         }
 
-        decode_probe_status(status).map_err(check_clone_new_user_errno)
+        decode_probe_status(status).map_err(log_probe_failure)
     }
 }
 
@@ -159,24 +224,28 @@ unsafe fn child_exit_with_errno() -> ! {
     unsafe { libc::_exit(code) }
 }
 
-/// Decode the child's `waitpid` status into a `Result<(), i32>`.
+/// Decode the child's `waitpid` status into a `Result<(), ProbeFailure>`.
 ///
 /// The child uses [`child_exit_with_errno`] to encode its failing syscall's
 /// errno into the exit code. A clean exit (`_exit(0)`) means the probe
-/// succeeded. A signal-terminated child surfaces as `EINTR` — the probe
-/// child shouldn't normally be signaled, so this is a sentinel indicating
-/// the kernel did something unexpected.
-fn decode_probe_status(status: libc::c_int) -> Result<(), i32> {
+/// succeeded; a non-zero exit becomes [`ProbeFailure::Errno`]. A signal-
+/// terminated child surfaces as [`ProbeFailure::ChildKilled`] (not an
+/// errno), and a status `waitpid` doesn't classify becomes
+/// [`ProbeFailure::BadStatus`]. Using dedicated variants here avoids
+/// reusing a real errno (previously `EINTR`) as a sentinel, which
+/// collides with `EINTR`'s established retry semantics.
+fn decode_probe_status(status: libc::c_int) -> Result<(), ProbeFailure> {
     if libc::WIFEXITED(status) {
         let code = libc::WEXITSTATUS(status);
-        if code == 0 { Ok(()) } else { Err(code) }
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(ProbeFailure::Errno(code))
+        }
     } else if libc::WIFSIGNALED(status) {
-        // Child died from a signal — shouldn't happen in normal operation.
-        Err(libc::EINTR)
+        Err(ProbeFailure::ChildKilled)
     } else {
-        // waitpid(.., .., 0) doesn't report stopped/continued; if we got
-        // here the kernel did something we don't recognize.
-        Err(libc::EINVAL)
+        Err(ProbeFailure::BadStatus)
     }
 }
 
@@ -301,7 +370,7 @@ mod tests {
     #[test]
     fn test_can_create_process_in_new_user_ns() {
         // This is a real probe — result depends on the system. On failure
-        // the errno must be one of the documented cases. The test acts as
+        // the variant must be one of the documented cases. The test acts as
         // a canary: a novel errno should panic so a maintainer reviews it
         // and adds the new case explicitly (don't broaden silently).
         //
@@ -313,7 +382,7 @@ mod tests {
             Ok(()) => {
                 // User namespaces are available
             }
-            Err(errno) => {
+            Err(ProbeFailure::Errno(errno)) => {
                 assert!(
                     errno == libc::EPERM
                         || errno == libc::EUSERS
@@ -324,6 +393,9 @@ mod tests {
                     errno,
                     std::io::Error::from_raw_os_error(errno)
                 );
+            }
+            Err(other) => {
+                panic!("Unexpected probe failure: {other:?}");
             }
         }
     }
@@ -346,7 +418,7 @@ mod tests {
         // Child encoded EPERM via _exit(EPERM); parent must surface EPERM.
         assert_eq!(
             decode_probe_status(make_exited_status(libc::EPERM)),
-            Err(libc::EPERM)
+            Err(ProbeFailure::Errno(libc::EPERM))
         );
     }
 
@@ -360,19 +432,20 @@ mod tests {
         // instead of being silently rewritten to EPERM.
         assert_eq!(
             decode_probe_status(make_exited_status(libc::EACCES)),
-            Err(libc::EACCES)
+            Err(ProbeFailure::Errno(libc::EACCES))
         );
     }
 
     #[test]
-    fn test_decode_probe_status_signaled_returns_sentinel() {
+    fn test_decode_probe_status_signaled_returns_child_killed() {
         // WIFSIGNALED: low 7 bits hold the signal, e.g., SIGKILL = 9.
         // The probe child shouldn't be signaled in normal operation; we
-        // surface a sentinel (EINTR) so the caller sees a failure rather
-        // than a misleading "child succeeded".
+        // surface ChildKilled (a dedicated variant, not a borrowed errno)
+        // so callers can tell "child died" apart from "syscall returned X"
+        // without colliding with EINTR's retry semantics.
         let status: libc::c_int = libc::SIGKILL;
         assert!(libc::WIFSIGNALED(status));
         assert!(!libc::WIFEXITED(status));
-        assert_eq!(decode_probe_status(status), Err(libc::EINTR));
+        assert_eq!(decode_probe_status(status), Err(ProbeFailure::ChildKilled));
     }
 }
