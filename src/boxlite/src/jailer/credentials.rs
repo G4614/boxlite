@@ -16,11 +16,18 @@
 /// support the feature. ENOSPC can occur when the system has reached its
 /// maximum configured number of user namespaces."
 ///
+/// `EACCES` was added on top of Chrome's set: Linux 6.7+ ships an
+/// AppArmor `userns_create` LSM hook (default-on in Ubuntu 23.10+) that
+/// denies unprivileged user-namespace creation with `EACCES` rather than
+/// `EPERM`. Without it, every probe on those hosts logs at `error` level
+/// even though the case is well-understood.
+///
 /// Returns the errno for diagnosis. Logs unexpected errors.
 pub(crate) fn check_clone_new_user_errno(error: i32) -> i32 {
     match error {
-        libc::EPERM | libc::EUSERS | libc::EINVAL | libc::ENOSPC => {
-            // Expected errors — same set Chrome checks
+        libc::EPERM | libc::EUSERS | libc::EINVAL | libc::ENOSPC | libc::EACCES => {
+            // Expected errors — Chrome's original set plus EACCES for the
+            // AppArmor userns_create denial path.
             tracing::debug!(
                 errno = error,
                 message = %std::io::Error::from_raw_os_error(error),
@@ -280,12 +287,15 @@ mod tests {
         assert_eq!(check_clone_new_user_errno(libc::EUSERS), libc::EUSERS);
         assert_eq!(check_clone_new_user_errno(libc::EINVAL), libc::EINVAL);
         assert_eq!(check_clone_new_user_errno(libc::ENOSPC), libc::ENOSPC);
+        // EACCES is expected on Ubuntu 23.10+ where AppArmor's
+        // userns_create hook denies unprivileged user namespaces.
+        assert_eq!(check_clone_new_user_errno(libc::EACCES), libc::EACCES);
     }
 
     #[test]
     fn test_check_clone_new_user_errno_unexpected() {
         // Unexpected errnos should also be returned (just logged differently)
-        assert_eq!(check_clone_new_user_errno(libc::EACCES), libc::EACCES);
+        assert_eq!(check_clone_new_user_errno(libc::EIO), libc::EIO);
     }
 
     #[test]
