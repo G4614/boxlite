@@ -295,25 +295,51 @@ fn write_u32_to_buf(buf: &mut [u8], mut n: u32) -> usize {
 ///
 /// Chrome uses `NamespaceUtils::WriteToIdMapFile()` for this.
 ///
+/// Returns `Err(())` without exposing the errno through the return value
+/// — the caller reads it from thread-local `errno` (via
+/// [`child_exit_with_errno`]). To make that path robust, we save the
+/// `write` errno across the `close(fd)` cleanup and restore it before
+/// returning: POSIX promises `close` leaves errno untouched on success,
+/// but the "save errno across cleanup" idiom keeps this correct if a
+/// future change inserts another syscall between the failing `write`
+/// and the caller's errno read, or if `close` itself ever returns an
+/// error on this fd.
+///
 /// # Safety
 ///
-/// Only uses async-signal-safe syscalls: open, write, close.
-/// The `path` must be a null-terminated string (e.g., "/proc/self/uid_map\0").
+/// Only uses async-signal-safe syscalls: open, write, close, and the
+/// `__errno_location` read/store. The `path` must be a null-terminated
+/// string (e.g., "/proc/self/uid_map\0").
 unsafe fn write_proc_file(path: &str, content: &[u8]) -> Result<(), ()> {
     // Path must be null-terminated for libc::open
     // SAFETY: path is a null-terminated string literal, content is a valid slice.
-    // All three syscalls (open, write, close) are async-signal-safe.
+    // All four syscalls (open, write, close, __errno_location) are
+    // async-signal-safe.
     unsafe {
         let fd = libc::open(
             path.as_ptr() as *const libc::c_char,
             libc::O_WRONLY | libc::O_CLOEXEC,
         );
         if fd < 0 {
+            // errno already set by open(); leave it for the caller.
             return Err(());
         }
         let written = libc::write(fd, content.as_ptr() as *const libc::c_void, content.len());
+        // Snapshot the write errno before close() so a future change
+        // that lets close clobber it (or any inserted syscall) can't
+        // hide the real failure from the caller.
+        let saved_errno = if written < 0 {
+            *libc::__errno_location()
+        } else {
+            0
+        };
         libc::close(fd);
-        if written < 0 { Err(()) } else { Ok(()) }
+        if written < 0 {
+            *libc::__errno_location() = saved_errno;
+            Err(())
+        } else {
+            Ok(())
+        }
     }
 }
 
