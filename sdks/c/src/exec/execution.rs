@@ -322,9 +322,14 @@ unsafe fn register_stdout(
         exec_ref.streams_pending.fetch_add(1, Ordering::AcqRel);
         let pending = exec_ref.streams_pending.clone();
         let done = exec_ref.streams_done.clone();
-        let pump = exec_ref
-            .tokio_rt
-            .spawn(stdout_pump(stream, cb, user_data_addr, queue, pending, done));
+        let pump = exec_ref.tokio_rt.spawn(stdout_pump(
+            stream,
+            cb,
+            user_data_addr,
+            queue,
+            pending,
+            done,
+        ));
         exec_ref.pumps.lock().unwrap().push(pump);
         BoxliteErrorCode::Ok
     }
@@ -359,9 +364,14 @@ unsafe fn register_stderr(
         exec_ref.streams_pending.fetch_add(1, Ordering::AcqRel);
         let pending = exec_ref.streams_pending.clone();
         let done = exec_ref.streams_done.clone();
-        let pump = exec_ref
-            .tokio_rt
-            .spawn(stderr_pump(stream, cb, user_data_addr, queue, pending, done));
+        let pump = exec_ref.tokio_rt.spawn(stderr_pump(
+            stream,
+            cb,
+            user_data_addr,
+            queue,
+            pending,
+            done,
+        ));
         exec_ref.pumps.lock().unwrap().push(pump);
         BoxliteErrorCode::Ok
     }
@@ -1411,7 +1421,15 @@ mod tests {
         ];
         let stream = stream_iter(chunks.into_iter());
 
-        stdout_pump(stream, noop_stdout_cb, 0xFEED_DEAD, queue.clone(), pending, done).await;
+        stdout_pump(
+            stream,
+            noop_stdout_cb,
+            0xFEED_DEAD,
+            queue.clone(),
+            pending,
+            done,
+        )
+        .await;
 
         let bytes = drain_stdout_bytes(&queue);
         assert_eq!(bytes.len(), 4, "expected 4 stdout events");
@@ -1438,7 +1456,15 @@ mod tests {
         let chunks = vec!["error".to_string(), "trace".to_string()];
         let stream = stream_iter(chunks.into_iter());
 
-        stderr_pump(stream, noop_stderr_cb, 0xCAFE_BABE, queue.clone(), pending, done).await;
+        stderr_pump(
+            stream,
+            noop_stderr_cb,
+            0xCAFE_BABE,
+            queue.clone(),
+            pending,
+            done,
+        )
+        .await;
 
         let bytes = drain_stderr_bytes(&queue);
         assert_eq!(bytes.len(), 2);
