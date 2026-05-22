@@ -95,7 +95,9 @@ pub fn is_available() -> bool {
 ///
 /// Performs two checks:
 /// 1. **Chrome-style raw probe** — `clone(CLONE_NEWUSER)` for kernel-level
-///    diagnosis (captures errno: EPERM, EUSERS, EINVAL, ENOSPC)
+///    diagnosis (captures errno: EPERM, EUSERS, EINVAL, ENOSPC, EACCES
+///    — last is AppArmor `userns_create` denial on Linux 6.7+, see
+///    [`credentials::check_clone_new_user_errno`](super::credentials::check_clone_new_user_errno))
 /// 2. **bwrap probe** — `bwrap --unshare-user` to test actual bwrap capability
 ///    (handles AppArmor per-binary profiles where bwrap may work even if
 ///    our process's clone fails)
