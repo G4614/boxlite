@@ -1030,16 +1030,42 @@ pub fn set_backing_file_path(qcow2_path: &Path, new_backing: &Path) -> BoxliteRe
 /// Maximum depth for backing chain walks (prevents infinite loops from circular refs).
 const MAX_BACKING_CHAIN_DEPTH: usize = 8;
 
+/// Cheaply check whether `path` is a qcow2 image by reading the 4-byte magic
+/// (`QFI\xfb`). Returns `false` on any I/O error or magic mismatch — including
+/// the common case of a raw image (e.g. `.ext4` base disk).
+fn is_qcow2_file(path: &Path) -> bool {
+    use std::io::Read;
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut magic = [0u8; 4];
+    if file.read_exact(&mut magic).is_err() {
+        return false;
+    }
+    u32::from_be_bytes(magic) == QCOW2_MAGIC
+}
+
 /// Walk a qcow2 backing chain, returning all backing file paths.
 ///
 /// Follows backing references from `path` until: no backing, file missing,
 /// read error, or depth limit. Returns partial results on error.
 /// Does NOT include `path` itself.
+///
+/// Raw images (e.g. `.ext4` bases that have no qcow2 header) have no backing
+/// chain by definition and return an empty vector silently — the absence of
+/// a qcow2 header is not an error worth logging.
 pub fn read_backing_chain(path: &Path) -> Vec<PathBuf> {
     let mut chain = Vec::new();
     let mut current = path.to_path_buf();
 
     for _ in 0..MAX_BACKING_CHAIN_DEPTH {
+        // A raw image is the natural terminus of a backing chain (raw bases
+        // sit at the bottom). Don't parse a qcow2 header out of one — that
+        // produces a misleading "Invalid qcow2 magic" warning on every walk.
+        if !is_qcow2_file(&current) {
+            break;
+        }
         match read_backing_file_path(&current) {
             Ok(Some(backing)) => {
                 let backing_path = PathBuf::from(backing);
@@ -1051,6 +1077,8 @@ pub fn read_backing_chain(path: &Path) -> Vec<PathBuf> {
             }
             Ok(None) => break,
             Err(e) => {
+                // We've already verified the magic, so a parse error here
+                // really is unexpected and worth surfacing.
                 tracing::warn!(
                     path = %current.display(),
                     error = %e,
@@ -1402,6 +1430,116 @@ mod tests {
     fn test_read_backing_file_path_nonexistent_file() {
         let result = read_backing_file_path(Path::new("/nonexistent/file.qcow2"));
         assert!(result.is_err());
+    }
+
+    /// Contract guard: raw `.ext4` bases sit at the natural bottom of a
+    /// backing chain (e.g. when `jailer::compute_sandbox_paths` walks the
+    /// container/rootfs chain at box start). Their walk must terminate
+    /// with an empty chain rather than producing a spurious error.
+    #[test]
+    fn test_read_backing_chain_on_raw_file_is_empty() {
+        let dir = TempDir::new().unwrap();
+        let raw_path = dir.path().join("base.ext4");
+        // Plausible-shape raw image: zeroed buffer, no qcow2 magic.
+        std::fs::write(&raw_path, vec![0u8; 4096]).unwrap();
+
+        let chain = read_backing_chain(&raw_path);
+        assert!(
+            chain.is_empty(),
+            "raw image should produce an empty backing chain, got {:?}",
+            chain
+        );
+    }
+
+    #[test]
+    fn test_read_backing_chain_on_qcow2_no_backing_is_empty() {
+        let dir = TempDir::new().unwrap();
+        let qcow2_path = dir.path().join("nobacking.qcow2");
+        write_qcow2_with_backing(&qcow2_path, None);
+
+        let chain = read_backing_chain(&qcow2_path);
+        assert!(
+            chain.is_empty(),
+            "qcow2 without a backing pointer should produce an empty chain, got {:?}",
+            chain
+        );
+    }
+
+    #[test]
+    fn test_read_backing_chain_on_nonexistent_file_is_empty() {
+        let chain = read_backing_chain(Path::new("/nonexistent/file.qcow2"));
+        assert!(chain.is_empty());
+    }
+
+    /// Captures `tracing` output into a shared byte buffer so a test can
+    /// assert what was (and wasn't) written by events emitted within
+    /// `tracing::subscriber::with_default`.
+    #[derive(Clone)]
+    struct CaptureBuf(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for CaptureBuf {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CaptureBuf {
+        type Writer = CaptureBuf;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Behavioral regression for the leak this commit closes: the previous
+    /// implementation routed every raw / missing path through the
+    /// `Err(...)` arm of `read_backing_chain`, where the caller logged a
+    /// WARN like `Failed to read qcow2 backing path — Invalid qcow2 magic`.
+    /// Under the CLI's default stderr filter (`warn`, see
+    /// `cli/src/main.rs:55`) that line was visible to every user on every
+    /// box start — once for the container disk chain and once for the
+    /// guest-rootfs chain — because both chains legitimately bottom out
+    /// at an `.ext4` base.
+    ///
+    /// The contract tests above pass even on `main`: both the buggy and
+    /// fixed implementations return an empty chain on a raw input — they
+    /// just disagree about whether a WARN is emitted on the way out. To
+    /// pin the *fix* (not just the return-value contract) we install a
+    /// `tracing_subscriber::fmt` layer backed by a buffer, run the walk
+    /// against the two paths that used to log (raw and nonexistent), and
+    /// assert the marker strings of those WARN events never reach the
+    /// captured output.
+    #[test]
+    fn test_read_backing_chain_does_not_warn_on_raw_or_missing() {
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(CaptureBuf(buf.clone()))
+            .with_ansi(false)
+            .finish();
+
+        let dir = TempDir::new().unwrap();
+        let raw_path = dir.path().join("base.ext4");
+        std::fs::write(&raw_path, vec![0u8; 4096]).unwrap();
+        let missing_path = dir.path().join("does-not-exist.qcow2");
+
+        tracing::subscriber::with_default(subscriber, || {
+            let _ = read_backing_chain(&raw_path);
+            let _ = read_backing_chain(&missing_path);
+        });
+
+        let output = String::from_utf8(buf.lock().unwrap().clone()).expect("utf8 trace output");
+        assert!(
+            !output.contains("Failed to read qcow2 backing path"),
+            "raw / missing path must not emit the backing-path WARN, but did: {output}"
+        );
+        assert!(
+            !output.contains("Invalid qcow2 magic"),
+            "raw / missing path must not surface the qcow2-magic error, but did: {output}"
+        );
     }
 
     #[test]
