@@ -171,6 +171,15 @@ fn runtime_metrics_from_response(resp: &RuntimeMetricsResponse) -> RuntimeMetric
     storage
         .total_exec_errors
         .store(resp.total_exec_errors, Ordering::Relaxed);
+    storage
+        .shim_reaped
+        .store(resp.shim_reaped_total, Ordering::Relaxed);
+    storage
+        .shim_reaper_vanished
+        .store(resp.shim_reaper_vanished_total, Ordering::Relaxed);
+    storage
+        .shim_reaper_registered
+        .store(resp.shim_reaper_registered, Ordering::Relaxed);
 
     RuntimeMetrics::new(storage)
 }

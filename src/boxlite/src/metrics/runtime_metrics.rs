@@ -19,6 +19,21 @@ pub struct RuntimeMetricsStorage {
     pub(crate) total_commands: Arc<AtomicU64>,
     /// Total command execution errors across all boxes
     pub(crate) total_exec_errors: Arc<AtomicU64>,
+    /// Total shim PIDs the scoped reaper has collected (Issue #523).
+    /// Monotonic; tracks shim children whose `Child` handle was dropped
+    /// without `wait()` — the load-bearing zombie-prevention signal.
+    pub(crate) shim_reaped: Arc<AtomicU64>,
+    /// Total shim PIDs that vanished out from under the reaper before
+    /// it could collect them (ECHILD on waitpid). Monotonic. High vs
+    /// `shim_reaped` ratio means most cleanups are handled by the
+    /// owner's own `Child::wait()` — that's a healthy signal.
+    pub(crate) shim_reaper_vanished: Arc<AtomicU64>,
+    /// Current size of the reaper's PID registry. Gauge, not counter —
+    /// this rises when a shim is registered, falls when reaper sweeps
+    /// it. Sustained growth means either many running boxes or a
+    /// reaper-side bug; flag in dashboards if it climbs without
+    /// `shim_reaped` keeping pace.
+    pub(crate) shim_reaper_registered: Arc<AtomicU64>,
 }
 
 impl RuntimeMetricsStorage {
@@ -91,6 +106,24 @@ impl RuntimeMetrics {
     /// Never decreases (monotonic counter).
     pub fn total_exec_errors(&self) -> u64 {
         self.storage.total_exec_errors.load(Ordering::Relaxed)
+    }
+
+    /// Total shim PIDs the scoped reaper collected (Issue #523).
+    /// Never decreases.
+    pub fn shim_reaped_total(&self) -> u64 {
+        self.storage.shim_reaped.load(Ordering::Relaxed)
+    }
+
+    /// Total shim PIDs that vanished (ECHILD) before the reaper saw
+    /// them. Never decreases. See `shim_reaped` field doc on
+    /// `RuntimeMetricsStorage` for what the ratio means operationally.
+    pub fn shim_reaper_vanished_total(&self) -> u64 {
+        self.storage.shim_reaper_vanished.load(Ordering::Relaxed)
+    }
+
+    /// Current size of the reaper's PID registry. Gauge.
+    pub fn shim_reaper_registered(&self) -> u64 {
+        self.storage.shim_reaper_registered.load(Ordering::Relaxed)
     }
 }
 

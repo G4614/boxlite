@@ -21,6 +21,9 @@ pub(in crate::commands::serve) async fn runtime_metrics(
             num_running_boxes: metrics.num_running_boxes(),
             total_commands_executed: metrics.total_commands_executed(),
             total_exec_errors: metrics.total_exec_errors(),
+            shim_reaped_total: metrics.shim_reaped_total(),
+            shim_reaper_vanished_total: metrics.shim_reaper_vanished_total(),
+            shim_reaper_registered: metrics.shim_reaper_registered(),
         })
         .into_response(),
         Err(e) => error_from_boxlite(&e),

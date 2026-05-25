@@ -406,6 +406,14 @@ pub(crate) struct RuntimeMetricsResponse {
     pub total_commands_executed: u64,
     #[serde(default)]
     pub total_exec_errors: u64,
+    /// Scoped shim reaper counters (Issue #523). Optional for
+    /// forward/backward compat with servers that pre-date the reaper.
+    #[serde(default)]
+    pub shim_reaped_total: u64,
+    #[serde(default)]
+    pub shim_reaper_vanished_total: u64,
+    #[serde(default)]
+    pub shim_reaper_registered: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -688,6 +696,50 @@ mod tests {
         let resp: RuntimeMetricsResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.boxes_created_total, 10);
         assert_eq!(resp.total_commands_executed, 100);
+    }
+
+    #[test]
+    fn test_runtime_metrics_back_compat_default_zero_for_missing_shim_fields() {
+        // Older servers that pre-date the shim reaper (Issue #523) emit
+        // JSON without the three `shim_*` fields. `serde(default)` on the
+        // client mirror must surface them as 0 instead of failing the
+        // deserialize — losing metrics is preferable to losing the whole
+        // /v1/metrics response.
+        let json = r#"{
+            "boxes_created_total": 0,
+            "boxes_failed_total": 0,
+            "boxes_stopped_total": 0,
+            "num_running_boxes": 0,
+            "total_commands_executed": 0,
+            "total_exec_errors": 0
+        }"#;
+        let resp: RuntimeMetricsResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.shim_reaped_total, 0);
+        assert_eq!(resp.shim_reaper_vanished_total, 0);
+        assert_eq!(resp.shim_reaper_registered, 0);
+    }
+
+    #[test]
+    fn test_runtime_metrics_shim_fields_round_trip() {
+        // Server-shaped JSON with the new fields populated round-trips
+        // through the deserializer with values intact. Locks the wire
+        // contract: the server's `shim_reaped_total` etc. must reach the
+        // client unchanged.
+        let json = r#"{
+            "boxes_created_total": 5,
+            "boxes_failed_total": 1,
+            "boxes_stopped_total": 2,
+            "num_running_boxes": 2,
+            "total_commands_executed": 0,
+            "total_exec_errors": 0,
+            "shim_reaped_total": 17,
+            "shim_reaper_vanished_total": 4,
+            "shim_reaper_registered": 3
+        }"#;
+        let resp: RuntimeMetricsResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.shim_reaped_total, 17);
+        assert_eq!(resp.shim_reaper_vanished_total, 4);
+        assert_eq!(resp.shim_reaper_registered, 3);
     }
 
     #[test]

@@ -18,7 +18,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 pub use process::{
     ProcessExit, ProcessMonitor, is_process_alive, kill_process, process_start_time,
 };
-pub use reaper::ShimReaper;
+pub use reaper::{MetricsSink as ShimReaperMetricsSink, ReaperStats, ShimReaper};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 unsafe extern "C" {

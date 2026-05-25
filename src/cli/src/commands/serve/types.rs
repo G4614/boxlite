@@ -177,6 +177,16 @@ pub(super) struct RuntimeMetricsResponse {
     pub num_running_boxes: u64,
     pub total_commands_executed: u64,
     pub total_exec_errors: u64,
+    /// Scoped shim reaper counters (Issue #523). Missing on older
+    /// servers that pre-date the reaper — clients tolerate absence via
+    /// `serde(default)` on the mirror type.
+    #[serde(default)]
+    pub shim_reaped_total: u64,
+    #[serde(default)]
+    pub shim_reaper_vanished_total: u64,
+    /// Gauge: current count of PIDs tracked by the reaper's registry.
+    #[serde(default)]
+    pub shim_reaper_registered: u64,
 }
 
 #[derive(Serialize)]

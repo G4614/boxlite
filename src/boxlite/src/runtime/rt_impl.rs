@@ -228,6 +228,18 @@ impl RuntimeImpl {
             ImageDiskManager::new(layout.image_layout().disk_images_dir(), layout.temp_dir());
         let guest_rootfs_mgr = GuestRootfsManager::new(base_disk_mgr.clone(), layout.temp_dir());
 
+        // Construct runtime_metrics before the reaper so we can hand it
+        // a sink that mirrors reap activity into the metrics storage
+        // (visible via `RuntimeMetrics` and the REST /v1/metrics endpoint).
+        let runtime_metrics = RuntimeMetricsStorage::new();
+        let shim_reaper = crate::util::ShimReaper::spawn_with_sink(Some(
+            crate::util::ShimReaperMetricsSink {
+                reaped_total: Arc::clone(&runtime_metrics.shim_reaped),
+                vanished_total: Arc::clone(&runtime_metrics.shim_reaper_vanished),
+                registered_now: Arc::clone(&runtime_metrics.shim_reaper_registered),
+            },
+        ));
+
         let inner = Arc::new(Self {
             sync_state: RwLock::new(SynchronizedState {
                 active_boxes_by_id: HashMap::new(),
@@ -239,13 +251,13 @@ impl RuntimeImpl {
             image_disk_mgr,
             guest_rootfs_mgr,
             guest_rootfs: Arc::new(OnceCell::new()),
-            runtime_metrics: RuntimeMetricsStorage::new(),
+            runtime_metrics,
             base_disk_mgr,
             snapshot_mgr,
             lock_manager,
             _runtime_lock: runtime_lock,
             shutdown_token: CancellationToken::new(),
-            shim_reaper: crate::util::ShimReaper::spawn(),
+            shim_reaper,
         });
 
         tracing::debug!("initialized runtime");
