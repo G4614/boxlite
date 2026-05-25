@@ -2,12 +2,28 @@
 //!
 //! ## Why this exists
 //!
-//! `boxlite-shim` children that get abandoned mid-init (panic before
-//! `CleanupGuard` fires, retry loop spawning a fresh shim while the prior
-//! one is still in flight, reattach to a process whose Rust-side `Child`
-//! handle was never wait()'d) become zombies under the daemon. Without
-//! reaping they pile up as `<defunct>` entries — visible in the
-//! `CL84LvGx7RBE` incident as 7+ accumulated zombies on dev.
+//! `boxlite-shim` children whose Rust-side `Child` handle gets dropped
+//! without anyone calling `wait()` on it become zombies when the shim
+//! later exits. `std::process::Child`'s Drop impl is a no-op — it neither
+//! kills nor waits — so any code path that holds a `Child`, then drops it
+//! while the underlying process is still alive (or recently exited and
+//! unreaped), leaks a zombie. Over time these accumulate; the
+//! `CL84LvGx7RBE` incident showed 7+ `<defunct>` shims under the daemon.
+//!
+//! The load-bearing leak source in production is `ShimHandler` being
+//! dropped without `ShimHandler::stop()` running to completion. The two
+//! ways this happens routinely:
+//!
+//! - Box removal via `rt_impl::remove_box`, which SIGKILLs the shim by
+//!   PID and never invokes `handler.stop()` — so the `Child` inside the
+//!   `ShimHandler` is dropped while/after the shim is dying, no `wait()`
+//!   is ever called, zombie.
+//! - Runtime drop without `shutdown()`: the active `BoxImpl`s drop, their
+//!   `ShimHandler`s drop with `Child` still inside, zombie.
+//!
+//! Init-failure paths are NOT a zombie source: `CleanupGuard::drop` calls
+//! `handler.stop()` which reaps via `Child::wait()`. Likewise the normal
+//! user-driven `boxlite stop` path.
 //!
 //! ## Why this is scoped, not daemon-wide
 //!
@@ -16,34 +32,50 @@
 //! owns a `Child` handle: if the reaper wins, the owner's `wait()` returns
 //! `ECHILD` and the exit code is lost. To dodge the race without auditing
 //! every `Child::wait()` in the workspace, this reaper only touches PIDs
-//! that were explicitly registered. The only registrar today is
-//! `ShimHandler::from_spawned` (`src/boxlite/src/vmm/controller/shim.rs`),
-//! so the reaper's blast radius is exactly the shim PID set.
+//! that were explicitly registered via [`ShimReaper::register`]. The only
+//! registrar today is `ShimHandler::from_spawned`
+//! (`src/boxlite/src/vmm/controller/shim.rs`), so the reaper's blast
+//! radius is exactly the shim PID set.
 //!
 //! For shim PIDs, the three `let _ = process.wait();` sites in shim.rs
-//! discard their results, so `ECHILD` from a reaper-win is safe. Audit
-//! recorded in the commit message that introduced this module.
+//! discard their results, so `ECHILD` from a reaper-win is safe.
+//!
+//! ## Why registration is a one-way door (no auto-unregister on Drop)
+//!
+//! `register(pid)` returns nothing. There is intentionally no RAII handle
+//! that would unregister on Drop. Earlier draft had one; it produced a
+//! load-bearing miss: when `ShimHandler` field-order-drops, the
+//! `keepalive` field drops *before* the handle, which closes the watchdog
+//! pipe → shim begins graceful exit → handle drops → registry is purged
+//! → shim actually exits ~100 ms later → no one waits → zombie. The
+//! reaper had been told "stop watching" microseconds before the very
+//! event it existed to catch.
+//!
+//! With no auto-unregister, the registry stays populated until the sweep
+//! observes `waitpid(pid, WNOHANG)` returning either `Reaped` (we just
+//! collected it) or `Vanished` (someone else collected it, or the PID is
+//! gone). Both outcomes drop the PID from the registry. Worst-case
+//! membership is one [`REAPER_TICK`] (250 ms) after exit. The registry
+//! never grows unbounded under normal traffic.
+//!
+//! ## Why polling, not SIGCHLD
+//!
+//! SIGCHLD plumbing in async Rust (signal-hook / tokio::signal::unix) is
+//! process-global and adds a race surface against the runtime's other
+//! signal handlers. A 250 ms HashSet scan is cheaper than that complexity
+//! buys back. Worst-case zombie lifetime is 250 ms; tests verify drain in
+//! < 2 s by polling, never sleeping.
 //!
 //! ## Why a std thread, not a tokio task
 //!
 //! `RuntimeImpl::new` is sync and can be called outside of any tokio
-//! runtime context (e.g. from `main()` before `#[tokio::main]` enters its
-//! runtime, or from a test that doesn't use `#[tokio::test]`). A
-//! `std::thread` worker has no such precondition. The work is sync anyway
-//! (`waitpid` + sleep), so there's no benefit to a tokio task here.
-//!
-//! ## Why polling, not SIGCHLD
-//!
-//! SIGCHLD in async Rust requires a signal-handler shim that's process-
-//! global and brings its own race surface with the runtime's other signal
-//! handlers. A 250 ms poll over a small HashSet is cheaper than that
-//! complexity buys back. Worst-case zombie lifetime is 250 ms; tests can
-//! verify cleanup in well under 2 s by polling the registry (not by
-//! sleeping).
+//! runtime context. A `std::thread` worker has no such precondition. The
+//! work is sync anyway (`waitpid` + sleep), so there's no benefit to a
+//! tokio task here.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /// How often the worker sweeps the registry for exited PIDs.
@@ -102,8 +134,9 @@ struct Inner {
 /// Scoped reaper for `boxlite-shim` PIDs.
 ///
 /// Owns a worker thread that periodically calls `waitpid(pid, WNOHANG)` on
-/// every registered PID. Registrations are made by `ShimHandler::from_spawned`
-/// and dropped by [`ReaperHandle::drop`] when the handler goes away.
+/// every registered PID. Registrations are added by
+/// `ShimHandler::from_spawned` and never explicitly removed — the worker
+/// removes a PID once it observes the process is reaped or gone.
 pub struct ShimReaper {
     inner: Arc<Inner>,
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -129,15 +162,16 @@ impl ShimReaper {
         })
     }
 
-    /// Register a shim PID for reaping. The returned handle unregisters
-    /// the PID when dropped (RAII) so a panic in the caller's code path
-    /// can't leak the registration.
-    pub fn register(self: &Arc<Self>, pid: u32) -> ReaperHandle {
+    /// Register a shim PID for reaping.
+    ///
+    /// No handle is returned. The reaper's sweep is the authoritative
+    /// cleanup: when `waitpid(pid, WNOHANG)` reports the PID as `Reaped`
+    /// or `Vanished`, it leaves the registry. There is no caller-side
+    /// "unregister" because the load-bearing zombie source is exactly
+    /// the case where the caller has no orderly chance to unregister
+    /// before the shim dies (see module doc, "no auto-unregister on Drop").
+    pub fn register(&self, pid: u32) {
         self.inner.registry.lock().unwrap().insert(pid);
-        ReaperHandle {
-            reaper: Arc::downgrade(self),
-            pid,
-        }
     }
 
     /// Snapshot of currently registered PIDs. Test/debug aid; production
@@ -180,34 +214,6 @@ impl Drop for ShimReaper {
     }
 }
 
-/// RAII handle returned by [`ShimReaper::register`]. Dropping it removes
-/// the PID from the registry — this is the lifecycle hook the shim handler
-/// uses to declare "I'm gone, you don't need to watch this PID anymore."
-///
-/// Holding a `ReaperHandle` does NOT keep the `ShimReaper` alive — the
-/// reaper is owned by `RuntimeImpl`. If the runtime is shut down while a
-/// handle still exists (unusual), the unregister call simply becomes a
-/// no-op via the `Weak::upgrade()` check.
-pub struct ReaperHandle {
-    reaper: Weak<ShimReaper>,
-    pid: u32,
-}
-
-impl ReaperHandle {
-    /// The PID this handle controls. Useful in logging / tracing.
-    pub fn pid(&self) -> u32 {
-        self.pid
-    }
-}
-
-impl Drop for ReaperHandle {
-    fn drop(&mut self) {
-        if let Some(reaper) = self.reaper.upgrade() {
-            reaper.inner.registry.lock().unwrap().remove(&self.pid);
-        }
-    }
-}
-
 fn worker_loop(inner: Arc<Inner>) {
     loop {
         if inner.shutdown.load(Ordering::SeqCst) {
@@ -220,7 +226,7 @@ fn worker_loop(inner: Arc<Inner>) {
         sweep(&inner.registry);
         // Wait up to REAPER_TICK or until shutdown wakes us. Holds the
         // empty `wake_lock` for the duration of the wait — not the
-        // registry lock — so register/unregister stay responsive.
+        // registry lock — so register stays responsive.
         let guard = inner.wake_lock.lock().unwrap();
         let (_g, _timed_out) = inner
             .wake
@@ -233,8 +239,8 @@ fn worker_loop(inner: Arc<Inner>) {
 /// that has vanished out from under us; leaves still-alive PIDs in place.
 fn sweep(registry: &Mutex<HashSet<u32>>) {
     // Snapshot the PID set so we don't hold the lock across waitpid().
-    // waitpid(WNOHANG) is fast, but ShimHandler::register also holds this
-    // mutex briefly — short critical section is the right tradeoff.
+    // waitpid(WNOHANG) is fast, but register also holds this mutex
+    // briefly — short critical section is the right tradeoff.
     let snapshot: Vec<u32> = registry.lock().unwrap().iter().copied().collect();
     let mut to_remove: Vec<u32> = Vec::new();
     for pid in snapshot {
@@ -279,11 +285,11 @@ mod tests {
             .expect("spawn /bin/sh -c true");
         let pid = child.id();
         // Deliberately leak the Child so its Drop doesn't wait() and
-        // race the reaper — this mirrors the "abandoned mid-init shim"
-        // case the reaper exists for.
+        // race the reaper — this mirrors the production "Child dropped
+        // without wait" path the reaper exists to catch.
         std::mem::forget(child);
 
-        let _handle = reaper.register(pid);
+        reaper.register(pid);
 
         // Poll the registry. Must succeed within 1 s; if it doesn't,
         // the worker isn't reaping at the expected cadence.
@@ -303,18 +309,17 @@ mod tests {
         reaper.shutdown();
     }
 
-    /// Dropping the handle while the process is still alive must
-    /// unregister the PID; the worker stops watching it immediately on
-    /// the next sweep. This is the path where a graceful `stop()` reaps
-    /// the child first and tells the reaper "you don't need to follow
-    /// this one anymore."
+    /// Pins the load-bearing post-fix invariant: registration is a one-way
+    /// door, only the reaper's `waitpid` sweep removes a PID. This is the
+    /// property the earlier RAII-handle design got wrong (registry was
+    /// purged on owner Drop before the shim had finished exiting, missing
+    /// the very zombie the reaper existed to catch).
     ///
-    /// Uses an actual sleep child so `waitpid(pid, WNOHANG)` returns 0
-    /// (still alive) rather than -1 ECHILD; otherwise the worker would
-    /// race the registration assertion by "vanishing" the PID on its
-    /// first sweep. The child is killed at end of test.
+    /// Concretely: register a long-lived child PID, give the worker
+    /// plenty of time to sweep, and assert the PID is still registered.
+    /// Then kill the child and assert the next sweep drains it.
     #[test]
-    fn dropping_handle_unregisters_pid() {
+    fn live_pid_stays_registered_until_actual_exit() {
         let reaper = ShimReaper::spawn();
 
         let mut child = std::process::Command::new("/bin/sh")
@@ -322,20 +327,36 @@ mod tests {
             .spawn()
             .expect("spawn sleep child");
         let pid = child.id();
+        reaper.register(pid);
 
-        let handle = reaper.register(pid);
-        assert!(reaper.registered().contains(&pid));
-
-        drop(handle);
-        // Drop is synchronous — no tick needed.
+        // Three ticks worth — the worker has had plenty of chances to
+        // run waitpid and observe "still alive".
+        std::thread::sleep(REAPER_TICK * 3);
         assert!(
-            !reaper.registered().contains(&pid),
-            "handle Drop must remove pid from registry"
+            reaper.registered().contains(&pid),
+            "reaper must not unregister a still-running PID"
         );
 
-        // Clean up the long-lived child so the test doesn't leak it.
-        let _ = child.kill();
-        let _ = child.wait();
+        // Kill the child and wait via the Child handle ourselves so the
+        // reaper's next sweep sees Vanished (ECHILD) rather than Reaped.
+        // This proves the registry drains on ECHILD just as it drains on
+        // Reaped — the property that lets `ShimHandler::stop` reap via
+        // its own `Child::wait()` without coordinating with the reaper.
+        child.kill().expect("kill child");
+        child.wait().expect("wait child");
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            if !reaper.registered().contains(&pid) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "reaper didn't notice the PID vanished within 1 s"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
         reaper.shutdown();
     }
 

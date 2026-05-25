@@ -5,7 +5,7 @@ use std::{path::PathBuf, process::Child, sync::Arc, sync::Mutex, time::Instant};
 use crate::{
     BoxID,
     runtime::layout::BoxFilesystemLayout,
-    util::{ReaperHandle, ShimReaper},
+    util::ShimReaper,
     vmm::{InstanceSpec, VmmKind},
 };
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
@@ -38,13 +38,6 @@ pub struct ShimHandler {
     /// handler closes this, triggering shim cleanup automatically.
     #[allow(dead_code)]
     keepalive: Option<watchdog::Keepalive>,
-    /// Scoped-reaper registration for this shim's PID (Issue #523). Some
-    /// only for handlers built from `from_spawned` — reattached handlers
-    /// (`from_pid`) aren't this process's child, so `waitpid` would always
-    /// return ECHILD; nothing to reap. Dropping this handle unregisters
-    /// the PID; the reaper's worker stops watching it on the next sweep.
-    #[allow(dead_code)]
-    reaper_handle: Option<ReaperHandle>,
     /// Shared System instance for CPU metrics calculation across calls.
     /// CPU usage requires comparing snapshots over time, so we must reuse the same System.
     metrics_sys: Mutex<sysinfo::System>,
@@ -58,18 +51,23 @@ impl ShimHandler {
     /// alive; dropping it triggers shim shutdown.
     ///
     /// Registers the shim PID with `reaper` so the scoped zombie reaper
-    /// (Issue #523) will collect the child even if this handler is dropped
-    /// without `stop()` running to completion (e.g., init pipeline panics
-    /// past `CleanupGuard`'s scope).
+    /// (Issue #523) collects the child even when this handler is dropped
+    /// without `stop()` ever calling `Child::wait()` — the load-bearing
+    /// case being `rt_impl::remove_box` (SIGKILL by PID, no `wait`) and
+    /// any runtime drop that skips `shutdown()`.
+    ///
+    /// The registration is *not* tied to this handler's lifetime: there
+    /// is no caller-visible handle, and dropping `ShimHandler` does not
+    /// unregister. The reaper's `waitpid` sweep is the authoritative
+    /// cleanup; see `util::reaper` module docs for the rationale.
     pub fn from_spawned(spawned: SpawnedShim, box_id: BoxID, reaper: &Arc<ShimReaper>) -> Self {
         let pid = spawned.child.id();
-        let reaper_handle = Some(reaper.register(pid));
+        reaper.register(pid);
         Self {
             pid,
             box_id,
             process: Some(spawned.child),
             keepalive: spawned.keepalive,
-            reaper_handle,
             metrics_sys: Mutex::new(sysinfo::System::new()),
         }
     }
@@ -93,7 +91,6 @@ impl ShimHandler {
             box_id,
             process: None,
             keepalive: None,
-            reaper_handle: None,
             metrics_sys: Mutex::new(sysinfo::System::new()),
         }
     }

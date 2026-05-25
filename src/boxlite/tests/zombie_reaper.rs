@@ -26,8 +26,10 @@ fn n_init_failures_leave_zero_zombies() {
 
     let reaper = ShimReaper::spawn();
 
-    // Spawn N "failed init" stand-ins and register each PID.
-    let mut handles = Vec::with_capacity(N);
+    // Spawn N "failed init" stand-ins and register each PID. No handle
+    // is returned (and none is needed) — the reaper's sweep is the
+    // authoritative cleanup, register-then-forget is the production
+    // pattern.
     let mut pids = Vec::with_capacity(N);
     for _ in 0..N {
         let child = Command::new("/bin/sh")
@@ -38,7 +40,7 @@ fn n_init_failures_leave_zero_zombies() {
         // Mirror the abandoned-mid-init path: leak the Child so its Drop
         // doesn't reap the process out from under the reaper.
         std::mem::forget(child);
-        handles.push(reaper.register(pid));
+        reaper.register(pid);
         pids.push(pid);
     }
 
@@ -77,51 +79,59 @@ fn n_init_failures_leave_zero_zombies() {
         }
     }
 
-    // Dropping `handles` here is a no-op for unregistration (the PIDs
-    // already left the registry via the reap path), but it documents
-    // the ownership relationship.
-    drop(handles);
     reaper.shutdown();
 }
 
-/// Re-register a PID after Drop unregistered it. Encodes the "retry"
-/// path: an init pipeline that fails, gets cleaned up, and tries again
-/// from scratch — the second attempt's shim PID must register cleanly
-/// even though the first attempt's PID went through the same registry.
+/// Pins the post-fix invariant that `register` is idempotent: calling it
+/// twice for the same PID does not double-track, and a re-registration
+/// after the reaper has cleaned up a prior PID works exactly like a
+/// first-time registration. Matches the production "retry" path where an
+/// init attempt fails and a fresh spawn re-enters the same code paths.
 #[test]
-fn registry_accepts_re_registration_after_drop() {
+fn register_is_idempotent_and_survives_prior_cleanup() {
     let reaper = ShimReaper::spawn();
 
-    let child = Command::new("/bin/sh")
+    // First registration of a same-PID stand-in: the OS will assign pid1
+    // to the first child; that PID may even get re-used by the second
+    // spawn (rare but valid). The contract this test pins is that double-
+    // registration is a no-op and re-registration after sweep-cleanup is
+    // a clean state.
+    let child1 = Command::new("/bin/sh")
         .args(["-c", "true"])
         .spawn()
         .expect("spawn first sh");
-    let pid1 = child.id();
-    std::mem::forget(child);
-    let h1 = reaper.register(pid1);
+    let pid1 = child1.id();
+    std::mem::forget(child1);
+    reaper.register(pid1);
+    reaper.register(pid1); // idempotent — HashSet insert returns false but does not error
 
-    // Wait for reap, then drop the (now-stale) handle.
+    assert_eq!(
+        reaper.registered().iter().filter(|p| **p == pid1).count(),
+        1,
+        "double register must result in a single registry entry"
+    );
+
+    // Wait for reaper to drain pid1.
     let deadline = Instant::now() + Duration::from_secs(2);
     while reaper.registered().contains(&pid1) {
-        assert!(Instant::now() < deadline, "first pid never reaped");
+        assert!(Instant::now() < deadline, "pid1 never reaped");
         std::thread::sleep(Duration::from_millis(50));
     }
-    drop(h1);
 
-    // Now register a second PID. Must work without state pollution
-    // from the first.
+    // Register a second PID. Must work without state pollution from
+    // the first.
     let child2 = Command::new("/bin/sh")
         .args(["-c", "true"])
         .spawn()
         .expect("spawn second sh");
     let pid2 = child2.id();
     std::mem::forget(child2);
-    let _h2 = reaper.register(pid2);
+    reaper.register(pid2);
 
     assert!(reaper.registered().contains(&pid2));
     let deadline = Instant::now() + Duration::from_secs(2);
     while reaper.registered().contains(&pid2) {
-        assert!(Instant::now() < deadline, "second pid never reaped");
+        assert!(Instant::now() < deadline, "pid2 never reaped");
         std::thread::sleep(Duration::from_millis(50));
     }
 
