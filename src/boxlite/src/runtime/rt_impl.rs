@@ -109,6 +109,11 @@ pub struct RuntimeImpl {
     /// Use `.is_cancelled()` for sync checks, `.cancelled()` for async select!.
     /// Child tokens are passed to each box via `.child_token()`.
     pub(crate) shutdown_token: CancellationToken,
+
+    /// Scoped reaper for shim PIDs (Issue #523). Cleans up zombies left
+    /// by abandoned mid-init shims. Per-runtime so test binaries can have
+    /// many runtimes serially without leaking worker tasks.
+    pub(crate) shim_reaper: Arc<crate::util::ShimReaper>,
 }
 
 /// Synchronized state protected by RwLock.
@@ -240,6 +245,7 @@ impl RuntimeImpl {
             lock_manager,
             _runtime_lock: runtime_lock,
             shutdown_token: CancellationToken::new(),
+            shim_reaper: crate::util::ShimReaper::spawn(),
         });
 
         tracing::debug!("initialized runtime");
@@ -615,6 +621,7 @@ impl RuntimeImpl {
 
         if active_boxes.is_empty() {
             tracing::info!("No active boxes to shutdown");
+            self.shim_reaper.shutdown();
             return Ok(());
         }
 
@@ -656,6 +663,13 @@ impl RuntimeImpl {
                 }
             }
         }
+
+        // Stop the shim reaper worker. Sync call but very fast — the
+        // Condvar wakeup short-circuits the REAPER_TICK sleep. Doing this
+        // after the per-box stop loop means any final shim exits triggered
+        // by the stop loop get a chance to be reaped in the reaper's
+        // shutdown-drain pass.
+        self.shim_reaper.shutdown();
 
         if errors.is_empty() {
             tracing::info!("Runtime shutdown complete");
@@ -736,6 +750,11 @@ impl RuntimeImpl {
                 .pid_file_path();
             let _ = std::fs::remove_file(&pid_file);
         }
+
+        // Stop the reaper worker thread. Mirrors the async shutdown() path —
+        // important for the atexit case so a long-lived process doesn't
+        // leak the reaper thread on graceful exit.
+        self.shim_reaper.shutdown();
     }
 
     // ========================================================================

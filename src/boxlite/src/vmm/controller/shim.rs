@@ -1,10 +1,11 @@
 //! ShimController and ShimHandler - Universal process management for all Box engines.
 
-use std::{path::PathBuf, process::Child, sync::Mutex, time::Instant};
+use std::{path::PathBuf, process::Child, sync::Arc, sync::Mutex, time::Instant};
 
 use crate::{
     BoxID,
     runtime::layout::BoxFilesystemLayout,
+    util::{ReaperHandle, ShimReaper},
     vmm::{InstanceSpec, VmmKind},
 };
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
@@ -37,6 +38,13 @@ pub struct ShimHandler {
     /// handler closes this, triggering shim cleanup automatically.
     #[allow(dead_code)]
     keepalive: Option<watchdog::Keepalive>,
+    /// Scoped-reaper registration for this shim's PID (Issue #523). Some
+    /// only for handlers built from `from_spawned` — reattached handlers
+    /// (`from_pid`) aren't this process's child, so `waitpid` would always
+    /// return ECHILD; nothing to reap. Dropping this handle unregisters
+    /// the PID; the reaper's worker stops watching it on the next sweep.
+    #[allow(dead_code)]
+    reaper_handle: Option<ReaperHandle>,
     /// Shared System instance for CPU metrics calculation across calls.
     /// CPU usage requires comparing snapshots over time, so we must reuse the same System.
     metrics_sys: Mutex<sysinfo::System>,
@@ -48,13 +56,20 @@ impl ShimHandler {
     /// Takes ownership of the `SpawnedShim` (child process + keepalive) for
     /// proper lifecycle management. The keepalive keeps the watchdog pipe
     /// alive; dropping it triggers shim shutdown.
-    pub fn from_spawned(spawned: SpawnedShim, box_id: BoxID) -> Self {
+    ///
+    /// Registers the shim PID with `reaper` so the scoped zombie reaper
+    /// (Issue #523) will collect the child even if this handler is dropped
+    /// without `stop()` running to completion (e.g., init pipeline panics
+    /// past `CleanupGuard`'s scope).
+    pub fn from_spawned(spawned: SpawnedShim, box_id: BoxID, reaper: &Arc<ShimReaper>) -> Self {
         let pid = spawned.child.id();
+        let reaper_handle = Some(reaper.register(pid));
         Self {
             pid,
             box_id,
             process: Some(spawned.child),
             keepalive: spawned.keepalive,
+            reaper_handle,
             metrics_sys: Mutex::new(sysinfo::System::new()),
         }
     }
@@ -63,6 +78,11 @@ impl ShimHandler {
     ///
     /// Used when reconnecting to a running box. We don't have a Child handle
     /// or keepalive, so we manage the process by PID only.
+    ///
+    /// Does NOT register with the reaper: an attached shim was spawned by
+    /// a prior runtime process, so `waitpid` would return ECHILD here
+    /// regardless. The shim's eventual zombie (if its real parent is gone)
+    /// becomes init's problem, not ours.
     ///
     /// # Arguments
     /// * `pid` - Process ID of the running VM
@@ -73,6 +93,7 @@ impl ShimHandler {
             box_id,
             process: None,
             keepalive: None,
+            reaper_handle: None,
             metrics_sys: Mutex::new(sysinfo::System::new()),
         }
     }
@@ -238,6 +259,8 @@ pub struct ShimController {
     options: crate::runtime::options::BoxOptions,
     /// Box filesystem layout (provides paths for stderr, sockets, etc.)
     layout: BoxFilesystemLayout,
+    /// Scoped reaper for the shim PID (Issue #523).
+    reaper: Arc<ShimReaper>,
 }
 
 impl ShimController {
@@ -259,6 +282,7 @@ impl ShimController {
         box_id: BoxID,
         options: crate::runtime::options::BoxOptions,
         layout: BoxFilesystemLayout,
+        reaper: Arc<ShimReaper>,
     ) -> BoxliteResult<Self> {
         // Verify that the shim binary exists
         if !binary_path.exists() {
@@ -274,6 +298,7 @@ impl ShimController {
             box_id,
             options,
             layout,
+            reaper,
         })
     }
 }
@@ -369,7 +394,7 @@ impl VmmController for ShimController {
         // which allows reusing that task across spawn/restart/reconnect.
 
         // Create handler from spawned shim (takes ownership of child + keepalive)
-        let handler = ShimHandler::from_spawned(spawned, self.box_id.clone());
+        let handler = ShimHandler::from_spawned(spawned, self.box_id.clone(), &self.reaper);
 
         tracing::info!(
             box_id = %self.box_id,

@@ -1,6 +1,7 @@
 mod binary_finder;
 mod pid_file;
 pub mod process;
+pub mod reaper;
 
 pub use binary_finder::{RuntimeBinaryFinder, find_binary};
 pub use pid_file::{PidFileReader, PidFileWriter, PidRecord, ProcessIdentity};
@@ -17,6 +18,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 pub use process::{
     ProcessExit, ProcessMonitor, is_process_alive, kill_process, process_start_time,
 };
+pub use reaper::{ReaperHandle, ShimReaper};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 unsafe extern "C" {

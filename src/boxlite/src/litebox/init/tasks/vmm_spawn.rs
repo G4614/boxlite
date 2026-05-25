@@ -90,9 +90,15 @@ impl PipelineTask<InitCtx> for VmmSpawnTask {
         .inspect_err(|e| log_task_error(&box_id, task_name, e))?;
 
         // Spawn VM
-        let handler = spawn_vm(&box_id, &instance_spec, &options, &layout)
-            .await
-            .inspect_err(|e| log_task_error(&box_id, task_name, e))?;
+        let handler = spawn_vm(
+            &box_id,
+            &instance_spec,
+            &options,
+            &layout,
+            &runtime.shim_reaper,
+        )
+        .await
+        .inspect_err(|e| log_task_error(&box_id, task_name, e))?;
 
         let mut ctx = ctx.lock().await;
         ctx.guard.set_handler(handler);
@@ -375,6 +381,7 @@ async fn spawn_vm(
     config: &InstanceSpec,
     options: &BoxOptions,
     layout: &BoxFilesystemLayout,
+    reaper: &std::sync::Arc<crate::util::ShimReaper>,
 ) -> BoxliteResult<Box<dyn VmmHandler>> {
     let mut controller = ShimController::new(
         find_binary("boxlite-shim")?,
@@ -382,6 +389,7 @@ async fn spawn_vm(
         box_id.clone(),
         options.clone(),
         layout.clone(),
+        reaper.clone(),
     )?;
 
     controller.start(config).await
