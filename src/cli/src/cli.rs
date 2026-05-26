@@ -868,6 +868,7 @@ mod tests {
         let flags = ResourceFlags {
             cpus: Some(1000),
             memory: None,
+            kernel: None,
         };
 
         let mut opts = BoxOptions::default();
