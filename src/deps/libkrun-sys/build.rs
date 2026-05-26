@@ -17,18 +17,32 @@ const LIBKRUNFW_PREBUILT_URL: &str = "https://github.com/boxlite-ai/libkrunfw/re
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const LIBKRUNFW_SHA256: &str = "12b9401d7735d1682450e4d025273c5016ec2237dcbfb76b2f0a152be6e606d6";
 
-// Linux: Download pre-compiled .so directly (no build needed)
+// Linux lean kernel: minimal, no optional modules
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const LIBKRUNFW_SO_URL: &str =
+const LIBKRUNFW_LEAN_URL: &str =
     "https://github.com/boxlite-ai/libkrunfw/releases/download/v5.3.0/libkrunfw-x86_64.tgz";
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const LIBKRUNFW_SHA256: &str = "0a7bb64a35a273b8501801dd69b75736a8c676aa21aa62fb5642842cda9dc91d";
+const LIBKRUNFW_LEAN_SHA256: &str = "0a7bb64a35a273b8501801dd69b75736a8c676aa21aa62fb5642842cda9dc91d";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const LIBKRUNFW_SO_URL: &str =
+const LIBKRUNFW_LEAN_URL: &str =
     "https://github.com/boxlite-ai/libkrunfw/releases/download/v5.3.0/libkrunfw-aarch64.tgz";
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const LIBKRUNFW_SHA256: &str = "8b5b9211da5445d9301dafb2201431f4392ab96455512bce63a5cfbd33c49839";
+const LIBKRUNFW_LEAN_SHA256: &str = "8b5b9211da5445d9301dafb2201431f4392ab96455512bce63a5cfbd33c49839";
+
+// Linux net kernel: lean + netfilter/nf_tables/bridge/NET_NS modules
+// TODO: move to boxlite-ai/boxlite release assets after merge
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const LIBKRUNFW_NET_URL: &str =
+    "https://github.com/G4614/boxlite/releases/download/v0.9.5-kernel-net/libkrunfw-net-x86_64.tgz";
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const LIBKRUNFW_NET_SHA256: &str = "f367a6e96ba7f4d11d1837b871c91308d6025ce8dbecee4e5fc914aacf28f128";
+
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const LIBKRUNFW_NET_URL: &str =
+    "https://github.com/boxlite-ai/boxlite/releases/download/v0.9.5/libkrunfw-net-aarch64.tgz";
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const LIBKRUNFW_NET_SHA256: &str = "TODO_FILL_AFTER_UPLOAD";
 
 // Library directory name differs by platform
 #[cfg(target_os = "macos")]
@@ -190,10 +204,21 @@ fn download_libkrunfw_prebuilt(out_dir: &Path) -> PathBuf {
 }
 
 /// Downloads pre-compiled libkrunfw .so files (Linux).
-/// Extracts directly to the install directory - no build step needed.
+///
+/// Feature combinations:
+/// - `kernel-lean` only (default): lean blob → `libkrunfw.so.5`
+/// - `kernel-net` only: net blob → `libkrunfw.so.5`
+/// - both: lean → `libkrunfw.so.5`, net → `libkrunfw-net.so.5`
+///   (runtime `--kernel net` selects via LD_LIBRARY_PATH override)
 #[cfg(target_os = "linux")]
 fn download_libkrunfw_so(install_dir: &Path) {
     let lib_dir = install_dir.join(LIB_DIR);
+    let has_lean = cfg!(feature = "kernel-lean");
+    let has_net = cfg!(feature = "kernel-net");
+
+    if !has_lean && !has_net {
+        panic!("At least one of kernel-lean or kernel-net features must be enabled");
+    }
 
     let version_marker = install_dir.join(format!(".version-{LIBKRUNFW_VERSION}"));
     if version_marker.exists() {
@@ -201,23 +226,48 @@ fn download_libkrunfw_so(install_dir: &Path) {
         return;
     }
 
-    // Remove stale artifacts from a previous version
     if install_dir.exists() {
         fs::remove_dir_all(install_dir).ok();
     }
-
     fs::create_dir_all(install_dir)
         .unwrap_or_else(|e| panic!("Failed to create install dir: {}", e));
 
-    let tarball_path = install_dir.join(format!("libkrunfw-{LIBKRUNFW_VERSION}.tgz"));
+    if has_lean && has_net {
+        // Dual mode: lean as primary, net as secondary
+        let lean_tarball = install_dir.join(format!("libkrunfw-lean-{LIBKRUNFW_VERSION}.tgz"));
+        Fetcher::fetch(LIBKRUNFW_LEAN_URL, LIBKRUNFW_LEAN_SHA256, &lean_tarball, install_dir)
+            .unwrap_or_else(|e| panic!("Failed to fetch lean libkrunfw: {}", e));
 
-    Fetcher::fetch(
-        LIBKRUNFW_SO_URL,
-        LIBKRUNFW_SHA256,
-        &tarball_path,
-        install_dir,
-    )
-    .unwrap_or_else(|e| panic!("Failed to fetch libkrunfw: {}", e));
+        if !LIBKRUNFW_NET_SHA256.starts_with("TODO") {
+            let net_tarball = install_dir.join(format!("libkrunfw-net-{LIBKRUNFW_VERSION}.tgz"));
+            Fetcher::fetch(LIBKRUNFW_NET_URL, LIBKRUNFW_NET_SHA256, &net_tarball, &lib_dir)
+                .unwrap_or_else(|e| panic!("Failed to fetch net libkrunfw: {}", e));
+            println!("cargo:warning=Embedded kernels: lean + net (dual mode)");
+        } else {
+            println!(
+                "cargo:warning=Net kernel SHA256 not configured — \
+                 only lean kernel embedded. Fill LIBKRUNFW_NET_SHA256 after upload."
+            );
+        }
+    } else if has_net {
+        // Net only: net blob becomes the primary libkrunfw.so.5
+        if LIBKRUNFW_NET_SHA256.starts_with("TODO") {
+            panic!(
+                "kernel-net feature enabled but LIBKRUNFW_NET_SHA256 not configured. \
+                 Upload the net kernel blob and fill in the SHA256."
+            );
+        }
+        let tarball = install_dir.join(format!("libkrunfw-net-{LIBKRUNFW_VERSION}.tgz"));
+        Fetcher::fetch(LIBKRUNFW_NET_URL, LIBKRUNFW_NET_SHA256, &tarball, install_dir)
+            .unwrap_or_else(|e| panic!("Failed to fetch net libkrunfw: {}", e));
+        println!("cargo:warning=Embedded kernel: net only");
+    } else {
+        // Lean only (default)
+        let tarball = install_dir.join(format!("libkrunfw-lean-{LIBKRUNFW_VERSION}.tgz"));
+        Fetcher::fetch(LIBKRUNFW_LEAN_URL, LIBKRUNFW_LEAN_SHA256, &tarball, install_dir)
+            .unwrap_or_else(|e| panic!("Failed to fetch lean libkrunfw: {}", e));
+        println!("cargo:warning=Embedded kernel: lean (default)");
+    }
 
     fs::write(&version_marker, LIBKRUNFW_VERSION)
         .unwrap_or_else(|e| panic!("Failed to write version marker: {}", e));
