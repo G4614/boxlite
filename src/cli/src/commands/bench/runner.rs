@@ -14,7 +14,9 @@ use super::stats;
 use crate::cli::GlobalFlags;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use futures::FutureExt;
 use std::collections::BTreeMap;
+use std::panic::AssertUnwindSafe;
 use std::time::Instant;
 
 /// One benchmark scenario. Phases register concrete implementations
@@ -142,7 +144,15 @@ pub async fn run_scenario(args: super::RunArgs, global: &GlobalFlags) -> Result<
     // gets its chance — so a scenario with persistent state (named
     // boxes, host child processes) always gets the cleanup hook,
     // regardless of which iteration blew up.
-    let iter_result: Result<()> = async {
+    //
+    // The iteration future also races against SIGINT/SIGTERM so a
+    // sweep's `timeout 600` (which sends SIGTERM) lets us run
+    // teardown before exiting, instead of dropping VMs + temp dirs
+    // on the floor. tokio::select! cancels the losing future via
+    // drop — which runs every in-scope Drop including BoxGuard's
+    // force-remove — and we then call teardown for cross-iteration
+    // state explicitly.
+    let iter_fut = async {
         for i in 1..=args.runs {
             let warmup = i <= args.warmup;
             let ctx = RunContext {
@@ -187,9 +197,36 @@ pub async fn run_scenario(args: super::RunArgs, global: &GlobalFlags) -> Result<
             );
             report.samples.push(sample);
         }
-        Ok(())
-    }
-    .await;
+        Ok::<(), anyhow::Error>(())
+    };
+
+    // Wrap iter_fut in catch_unwind so a `panic!` inside a scenario
+    // (unwrap, indexing OOB, etc.) doesn't bypass the teardown hook
+    // and bring down the binary mid-cleanup. AssertUnwindSafe is OK
+    // here because after a panic we only invoke teardown — which
+    // either re-uses the scenario's stashed state or no-ops — and
+    // never read partially-mutated invariants from the scenario.
+    let safe_iter = AssertUnwindSafe(iter_fut).catch_unwind();
+
+    let iter_result: Result<()> = tokio::select! {
+        biased;
+        res = safe_iter => match res {
+            Ok(inner) => inner,
+            Err(panic_payload) => {
+                let msg = panic_payload
+                    .downcast_ref::<&str>()
+                    .map(|s| (*s).to_string())
+                    .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "<unknown panic payload>".into());
+                Err(anyhow::anyhow!(
+                    "scenario {scenario_name:?} panicked: {msg}"
+                ))
+            }
+        },
+        sig = wait_for_signal() => Err(anyhow::anyhow!(
+            "bench {scenario_name:?} interrupted by {sig}; running teardown before exit"
+        )),
+    };
 
     // Best-effort teardown: warnings only, don't mask the real error.
     let teardown_ctx = TeardownContext { global };
@@ -197,6 +234,18 @@ pub async fn run_scenario(args: super::RunArgs, global: &GlobalFlags) -> Result<
         eprintln!(
             "⚠️  teardown for scenario {scenario_name:?} failed (resources may have leaked): {e:#}"
         );
+    }
+
+    // Last-ditch descendant cleanup on the unhappy path. When
+    // SIGTERM cancels an in-flight `rt.create` / `box.start`, the
+    // BoxGuard's Drop runs `rt.remove`, but libkrun VM and
+    // boxlite-shim children spawned during VMM setup don't always
+    // get reaped before our process exits — they become orphans of
+    // init. Walk our descendant tree and SIGKILL any leftover. On
+    // the success path no descendants should remain, so the pkill
+    // is a no-op.
+    if iter_result.is_err() {
+        kill_descendants_of_self();
     }
 
     // Surface any iteration error AFTER teardown so the caller sees
@@ -215,6 +264,82 @@ pub async fn run_scenario(args: super::RunArgs, global: &GlobalFlags) -> Result<
     write_report(&report, args.out.as_deref())?;
     print_summary(&report);
     Ok(())
+}
+
+/// Walk our descendant PID tree via `/proc/<pid>/task/<pid>/children`
+/// and SIGKILL any `libkrun-VM` or `boxlite-shim` we find. Called
+/// only on the failure / interrupted-by-signal path as a last-ditch
+/// reap; on the happy path scenarios have already torn their boxes
+/// down and this loop finds nothing to do.
+fn kill_descendants_of_self() {
+    use std::collections::VecDeque;
+    use std::fs;
+
+    fn children_of(pid: i32) -> Vec<i32> {
+        let path = format!("/proc/{pid}/task/{pid}/children");
+        fs::read_to_string(&path)
+            .ok()
+            .map(|s| {
+                s.split_ascii_whitespace()
+                    .filter_map(|t| t.parse::<i32>().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    fn comm_of(pid: i32) -> Option<String> {
+        let path = format!("/proc/{pid}/comm");
+        fs::read_to_string(&path).ok().map(|s| s.trim().to_string())
+    }
+
+    let me = std::process::id() as i32;
+    let mut queue: VecDeque<i32> = children_of(me).into_iter().collect();
+    let mut killed = 0usize;
+    while let Some(pid) = queue.pop_front() {
+        for c in children_of(pid) {
+            queue.push_back(c);
+        }
+        if let Some(comm) = comm_of(pid)
+            && (comm == "libkrun VM" || comm == "boxlite-shim")
+        {
+            // SIGKILL — graceful was the runtime's job; we're past that.
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+            killed += 1;
+        }
+    }
+    if killed > 0 {
+        eprintln!("⚠️  reaped {killed} orphan VM/shim descendant(s) after interrupted run");
+    }
+}
+
+/// Wait for SIGINT or SIGTERM. Used by [`run_scenario`] to race
+/// against the iteration loop so external timeouts (e.g., a sweep
+/// wrapper's `timeout 600`) trigger teardown instead of dropping
+/// in-flight state on the floor.
+async fn wait_for_signal() -> &'static str {
+    use tokio::signal::unix::{SignalKind, signal};
+    // If signal-handler install ever fails we fall back to never
+    // resolving (the iteration loop wins the select). Better than
+    // bailing the whole bench on a broken environment.
+    let term = signal(SignalKind::terminate()).ok();
+    let int = signal(SignalKind::interrupt()).ok();
+    match (term, int) {
+        (Some(mut t), Some(mut i)) => tokio::select! {
+            _ = t.recv() => "SIGTERM",
+            _ = i.recv() => "SIGINT",
+        },
+        (Some(mut t), None) => {
+            let _ = t.recv().await;
+            "SIGTERM"
+        }
+        (None, Some(mut i)) => {
+            let _ = i.recv().await;
+            "SIGINT"
+        }
+        (None, None) => std::future::pending::<&str>().await,
+    }
 }
 
 fn read_git_commit() -> String {
