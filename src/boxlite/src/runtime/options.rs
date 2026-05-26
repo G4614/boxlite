@@ -395,6 +395,12 @@ pub struct BoxOptions {
     /// guest; the real value never enters the VM.
     #[serde(default)]
     pub secrets: Vec<Secret>,
+
+    /// Use the net kernel (netfilter/bridge modules) instead of the
+    /// default lean kernel. Only effective when the binary was built
+    /// with `--features kernel-net` (or both `kernel-lean,kernel-net`).
+    #[serde(default)]
+    pub kernel_net: bool,
 }
 
 /// A secret for MITM proxy injection.
@@ -496,6 +502,7 @@ impl Default for BoxOptions {
             cmd: None,
             user: None,
             secrets: Vec::new(),
+            kernel_net: false,
         }
     }
 }

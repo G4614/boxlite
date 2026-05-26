@@ -69,7 +69,33 @@ cargo build --release -p boxlite-cli
 # Binary: target/release/boxlite
 ```
 
+#### Kernel Variants
 
+Boxlite embeds a Linux kernel for the microVM. Two variants are available:
+
+| Variant | Modules | Use case |
+|---------|---------|----------|
+| **lean** (default) | Minimal | General workloads |
+| **net** | lean + netfilter/nf_tables/bridge | Workloads needing iptables/bridge networking (e.g. dockerd, dind) |
+
+Build-time feature flags control which kernels are embedded:
+
+```bash
+# Default: lean kernel only
+cargo build --release -p boxlite-cli
+
+# Net kernel only
+cargo build --release -p boxlite-cli --features boxlite/kernel-net --no-default-features
+
+# Both (dual mode)
+cargo build --release -p boxlite-cli --features boxlite/kernel-net
+```
+
+At runtime, `--kernel net` selects the net kernel (only available in dual or net-only builds):
+
+```bash
+boxlite run --kernel net alpine
+```
 
 ### System Requirements
 

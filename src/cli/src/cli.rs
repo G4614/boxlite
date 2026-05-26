@@ -367,6 +367,12 @@ pub struct ResourceFlags {
     /// Memory limit (in MiB)
     #[arg(long)]
     pub memory: Option<u32>,
+
+    /// Use the net kernel (netfilter/bridge modules) instead of the
+    /// default lean kernel. The binary must be built with
+    /// `--features kernel-net` to embed the net kernel blob.
+    #[arg(long = "kernel", value_name = "VARIANT")]
+    pub kernel: Option<String>,
 }
 
 impl ResourceFlags {
@@ -379,6 +385,15 @@ impl ResourceFlags {
         }
         if let Some(mem) = self.memory {
             opts.memory_mib = Some(mem);
+        }
+        if let Some(ref k) = self.kernel {
+            match k.as_str() {
+                "net" => opts.kernel_net = true,
+                "default" | "lean" => opts.kernel_net = false,
+                other => {
+                    tracing::warn!("Unknown kernel variant '{}', using default", other);
+                }
+            }
         }
     }
 }
@@ -765,6 +780,54 @@ mod tests {
         flags.apply_to(&mut opts);
 
         assert_eq!(opts.cpus, Some(255));
+    }
+
+    #[test]
+    fn kernel_net_flag_sets_kernel_net() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            kernel: Some("net".to_string()),
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(opts.kernel_net, "--kernel net must set kernel_net=true");
+    }
+
+    #[test]
+    fn kernel_default_flag_keeps_lean() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            kernel: Some("default".to_string()),
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(!opts.kernel_net, "--kernel default must keep kernel_net=false");
+    }
+
+    #[test]
+    fn kernel_lean_flag_keeps_lean() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            kernel: Some("lean".to_string()),
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(!opts.kernel_net, "--kernel lean must keep kernel_net=false");
+    }
+
+    #[test]
+    fn no_kernel_flag_defaults_lean() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            kernel: None,
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(!opts.kernel_net, "no --kernel flag must default to lean");
     }
 
     #[test]
