@@ -1118,6 +1118,7 @@ mod tests {
             cpus: Some(1000),
             memory: None,
             disk_size_gb: None,
+            kernel: None,
         };
 
         let mut opts = BoxOptions::default();
