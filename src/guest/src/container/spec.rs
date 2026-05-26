@@ -2,7 +2,7 @@
 //!
 //! Creates OCI-compliant runtime specifications following the runtime-spec standard.
 
-use super::capabilities::default_capabilities;
+use super::capabilities::{default_capabilities, capability_names};
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use std::path::Path;
 
@@ -54,10 +54,12 @@ pub fn create_oci_spec(
     gid: u32,
     bundle_path: &Path,
     user_mounts: &[UserMount],
+    added_caps: &[String],
 ) -> BoxliteResult<Spec> {
-    let caps = build_default_capabilities()?;
+    let caps = build_capabilities(added_caps)?;
+    let has_sys_admin = added_caps.iter().any(|c| c == "ALL" || c == "SYS_ADMIN");
     let namespaces = build_default_namespaces()?;
-    let mut mounts = build_standard_mounts(bundle_path)?;
+    let mut mounts = build_standard_mounts(bundle_path, has_sys_admin)?;
 
     // Add user-specified bind mounts
     for user_mount in user_mounts {
@@ -265,8 +267,33 @@ fn find_group_in_group_file(rootfs: &str, name: &str) -> BoxliteResult<u32> {
 // ====================
 
 /// Build default Linux capabilities matching Docker/OCI defaults.
-fn build_default_capabilities() -> BoxliteResult<oci_spec::runtime::LinuxCapabilities> {
-    let caps = default_capabilities();
+fn build_capabilities(added_caps: &[String]) -> BoxliteResult<oci_spec::runtime::LinuxCapabilities> {
+    use oci_spec::runtime::Capability;
+    use std::str::FromStr;
+
+    let mut caps = default_capabilities();
+
+    if added_caps.iter().any(|c| c == "ALL") {
+        for name in capability_names() {
+            if let Ok(cap) = Capability::from_str(&format!("CAP_{name}")) {
+                caps.insert(cap);
+            }
+        }
+    } else {
+        for name in added_caps {
+            let cap_name = if name.starts_with("CAP_") {
+                name.clone()
+            } else {
+                format!("CAP_{name}")
+            };
+            match Capability::from_str(&cap_name) {
+                Ok(cap) => { caps.insert(cap); }
+                Err(_) => {
+                    tracing::warn!("Unknown capability: {name}, skipping");
+                }
+            }
+        }
+    }
 
     LinuxCapabilitiesBuilder::default()
         .bounding(caps.clone())
@@ -413,7 +440,7 @@ fn build_linux_spec(
 }
 
 /// Build standard mounts for container filesystem
-fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
+fn build_standard_mounts(bundle_path: &Path, cgroup_rw: bool) -> BoxliteResult<Vec<Mount>> {
     let mut mounts = vec![
         // /proc - Process information
         MountBuilder::default()
@@ -504,6 +531,21 @@ fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
         //     .map_err(|e| {
         //         BoxliteError::Internal(format!("Failed to build /sys/fs/cgroup mount: {}", e))
         //     })?,
+    ];
+
+    if cgroup_rw {
+        mounts.push(
+            MountBuilder::default()
+                .destination("/sys/fs/cgroup")
+                .typ("cgroup2")
+                .source("cgroup2")
+                .options(vec!["nosuid".to_string(), "noexec".to_string(), "nodev".to_string()])
+                .build()
+                .map_err(|e| BoxliteError::Internal(format!("Failed to build cgroup2 mount: {}", e)))?,
+        );
+    }
+
+    mounts.extend(vec![
         // /tmp - Temporary filesystem
         MountBuilder::default()
             .destination("/tmp")
@@ -516,7 +558,7 @@ fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
             ])
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /tmp mount: {}", e)))?,
-    ];
+    ]);
 
     // Bind-mount /etc/hostname, /etc/hosts, /etc/resolv.conf from the bundle
     // dir into the container. Uses rbind + rprivate (matching Docker defaults).

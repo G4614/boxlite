@@ -668,12 +668,20 @@ pub struct ManagementFlags {
     /// Automatically remove the box when it exits
     #[arg(long)]
     pub rm: bool,
+
+    /// Add a Linux capability. Repeatable. Use "ALL" for every cap.
+    /// e.g. --cap-add SYS_ADMIN --cap-add NET_ADMIN
+    #[arg(long = "cap-add", value_name = "CAP")]
+    pub cap_add: Vec<String>,
 }
 
 impl ManagementFlags {
     pub fn apply_to(&self, opts: &mut BoxOptions) {
         opts.detach = self.detach;
         opts.auto_remove = self.rm;
+        if !self.cap_add.is_empty() {
+            opts.added_caps = self.cap_add.iter().map(|c| c.to_uppercase()).collect();
+        }
     }
 }
 
@@ -764,6 +772,45 @@ mod tests {
         flags.apply_to(&mut opts);
 
         assert_eq!(opts.cpus, Some(255));
+    }
+
+    #[test]
+    fn cap_add_propagates_to_options() {
+        let flags = ManagementFlags {
+            name: None,
+            detach: false,
+            rm: false,
+            cap_add: vec!["sys_admin".to_string(), "net_admin".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert_eq!(opts.added_caps, vec!["SYS_ADMIN", "NET_ADMIN"]);
+    }
+
+    #[test]
+    fn cap_add_all_propagates() {
+        let flags = ManagementFlags {
+            name: None,
+            detach: false,
+            rm: false,
+            cap_add: vec!["all".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert_eq!(opts.added_caps, vec!["ALL"]);
+    }
+
+    #[test]
+    fn no_cap_add_leaves_empty() {
+        let flags = ManagementFlags {
+            name: None,
+            detach: false,
+            rm: false,
+            cap_add: vec![],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(opts.added_caps.is_empty());
     }
 
     #[test]
