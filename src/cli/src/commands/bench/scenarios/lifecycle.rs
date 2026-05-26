@@ -18,7 +18,7 @@
 //!     box-archive tarball codepath, including disk image
 //!     serialization.
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -126,6 +126,18 @@ impl Scenario for LatencyClone {
         metrics.insert("clone_ms".into(), clone_ms);
         Ok(metrics)
     }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let (Some(home), Some(src_id)) = (self.home.as_ref(), self.source_id.as_ref()) else {
+            return Ok(());
+        };
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        // Best-effort: source box was created with auto_remove=false
+        // so it survives stop. Force-remove cascades any leftover
+        // snapshots/clones still rooted on it.
+        let _ = rt.remove(src_id, true).await;
+        Ok(())
+    }
 }
 
 // ─── throughput-export ─────────────────────────────────────────────
@@ -217,5 +229,14 @@ impl Scenario for ThroughputExport {
             metrics.insert("export_mb_per_sec".into(), mib / (export_ms / 1000.0));
         }
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let (Some(home), Some(src_id)) = (self.home.as_ref(), self.source_id.as_ref()) else {
+            return Ok(());
+        };
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        let _ = rt.remove(src_id, true).await;
+        Ok(())
     }
 }

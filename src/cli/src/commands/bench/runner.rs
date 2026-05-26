@@ -46,15 +46,24 @@ pub trait Scenario: Send {
     async fn after_iteration(&mut self, _ctx: &RunContext) -> Result<()> {
         Ok(())
     }
+
+    /// Called once at the end of `run_scenario` — both on success and
+    /// on iteration failure — so scenarios with cross-iteration state
+    /// (persistent source boxes, named runtime entries, host
+    /// subprocesses) get a deterministic cleanup hook instead of
+    /// relying on `Drop`. Errors are surfaced as warnings but don't
+    /// mask the iteration result.
+    ///
+    /// Scenarios that own all their state inside `run_once` can leave
+    /// this defaulted; the no-op cost is zero.
+    async fn teardown(&mut self, _ctx: &TeardownContext<'_>) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Per-run context handed to every iteration. Holds the GlobalFlags
 /// snapshot the user invoked with, so scenarios can build a runtime
 /// the same way the rest of the CLI does.
-///
-/// Fields are unused inside Phase 0 (the registry is empty); the
-/// `dead_code` allow keeps `-D warnings` clean until Phase 1+ scenarios
-/// start consuming them.
 #[allow(dead_code)]
 pub struct RunContext<'a> {
     pub global: &'a GlobalFlags,
@@ -62,6 +71,14 @@ pub struct RunContext<'a> {
     pub iteration: usize,
     /// True if this iteration's sample will be dropped from aggregates.
     pub warmup: bool,
+}
+
+/// Context handed to [`Scenario::teardown`]. Carries the
+/// `GlobalFlags` so cleanup can rebuild a runtime against the same
+/// home + registry config as `run_once` did. No iteration counter
+/// because teardown is one-shot.
+pub struct TeardownContext<'a> {
+    pub global: &'a GlobalFlags,
 }
 
 /// Implements `boxlite bench list`.
@@ -120,50 +137,72 @@ pub async fn run_scenario(args: super::RunArgs, global: &GlobalFlags) -> Result<
         scenario_name, args.runs, args.warmup,
     );
 
-    for i in 1..=args.runs {
-        let warmup = i <= args.warmup;
-        let ctx = RunContext {
-            global,
-            iteration: i,
-            warmup,
-        };
+    // Iteration loop wrapped so the teardown call runs on BOTH paths.
+    // Errors from iterations are stashed and re-raised AFTER teardown
+    // gets its chance — so a scenario with persistent state (named
+    // boxes, host child processes) always gets the cleanup hook,
+    // regardless of which iteration blew up.
+    let iter_result: Result<()> = async {
+        for i in 1..=args.runs {
+            let warmup = i <= args.warmup;
+            let ctx = RunContext {
+                global,
+                iteration: i,
+                warmup,
+            };
 
-        let start = Instant::now();
-        let metrics = scenario.run_once(&ctx).await.with_context(|| {
-            format!(
-                "iteration {i}/{} failed in scenario {scenario_name}",
-                args.runs
-            )
-        })?;
-        let wall_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let start = Instant::now();
+            let metrics = scenario.run_once(&ctx).await.with_context(|| {
+                format!(
+                    "iteration {i}/{} failed in scenario {scenario_name}",
+                    args.runs
+                )
+            })?;
+            let wall_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-        scenario.after_iteration(&ctx).await?;
+            scenario.after_iteration(&ctx).await?;
 
-        let sample = Sample {
-            iteration: i,
-            warmup,
-            wall_ms,
-            metrics: metrics.clone(),
-        };
-        if !warmup {
-            // wall_ms is always part of the aggregates so every
-            // scenario gets at least one comparable headline number.
-            metric_samples
-                .entry("wall_ms".to_string())
-                .or_default()
-                .push(wall_ms);
-            for (k, v) in metrics {
-                metric_samples.entry(k).or_default().push(v);
+            let sample = Sample {
+                iteration: i,
+                warmup,
+                wall_ms,
+                metrics: metrics.clone(),
+            };
+            if !warmup {
+                // wall_ms is always part of the aggregates so every
+                // scenario gets at least one comparable headline number.
+                metric_samples
+                    .entry("wall_ms".to_string())
+                    .or_default()
+                    .push(wall_ms);
+                for (k, v) in metrics {
+                    metric_samples.entry(k).or_default().push(v);
+                }
             }
+            eprintln!(
+                "  iter {:>3}{} wall={:.1}ms",
+                i,
+                if warmup { " (warmup)" } else { "         " },
+                wall_ms
+            );
+            report.samples.push(sample);
         }
-        eprintln!(
-            "  iter {:>3}{} wall={:.1}ms",
-            i,
-            if warmup { " (warmup)" } else { "         " },
-            wall_ms
-        );
-        report.samples.push(sample);
+        Ok(())
     }
+    .await;
+
+    // Best-effort teardown: warnings only, don't mask the real error.
+    let teardown_ctx = TeardownContext { global };
+    if let Err(e) = scenario.teardown(&teardown_ctx).await {
+        eprintln!(
+            "⚠️  teardown for scenario {scenario_name:?} failed (resources may have leaked): {e:#}"
+        );
+    }
+
+    // Surface any iteration error AFTER teardown so the caller sees
+    // the iteration failure (which is what they care about) instead
+    // of the teardown warning.
+    iter_result?;
 
     report.warmup_count = args.warmup;
     report.sample_count = args.runs - args.warmup;

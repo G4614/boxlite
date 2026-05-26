@@ -26,7 +26,7 @@
 //! Reports: same shape as `throughput-net-iperf3` (`iperf3_*`)
 //! but prefixed `egress_` to distinguish.
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{BoxGuard, alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -49,6 +49,10 @@ const SERVER_READY_WAIT: Duration = Duration::from_millis(500);
 pub struct NetIperf3Egress {
     home: Option<TempDir>,
     iperf3_installed: bool,
+    /// Track host ports we've spawned `iperf3 -s -D` daemons on so
+    /// teardown can pkill any lingerers if the `-1` self-exit didn't
+    /// fire (in-box client errored mid-handshake, etc.).
+    daemon_ports: Vec<u16>,
 }
 
 impl NetIperf3Egress {
@@ -56,6 +60,7 @@ impl NetIperf3Egress {
         Self {
             home: None,
             iperf3_installed: false,
+            daemon_ports: Vec::new(),
         }
     }
 }
@@ -118,6 +123,9 @@ impl Scenario for NetIperf3Egress {
                 server_start.code()
             );
         }
+        // Stash the port so teardown can pkill the daemon if `-1`
+        // didn't get a clean client (the failure-path leak).
+        self.daemon_ports.push(host_port);
 
         let live = rt
             .create(alpine_options(), None)
@@ -201,6 +209,21 @@ impl Scenario for NetIperf3Egress {
         live.stop().await.context("box.stop()")?;
         guard.disarm();
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, _ctx: &TeardownContext<'_>) -> Result<()> {
+        // `iperf3 -s -D -1` self-exits after one client session. The
+        // leak path is when the in-box client errors mid-handshake
+        // and the daemon never gets a clean disconnect — it then
+        // waits forever. Match by `-p <port>` since iperf3's process
+        // name is just "iperf3" and `pgrep` sees the full argv.
+        for port in self.daemon_ports.drain(..) {
+            let pattern = format!("iperf3 .*-p {port}");
+            let _ = std::process::Command::new("pkill")
+                .args(["-f", &pattern])
+                .status();
+        }
+        Ok(())
     }
 }
 

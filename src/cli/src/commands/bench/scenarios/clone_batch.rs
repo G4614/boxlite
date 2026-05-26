@@ -9,7 +9,7 @@
 //! number `clone_batch_per_clone_ms` should be MUCH smaller than
 //! `latency-clone` — that's the entire point of the batch API.
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -125,5 +125,14 @@ impl Scenario for CloneBatch {
         metrics.insert("clone_batch_ms".into(), batch_ms);
         metrics.insert("clone_batch_per_clone_ms".into(), batch_ms / N as f64);
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let (Some(home), Some(src_id)) = (self.home.as_ref(), self.source_id.as_ref()) else {
+            return Ok(());
+        };
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        let _ = rt.remove(src_id, true).await;
+        Ok(())
     }
 }

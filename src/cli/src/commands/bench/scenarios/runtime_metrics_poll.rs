@@ -11,7 +11,7 @@
 //! then poll `rt.metrics()` 500 times in a tight loop. Reports
 //! mean / p50 / p99 / max in microseconds.
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -98,5 +98,28 @@ impl Scenario for RuntimeMetricsPoll {
         metrics.insert("rt_metrics_p99_us".into(), nearest_rank(&sorted, 99));
         metrics.insert("rt_metrics_max_us".into(), max);
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let Some(home) = self.home.as_ref() else {
+            return Ok(());
+        };
+        if self.boxes.is_empty() {
+            return Ok(());
+        }
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        // Capture IDs before draining handles so we can remove from
+        // the DB after `live.stop()` has wound down each VM. Drop
+        // the LiteBox handles first so their internal Arc state
+        // unwinds before we call `rt.remove` against the same id.
+        let ids: Vec<String> = self.boxes.iter().map(|b| b.id().to_string()).collect();
+        let boxes = std::mem::take(&mut self.boxes);
+        for b in boxes {
+            let _ = b.stop().await;
+        }
+        for id in ids {
+            let _ = rt.remove(&id, true).await;
+        }
+        Ok(())
     }
 }

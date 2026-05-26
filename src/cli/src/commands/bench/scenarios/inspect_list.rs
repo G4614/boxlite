@@ -13,7 +13,7 @@
 //!     across all N boxes.
 //!   * `get_info_max_ms` — slowest `get_info` (tail).
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -97,5 +97,20 @@ impl Scenario for InspectList {
         metrics.insert("get_info_max_ms".into(), max);
         metrics.insert("get_info_samples_count".into(), times.len() as f64);
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let Some(home) = self.home.as_ref() else {
+            return Ok(());
+        };
+        if self.box_ids.is_empty() {
+            return Ok(());
+        }
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        // 20 created-but-never-started boxes; remove each.
+        for id in self.box_ids.drain(..) {
+            let _ = rt.remove(&id, true).await;
+        }
+        Ok(())
     }
 }

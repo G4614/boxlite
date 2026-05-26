@@ -22,7 +22,7 @@
 //!     would show monotone growth past the small per-snap header
 //!     cost.
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -164,5 +164,15 @@ impl Scenario for SnapshotLoop {
             cow_after as f64 - cow_before as f64,
         );
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let (Some(home), Some(src_id)) = (self.home.as_ref(), self.source_id.as_ref()) else {
+            return Ok(());
+        };
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        // 20 snapshots accumulate per iter; force-remove cascades.
+        let _ = rt.remove(src_id, true).await;
+        Ok(())
     }
 }

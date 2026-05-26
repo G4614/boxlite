@@ -19,7 +19,7 @@
 //!   * `dedup_hit_mean_us`, `dedup_hit_max_us` — hot-loop stats.
 //!     Floor number for "how cheap is name→box resolution".
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -96,5 +96,17 @@ impl Scenario for DedupLookup {
         metrics.insert("dedup_hit_mean_us".into(), mean);
         metrics.insert("dedup_hit_max_us".into(), max);
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let Some(home) = self.home.as_ref() else {
+            return Ok(());
+        };
+        let Some(name) = self.materialized_name.as_ref() else {
+            return Ok(());
+        };
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        let _ = rt.remove(name, true).await;
+        Ok(())
     }
 }

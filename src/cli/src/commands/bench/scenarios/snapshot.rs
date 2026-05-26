@@ -22,7 +22,7 @@
 //!   * `snapshot_create_ms` — `.create()` wall.
 //!   * `snapshot_restore_ms` — `.restore()` wall.
 
-use super::super::runner::{RunContext, Scenario};
+use super::super::runner::{RunContext, Scenario, TeardownContext};
 use super::common::{alpine_options, build_runtime};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -134,5 +134,18 @@ impl Scenario for Snapshot {
         metrics.insert("snapshot_create_ms".into(), create_ms);
         metrics.insert("snapshot_restore_ms".into(), restore_ms);
         Ok(metrics)
+    }
+
+    async fn teardown(&mut self, ctx: &TeardownContext<'_>) -> Result<()> {
+        let (Some(home), Some(src_id)) = (self.home.as_ref(), self.source_id.as_ref()) else {
+            return Ok(());
+        };
+        let rt = build_runtime(ctx.global, home.path().to_path_buf())?;
+        // Force-remove cascades the accumulated snapshots (created
+        // per iteration; left behind because the qcow2 dep
+        // invariant prevents removing them while the source's
+        // current disk depends on them).
+        let _ = rt.remove(src_id, true).await;
+        Ok(())
     }
 }
