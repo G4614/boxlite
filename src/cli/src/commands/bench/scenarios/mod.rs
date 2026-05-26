@@ -20,10 +20,13 @@ pub mod disk_read;
 pub mod dns_latency;
 pub mod exec_loop;
 pub mod exec_parallel;
+pub mod healthcheck_overhead;
 pub mod image_pull_cached;
 pub mod inspect_list;
 pub mod latency;
+pub mod latency_big_image;
 pub mod latency_jailed;
+pub mod latency_no_net;
 pub mod lifecycle;
 pub mod lifecycle_import;
 pub mod many_ports;
@@ -37,6 +40,8 @@ pub mod net_udp;
 pub mod resource;
 pub mod resource_density;
 pub mod resource_load;
+pub mod rest_cold_start;
+pub mod rest_metrics_rps;
 pub mod restart_loop;
 pub mod runtime_metrics_poll;
 pub mod runtime_shutdown;
@@ -49,6 +54,7 @@ pub mod stability;
 pub mod throughput;
 pub mod virtiofs;
 pub mod volumes_multi;
+pub mod ws_exec;
 
 /// One row in `boxlite bench list`. The registry is intentionally
 /// static-data (vs. a `Box<dyn Fn>` table) so listing has zero
@@ -379,6 +385,50 @@ pub fn registry() -> &'static [ScenarioEntry] {
                  chain-depth scaling. Removes deliberately omitted \
                  — see scenario file header for the dep invariant.",
         },
+        ScenarioEntry {
+            name: "latency-cold-start-no-net",
+            description: "Cold-start with `NetworkSpec::Disabled` — \
+                 gvproxy is not started and the guest gets no eth0. \
+                 Delta against `latency-cold-start` = gvproxy boot \
+                 cost; compute-only workloads can shave that off.",
+        },
+        ScenarioEntry {
+            name: "latency-cold-start-big-image",
+            description: "Cold-start with `python:3.12-alpine` (~50MB, \
+                 multi-layer). Stresses the layer-tarball-extraction \
+                 and qcow2-base-build paths at non-trivial scale. \
+                 Delta vs `latency-cold-start` (alpine ~3MB) reveals \
+                 size-dependent stage scaling.",
+        },
+        ScenarioEntry {
+            name: "resource-healthcheck-overhead",
+            description: "Box with `HealthCheckOptions` at 500ms \
+                 interval; sample CPU%/RSS over 10s. Delta vs \
+                 `resource-idle` (no healthcheck) = the healthcheck \
+                 ping cost; extrapolate × (real interval / 500ms) \
+                 for production tuning.",
+        },
+        ScenarioEntry {
+            name: "latency-rest-cold-start",
+            description: "Cold-start over the REST API: spawn \
+                 `boxlite serve` child, build `BoxliteRuntime::rest`, \
+                 measure end-to-end create+start through HTTP. \
+                 Delta vs `latency-cold-start` = REST overhead.",
+        },
+        ScenarioEntry {
+            name: "latency-ws-exec",
+            description: "100 echoes through `LiteBox::exec` over the \
+                 REST/WebSocket exec channel. Per-exec mean/p50/p99/\
+                 max ms. Delta vs `stability-exec-loop` (in-process) \
+                 = REST + tungstenite + axum framing tax.",
+        },
+        ScenarioEntry {
+            name: "throughput-rest-metrics-rps",
+            description: "`GET /v1/metrics` RPS via reqwest hammer × \
+                 16 workers × 5s. Caps how dense Prometheus scrape \
+                 intervals can be before serve becomes the \
+                 bottleneck.",
+        },
     ]
 }
 
@@ -437,6 +487,16 @@ pub fn build_by_name(name: &str) -> Option<Box<dyn Scenario>> {
         "stability-exec-parallel" => Some(Box::new(exec_parallel::ExecParallel::new())),
         "stability-restart-loop" => Some(Box::new(restart_loop::RestartLoop::new())),
         "stability-snapshot-loop" => Some(Box::new(snapshot_loop::SnapshotLoop::new())),
+        "latency-cold-start-no-net" => Some(Box::new(latency_no_net::LatencyColdStartNoNet::new())),
+        "latency-cold-start-big-image" => {
+            Some(Box::new(latency_big_image::LatencyColdStartBigImage::new()))
+        }
+        "resource-healthcheck-overhead" => {
+            Some(Box::new(healthcheck_overhead::HealthcheckOverhead::new()))
+        }
+        "latency-rest-cold-start" => Some(Box::new(rest_cold_start::RestColdStart::new())),
+        "latency-ws-exec" => Some(Box::new(ws_exec::WsExec::new())),
+        "throughput-rest-metrics-rps" => Some(Box::new(rest_metrics_rps::RestMetricsRps::new())),
         _ => None,
     }
 }

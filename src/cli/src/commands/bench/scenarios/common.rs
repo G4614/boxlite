@@ -85,3 +85,90 @@ impl Drop for BoxGuard<'_> {
         });
     }
 }
+
+/// Spawned `boxlite serve` child + the URL to talk to it. Kept in
+/// one struct so REST/WS scenarios don't each re-write the
+/// probe-port → spawn → poll-ready dance, and so `kill_on_drop`
+/// fires once the struct goes out of scope.
+pub struct ServeChild {
+    pub url: String,
+    pub _home: tempfile::TempDir,
+    pub child: tokio::process::Child,
+}
+
+impl ServeChild {
+    /// Probe a free port, spawn `boxlite serve` against a fresh
+    /// `TempDir` home, and block until `/v1/config` answers 200.
+    /// `boxlite-cli` re-execs its own binary, so the parent's build
+    /// is what the child runs (any code change here goes live).
+    ///
+    /// `extra_registries` are forwarded as `--registry` flags before
+    /// the `serve` subcommand so the child can pull images through
+    /// the same mirrors the parent was given (otherwise the child
+    /// hits docker.io directly and is rate-limited fast under sweep
+    /// load).
+    pub async fn spawn(home_label: &str, extra_registries: &[String]) -> Result<Self> {
+        use std::net::TcpListener as StdTcpListener;
+        use std::process::Stdio;
+        use std::time::{Duration, Instant};
+        use tokio::process::Command;
+
+        let port = {
+            let probe = StdTcpListener::bind(("127.0.0.1", 0))
+                .with_context(|| format!("probe free port for {home_label}"))?;
+            probe
+                .local_addr()
+                .map(|a| a.port())
+                .context("read probed addr")?
+        };
+        let home =
+            tempfile::TempDir::new().with_context(|| format!("mkdir {home_label} child home"))?;
+        let bin = std::env::current_exe().context("locate current boxlite binary")?;
+        let mut cmd = Command::new(&bin);
+        cmd.arg("--home").arg(home.path());
+        for r in extra_registries {
+            cmd.arg("--registry").arg(r);
+        }
+        let child = cmd
+            .args(["serve", "--host", "127.0.0.1", "--port", &port.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .context("spawn boxlite serve child")?;
+
+        let url = format!("http://127.0.0.1:{port}");
+        let probe_url = format!("{url}/v1/config");
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .context("build reqwest client (serve ready probe)")?;
+        let ready_at = Instant::now() + Duration::from_secs(15);
+        loop {
+            if Instant::now() > ready_at {
+                anyhow::bail!("boxlite serve did not answer /v1/config within 15s on {url}");
+            }
+            if let Ok(r) = client.get(&probe_url).send().await
+                && r.status().is_success()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        Ok(Self {
+            url,
+            _home: home,
+            child,
+        })
+    }
+}
+
+impl Drop for ServeChild {
+    fn drop(&mut self) {
+        // `kill_on_drop(true)` on the Command builder does most of the
+        // work, but explicit start_kill makes the intent obvious and
+        // surfaces faster than waiting for tokio's destructor walk.
+        let _ = self.child.start_kill();
+    }
+}
