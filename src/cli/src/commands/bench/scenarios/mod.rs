@@ -17,6 +17,11 @@ pub mod inspect_list;
 pub mod latency;
 pub mod latency_jailed;
 pub mod lifecycle;
+pub mod multi_vcpu;
+pub mod resource;
+pub mod resource_density;
+pub mod resource_load;
+pub mod runtime_metrics_poll;
 pub mod runtime_shutdown;
 pub mod snapshot;
 
@@ -109,6 +114,46 @@ pub fn registry() -> &'static [ScenarioEntry] {
                  `latency-clone` because both share the source-box \
                  staging helper in `lifecycle.rs`.",
         },
+        ScenarioEntry {
+            name: "resource-idle",
+            description: "Idle alpine box footprint — RSS, COW disk \
+                 bytes actually materialized, and CPU% sampled after \
+                 a 3 s settle. Shared `--home` across iterations for \
+                 steady-state numbers.",
+        },
+        ScenarioEntry {
+            name: "resource-cpu-load",
+            description: "Peg one vCPU at 100% via `stress-ng --cpu 1 \
+                 --timeout 10s` in-box; sample RSS + CPU% every 2 s \
+                 during the load. Catches libkrun-shim RSS growth \
+                 that an idle scenario wouldn't see.",
+        },
+        ScenarioEntry {
+            name: "resource-mem-pressure",
+            description: "Box capped at 256 MiB, in-box `stress-ng \
+                 --vm 1 --vm-bytes 200m --vm-keep` to test the cgroup \
+                 ceiling. Reports peak RSS observed + stress-ng exit \
+                 code (0 = clean, non-zero = OOM-kill).",
+        },
+        ScenarioEntry {
+            name: "resource-density-10-idle",
+            description: "10 idle alpine boxes coexisting; sums RSS + \
+                 COW disk + host fd delta. Steady-state coexistence \
+                 cost, distinct from density-parallel-10 (which \
+                 measures concurrent spawn latency).",
+        },
+        ScenarioEntry {
+            name: "resource-multi-vcpu-load",
+            description: "Box with 4 vCPUs all saturated by stress-ng. \
+                 Tests libkrun's vCPU thread mapping + multi-core \
+                 KVM exit handling.",
+        },
+        ScenarioEntry {
+            name: "resource-runtime-metrics-poll",
+            description: "`rt.metrics()` poll cost at N=10 running \
+                 boxes. 500 samples per iteration; mean/p50/p99/max \
+                 in µs. Floor number for Prometheus scrape overhead.",
+        },
     ]
 }
 
@@ -130,6 +175,14 @@ pub fn build_by_name(name: &str) -> Option<Box<dyn Scenario>> {
         "latency-image-pull-cached" => Some(Box::new(image_pull_cached::ImagePullCached::new())),
         "latency-runtime-shutdown" => Some(Box::new(runtime_shutdown::RuntimeShutdown::new())),
         "throughput-export" => Some(Box::new(lifecycle::ThroughputExport::new())),
+        "resource-idle" => Some(Box::new(resource::ResourceIdle::new())),
+        "resource-cpu-load" => Some(Box::new(resource_load::CpuLoad::new())),
+        "resource-mem-pressure" => Some(Box::new(resource_load::MemPressure::new())),
+        "resource-density-10-idle" => Some(Box::new(resource_density::DensityIdle::new())),
+        "resource-multi-vcpu-load" => Some(Box::new(multi_vcpu::MultiVcpu::new())),
+        "resource-runtime-metrics-poll" => {
+            Some(Box::new(runtime_metrics_poll::RuntimeMetricsPoll::new()))
+        }
         _ => None,
     }
 }
