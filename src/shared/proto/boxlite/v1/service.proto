@@ -208,6 +208,8 @@ message ContainerInitRequest {
   // Additional CA certificates to install in the container trust store.
   // Used for MITM secret substitution — the container trusts the proxy CA.
   repeated CACert ca_certs = 5;
+  // Additional Linux capabilities (e.g. "SYS_ADMIN", "NET_ADMIN", "ALL").
+  repeated string added_caps = 6;
 }
 
 // A CA certificate to add to the container's trust store.
