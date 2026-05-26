@@ -130,16 +130,28 @@ impl Scenario for ColdStart {
 // ─── warm-start ────────────────────────────────────────────────────
 
 /// One home across all iterations. The first iteration pays the
-/// image-pull + base-disk-build + guest-rootfs-bootstrap cost
-/// (typically hidden behind `--warmup`); subsequent iterations are
-/// steady-state second-box-onwards numbers.
+/// image-pull + base-disk-build + guest-rootfs-bootstrap cost;
+/// subsequent iterations are steady-state second-box-onwards numbers.
+///
+/// To make the scenario produce meaningful numbers even at
+/// `--runs 1 --warmup 0` (sweep-style single-sample mode), the
+/// first `run_once` call does a hidden pre-warm box cycle to
+/// populate the shared home, then runs the measured cycle. From the
+/// second call onward there's no pre-warm — the home is already
+/// warm. This is invisible to the runner's `--warmup` knob; if a
+/// caller wants explicit warmup-drop on top, those iterations are
+/// just additional warm cycles, harmless.
 pub struct WarmStart {
     home: Option<TempDir>,
+    prewarmed: bool,
 }
 
 impl WarmStart {
     pub fn new() -> Self {
-        Self { home: None }
+        Self {
+            home: None,
+            prewarmed: false,
+        }
     }
 }
 
@@ -164,6 +176,19 @@ impl Scenario for WarmStart {
             .path()
             .to_path_buf();
         let rt = build_runtime(ctx.global, home_path)?;
+
+        // First call: do a hidden pre-warm cycle so the image,
+        // base disk, and guest rootfs are all on disk before the
+        // measured cycle runs. Without this, `--runs 1 --warmup 0`
+        // would report cold-start numbers under the warm-start
+        // label (`stage_image_prepare_ms` ≈ pull-cost, etc.).
+        // We don't expose the pre-warm timings — they're just to
+        // change state, not to report.
+        if !self.prewarmed {
+            let _ = drive_one(&rt).await.context("warm-start pre-warm cycle")?;
+            self.prewarmed = true;
+        }
+
         drive_one(&rt).await
     }
 }
