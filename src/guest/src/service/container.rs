@@ -295,6 +295,8 @@ impl ContainerService for GuestServer {
             &config.user,
             user_mounts,
             config.tty,
+            init_req.added_caps,
+            config.tty,
         ) {
             Ok(mut container) => {
                 // Init is created, not yet running — Init never runs it; the

@@ -425,6 +425,12 @@ pub struct BoxOptions {
     /// guest; the real value never enters the VM.
     #[serde(default)]
     pub secrets: Vec<Secret>,
+
+    /// Additional Linux capabilities to grant the container.
+    /// e.g. `["SYS_ADMIN", "NET_ADMIN"]`. Merged with the default
+    /// OCI capability set. "ALL" grants every capability.
+    #[serde(default)]
+    pub added_caps: Vec<String>,
 }
 
 /// A secret for MITM proxy injection.
@@ -531,6 +537,7 @@ impl Default for BoxOptions {
             user: None,
             tty: false,
             secrets: Vec::new(),
+            added_caps: Vec::new(),
         }
     }
 }

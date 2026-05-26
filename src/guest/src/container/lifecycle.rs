@@ -106,6 +106,7 @@ impl Container {
         user: &str,
         user_mounts: Vec<UserMount>,
         tty: bool,
+        added_caps: Vec<String>,
     ) -> BoxliteResult<Self> {
         let rootfs = rootfs.as_ref();
         let workdir = workdir.as_ref();
@@ -180,6 +181,8 @@ impl Container {
             gid,
             &layout.containers_dir(),
             &user_mounts,
+            tty,
+            &added_caps,
             tty,
         )?;
 

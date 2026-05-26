@@ -227,6 +227,8 @@ message ContainerInitRequest {
   // guest registers what it is handed, rather than both sides separately
   // hard-coding the id==container_id rule on their own side of the wire.
   string execution_id = 6;
+  // Additional Linux capabilities (e.g. "SYS_ADMIN", "NET_ADMIN", "ALL").
+  repeated string added_caps = 7;
 }
 
 message ContainerStartRequest {

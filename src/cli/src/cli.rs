@@ -779,6 +779,11 @@ pub struct ManagementFlags {
     /// off (master switch + all sub-protections) when debugging.
     #[arg(long, env = "BOXLITE_SECURITY")]
     pub security: Option<String>,
+
+    /// Add a Linux capability. Repeatable. Use "ALL" for every cap.
+    /// e.g. --cap-add SYS_ADMIN --cap-add NET_ADMIN
+    #[arg(long = "cap-add", value_name = "CAP")]
+    pub cap_add: Vec<String>,
 }
 
 impl ManagementFlags {
@@ -792,6 +797,9 @@ impl ManagementFlags {
             // CLI exit so the operator sees the offending value.
             opts.advanced.security =
                 boxlite::SecurityOptions::from_preset(preset).map_err(anyhow::Error::from)?;
+        }
+        if !self.cap_add.is_empty() {
+            opts.added_caps = self.cap_add.iter().map(|c| c.to_uppercase()).collect();
         }
         Ok(())
     }
@@ -1133,6 +1141,45 @@ mod tests {
             .expect("no-op apply");
 
         assert_eq!(opts.entrypoint, None);
+    }
+
+    #[test]
+    fn cap_add_propagates_to_options() {
+        let flags = ManagementFlags {
+            name: None,
+            detach: false,
+            rm: false,
+            cap_add: vec!["sys_admin".to_string(), "net_admin".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert_eq!(opts.added_caps, vec!["SYS_ADMIN", "NET_ADMIN"]);
+    }
+
+    #[test]
+    fn cap_add_all_propagates() {
+        let flags = ManagementFlags {
+            name: None,
+            detach: false,
+            rm: false,
+            cap_add: vec!["all".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert_eq!(opts.added_caps, vec!["ALL"]);
+    }
+
+    #[test]
+    fn no_cap_add_leaves_empty() {
+        let flags = ManagementFlags {
+            name: None,
+            detach: false,
+            rm: false,
+            cap_add: vec![],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(opts.added_caps.is_empty());
     }
 
     #[test]
