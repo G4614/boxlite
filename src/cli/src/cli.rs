@@ -101,6 +101,9 @@ pub enum Commands {
     /// Authenticate with a remote BoxLite server
     Auth(crate::commands::auth::AuthArgs),
 
+    /// Run runtime performance benchmarks
+    Bench(crate::commands::bench::BenchArgs),
+
     /// Generate shell completion script (hidden from help)
     #[command(hide = true)]
     Completion(CompletionArgs),

@@ -178,6 +178,22 @@ Available for all commands:
 | `--profile NAME` | Named credential profile in `~/.boxlite/credentials.toml`. Lets one machine hold separate logins (e.g. `local` for `boxlite serve`, `cloud` for a remote control plane). Default `default`. Env: `BOXLITE_PROFILE`. |
 | `--path-prefix VALUE` | Routing-slot value for the URL path (`/v1/<prefix>/boxes/...`). Opaque — the server decides what it means (organization, workspace, catalog, …). Captured automatically at `auth login` time from `Principal.path_prefix`. This flag overrides the stored profile's value for credentials with scope over multiple routing values. Unset / empty → URL skips the segment (`/v1/boxes/...`), the canonical shape for single-tenant deployments like `boxlite serve`. Env: `BOXLITE_REST_PATH_PREFIX`. |
 
+### `boxlite bench`
+
+Runtime performance harness — measures latency / resource cost / density /
+throughput / stability across 44 scenarios, emits versioned JSON reports,
+and gates against a baseline. See
+[`src/commands/bench/README.md`](src/commands/bench/README.md) for the full
+scenario catalog, JSON schema, and comparison semantics.
+
+Common usage:
+
+```
+boxlite bench list                            # show scenarios
+boxlite bench run latency-warm-start --runs 10 --warmup 1 --out warm.json
+boxlite bench compare baseline.json current.json --threshold 0.20
+```
+
 ### `boxlite auth login`
 
 Log in to a BoxLite REST server. Supports three flows that all save to
