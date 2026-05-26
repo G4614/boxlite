@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0",
+  "scenario": "latency-snapshot",
+  "metadata": {
+    "started_at": "2026-05-26T05:55:45.857626984+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 17498.307496999998,
+      "metrics": {
+        "snapshot_create_ms": 3.3962309999999998,
+        "snapshot_restore_ms": 2.153728
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "snapshot_create_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 3.3962309999999998,
+      "p50": 3.3962309999999998,
+      "p90": 3.3962309999999998,
+      "p99": 3.3962309999999998,
+      "max": 3.3962309999999998,
+      "mean": 3.3962309999999998,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "snapshot_restore_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 2.153728,
+      "p50": 2.153728,
+      "p90": 2.153728,
+      "p99": 2.153728,
+      "max": 2.153728,
+      "mean": 2.153728,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 17498.307496999998,
+      "p50": 17498.307496999998,
+      "p90": 17498.307496999998,
+      "p99": 17498.307496999998,
+      "max": 17498.307496999998,
+      "mean": 17498.307496999998,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

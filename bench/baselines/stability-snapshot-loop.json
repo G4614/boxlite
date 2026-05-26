@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0",
+  "scenario": "stability-snapshot-loop",
+  "metadata": {
+    "started_at": "2026-05-26T06:13:25.638778679+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 19070.248063000003,
+      "metrics": {
+        "snap_loop_cow_growth_bytes": -524288.0,
+        "snap_loop_create_max_ms": 4.634361,
+        "snap_loop_create_mean_ms": 4.028511849999999,
+        "snap_loop_cycles": 20.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "snap_loop_cow_growth_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": -524288.0,
+      "p50": -524288.0,
+      "p90": -524288.0,
+      "p99": -524288.0,
+      "max": -524288.0,
+      "mean": -524288.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "snap_loop_create_max_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 4.634361,
+      "p50": 4.634361,
+      "p90": 4.634361,
+      "p99": 4.634361,
+      "max": 4.634361,
+      "mean": 4.634361,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "snap_loop_create_mean_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 4.028511849999999,
+      "p50": 4.028511849999999,
+      "p90": 4.028511849999999,
+      "p99": 4.028511849999999,
+      "max": 4.028511849999999,
+      "mean": 4.028511849999999,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "snap_loop_cycles",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 20.0,
+      "p50": 20.0,
+      "p90": 20.0,
+      "p99": 20.0,
+      "max": 20.0,
+      "mean": 20.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 19070.248063000003,
+      "p50": 19070.248063000003,
+      "p90": 19070.248063000003,
+      "p99": 19070.248063000003,
+      "max": 19070.248063000003,
+      "mean": 19070.248063000003,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

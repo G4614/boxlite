@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-image-pull",
+  "metadata": {
+    "started_at": "2026-05-26T06:00:38.332086428+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 5932.362260999999,
+      "metrics": {
+        "pull_mb_per_sec": 0.6263607208435229,
+        "pull_wall_ms": 5883.475257,
+        "pulled_bytes": 3864189.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "pull_mb_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 0.6263607208435229,
+      "p50": 0.6263607208435229,
+      "p90": 0.6263607208435229,
+      "p99": 0.6263607208435229,
+      "max": 0.6263607208435229,
+      "mean": 0.6263607208435229,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "pull_wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 5883.475257,
+      "p50": 5883.475257,
+      "p90": 5883.475257,
+      "p99": 5883.475257,
+      "max": 5883.475257,
+      "mean": 5883.475257,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "pulled_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 3864189.0,
+      "p50": 3864189.0,
+      "p90": 3864189.0,
+      "p99": 3864189.0,
+      "max": 3864189.0,
+      "mean": 3864189.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 5932.362260999999,
+      "p50": 5932.362260999999,
+      "p90": 5932.362260999999,
+      "p99": 5932.362260999999,
+      "max": 5932.362260999999,
+      "mean": 5932.362260999999,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

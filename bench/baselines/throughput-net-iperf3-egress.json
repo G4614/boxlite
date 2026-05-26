@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-net-iperf3-egress",
+  "metadata": {
+    "started_at": "2026-05-26T06:03:47.350168392+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 37838.548128,
+      "metrics": {
+        "egress_iperf3_bits_per_sec": 8930304373.80977,
+        "egress_iperf3_duration_secs": 5.004813,
+        "egress_iperf3_retransmits_count": 0.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "egress_iperf3_bits_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 8930304373.80977,
+      "p50": 8930304373.80977,
+      "p90": 8930304373.80977,
+      "p99": 8930304373.80977,
+      "max": 8930304373.80977,
+      "mean": 8930304373.80977,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "egress_iperf3_duration_secs",
+      "unit": "secs",
+      "higher_is_better": false,
+      "min": 5.004813,
+      "p50": 5.004813,
+      "p90": 5.004813,
+      "p99": 5.004813,
+      "max": 5.004813,
+      "mean": 5.004813,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "egress_iperf3_retransmits_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 37838.548128,
+      "p50": 37838.548128,
+      "p90": 37838.548128,
+      "p99": 37838.548128,
+      "max": 37838.548128,
+      "mean": 37838.548128,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

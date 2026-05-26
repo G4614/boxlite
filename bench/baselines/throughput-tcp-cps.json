@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-tcp-cps",
+  "metadata": {
+    "started_at": "2026-05-26T06:04:58.230651742+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 22588.428164,
+      "metrics": {
+        "tcp_cps_count_per_sec": 6888.993935389006,
+        "tcp_cps_errors_count": 0.0,
+        "tcp_cps_total_count": 20667.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "tcp_cps_count_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 6888.993935389006,
+      "p50": 6888.993935389006,
+      "p90": 6888.993935389006,
+      "p99": 6888.993935389006,
+      "max": 6888.993935389006,
+      "mean": 6888.993935389006,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "tcp_cps_errors_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "tcp_cps_total_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 20667.0,
+      "p50": 20667.0,
+      "p90": 20667.0,
+      "p99": 20667.0,
+      "max": 20667.0,
+      "mean": 20667.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 22588.428164,
+      "p50": 22588.428164,
+      "p90": 22588.428164,
+      "p99": 22588.428164,
+      "max": 22588.428164,
+      "mean": 22588.428164,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

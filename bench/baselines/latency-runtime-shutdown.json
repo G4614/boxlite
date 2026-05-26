@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0",
+  "scenario": "latency-runtime-shutdown",
+  "metadata": {
+    "started_at": "2026-05-26T05:56:09.691738074+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 19425.765893,
+      "metrics": {
+        "shutdown_ms": 2196.133614,
+        "shutdown_n_boxes": 3.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "shutdown_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 2196.133614,
+      "p50": 2196.133614,
+      "p90": 2196.133614,
+      "p99": 2196.133614,
+      "max": 2196.133614,
+      "mean": 2196.133614,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "shutdown_n_boxes",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 3.0,
+      "p50": 3.0,
+      "p90": 3.0,
+      "p99": 3.0,
+      "max": 3.0,
+      "mean": 3.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 19425.765893,
+      "p50": 19425.765893,
+      "p90": 19425.765893,
+      "p99": 19425.765893,
+      "max": 19425.765893,
+      "mean": 19425.765893,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

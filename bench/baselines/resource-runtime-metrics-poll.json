@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0",
+  "scenario": "resource-runtime-metrics-poll",
+  "metadata": {
+    "started_at": "2026-05-26T05:59:43.274919817+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 28210.687219,
+      "metrics": {
+        "rt_metrics_max_us": 14.206999999999999,
+        "rt_metrics_mean_us": 0.22408399999999945,
+        "rt_metrics_p50_us": 0.19399999999999998,
+        "rt_metrics_p99_us": 0.27799999999999997,
+        "rt_metrics_polls": 500.0,
+        "rt_metrics_population": 10.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "rt_metrics_max_us",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 14.206999999999999,
+      "p50": 14.206999999999999,
+      "p90": 14.206999999999999,
+      "p99": 14.206999999999999,
+      "max": 14.206999999999999,
+      "mean": 14.206999999999999,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "rt_metrics_mean_us",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 0.22408399999999945,
+      "p50": 0.22408399999999945,
+      "p90": 0.22408399999999945,
+      "p99": 0.22408399999999945,
+      "max": 0.22408399999999945,
+      "mean": 0.22408399999999945,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "rt_metrics_p50_us",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 0.19399999999999998,
+      "p50": 0.19399999999999998,
+      "p90": 0.19399999999999998,
+      "p99": 0.19399999999999998,
+      "max": 0.19399999999999998,
+      "mean": 0.19399999999999998,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "rt_metrics_p99_us",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 0.27799999999999997,
+      "p50": 0.27799999999999997,
+      "p90": 0.27799999999999997,
+      "p99": 0.27799999999999997,
+      "max": 0.27799999999999997,
+      "mean": 0.27799999999999997,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "rt_metrics_polls",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 500.0,
+      "p50": 500.0,
+      "p90": 500.0,
+      "p99": 500.0,
+      "max": 500.0,
+      "mean": 500.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "rt_metrics_population",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 10.0,
+      "p50": 10.0,
+      "p90": 10.0,
+      "p99": 10.0,
+      "max": 10.0,
+      "mean": 10.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 28210.687219,
+      "p50": 28210.687219,
+      "p90": 28210.687219,
+      "p99": 28210.687219,
+      "max": 28210.687219,
+      "mean": 28210.687219,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

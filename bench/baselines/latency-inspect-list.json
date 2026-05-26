@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "scenario": "latency-inspect-list",
+  "metadata": {
+    "started_at": "2026-05-26T05:56:03.466572222+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 85.693251,
+      "metrics": {
+        "get_info_max_ms": 0.24438599999999996,
+        "get_info_mean_ms": 0.09936324999999999,
+        "get_info_samples_count": 20.0,
+        "list_info_count": 20.0,
+        "list_info_ms": 1.188059
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "get_info_max_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 0.24438599999999996,
+      "p50": 0.24438599999999996,
+      "p90": 0.24438599999999996,
+      "p99": 0.24438599999999996,
+      "max": 0.24438599999999996,
+      "mean": 0.24438599999999996,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "get_info_mean_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 0.09936324999999999,
+      "p50": 0.09936324999999999,
+      "p90": 0.09936324999999999,
+      "p99": 0.09936324999999999,
+      "max": 0.09936324999999999,
+      "mean": 0.09936324999999999,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "get_info_samples_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 20.0,
+      "p50": 20.0,
+      "p90": 20.0,
+      "p99": 20.0,
+      "max": 20.0,
+      "mean": 20.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "list_info_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 20.0,
+      "p50": 20.0,
+      "p90": 20.0,
+      "p99": 20.0,
+      "max": 20.0,
+      "mean": 20.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "list_info_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 1.188059,
+      "p50": 1.188059,
+      "p90": 1.188059,
+      "p99": 1.188059,
+      "max": 1.188059,
+      "mean": 1.188059,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 85.693251,
+      "p50": 85.693251,
+      "p90": 85.693251,
+      "p99": 85.693251,
+      "max": 85.693251,
+      "mean": 85.693251,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

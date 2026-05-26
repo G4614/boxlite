@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-disk-fio",
+  "metadata": {
+    "started_at": "2026-05-26T06:01:24.945582505+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 34825.039101,
+      "metrics": {
+        "disk_fio_bw_kb_per_sec": 3488254.0,
+        "disk_fio_clat_p50_ns": 540.0,
+        "disk_fio_clat_p999_ns": 15424.0,
+        "disk_fio_clat_p99_ns": 844.0,
+        "disk_fio_iops_per_sec": 872063.6
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "disk_fio_bw_kb_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 3488254.0,
+      "p50": 3488254.0,
+      "p90": 3488254.0,
+      "p99": 3488254.0,
+      "max": 3488254.0,
+      "mean": 3488254.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_fio_clat_p50_ns",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 540.0,
+      "p50": 540.0,
+      "p90": 540.0,
+      "p99": 540.0,
+      "max": 540.0,
+      "mean": 540.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_fio_clat_p999_ns",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 15424.0,
+      "p50": 15424.0,
+      "p90": 15424.0,
+      "p99": 15424.0,
+      "max": 15424.0,
+      "mean": 15424.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_fio_clat_p99_ns",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 844.0,
+      "p50": 844.0,
+      "p90": 844.0,
+      "p99": 844.0,
+      "max": 844.0,
+      "mean": 844.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_fio_iops_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 872063.6,
+      "p50": 872063.6,
+      "p90": 872063.6,
+      "p99": 872063.6,
+      "max": 872063.6,
+      "mean": 872063.6,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 34825.039101,
+      "p50": 34825.039101,
+      "p90": 34825.039101,
+      "p99": 34825.039101,
+      "max": 34825.039101,
+      "mean": 34825.039101,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

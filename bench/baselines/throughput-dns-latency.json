@@ -1,0 +1,140 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-dns-latency",
+  "metadata": {
+    "started_at": "2026-05-26T06:05:20.931388224+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 18364.056901,
+      "metrics": {
+        "dns_external_failed_count": 0.0,
+        "dns_external_max_ms": 12.000568,
+        "dns_external_mean_ms": 8.832123050000002,
+        "dns_local_failed_count": 20.0,
+        "dns_local_max_ms": 0.0,
+        "dns_local_mean_ms": 0.0,
+        "dns_lookups_per_target_count": 20.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "dns_external_failed_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "dns_external_max_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 12.000568,
+      "p50": 12.000568,
+      "p90": 12.000568,
+      "p99": 12.000568,
+      "max": 12.000568,
+      "mean": 12.000568,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "dns_external_mean_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 8.832123050000002,
+      "p50": 8.832123050000002,
+      "p90": 8.832123050000002,
+      "p99": 8.832123050000002,
+      "max": 8.832123050000002,
+      "mean": 8.832123050000002,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "dns_local_failed_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 20.0,
+      "p50": 20.0,
+      "p90": 20.0,
+      "p99": 20.0,
+      "max": 20.0,
+      "mean": 20.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "dns_local_max_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "dns_local_mean_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "dns_lookups_per_target_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 20.0,
+      "p50": 20.0,
+      "p90": 20.0,
+      "p99": 20.0,
+      "max": 20.0,
+      "mean": 20.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 18364.056901,
+      "p50": 18364.056901,
+      "p90": 18364.056901,
+      "p99": 18364.056901,
+      "max": 18364.056901,
+      "mean": 18364.056901,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

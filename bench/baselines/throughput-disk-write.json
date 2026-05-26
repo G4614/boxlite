@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-disk-write",
+  "metadata": {
+    "started_at": "2026-05-26T06:00:44.311814825+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 20299.198416,
+      "metrics": {
+        "disk_write_bytes": 67108864.0,
+        "disk_write_mb_per_sec": 232.1,
+        "disk_write_wall_ms": 288.438324
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "disk_write_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 67108864.0,
+      "p50": 67108864.0,
+      "p90": 67108864.0,
+      "p99": 67108864.0,
+      "max": 67108864.0,
+      "mean": 67108864.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_write_mb_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 232.1,
+      "p50": 232.1,
+      "p90": 232.1,
+      "p99": 232.1,
+      "max": 232.1,
+      "mean": 232.1,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_write_wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 288.438324,
+      "p50": 288.438324,
+      "p90": 288.438324,
+      "p99": 288.438324,
+      "max": 288.438324,
+      "mean": 288.438324,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 20299.198416,
+      "p50": 20299.198416,
+      "p90": 20299.198416,
+      "p99": 20299.198416,
+      "max": 20299.198416,
+      "mean": 20299.198416,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

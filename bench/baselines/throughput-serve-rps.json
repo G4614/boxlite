@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-serve-rps",
+  "metadata": {
+    "started_at": "2026-05-26T06:05:39.407092221+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 5108.607609,
+      "metrics": {
+        "serve_concurrency": 16.0,
+        "serve_error_count": 0.0,
+        "serve_rps": 9612.929650800896,
+        "serve_success_count": 48083.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "serve_concurrency",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 16.0,
+      "p50": 16.0,
+      "p90": 16.0,
+      "p99": 16.0,
+      "max": 16.0,
+      "mean": 16.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "serve_error_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "serve_rps",
+      "unit": "rps",
+      "higher_is_better": true,
+      "min": 9612.929650800896,
+      "p50": 9612.929650800896,
+      "p90": 9612.929650800896,
+      "p99": 9612.929650800896,
+      "max": 9612.929650800896,
+      "mean": 9612.929650800896,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "serve_success_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 48083.0,
+      "p50": 48083.0,
+      "p90": 48083.0,
+      "p99": 48083.0,
+      "max": 48083.0,
+      "mean": 48083.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 5108.607609,
+      "p50": 5108.607609,
+      "p90": 5108.607609,
+      "p99": 5108.607609,
+      "max": 5108.607609,
+      "mean": 5108.607609,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

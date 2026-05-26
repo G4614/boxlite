@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-disk-fio-read",
+  "metadata": {
+    "started_at": "2026-05-26T06:01:59.872811570+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 30352.315666,
+      "metrics": {
+        "disk_read_fio_bw_kb_per_sec": 4851043.0,
+        "disk_read_fio_clat_p50_ns": 490.0,
+        "disk_read_fio_clat_p999_ns": 2960.0,
+        "disk_read_fio_clat_p99_ns": 836.0,
+        "disk_read_fio_iops_per_sec": 1212760.923908
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "disk_read_fio_bw_kb_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 4851043.0,
+      "p50": 4851043.0,
+      "p90": 4851043.0,
+      "p99": 4851043.0,
+      "max": 4851043.0,
+      "mean": 4851043.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_read_fio_clat_p50_ns",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 490.0,
+      "p50": 490.0,
+      "p90": 490.0,
+      "p99": 490.0,
+      "max": 490.0,
+      "mean": 490.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_read_fio_clat_p999_ns",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 2960.0,
+      "p50": 2960.0,
+      "p90": 2960.0,
+      "p99": 2960.0,
+      "max": 2960.0,
+      "mean": 2960.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_read_fio_clat_p99_ns",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 836.0,
+      "p50": 836.0,
+      "p90": 836.0,
+      "p99": 836.0,
+      "max": 836.0,
+      "mean": 836.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "disk_read_fio_iops_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 1212760.923908,
+      "p50": 1212760.923908,
+      "p90": 1212760.923908,
+      "p99": 1212760.923908,
+      "max": 1212760.923908,
+      "mean": 1212760.923908,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 30352.315666,
+      "p50": 30352.315666,
+      "p90": 30352.315666,
+      "p99": 30352.315666,
+      "max": 30352.315666,
+      "mean": 30352.315666,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

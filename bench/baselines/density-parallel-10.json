@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "scenario": "density-parallel-10",
+  "metadata": {
+    "started_at": "2026-05-26T06:00:11.682809337+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 26563.635036,
+      "metrics": {
+        "parallel_boxes_count": 10.0,
+        "parallel_max_latency_ms": 5821.057575,
+        "parallel_mean_latency_ms": 5517.2960975000005
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "parallel_boxes_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 10.0,
+      "p50": 10.0,
+      "p90": 10.0,
+      "p99": 10.0,
+      "max": 10.0,
+      "mean": 10.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "parallel_max_latency_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 5821.057575,
+      "p50": 5821.057575,
+      "p90": 5821.057575,
+      "p99": 5821.057575,
+      "max": 5821.057575,
+      "mean": 5821.057575,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "parallel_mean_latency_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 5517.2960975000005,
+      "p50": 5517.2960975000005,
+      "p90": 5517.2960975000005,
+      "p99": 5517.2960975000005,
+      "max": 5517.2960975000005,
+      "mean": 5517.2960975000005,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 26563.635036,
+      "p50": 26563.635036,
+      "p90": 26563.635036,
+      "p99": 26563.635036,
+      "max": 26563.635036,
+      "mean": 26563.635036,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

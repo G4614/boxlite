@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "scenario": "stability-restart-loop",
+  "metadata": {
+    "started_at": "2026-05-26T06:12:03.050262381+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 82468.772746,
+      "metrics": {
+        "restart_cow_growth_bytes": 393216.0,
+        "restart_cycle_max_ms": 3228.248744,
+        "restart_cycle_mean_ms": 3139.9940275,
+        "restart_cycles_count": 20.0,
+        "restart_fd_delta_count": 0.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "restart_cow_growth_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 393216.0,
+      "p50": 393216.0,
+      "p90": 393216.0,
+      "p99": 393216.0,
+      "max": 393216.0,
+      "mean": 393216.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "restart_cycle_max_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 3228.248744,
+      "p50": 3228.248744,
+      "p90": 3228.248744,
+      "p99": 3228.248744,
+      "max": 3228.248744,
+      "mean": 3228.248744,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "restart_cycle_mean_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 3139.9940275,
+      "p50": 3139.9940275,
+      "p90": 3139.9940275,
+      "p99": 3139.9940275,
+      "max": 3139.9940275,
+      "mean": 3139.9940275,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "restart_cycles_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 20.0,
+      "p50": 20.0,
+      "p90": 20.0,
+      "p99": 20.0,
+      "max": 20.0,
+      "mean": 20.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "restart_fd_delta_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 82468.772746,
+      "p50": 82468.772746,
+      "p90": 82468.772746,
+      "p99": 82468.772746,
+      "max": 82468.772746,
+      "mean": 82468.772746,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

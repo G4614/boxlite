@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-net-udp",
+  "metadata": {
+    "started_at": "2026-05-26T06:04:58.189075976+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 0.035787,
+      "metrics": {
+        "udp_skipped": 1.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "udp_skipped",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "p99": 1.0,
+      "max": 1.0,
+      "mean": 1.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 0.035787,
+      "p50": 0.035787,
+      "p90": 0.035787,
+      "p99": 0.035787,
+      "max": 0.035787,
+      "mean": 0.035787,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

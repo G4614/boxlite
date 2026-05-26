@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "scenario": "stability-soak",
+  "metadata": {
+    "started_at": "2026-05-26T06:10:32.608662035+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 19288.984332999997,
+      "metrics": {
+        "cow_growth_bytes": 0.0,
+        "fd_growth_count": 1.0,
+        "rss_growth_bytes": 0.0,
+        "rss_max_bytes": 248791040.0,
+        "soak_secs": 8.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "cow_growth_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "fd_growth_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "p99": 1.0,
+      "max": 1.0,
+      "mean": 1.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "rss_growth_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "rss_max_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 248791040.0,
+      "p50": 248791040.0,
+      "p90": 248791040.0,
+      "p99": 248791040.0,
+      "max": 248791040.0,
+      "mean": 248791040.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "soak_secs",
+      "unit": "secs",
+      "higher_is_better": false,
+      "min": 8.0,
+      "p50": 8.0,
+      "p90": 8.0,
+      "p99": 8.0,
+      "max": 8.0,
+      "mean": 8.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 19288.984332999997,
+      "p50": 19288.984332999997,
+      "p90": 19288.984332999997,
+      "p99": 19288.984332999997,
+      "max": 19288.984332999997,
+      "mean": 19288.984332999997,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

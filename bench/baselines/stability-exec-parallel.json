@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "scenario": "stability-exec-parallel",
+  "metadata": {
+    "started_at": "2026-05-26T06:11:43.104802110+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 19832.616184,
+      "metrics": {
+        "exec_parallel_batch_ms": 1186.58996,
+        "exec_parallel_count": 20.0,
+        "exec_parallel_max_ms": 1186.1460209999998,
+        "exec_parallel_p50_ms": 1095.366618,
+        "exec_parallel_p99_ms": 1186.1460209999998
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "exec_parallel_batch_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 1186.58996,
+      "p50": 1186.58996,
+      "p90": 1186.58996,
+      "p99": 1186.58996,
+      "max": 1186.58996,
+      "mean": 1186.58996,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_parallel_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 20.0,
+      "p50": 20.0,
+      "p90": 20.0,
+      "p99": 20.0,
+      "max": 20.0,
+      "mean": 20.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_parallel_max_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 1186.1460209999998,
+      "p50": 1186.1460209999998,
+      "p90": 1186.1460209999998,
+      "p99": 1186.1460209999998,
+      "max": 1186.1460209999998,
+      "mean": 1186.1460209999998,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_parallel_p50_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 1095.366618,
+      "p50": 1095.366618,
+      "p90": 1095.366618,
+      "p99": 1095.366618,
+      "max": 1095.366618,
+      "mean": 1095.366618,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_parallel_p99_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 1186.1460209999998,
+      "p50": 1186.1460209999998,
+      "p90": 1186.1460209999998,
+      "p99": 1186.1460209999998,
+      "max": 1186.1460209999998,
+      "mean": 1186.1460209999998,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 19832.616184,
+      "p50": 19832.616184,
+      "p90": 19832.616184,
+      "p99": 19832.616184,
+      "max": 19832.616184,
+      "mean": 19832.616184,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

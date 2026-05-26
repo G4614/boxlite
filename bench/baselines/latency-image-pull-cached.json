@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0",
+  "scenario": "latency-image-pull-cached",
+  "metadata": {
+    "started_at": "2026-05-26T05:56:03.692976644+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 5951.6509,
+      "metrics": {
+        "pull_cached_iter": 1.0,
+        "pull_cached_ms": 0.508336
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "pull_cached_iter",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "p99": 1.0,
+      "max": 1.0,
+      "mean": 1.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "pull_cached_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 0.508336,
+      "p50": 0.508336,
+      "p90": 0.508336,
+      "p99": 0.508336,
+      "max": 0.508336,
+      "mean": 0.508336,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 5951.6509,
+      "p50": 5951.6509,
+      "p90": 5951.6509,
+      "p99": 5951.6509,
+      "max": 5951.6509,
+      "mean": 5951.6509,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "scenario": "resource-density-10-idle",
+  "metadata": {
+    "started_at": "2026-05-26T05:58:21.890278541+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 50049.521182,
+      "metrics": {
+        "density_box_count": 10.0,
+        "density_host_fd_delta_count": 30.0,
+        "density_per_box_rss_mean_bytes": 249195724.8,
+        "density_total_cow_bytes": 6619136.0,
+        "density_total_rss_bytes": 2491957248.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "density_box_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 10.0,
+      "p50": 10.0,
+      "p90": 10.0,
+      "p99": 10.0,
+      "max": 10.0,
+      "mean": 10.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "density_host_fd_delta_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 30.0,
+      "p50": 30.0,
+      "p90": 30.0,
+      "p99": 30.0,
+      "max": 30.0,
+      "mean": 30.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "density_per_box_rss_mean_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 249195724.8,
+      "p50": 249195724.8,
+      "p90": 249195724.8,
+      "p99": 249195724.8,
+      "max": 249195724.8,
+      "mean": 249195724.8,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "density_total_cow_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 6619136.0,
+      "p50": 6619136.0,
+      "p90": 6619136.0,
+      "p99": 6619136.0,
+      "max": 6619136.0,
+      "mean": 6619136.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "density_total_rss_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 2491957248.0,
+      "p50": 2491957248.0,
+      "p90": 2491957248.0,
+      "p99": 2491957248.0,
+      "max": 2491957248.0,
+      "mean": 2491957248.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 50049.521182,
+      "p50": 50049.521182,
+      "p90": 50049.521182,
+      "p99": 50049.521182,
+      "max": 50049.521182,
+      "mean": 50049.521182,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

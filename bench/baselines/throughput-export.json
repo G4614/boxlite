@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-export",
+  "metadata": {
+    "started_at": "2026-05-26T05:56:29.226406639+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 27168.206887,
+      "metrics": {
+        "export_bytes": 62397130.0,
+        "export_mb_per_sec": 7.300424226253839,
+        "export_ms": 8151.107176
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "export_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 62397130.0,
+      "p50": 62397130.0,
+      "p90": 62397130.0,
+      "p99": 62397130.0,
+      "max": 62397130.0,
+      "mean": 62397130.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "export_mb_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 7.300424226253839,
+      "p50": 7.300424226253839,
+      "p90": 7.300424226253839,
+      "p99": 7.300424226253839,
+      "max": 7.300424226253839,
+      "mean": 7.300424226253839,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "export_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 8151.107176,
+      "p50": 8151.107176,
+      "p90": 8151.107176,
+      "p99": 8151.107176,
+      "max": 8151.107176,
+      "mean": 8151.107176,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 27168.206887,
+      "p50": 27168.206887,
+      "p90": 27168.206887,
+      "p99": 27168.206887,
+      "max": 27168.206887,
+      "mean": 27168.206887,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

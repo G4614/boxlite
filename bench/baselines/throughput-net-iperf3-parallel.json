@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-net-iperf3-parallel",
+  "metadata": {
+    "started_at": "2026-05-26T06:04:25.296149921+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 32793.644416,
+      "metrics": {
+        "parallel_iperf3_bits_per_sec": 1362017070.1011326,
+        "parallel_iperf3_duration_secs": 5.001845,
+        "parallel_iperf3_per_stream_mean_bps": 340504267.5252831,
+        "parallel_iperf3_per_stream_stdev_bps": 175998211.39076173,
+        "parallel_iperf3_retransmits_count": 137.0,
+        "parallel_iperf3_streams_count": 4.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "parallel_iperf3_bits_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 1362017070.1011326,
+      "p50": 1362017070.1011326,
+      "p90": 1362017070.1011326,
+      "p99": 1362017070.1011326,
+      "max": 1362017070.1011326,
+      "mean": 1362017070.1011326,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "parallel_iperf3_duration_secs",
+      "unit": "secs",
+      "higher_is_better": false,
+      "min": 5.001845,
+      "p50": 5.001845,
+      "p90": 5.001845,
+      "p99": 5.001845,
+      "max": 5.001845,
+      "mean": 5.001845,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "parallel_iperf3_per_stream_mean_bps",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 340504267.5252831,
+      "p50": 340504267.5252831,
+      "p90": 340504267.5252831,
+      "p99": 340504267.5252831,
+      "max": 340504267.5252831,
+      "mean": 340504267.5252831,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "parallel_iperf3_per_stream_stdev_bps",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 175998211.39076173,
+      "p50": 175998211.39076173,
+      "p90": 175998211.39076173,
+      "p99": 175998211.39076173,
+      "max": 175998211.39076173,
+      "mean": 175998211.39076173,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "parallel_iperf3_retransmits_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 137.0,
+      "p50": 137.0,
+      "p90": 137.0,
+      "p99": 137.0,
+      "max": 137.0,
+      "mean": 137.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "parallel_iperf3_streams_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 4.0,
+      "p50": 4.0,
+      "p90": 4.0,
+      "p99": 4.0,
+      "max": 4.0,
+      "mean": 4.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 32793.644416,
+      "p50": 32793.644416,
+      "p90": 32793.644416,
+      "p99": 32793.644416,
+      "max": 32793.644416,
+      "mean": 32793.644416,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0",
+  "scenario": "resource-multi-vcpu-load",
+  "metadata": {
+    "started_at": "2026-05-26T05:59:12.038954289+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 31124.278298,
+      "metrics": {
+        "multi_vcpu_count": 4.0,
+        "multi_vcpu_cpu_pct_max": 392.9912414550781,
+        "multi_vcpu_cpu_pct_mean": 270.7424011230469,
+        "multi_vcpu_rss_max_bytes": 802545664.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "multi_vcpu_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 4.0,
+      "p50": 4.0,
+      "p90": 4.0,
+      "p99": 4.0,
+      "max": 4.0,
+      "mean": 4.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "multi_vcpu_cpu_pct_max",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 392.9912414550781,
+      "p50": 392.9912414550781,
+      "p90": 392.9912414550781,
+      "p99": 392.9912414550781,
+      "max": 392.9912414550781,
+      "mean": 392.9912414550781,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "multi_vcpu_cpu_pct_mean",
+      "unit": "?",
+      "higher_is_better": false,
+      "min": 270.7424011230469,
+      "p50": 270.7424011230469,
+      "p90": 270.7424011230469,
+      "p99": 270.7424011230469,
+      "max": 270.7424011230469,
+      "mean": 270.7424011230469,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "multi_vcpu_rss_max_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 802545664.0,
+      "p50": 802545664.0,
+      "p90": 802545664.0,
+      "p99": 802545664.0,
+      "max": 802545664.0,
+      "mean": 802545664.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 31124.278298,
+      "p50": 31124.278298,
+      "p90": 31124.278298,
+      "p99": 31124.278298,
+      "max": 31124.278298,
+      "mean": 31124.278298,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

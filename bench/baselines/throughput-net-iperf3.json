@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "scenario": "throughput-net-iperf3",
+  "metadata": {
+    "started_at": "2026-05-26T06:03:16.762507047+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 30472.501496,
+      "metrics": {
+        "iperf3_bits_per_sec": 1593397972.9166372,
+        "iperf3_duration_secs": 5.001373,
+        "iperf3_retransmits_count": 2.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "iperf3_bits_per_sec",
+      "unit": "per_sec",
+      "higher_is_better": true,
+      "min": 1593397972.9166372,
+      "p50": 1593397972.9166372,
+      "p90": 1593397972.9166372,
+      "p99": 1593397972.9166372,
+      "max": 1593397972.9166372,
+      "mean": 1593397972.9166372,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "iperf3_duration_secs",
+      "unit": "secs",
+      "higher_is_better": false,
+      "min": 5.001373,
+      "p50": 5.001373,
+      "p90": 5.001373,
+      "p99": 5.001373,
+      "max": 5.001373,
+      "mean": 5.001373,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "iperf3_retransmits_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 2.0,
+      "p50": 2.0,
+      "p90": 2.0,
+      "p99": 2.0,
+      "max": 2.0,
+      "mean": 2.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 30472.501496,
+      "p50": 30472.501496,
+      "p90": 30472.501496,
+      "p99": 30472.501496,
+      "max": 30472.501496,
+      "mean": 30472.501496,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}

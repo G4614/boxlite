@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0",
+  "scenario": "stability-exec-loop",
+  "metadata": {
+    "started_at": "2026-05-26T06:11:19.210668925+00:00",
+    "git_commit": "251397adfbb6911b48ee75f3cf1a4c5d98f42c99",
+    "boxlite_version": "0.9.5",
+    "host": {
+      "kernel": "Linux 6.17.0-1015-aws",
+      "arch": "x86_64",
+      "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+      "cpu_count": 4,
+      "mem_total_bytes": 8155172864
+    }
+  },
+  "sample_count": 1,
+  "warmup_count": 0,
+  "samples": [
+    {
+      "iteration": 1,
+      "warmup": false,
+      "wall_ms": 23781.376052,
+      "metrics": {
+        "exec_completed_count": 246.0,
+        "exec_fd_delta_count": 0.0,
+        "exec_loop_count": 500.0,
+        "exec_max_ms": 42.394228999999996,
+        "exec_mean_ms": 9.111354113821143,
+        "exec_rss_end_bytes": 259530752.0
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "exec_completed_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 246.0,
+      "p50": 246.0,
+      "p90": 246.0,
+      "p99": 246.0,
+      "max": 246.0,
+      "mean": 246.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_fd_delta_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p99": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_loop_count",
+      "unit": "count",
+      "higher_is_better": false,
+      "min": 500.0,
+      "p50": 500.0,
+      "p90": 500.0,
+      "p99": 500.0,
+      "max": 500.0,
+      "mean": 500.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_max_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 42.394228999999996,
+      "p50": 42.394228999999996,
+      "p90": 42.394228999999996,
+      "p99": 42.394228999999996,
+      "max": 42.394228999999996,
+      "mean": 42.394228999999996,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_mean_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 9.111354113821143,
+      "p50": 9.111354113821143,
+      "p90": 9.111354113821143,
+      "p99": 9.111354113821143,
+      "max": 9.111354113821143,
+      "mean": 9.111354113821143,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "exec_rss_end_bytes",
+      "unit": "bytes",
+      "higher_is_better": false,
+      "min": 259530752.0,
+      "p50": 259530752.0,
+      "p90": 259530752.0,
+      "p99": 259530752.0,
+      "max": 259530752.0,
+      "mean": 259530752.0,
+      "stdev": 0.0,
+      "n": 1
+    },
+    {
+      "name": "wall_ms",
+      "unit": "ms",
+      "higher_is_better": false,
+      "min": 23781.376052,
+      "p50": 23781.376052,
+      "p90": 23781.376052,
+      "p99": 23781.376052,
+      "max": 23781.376052,
+      "mean": 23781.376052,
+      "stdev": 0.0,
+      "n": 1
+    }
+  ]
+}
