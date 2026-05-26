@@ -18,6 +18,8 @@ pub mod disk;
 pub mod disk_fio;
 pub mod disk_read;
 pub mod dns_latency;
+pub mod exec_loop;
+pub mod exec_parallel;
 pub mod image_pull_cached;
 pub mod inspect_list;
 pub mod latency;
@@ -35,10 +37,15 @@ pub mod net_udp;
 pub mod resource;
 pub mod resource_density;
 pub mod resource_load;
+pub mod restart_loop;
 pub mod runtime_metrics_poll;
 pub mod runtime_shutdown;
 pub mod serve_rps;
 pub mod snapshot;
+pub mod snapshot_loop;
+pub mod soak;
+pub mod soak_load;
+pub mod stability;
 pub mod throughput;
 pub mod virtiofs;
 pub mod volumes_multi;
@@ -315,6 +322,63 @@ pub fn registry() -> &'static [ScenarioEntry] {
                  — distinct from `throughput-virtiofs` (I/O \
                  bandwidth through one mount).",
         },
+        ScenarioEntry {
+            name: "stability-churn",
+            description: "50 consecutive create+start+stop cycles \
+                 through one shared `--home`. Reports per-cycle \
+                 mean+max + host-side fd delta. Catches per-cycle \
+                 leaks in fd / tempfile / DB-row accounting that \
+                 only show up over a sustained churn workload.",
+        },
+        ScenarioEntry {
+            name: "stability-soak",
+            description: "Keep one alpine box alive for \
+                 BOXLITE_BENCH_SOAK_SECS (default 30 s), sample \
+                 RSS/COW/fd every 2 s, report first→last deltas. \
+                 Catches steady-state idle leaks that churn misses.",
+        },
+        ScenarioEntry {
+            name: "stability-soak-load",
+            description: "Soak with continuous fio random-read \
+                 workload running in-box. Sample RSS/COW/fd over \
+                 BOXLITE_BENCH_SOAK_SECS (default 30 s). Catches \
+                 under-load leaks (gvproxy goroutine pools, libkrun \
+                 dirty-page buffers) that idle soak misses.",
+        },
+        ScenarioEntry {
+            name: "stability-exec-loop",
+            description: "500 boxlite-exec calls on a single running \
+                 box; mean+max per-exec wall + host fd delta + \
+                 guest RSS post-loop. Tolerant of partial completion \
+                 — reports `exec_completed_count` so a regression \
+                 that pushes the failure boundary lower than the \
+                 historical ~#247 (boxlite 0.9.5 alpine x86_64) \
+                 InitReady/IntermediateReady mismatch shows up.",
+        },
+        ScenarioEntry {
+            name: "stability-exec-parallel",
+            description: "20 concurrent execs on one box via \
+                 tokio::spawn fan-out. Reports batch wall + per-\
+                 exec p50/p99/max. Exposes lock contention in the \
+                 guest's exec state map + gRPC server fairness.",
+        },
+        ScenarioEntry {
+            name: "stability-restart-loop",
+            description: "20 stop+start cycles on the SAME box \
+                 (distinct from churn which recreates). Re-fetches \
+                 the LiteBox handle via `rt.get` between cycles \
+                 because `stop` invalidates the previous handle. \
+                 Catches accumulators in the warm-restart path.",
+        },
+        ScenarioEntry {
+            name: "stability-snapshot-loop",
+            description: "20 sequential SnapshotHandle::create calls \
+                 on the same box. Reports per-create mean/max + COW \
+                 disk delta. Catches create-path accumulators \
+                 (orphaned overlays, leaked DB rows) and qcow2 \
+                 chain-depth scaling. Removes deliberately omitted \
+                 — see scenario file header for the dep invariant.",
+        },
     ]
 }
 
@@ -366,6 +430,13 @@ pub fn build_by_name(name: &str) -> Option<Box<dyn Scenario>> {
         "throughput-import" => Some(Box::new(lifecycle_import::ThroughputImport::new())),
         "throughput-many-ports-setup" => Some(Box::new(many_ports::ManyPorts::new())),
         "throughput-volumes-multi-setup" => Some(Box::new(volumes_multi::VolumesMulti::new())),
+        "stability-churn" => Some(Box::new(stability::Churn::new())),
+        "stability-soak" => Some(Box::new(soak::Soak::new())),
+        "stability-soak-load" => Some(Box::new(soak_load::SoakLoad::new())),
+        "stability-exec-loop" => Some(Box::new(exec_loop::ExecLoop::new())),
+        "stability-exec-parallel" => Some(Box::new(exec_parallel::ExecParallel::new())),
+        "stability-restart-loop" => Some(Box::new(restart_loop::RestartLoop::new())),
+        "stability-snapshot-loop" => Some(Box::new(snapshot_loop::SnapshotLoop::new())),
         _ => None,
     }
 }
