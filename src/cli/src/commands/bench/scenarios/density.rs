@@ -42,11 +42,15 @@ const N: usize = 10;
 /// `density-parallel-10` — concurrent spawn density.
 pub struct DensityParallel10 {
     home: Option<TempDir>,
+    prewarmed: bool,
 }
 
 impl DensityParallel10 {
     pub fn new() -> Self {
-        Self { home: None }
+        Self {
+            home: None,
+            prewarmed: false,
+        }
     }
 }
 
@@ -67,6 +71,22 @@ impl Scenario for DensityParallel10 {
             .path()
             .to_path_buf();
         let rt = build_runtime(ctx.global, home_path)?;
+
+        // First-call pre-warm: spawn one throwaway box so the
+        // image, base disk, and guest rootfs are on disk before the
+        // measured burst. Without this, the first iteration's
+        // per-box latencies would be dominated by image-pull
+        // contention, not init-pipeline contention — defeating the
+        // headline.
+        if !self.prewarmed {
+            let warm = rt
+                .create(alpine_options(), None)
+                .await
+                .context("density pre-warm create")?;
+            warm.start().await.context("density pre-warm start")?;
+            warm.stop().await.context("density pre-warm stop")?;
+            self.prewarmed = true;
+        }
 
         let latencies = spawn_burst(&rt, N).await?;
 

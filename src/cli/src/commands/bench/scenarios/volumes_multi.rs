@@ -39,6 +39,7 @@ pub struct VolumesMulti {
     /// Pre-allocated host dirs for the mounts; reused across iterations
     /// so disk doesn't grow.
     host_dirs: Vec<TempDir>,
+    prewarmed: bool,
 }
 
 impl VolumesMulti {
@@ -46,6 +47,7 @@ impl VolumesMulti {
         Self {
             home: None,
             host_dirs: Vec::new(),
+            prewarmed: false,
         }
     }
 }
@@ -73,6 +75,20 @@ impl Scenario for VolumesMulti {
             .path()
             .to_path_buf();
         let rt = build_runtime(ctx.global, home_path)?;
+
+        // First-call pre-warm: one throwaway box without volumes so
+        // image + base disk are local before the timed mount cycle.
+        // Without this, `volumes_start_ms` on the first iter would
+        // be dominated by image pull instead of virtiofs fan-out.
+        if !self.prewarmed {
+            let warm = rt
+                .create(alpine_options(), None)
+                .await
+                .context("volumes pre-warm create")?;
+            warm.start().await.context("volumes pre-warm start")?;
+            warm.stop().await.context("volumes pre-warm stop")?;
+            self.prewarmed = true;
+        }
 
         let mut opts = alpine_options();
         opts.volumes = self

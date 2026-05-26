@@ -31,11 +31,15 @@ const GUEST_BASE: u16 = 18000;
 
 pub struct ManyPorts {
     home: Option<TempDir>,
+    prewarmed: bool,
 }
 
 impl ManyPorts {
     pub fn new() -> Self {
-        Self { home: None }
+        Self {
+            home: None,
+            prewarmed: false,
+        }
     }
 }
 
@@ -56,6 +60,22 @@ impl Scenario for ManyPorts {
             .path()
             .to_path_buf();
         let rt = build_runtime(ctx.global, home_path)?;
+
+        // First-call pre-warm: one throwaway box without ports so
+        // the image, base disk, and guest rootfs are on disk before
+        // the measured ports-cycle. Without this, the headline
+        // `many_ports_start_ms` would be dominated by image pull,
+        // not gvproxy port-table fan-out — defeating the delta-vs-
+        // warm-start comparison the scenario is built around.
+        if !self.prewarmed {
+            let warm = rt
+                .create(alpine_options(), None)
+                .await
+                .context("many-ports pre-warm create")?;
+            warm.start().await.context("many-ports pre-warm start")?;
+            warm.stop().await.context("many-ports pre-warm stop")?;
+            self.prewarmed = true;
+        }
 
         let mut opts = alpine_options();
         opts.ports = (0..N_PORTS)
