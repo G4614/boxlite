@@ -489,6 +489,12 @@ pub struct ResourceFlags {
     /// install`, build caches, etc.).
     #[arg(long = "disk-size", value_name = "GB")]
     pub disk_size_gb: Option<u64>,
+
+    /// Use the net kernel (netfilter/bridge modules) instead of the
+    /// default lean kernel. The binary must be built with
+    /// `--features kernel-net` to embed the net kernel blob.
+    #[arg(long = "kernel", value_name = "VARIANT")]
+    pub kernel: Option<String>,
 }
 
 impl ResourceFlags {
@@ -504,6 +510,12 @@ impl ResourceFlags {
         }
         if let Some(gb) = self.disk_size_gb {
             opts.disk_size_gb = Some(gb);
+        }
+        if let Some(ref k) = self.kernel {
+            match k.as_str() {
+                "default" | "lean" => {}
+                _ => opts.kernel = Some(k.clone()),
+            }
         }
     }
 }
@@ -1138,6 +1150,7 @@ mod tests {
             cpus: None,
             memory: None,
             disk_size_gb: Some(10),
+            kernel: None,
         };
 
         let mut opts = BoxOptions::default();
@@ -1157,6 +1170,7 @@ mod tests {
             cpus: None,
             memory: None,
             disk_size_gb: None,
+            kernel: None,
         };
 
         let mut opts = BoxOptions::default();
@@ -1402,6 +1416,71 @@ mod tests {
             .expect("no-op apply");
 
         assert_eq!(opts.entrypoint, None);
+    }
+
+    #[test]
+    fn kernel_net_flag_sets_kernel() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            disk_size_gb: None,
+            kernel: Some("net".to_string()),
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert_eq!(opts.kernel.as_deref(), Some("net"));
+    }
+
+    #[test]
+    fn kernel_default_flag_stays_none() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            disk_size_gb: None,
+            kernel: Some("default".to_string()),
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(opts.kernel.is_none());
+    }
+
+    #[test]
+    fn kernel_lean_flag_stays_none() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            disk_size_gb: None,
+            kernel: Some("lean".to_string()),
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(opts.kernel.is_none());
+    }
+
+    #[test]
+    fn no_kernel_flag_stays_none() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            disk_size_gb: None,
+            kernel: None,
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert!(opts.kernel.is_none());
+    }
+
+    #[test]
+    fn kernel_custom_path_passes_through() {
+        let flags = ResourceFlags {
+            cpus: None,
+            memory: None,
+            disk_size_gb: None,
+            kernel: Some("/tmp/my-kernel.so".to_string()),
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts);
+        assert_eq!(opts.kernel.as_deref(), Some("/tmp/my-kernel.so"));
     }
 
     #[test]

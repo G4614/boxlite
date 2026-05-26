@@ -20,12 +20,14 @@ path = "src/lib.rs"
 crate-type = ["rlib"]
 
 [features]
-default = ["embedded-runtime", "krunfw", "e2fsprogs", "bubblewrap"]
+default = ["embedded-runtime", "krunfw", "e2fsprogs", "bubblewrap", "kernel-lean"]
 gvproxy = ["dep:libgvproxy-sys"]                             # Shim-side libgvproxy CGO shared library
 e2fsprogs = ["dep:e2fsprogs-sys"]                            # Bundled mke2fs for ext4 image creation
 bubblewrap = ["dep:bubblewrap-sys"]                          # Bundled bwrap for sandbox isolation (Linux)
 krunfw = ["dep:libkrun-sys", "libkrun-sys/krunfw"]           # Download libkrunfw firmware for runtime bundling
 krun = ["krunfw", "libkrun-sys/krun"]                        # Build + statically link libkrun.a (only for boxlite-shim)
+kernel-lean = ["libkrun-sys/kernel-lean"]                    # Embed lean kernel (default)
+kernel-net = ["libkrun-sys/kernel-net"]                      # Embed net kernel (netfilter/bridge)
 rest = ["dep:hyper-rustls", "dep:reqwest", "dep:rustls", "dep:urlencoding", "dep:tokio-tungstenite"]  # REST API client backend
 embedded-runtime = []                                        # Embed runtime binaries via include_bytes!
 test-support = []                                            # Expose internal constructors for cross-crate tests

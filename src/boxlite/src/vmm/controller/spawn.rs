@@ -1,14 +1,14 @@
 //! Subprocess spawning for boxlite-shim binary.
 
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Stdio},
 };
 
 use crate::jailer::{Jail, JailerBuilder};
 use crate::runtime::layout::BoxFilesystemLayout;
 use crate::runtime::options::BoxOptions;
-use crate::util::configure_library_env;
+use crate::util::configure_library_env_with_prepend;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 
 use super::watchdog;
@@ -95,7 +95,7 @@ impl<'a> ShimSpawner<'a> {
         let mut cmd = jail.command(self.binary_path, no_args);
 
         // 5. Configure environment
-        self.configure_env(&mut cmd);
+        self.configure_env(&mut cmd)?;
 
         // 6. Configure stdio
         // stdin=piped: config JSON is sent via stdin to avoid /proc/cmdline exposure
@@ -136,12 +136,9 @@ impl<'a> ShimSpawner<'a> {
         Ok(SpawnedShim { child, keepalive })
     }
 
-    fn configure_env(&self, cmd: &mut std::process::Command) {
-        // Non-sensitive process marker used by recovery to validate shim PIDs
-        // without putting the full InstanceSpec back into /proc/<pid>/cmdline.
+    fn configure_env(&self, cmd: &mut std::process::Command) -> BoxliteResult<()> {
         cmd.env("BOXLITE_BOX_ID", self.box_id);
 
-        // Pass debugging environment variables to subprocess
         if let Ok(rust_log) = std::env::var("RUST_LOG") {
             cmd.env("RUST_LOG", rust_log);
         }
@@ -149,11 +146,6 @@ impl<'a> ShimSpawner<'a> {
             cmd.env("RUST_BACKTRACE", rust_backtrace);
         }
 
-        // Keep temp artifacts inside the box-scoped allowlist when using the
-        // built-in macOS seatbelt profile. libkrun may create a transient
-        // `krun-empty-root-*` under `env::temp_dir()` when booting from block
-        // devices; under deny-default seatbelt this must resolve to an
-        // explicitly granted path.
         if self.options.advanced.security.jailer_enabled
             && self.options.advanced.security.sandbox_profile.is_none()
         {
@@ -163,8 +155,108 @@ impl<'a> ShimSpawner<'a> {
             cmd.env("TEMP", &tmp_dir);
         }
 
-        // Set library search paths for bundled dependencies (e.g., libkrunfw.so)
-        configure_library_env(cmd, std::ptr::null());
+        // When --kernel net is requested, stage a per-box symlink to
+        // libkrunfw-net.so.5 and prepend to LD_LIBRARY_PATH so libkrun
+        // picks it up instead of the default libkrunfw.so.5.
+        let prepend: Vec<PathBuf> = match self.options.kernel.as_deref() {
+            Some("net") => match self.stage_net_kernel()? {
+                Some(libs_dir) => vec![libs_dir],
+                None => {
+                    return Err(BoxliteError::Engine(
+                        "--kernel net requires libkrunfw-net.so.5 in the embedded \
+                         runtime. Rebuild with `--features kernel-net`."
+                            .to_string(),
+                    ));
+                }
+            },
+            Some(path) => vec![self.stage_custom_kernel(Path::new(path))?],
+            None => vec![],
+        };
+
+        configure_library_env_with_prepend(cmd, std::ptr::null(), &prepend);
+        Ok(())
+    }
+
+    /// Stage `<box>/libs/libkrunfw.so.5` → `libkrunfw-net.so.5` symlink.
+    fn stage_net_kernel(&self) -> BoxliteResult<Option<PathBuf>> {
+        #[cfg(feature = "embedded-runtime")]
+        let runtime_dir = crate::runtime::embedded::EmbeddedRuntime::get()
+            .ok_or_else(|| BoxliteError::Engine("embedded runtime unavailable".to_string()))?
+            .dir()
+            .to_path_buf();
+        #[cfg(not(feature = "embedded-runtime"))]
+        let runtime_dir: PathBuf = return Ok(None);
+
+        let net_blob = runtime_dir.join("libkrunfw-net.so.5");
+        if !net_blob.exists() {
+            return Ok(None);
+        }
+
+        let libs_dir = self.layout.root().join("libs");
+        std::fs::create_dir_all(&libs_dir)
+            .map_err(|e| BoxliteError::Storage(format!("Failed to create libs dir: {}", e)))?;
+
+        let symlink_path = libs_dir.join("libkrunfw.so.5");
+        // Idempotent: remove stale symlink from prior spawn
+        match std::fs::symlink_metadata(&symlink_path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                std::fs::remove_file(&symlink_path).ok();
+            }
+            Ok(_) => {
+                return Err(BoxliteError::Storage(format!(
+                    "Refusing to overwrite non-symlink at {}",
+                    symlink_path.display()
+                )));
+            }
+            Err(_) => {}
+        }
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&net_blob, &symlink_path).map_err(|e| {
+            BoxliteError::Storage(format!(
+                "Failed to symlink {} → {}: {}",
+                symlink_path.display(),
+                net_blob.display(),
+                e
+            ))
+        })?;
+
+        Ok(Some(libs_dir))
+    }
+
+    fn stage_custom_kernel(&self, blob_path: &Path) -> BoxliteResult<PathBuf> {
+        if !blob_path.exists() {
+            return Err(BoxliteError::Engine(format!(
+                "--kernel {}: file not found",
+                blob_path.display()
+            )));
+        }
+        let libs_dir = self.layout.root().join("libs");
+        std::fs::create_dir_all(&libs_dir)
+            .map_err(|e| BoxliteError::Storage(format!("Failed to create libs dir: {}", e)))?;
+        let symlink_path = libs_dir.join("libkrunfw.so.5");
+        match std::fs::symlink_metadata(&symlink_path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                std::fs::remove_file(&symlink_path).ok();
+            }
+            Ok(_) => {
+                return Err(BoxliteError::Storage(format!(
+                    "Refusing to overwrite non-symlink at {}",
+                    symlink_path.display()
+                )));
+            }
+            Err(_) => {}
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(blob_path, &symlink_path).map_err(|e| {
+            BoxliteError::Storage(format!(
+                "Failed to symlink {} → {}: {}",
+                symlink_path.display(),
+                blob_path.display(),
+                e
+            ))
+        })?;
+        Ok(libs_dir)
     }
 
     fn create_stderr_file(&self) -> BoxliteResult<std::fs::File> {
@@ -240,7 +332,7 @@ mod tests {
         );
 
         let mut cmd = std::process::Command::new("/usr/bin/true");
-        spawner.configure_env(&mut cmd);
+        spawner.configure_env(&mut cmd).unwrap();
 
         let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
         let expected = layout.tmp_dir();
@@ -294,7 +386,7 @@ mod tests {
         );
 
         let mut cmd = std::process::Command::new("/usr/bin/true");
-        spawner.configure_env(&mut cmd);
+        spawner.configure_env(&mut cmd).unwrap();
 
         let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
         assert!(!envs.contains_key(OsStr::new("TMPDIR")));
@@ -411,5 +503,62 @@ mod tests {
             child_pgid, parent_pgid,
             "shim's pgid must differ from parent's"
         );
+    }
+
+    #[test]
+    fn kernel_net_without_blob_returns_clear_error() {
+        use crate::runtime::layout::{BoxFilesystemLayout, FsLayoutConfig};
+        use std::path::PathBuf;
+
+        let layout = BoxFilesystemLayout::new(
+            PathBuf::from("/tmp/box-kernel-test"),
+            FsLayoutConfig::without_bind_mount(),
+            false,
+        );
+        let options = BoxOptions {
+            kernel: Some("net".to_string()),
+            ..BoxOptions::default()
+        };
+
+        let spawner = ShimSpawner::new(
+            Path::new("/usr/bin/boxlite-shim"),
+            &layout,
+            "test-box",
+            &options,
+        );
+
+        let mut cmd = std::process::Command::new("/usr/bin/true");
+        let err = spawner.configure_env(&mut cmd).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--kernel net") && msg.contains("kernel-net"),
+            "error must mention both the runtime flag and the build feature; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn kernel_default_succeeds_without_net_blob() {
+        use crate::runtime::layout::{BoxFilesystemLayout, FsLayoutConfig};
+        use std::path::PathBuf;
+
+        let layout = BoxFilesystemLayout::new(
+            PathBuf::from("/tmp/box-kernel-test"),
+            FsLayoutConfig::without_bind_mount(),
+            false,
+        );
+        let options = BoxOptions {
+            kernel: None,
+            ..BoxOptions::default()
+        };
+
+        let spawner = ShimSpawner::new(
+            Path::new("/usr/bin/boxlite-shim"),
+            &layout,
+            "test-box",
+            &options,
+        );
+
+        let mut cmd = std::process::Command::new("/usr/bin/true");
+        spawner.configure_env(&mut cmd).unwrap();
     }
 }

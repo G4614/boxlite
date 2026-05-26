@@ -18,6 +18,8 @@ num_cpus = "1.16"
 libc = "0.2"
 
 [features]
-default = []
-krun = []      # Build init binary + libkrun.a + emit link directives (was: link-static + build-libkrun)
-krunfw = []    # Download/build libkrunfw.dylib/.so (was: build-libkrunfw)
+default = ["kernel-lean"]
+krun = []          # Build init binary + libkrun.a + emit link directives
+krunfw = []        # Download/build libkrunfw.dylib/.so
+kernel-lean = []   # Embed lean kernel (minimal, default)
+kernel-net = []    # Embed net kernel (netfilter/nf_tables/bridge)
