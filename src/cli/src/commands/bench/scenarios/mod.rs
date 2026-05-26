@@ -11,20 +11,37 @@ use super::runner::Scenario;
 
 pub mod clone_batch;
 pub mod common;
+pub mod copy_io;
 pub mod dedup_lookup;
 pub mod density;
+pub mod disk;
+pub mod disk_fio;
+pub mod disk_read;
+pub mod dns_latency;
 pub mod image_pull_cached;
 pub mod inspect_list;
 pub mod latency;
 pub mod latency_jailed;
 pub mod lifecycle;
+pub mod lifecycle_import;
+pub mod many_ports;
 pub mod multi_vcpu;
+pub mod net;
+pub mod net_iperf3;
+pub mod net_iperf3_egress;
+pub mod net_iperf3_parallel;
+pub mod net_tcp_cps;
+pub mod net_udp;
 pub mod resource;
 pub mod resource_density;
 pub mod resource_load;
 pub mod runtime_metrics_poll;
 pub mod runtime_shutdown;
+pub mod serve_rps;
 pub mod snapshot;
+pub mod throughput;
+pub mod virtiofs;
+pub mod volumes_multi;
 
 /// One row in `boxlite bench list`. The registry is intentionally
 /// static-data (vs. a `Box<dyn Fn>` table) so listing has zero
@@ -163,6 +180,141 @@ pub fn registry() -> &'static [ScenarioEntry] {
                  pipeline contention surcharge over a single warm \
                  start.",
         },
+        ScenarioEntry {
+            name: "throughput-image-pull",
+            description: "Pull alpine:latest into a fresh `--home` and \
+                 report MB/s based on layer tarball sizes on disk. \
+                 Cold-cache every iteration. Headline number for \
+                 registry / network changes.",
+        },
+        ScenarioEntry {
+            name: "throughput-disk-write",
+            description: "In-box sequential write throughput via \
+                 `dd if=/dev/zero of=/tmp/... bs=1M count=64 \
+                 conv=fsync`. Measures qcow2-COW-over-virtio \
+                 bandwidth. Headline number for any disk-stack \
+                 regression.",
+        },
+        ScenarioEntry {
+            name: "throughput-disk-read",
+            description: "Sequential dd read of a pre-staged 64 MiB \
+                 file. Read-side counterpart to throughput-disk-\
+                 write.",
+        },
+        ScenarioEntry {
+            name: "throughput-disk-fio",
+            description: "In-box fio: 4K random writes with fsync=1, \
+                 reports IOPS / bw / clat p50-p99-p99.9. Complements \
+                 throughput-disk-write's sequential MB/s with tail \
+                 latency. One-time `apk add fio` in box.",
+        },
+        ScenarioEntry {
+            name: "throughput-disk-fio-read",
+            description: "fio 4K random reads from a pre-staged file. \
+                 Read-side tail-latency counterpart to throughput-\
+                 disk-fio.",
+        },
+        ScenarioEntry {
+            name: "throughput-virtiofs",
+            description: "In-box dd write to a `-v host_tmp:/host` \
+                 mount. Measures virtiofs throughput — distinct \
+                 from qcow2-COW (`throughput-disk-write`) since \
+                 host volumes don't go through the overlay.",
+        },
+        ScenarioEntry {
+            name: "throughput-net-tcp-sink",
+            description: "Host→gvproxy→guest TCP throughput. Host \
+                 writes 32 MiB to a busybox-nc sink in-box and \
+                 measures wall time. Catches gvproxy/netstack \
+                 regressions without needing iperf3 on host.",
+        },
+        ScenarioEntry {
+            name: "throughput-net-iperf3",
+            description: "Host iperf3 client → gvproxy → in-box iperf3 \
+                 server. Reports proper bps + TCP retransmits. \
+                 Requires `iperf3` on host (and `apk add iperf3` in \
+                 box, one-time). SKIPs cleanly when host iperf3 is \
+                 missing.",
+        },
+        ScenarioEntry {
+            name: "throughput-net-iperf3-egress",
+            description: "Reverse-direction iperf3: in-box client → \
+                 gvproxy NAT → host server. Tests guest→host \
+                 outbound path, distinct from -iperf3's host→guest \
+                 path. Requires host iperf3.",
+        },
+        ScenarioEntry {
+            name: "throughput-net-iperf3-parallel",
+            description: "iperf3 -P 4 multi-stream. Aggregate bps + \
+                 per-stream stdev (fairness signal) + total \
+                 retransmits. Tests gvproxy parallel-connection \
+                 handling.",
+        },
+        ScenarioEntry {
+            name: "throughput-net-udp",
+            description: "iperf3 -u UDP throughput at 1 Gbps target \
+                 rate; reports bps + loss percent. Tests gvproxy's \
+                 UDP path which is independent of the TCP forward. \
+                 Currently SKIPs by default (gvproxy TCP+UDP same-\
+                 port forward broken; BOXLITE_BENCH_UDP_FORCE=1 to \
+                 attempt anyway).",
+        },
+        ScenarioEntry {
+            name: "throughput-tcp-cps",
+            description: "TCP connections-per-second establish rate \
+                 via tight TcpStream::connect loop against an in-\
+                 box busybox-nc respawn loop. Tests gvproxy SYN/\
+                 accept hot-path.",
+        },
+        ScenarioEntry {
+            name: "throughput-dns-latency",
+            description: "20 `getent ahosts` lookups in-box for \
+                 each of {host.docker.internal, example.com}. \
+                 Tests gvproxy's embedded DNS resolver + the \
+                 recursive-forward fallback path.",
+        },
+        ScenarioEntry {
+            name: "throughput-serve-rps",
+            description: "Spawn `boxlite serve` as a child, hammer \
+                 GET /v1/config with 16 concurrent workers for 5 s, \
+                 report achieved RPS. Floor number for the axum + \
+                 tower + serde request stack.",
+        },
+        ScenarioEntry {
+            name: "throughput-copy-into",
+            description: "`LiteBox::copy_into` of a 64-MiB host file \
+                 into the box; tar-stream MB/s.",
+        },
+        ScenarioEntry {
+            name: "throughput-copy-out",
+            description: "`LiteBox::copy_out` of a 64-MiB in-box file \
+                 to host; tar-stream MB/s, validates host bytes. \
+                 Stages payload on /root (rootfs) — /tmp is a tmpfs \
+                 that the guest agent's file interface can't see.",
+        },
+        ScenarioEntry {
+            name: "throughput-import",
+            description: "`BoxliteRuntime::import_box` from a pre-\
+                 exported .boxlite archive (64-MiB-staged source). \
+                 Counterpart to throughput-export; together they \
+                 form the cluster-migration round-trip story.",
+        },
+        ScenarioEntry {
+            name: "throughput-many-ports-setup",
+            description: "Create+start an alpine box with 16 `-p` \
+                 forwards (host_port=None → OS-ephemeral). Measures \
+                 the gvproxy port-table-fan-out cost; delta against \
+                 `latency-warm-start` (which uses zero ports) is the \
+                 per-port amortized setup tax.",
+        },
+        ScenarioEntry {
+            name: "throughput-volumes-multi-setup",
+            description: "Create+start an alpine box with 2 host-\
+                 volume mounts (libkrun's `KRUN_VIRTIO_FS_MAX` cap). \
+                 Measures virtiofs-fan-out cost at box-bring-up time \
+                 — distinct from `throughput-virtiofs` (I/O \
+                 bandwidth through one mount).",
+        },
     ]
 }
 
@@ -193,6 +345,27 @@ pub fn build_by_name(name: &str) -> Option<Box<dyn Scenario>> {
             Some(Box::new(runtime_metrics_poll::RuntimeMetricsPoll::new()))
         }
         "density-parallel-10" => Some(Box::new(density::DensityParallel10::new())),
+        "throughput-image-pull" => Some(Box::new(throughput::ImagePull::new())),
+        "throughput-disk-write" => Some(Box::new(disk::DiskWrite::new())),
+        "throughput-disk-read" => Some(Box::new(disk_read::DiskRead::new())),
+        "throughput-disk-fio" => Some(Box::new(disk_fio::DiskFio::new())),
+        "throughput-disk-fio-read" => Some(Box::new(disk_read::DiskFioRead::new())),
+        "throughput-virtiofs" => Some(Box::new(virtiofs::Virtiofs::new())),
+        "throughput-net-tcp-sink" => Some(Box::new(net::NetTcpSink::new())),
+        "throughput-net-iperf3" => Some(Box::new(net_iperf3::NetIperf3::new())),
+        "throughput-net-iperf3-egress" => Some(Box::new(net_iperf3_egress::NetIperf3Egress::new())),
+        "throughput-net-iperf3-parallel" => {
+            Some(Box::new(net_iperf3_parallel::NetIperf3Parallel::new()))
+        }
+        "throughput-net-udp" => Some(Box::new(net_udp::NetUdp::new())),
+        "throughput-tcp-cps" => Some(Box::new(net_tcp_cps::TcpCps::new())),
+        "throughput-dns-latency" => Some(Box::new(dns_latency::DnsLatency::new())),
+        "throughput-serve-rps" => Some(Box::new(serve_rps::ServeRps::new())),
+        "throughput-copy-into" => Some(Box::new(copy_io::CopyInto::new())),
+        "throughput-copy-out" => Some(Box::new(copy_io::CopyOut::new())),
+        "throughput-import" => Some(Box::new(lifecycle_import::ThroughputImport::new())),
+        "throughput-many-ports-setup" => Some(Box::new(many_ports::ManyPorts::new())),
+        "throughput-volumes-multi-setup" => Some(Box::new(volumes_multi::VolumesMulti::new())),
         _ => None,
     }
 }
