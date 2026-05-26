@@ -12,6 +12,7 @@ use super::runner::Scenario;
 pub mod clone_batch;
 pub mod common;
 pub mod dedup_lookup;
+pub mod density;
 pub mod image_pull_cached;
 pub mod inspect_list;
 pub mod latency;
@@ -154,6 +155,14 @@ pub fn registry() -> &'static [ScenarioEntry] {
                  boxes. 500 samples per iteration; mean/p50/p99/max \
                  in µs. Floor number for Prometheus scrape overhead.",
         },
+        ScenarioEntry {
+            name: "density-parallel-10",
+            description: "Concurrent spawn of 10 alpine boxes through \
+                 one runtime. Measures total burst wall time + the \
+                 slowest box's individual latency, exposing the init- \
+                 pipeline contention surcharge over a single warm \
+                 start.",
+        },
     ]
 }
 
@@ -183,6 +192,7 @@ pub fn build_by_name(name: &str) -> Option<Box<dyn Scenario>> {
         "resource-runtime-metrics-poll" => {
             Some(Box::new(runtime_metrics_poll::RuntimeMetricsPoll::new()))
         }
+        "density-parallel-10" => Some(Box::new(density::DensityParallel10::new())),
         _ => None,
     }
 }
