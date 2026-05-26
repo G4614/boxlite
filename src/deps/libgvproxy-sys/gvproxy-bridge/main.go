@@ -383,6 +383,13 @@ func gvproxy_create(configJSON *C.char) C.longlong {
 	instances[id] = instance
 	instancesMu.Unlock()
 
+	// initErr surfaces synchronous failures from virtualnetwork.New (e.g.
+	// host-port EADDRINUSE) back to the FFI caller. Pre-fix, the bind error
+	// died in a logrus line inside the gvproxy goroutine and gvproxy_create
+	// returned a valid id; the failure only surfaced ~20s later as guest
+	// "DNS lookup … i/o timeout" from a broken netstack.
+	initErr := make(chan error, 1)
+
 	// Start runtime metrics monitoring goroutine
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -414,8 +421,10 @@ func gvproxy_create(configJSON *C.char) C.longlong {
 		vn, err := virtualnetwork.New(tapConfig)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("Failed to create virtual network")
+			initErr <- err
 			return
 		}
+		initErr <- nil
 
 		// Override TCP handler with AllowNet filter and/or MITM secret substitution
 		if len(config.AllowNet) > 0 || instance.secretMatcher != nil {
@@ -498,6 +507,25 @@ func gvproxy_create(configJSON *C.char) C.longlong {
 		}
 		os.Remove(socketPath)
 	}()
+
+	// Wait for virtualnetwork.New to complete before returning a valid id.
+	// On failure, tear down the instance and surface -1 so the FFI caller
+	// (Rust boxlite runtime) can fail fast with a clear error instead of
+	// shipping a broken socket downstream.
+	if err := <-initErr; err != nil {
+		logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("gvproxy init failed; tearing down instance")
+		cancel()
+		instancesMu.Lock()
+		delete(instances, id)
+		instancesMu.Unlock()
+		if runtime.GOOS == "darwin" && conn != nil {
+			conn.Close()
+		} else if listener != nil {
+			listener.Close()
+		}
+		os.Remove(socketPath)
+		return -1
+	}
 
 	logrus.Info("Created gvproxy instance", "id", id, "socket", socketPath, "protocol", protocol)
 	return C.longlong(id)
