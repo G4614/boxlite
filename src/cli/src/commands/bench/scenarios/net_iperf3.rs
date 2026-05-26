@@ -153,7 +153,10 @@ impl Scenario for NetIperf3 {
         tokio::time::sleep(SERVER_READY_WAIT).await;
 
         // Host-side client. `-J` = JSON output; `-t` = duration.
-        let client = TokioCommand::new("iperf3")
+        // Bounded explicitly: `-t` should cap the run, but rare
+        // gvproxy state-leak races can wedge the control channel and
+        // we don't want a sweep to lose its entire slot to one hang.
+        let child = TokioCommand::new("iperf3")
             .args([
                 "-c",
                 "127.0.0.1",
@@ -165,9 +168,14 @@ impl Scenario for NetIperf3 {
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .output()
-            .await
+            .spawn()
             .context("spawn host iperf3 client")?;
+        let client_budget = Duration::from_secs(TRANSFER_SECS + 25);
+        let client = match tokio::time::timeout(client_budget, child.wait_with_output()).await {
+            Ok(Ok(o)) => o,
+            Ok(Err(e)) => anyhow::bail!("iperf3 client wait error: {e:#}"),
+            Err(_) => anyhow::bail!("iperf3 client hung > {}s", client_budget.as_secs()),
+        };
 
         if !client.status.success() {
             let stderr = String::from_utf8_lossy(&client.stderr);

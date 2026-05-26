@@ -159,14 +159,35 @@ impl Scenario for NetIperf3Egress {
         ]);
         let mut client_exec = live.exec(client_cmd).await.context("box.exec(iperf3 -c)")?;
         let mut stdout = client_exec.stdout().expect("stdout handle");
-        let mut json_buf = String::new();
-        while let Some(chunk) = stdout.next().await {
-            json_buf.push_str(&chunk);
-        }
         if let Some(mut s) = client_exec.stderr() {
             tokio::spawn(async move { while s.next().await.is_some() {} });
         }
-        let r = client_exec.wait().await.context("iperf3 client wait")?;
+
+        // Bounded: `-t` should cap iperf3 at TRANSFER_SECS, but rare
+        // gvproxy or guest-agent races have wedged the stdout pump
+        // in the field. Cap the whole drain+wait so a hang fails the
+        // iteration instead of consuming the entire sweep slot.
+        let drain_budget = Duration::from_secs(TRANSFER_SECS + 25);
+        let json_buf = match tokio::time::timeout(drain_budget, async {
+            let mut buf = String::new();
+            while let Some(chunk) = stdout.next().await {
+                buf.push_str(&chunk);
+            }
+            buf
+        })
+        .await
+        {
+            Ok(buf) => buf,
+            Err(_) => anyhow::bail!(
+                "in-box iperf3 client stdout drain hung > {}s",
+                drain_budget.as_secs()
+            ),
+        };
+        let r = match tokio::time::timeout(Duration::from_secs(10), client_exec.wait()).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => anyhow::bail!("iperf3 client wait error: {e:#}"),
+            Err(_) => anyhow::bail!("in-box iperf3 client wait hung > 10s"),
+        };
         if r.exit_code != 0 {
             anyhow::bail!(
                 "in-box iperf3 client exited non-zero ({}); stdout:\n{json_buf}",
