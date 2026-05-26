@@ -133,6 +133,51 @@ pub fn configure_library_env(cmd: &mut Command, addr: *const libc::c_void) {
     }
 }
 
+/// Like [`configure_library_env`] but with caller-supplied directories
+/// PRE-pended to the loader search path. Used by `--kernel net` to
+/// inject a per-box dir whose `libkrunfw.so.5` symlinks to the net blob.
+pub fn configure_library_env_with_prepend(
+    cmd: &mut Command,
+    addr: *const libc::c_void,
+    prepend: &[PathBuf],
+) {
+    let mut lib_dirs: Vec<PathBuf> = prepend.iter().filter(|p| p.exists()).cloned().collect();
+
+    if let Some(runner_dir) = LibraryLoadPath::get(Some(addr))
+        && let Some(dylibs) = runner_dir.parent()
+        && dylibs.exists()
+    {
+        lib_dirs.push(dylibs.to_path_buf());
+    }
+
+    #[cfg(feature = "embedded-runtime")]
+    if let Some(runtime) = crate::runtime::embedded::EmbeddedRuntime::get() {
+        lib_dirs.push(runtime.dir().to_path_buf());
+    }
+
+    if lib_dirs.is_empty() {
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut paths: Vec<String> = lib_dirs.iter().map(|d| d.display().to_string()).collect();
+        if let Ok(existing) = std::env::var("DYLD_FALLBACK_LIBRARY_PATH") {
+            paths.push(existing);
+        }
+        cmd.env("DYLD_FALLBACK_LIBRARY_PATH", paths.join(":"));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut paths: Vec<String> = lib_dirs.iter().map(|d| d.display().to_string()).collect();
+        if let Ok(existing) = std::env::var("LD_LIBRARY_PATH") {
+            paths.push(existing);
+        }
+        cmd.env("LD_LIBRARY_PATH", paths.join(":"));
+    }
+}
+
 pub fn register_to_tracing(non_blocking: NonBlocking, env_filter: EnvFilter) {
     let _ = tracing_subscriber::registry()
         .with(env_filter)

@@ -1,4 +1,4 @@
-PHONY_TARGETS += guest shim runtime cli cli\:release skillbox-image build\:apps
+PHONY_TARGETS += guest shim runtime cli cli\:release skillbox-image build\:apps libkrunfw-net
 
 guest:
 	@bash $(SCRIPT_DIR)/build/build-guest.sh
@@ -29,6 +29,28 @@ build\:apps: _ensure-apps-deps
 	@echo "🔨 Building apps workspace..."
 	@cd apps && yarn build
 	@echo "✅ apps workspace built → dist/apps"
+
+# Build the "fat" libkrunfw variant required by `boxlite run --net-kernel`
+# (issue #276): the lean default kernel lacks CONFIG_BRIDGE/NETFILTER/NF_NAT/
+# IPTABLE_*/NF_TABLES, which docker / docker-compose need for bridge networks,
+# NAT and iptables rule installation. This target builds a second libkrunfw
+# blob with those configs added on top of the lean config, and copies it to
+#
+#     target/net-kernel/lib64/libkrunfw-net.so.5
+#
+# Wire-up: the libkrun-sys build.rs auto-detects this blob at the canonical
+# path above on the next cargo build — no env var required. (Set
+# BOXLITE_LIBKRUNFW_PRIVILEGED_PATH only when the blob lives outside the
+# workspace, e.g., a CI cache or sysroot.) Without this target ever being run,
+# `--net-kernel` still applies the userspace changes (cgroup rw + full caps)
+# but the kernel stays lean, so bridge / iptables-dependent features keep
+# failing. With it run, the net-kernel blob is staged alongside the lean one
+# and the runtime picks the right blob per-box.
+#
+# Heavy target (~10–20 min, downloads kernel source). Only run when actively
+# iterating on the net-kernel kernel feature; not in any other target's dep chain.
+libkrunfw-net:
+	@bash $(SCRIPT_DIR)/build/build-libkrunfw-net.sh
 
 # Build SkillBox container image (all-in-one AI CLI with noVNC)
 # Usage: make skillbox-image [APT_SOURCE=mirrors.aliyun.com]
