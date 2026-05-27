@@ -59,18 +59,28 @@ fn gvproxy_port_conflict_fails_fast_with_named_error() {
 
     drop(holder); // release the held port after we've captured the box exit
 
+    // Collect all check failures, then panic once. This lets a developer
+    // observe every level of regression in a single test run — e.g. a
+    // partial fix that flips boxlite's exit code but loses the underlying
+    // bind detail will still show "L3 missing" instead of needing a
+    // second iteration.
+    let mut failures: Vec<&'static str> = Vec::new();
+    if output.status.success() {
+        failures.push("L1 [boxlite rc != 0]: boxlite returned success despite host-port conflict");
+    }
+    if !stderr.contains("gvproxy_create failed") {
+        failures.push("L2 [stderr names gvproxy]: stderr missing 'gvproxy_create failed'");
+    }
+    if !stderr.contains("address already in use") {
+        failures.push("L3 [stderr carries OS detail]: stderr missing 'address already in use'");
+    }
+
     assert!(
-        !output.status.success(),
-        "boxlite must exit non-zero when -p host port is already bound\n\
-         elapsed: {elapsed:?}\nstdout: {stdout}\nstderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("gvproxy_create failed"),
-        "stderr must name gvproxy as the failure source; got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("address already in use"),
-        "stderr must surface the underlying bind error (the whole point of the\n\
-         FFI `errOut` plumbing); got:\n{stderr}"
+        failures.is_empty(),
+        "{} of 3 checks failed:\n  - {}\n\n\
+         elapsed: {elapsed:?}\nrc: {rc:?}\nstdout: {stdout}\nstderr: {stderr}",
+        failures.len(),
+        failures.join("\n  - "),
+        rc = output.status.code(),
     );
 }
