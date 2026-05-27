@@ -7,9 +7,10 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use std::path::Path;
 
 use oci_spec::runtime::{
-    LinuxBuilder, LinuxCapabilitiesBuilder, LinuxIdMappingBuilder, LinuxNamespaceBuilder,
-    LinuxNamespaceType, Mount, MountBuilder, PosixRlimitBuilder, PosixRlimitType, ProcessBuilder,
-    RootBuilder, Spec, SpecBuilder, UserBuilder,
+    LinuxBuilder, LinuxCapabilitiesBuilder, LinuxIdMappingBuilder, LinuxMemoryBuilder,
+    LinuxNamespaceBuilder, LinuxNamespaceType, LinuxPidsBuilder, LinuxResourcesBuilder, Mount,
+    MountBuilder, PosixRlimitBuilder, PosixRlimitType, ProcessBuilder, RootBuilder, Spec,
+    SpecBuilder, UserBuilder,
 };
 
 /// User-specified bind mount for container
@@ -401,15 +402,54 @@ fn build_linux_spec(
     // let cgroups_path = format!("/boxlite/{}", container_id);
     let _ = container_id; // Suppress unused warning
 
-    LinuxBuilder::default()
+    // Reserve memory for kernel + guest agent; cap container to the rest.
+    let mut linux_builder = LinuxBuilder::default()
         .namespaces(namespaces)
         .uid_mappings(uid_mappings)
-        .gid_mappings(gid_mappings)
-        // .masked_paths(masked_paths)
-        // .readonly_paths(readonly_paths)
-        // .cgroups_path(cgroups_path)
+        .gid_mappings(gid_mappings);
+
+    if let Some(mem_max) = container_memory_limit() {
+        let memory = LinuxMemoryBuilder::default()
+            .limit(mem_max)
+            .build()
+            .map_err(|e| BoxliteError::Internal(format!("Failed to build memory spec: {e}")))?;
+        let pids = LinuxPidsBuilder::default()
+            .limit(512)
+            .build()
+            .map_err(|e| BoxliteError::Internal(format!("Failed to build pids spec: {e}")))?;
+        let resources = LinuxResourcesBuilder::default()
+            .memory(memory)
+            .pids(pids)
+            .build()
+            .map_err(|e| BoxliteError::Internal(format!("Failed to build resources spec: {e}")))?;
+        linux_builder = linux_builder.resources(resources);
+    }
+
+    linux_builder
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
+}
+
+/// Container memory hard limit (cgroup `memory.max`) from VM's available memory.
+///
+/// 90% of `MemAvailable` — the remaining 10% is headroom for the guest agent,
+/// zygote, and kernel. Cgroup OOM kills only hit container processes, never
+/// the guest agent.
+fn container_memory_limit() -> Option<i64> {
+    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let available_kb: i64 = meminfo
+        .lines()
+        .find(|l| l.starts_with("MemAvailable:"))?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()?;
+    let limit = available_kb * 1024 * 9 / 10;
+    if limit > 0 {
+        Some(limit)
+    } else {
+        None
+    }
 }
 
 /// Build standard mounts for container filesystem
