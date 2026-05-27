@@ -9,7 +9,10 @@ use assert_cmd::Command;
 use boxlite_test_utils::home::PerTestBoxHome;
 use std::time::Duration;
 
-fn run_in_box(home: &PerTestBoxHome, kernel: Option<&str>, script: &str) -> String {
+/// Returns (stdout, stderr). Skip detection (--kernel feature not built in)
+/// surfaces in stderr because boxlite's failure path logs via tracing, not
+/// stdout.
+fn run_in_box(home: &PerTestBoxHome, kernel: Option<&str>, script: &str) -> (String, String) {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_boxlite"));
     cmd.arg("--home")
         .arg(&home.path)
@@ -26,27 +29,32 @@ fn run_in_box(home: &PerTestBoxHome, kernel: Option<&str>, script: &str) -> Stri
     cmd.args(&args);
 
     let output = cmd.output().expect("failed to execute boxlite");
-    String::from_utf8_lossy(&output.stdout).to_string()
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
 }
 
 #[test]
 fn kernel_net_has_iptables() {
     let home = PerTestBoxHome::new();
 
-    let result = run_in_box(
+    let (stdout, stderr) = run_in_box(
         &home,
         Some("net"),
         "cat /proc/net/ip_tables_names 2>/dev/null && echo IPTABLES_OK || echo NO_IPTABLES",
     );
 
-    if result.contains("--kernel net requires") {
-        eprintln!("SKIP: binary not built with kernel-net feature");
+    // Binary built without `--features kernel-net` surfaces the dependency
+    // requirement on stderr via tracing; skip rather than fail.
+    if stderr.contains("--kernel net requires") || stdout.contains("--kernel net requires") {
+        eprintln!("SKIP kernel_net_has_iptables: binary not built with kernel-net feature");
         return;
     }
 
     assert!(
-        result.contains("IPTABLES_OK"),
-        "net kernel must have iptables support; got: {result}"
+        stdout.contains("IPTABLES_OK"),
+        "net kernel must have iptables support; got stdout: {stdout}\nstderr: {stderr}"
     );
 }
 
@@ -54,14 +62,14 @@ fn kernel_net_has_iptables() {
 fn kernel_lean_no_iptables() {
     let home = PerTestBoxHome::new();
 
-    let result = run_in_box(
+    let (stdout, stderr) = run_in_box(
         &home,
         None,
         "cat /proc/net/ip_tables_names 2>/dev/null && echo IPTABLES_OK || echo NO_IPTABLES",
     );
 
     assert!(
-        result.contains("NO_IPTABLES"),
-        "lean kernel must NOT have iptables; got: {result}"
+        stdout.contains("NO_IPTABLES"),
+        "lean kernel must NOT have iptables; got stdout: {stdout}\nstderr: {stderr}"
     );
 }
