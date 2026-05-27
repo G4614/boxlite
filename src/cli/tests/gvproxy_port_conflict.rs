@@ -68,4 +68,9 @@ fn gvproxy_port_conflict_fails_fast_with_named_error() {
         stderr.contains("gvproxy_create failed"),
         "stderr must name gvproxy as the failure source; got:\n{stderr}"
     );
+    assert!(
+        stderr.contains("address already in use"),
+        "stderr must surface the underlying bind error (the whole point of the\n\
+         FFI `errOut` plumbing); got:\n{stderr}"
+    );
 }
