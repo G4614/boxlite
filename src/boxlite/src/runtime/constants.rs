@@ -69,6 +69,26 @@ pub mod vm_defaults {
     pub const DEFAULT_DISK_SIZE_GB: u64 = 10;
 }
 
+/// Host disk-space admission guard for box startup.
+///
+/// A box can grow the host filesystem via its COW overlay and (unbounded)
+/// virtio-fs volume writes. There is no runtime quota, so this is admission
+/// control: refuse to start when the host is critically low, warn when it is
+/// getting low. It does not stop a running box from filling the disk.
+pub mod disk_guard {
+    /// Below this much free space, refuse to start a box. At <1 GiB any disk
+    /// write (qcow2 growth, image extraction) is liable to fail mid-operation.
+    pub const MIN_FREE_BYTES_HARD: u64 = 1024 * 1024 * 1024;
+
+    /// Below this much free space, warn but proceed.
+    pub const MIN_FREE_BYTES_SOFT: u64 = 5 * 1024 * 1024 * 1024;
+
+    /// Below this fraction of total capacity free, warn but proceed. Catches
+    /// "low" on small filesystems where 5 GiB is most of the disk. Percentage
+    /// is intentionally warn-only — a large disk at 9% free still has plenty.
+    pub const MIN_FREE_FRACTION_SOFT: f64 = 0.10;
+}
+
 /// File naming patterns
 pub mod filenames {
     use crate::runtime::layout::dirs;

@@ -46,8 +46,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use tasks::{
-    ContainerRootfsTask, FilesystemTask, GuestConnectTask, GuestInitTask, GuestRootfsTask, InitCtx,
-    VmmAttachTask, VmmSpawnTask,
+    ContainerRootfsTask, DiskSpaceTask, FilesystemTask, GuestConnectTask, GuestInitTask,
+    GuestRootfsTask, InitCtx, VmmAttachTask, VmmSpawnTask,
 };
 use types::InitPipelineContext;
 
@@ -64,6 +64,8 @@ fn get_execution_plan(status: BoxStatus) -> BoxliteResult<ExecutionPlan<InitCtx>
     let stages: Vec<Stage<BoxedTask<InitCtx>>> = match status {
         BoxStatus::Configured => vec![
             // First start: Full pipeline
+            // Phase 0: Refuse to start if the host disk is critically low
+            Stage::sequential(vec![Box::new(DiskSpaceTask)]),
             // Phase 1: Setup filesystem layout first
             Stage::sequential(vec![Box::new(FilesystemTask)]),
             // Phase 2: Prepare rootfs (now has access to layout for disk paths)
@@ -83,6 +85,7 @@ fn get_execution_plan(status: BoxStatus) -> BoxliteResult<ExecutionPlan<InitCtx>
         BoxStatus::Stopped | BoxStatus::Failed => vec![
             // Restart: Same flow but rootfs tasks reuse existing COW disks
             // (preserves user modifications from previous run)
+            Stage::sequential(vec![Box::new(DiskSpaceTask)]),
             Stage::sequential(vec![Box::new(FilesystemTask)]),
             Stage::parallel(vec![
                 Box::new(ContainerRootfsTask),

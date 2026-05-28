@@ -1,8 +1,10 @@
 mod binary_finder;
+pub mod disk_space;
 mod pid_file;
 pub mod process;
 
 pub use binary_finder::{RuntimeBinaryFinder, find_binary};
+pub use disk_space::{DiskSpaceVerdict, available_and_total, classify};
 pub use pid_file::{PidFileReader, PidFileWriter, PidRecord, ProcessIdentity};
 
 use std::path::PathBuf;

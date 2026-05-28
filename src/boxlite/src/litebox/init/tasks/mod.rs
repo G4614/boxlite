@@ -24,6 +24,7 @@
 //! ```
 
 mod container_rootfs;
+mod disk_space;
 mod filesystem;
 mod guest_connect;
 mod guest_entrypoint;
@@ -51,6 +52,7 @@ fn log_task_error(box_id: &BoxID, task_name: &str, err: &BoxliteError) {
 }
 
 pub use container_rootfs::ContainerRootfsTask;
+pub use disk_space::DiskSpaceTask;
 pub use filesystem::FilesystemTask;
 pub use guest_connect::GuestConnectTask;
 pub use guest_init::GuestInitTask;
