@@ -1,4 +1,4 @@
-PHONY_TARGETS += guest shim runtime cli cli\:release skillbox-image build\:apps libkrunfw-net
+PHONY_TARGETS += guest shim runtime cli cli\:release skillbox-image build\:apps libkrunfw-net libkrunfw-custom
 
 guest:
 	@bash $(SCRIPT_DIR)/build/build-guest.sh
@@ -51,6 +51,24 @@ build\:apps: _ensure-apps-deps
 # iterating on the net-kernel kernel feature; not in any other target's dep chain.
 libkrunfw-net:
 	@bash $(SCRIPT_DIR)/build/build-libkrunfw-net.sh
+
+# Build a libkrunfw kernel from your OWN config overlay (custom modules).
+# Same machinery as libkrunfw-net, but you supply the overlay:
+#
+#     OVERLAY=/path/to/my-overlay make libkrunfw-custom
+#       [OUT=/path/to/libkrunfw-custom.so.5]   # default: target/custom-kernel/lib64/
+#
+# The overlay is a file of `CONFIG_*=y` lines appended on top of the lean
+# config (see src/deps/libkrun-sys/net-configs/README.md). Unlike --kernel
+# net, the result is NOT embedded — load it at runtime with no rebuild:
+#
+#     boxlite run --kernel <OUT> ...
+#
+# DRY_RUN=1 validates the overlay + config merge without the (~10-20 min) build.
+# Heavy target; not in any other target's dep chain.
+libkrunfw-custom:
+	@OVERLAY="$(OVERLAY)" OUT="$(OUT)" DRY_RUN="$(DRY_RUN)" \
+		bash $(SCRIPT_DIR)/build/build-libkrunfw.sh
 
 # Build SkillBox container image (all-in-one AI CLI with noVNC)
 # Usage: make skillbox-image [APT_SOURCE=mirrors.aliyun.com]
