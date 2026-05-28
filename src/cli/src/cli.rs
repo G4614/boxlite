@@ -393,10 +393,12 @@ pub struct ResourceFlags {
     #[arg(long)]
     pub memory: Option<u32>,
 
-    /// Use the net kernel (netfilter/bridge modules) instead of the
-    /// default lean kernel. The binary must be built with
-    /// `--features kernel-net` to embed the net kernel blob.
-    #[arg(long = "kernel", value_name = "VARIANT")]
+    /// Select the guest kernel. `net` uses the embedded net kernel
+    /// (netfilter/bridge modules; the binary must be built with
+    /// `--features kernel-net`). A file path loads a custom libkrunfw
+    /// blob at runtime — build one with `make libkrunfw-custom`. Omit
+    /// for the default lean kernel.
+    #[arg(long = "kernel", value_name = "net|PATH")]
     pub kernel: Option<String>,
 }
 
