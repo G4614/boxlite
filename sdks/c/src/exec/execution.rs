@@ -1359,6 +1359,178 @@ mod tests {
         );
     }
 
+    // ─── Terminal event must not precede a still-pending stream pump ─────
+    //
+    // The drain-before-wait fix: exit_pump (and the wait task) await
+    // `await_streams_drained` before pushing their terminal Exit/Wait event,
+    // so a fast command's last stdout chunks reach the consumer before it
+    // observes exit. Without the barrier the terminal event races the
+    // still-draining pump → the Go SDK's `box.Exec` returns with empty stdout.
+    //
+    // Deterministic: we pin the racy mid-state (a pump registered but not yet
+    // finished — `pending == 1`) and assert the terminal task is *gated* on
+    // the drain, rather than trying to reproduce the timing race. Removing the
+    // `await_streams_drained` line from `exit_pump` flips this test red.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn exit_event_waits_for_pending_stdout_drain() {
+        let queue = Arc::new(EventQueue::new());
+        let pending = Arc::new(AtomicI32::new(1)); // one stdout pump in flight
+        let done = Arc::new(Notify::new());
+
+        // Drive the real exit terminal path. An empty execution makes
+        // `wait_on_clone` error (exit_code -1), but the drain+push logic runs
+        // unchanged — so a regression in production `exit_pump` fails here.
+        let exec: Arc<Mutex<Option<Execution>>> = Arc::new(Mutex::new(None));
+        let task = {
+            let queue = queue.clone();
+            let pending = pending.clone();
+            let done = done.clone();
+            tokio::spawn(exit_pump(
+                exec,
+                race_exit_cb,
+                0xBEEF,
+                queue,
+                Arc::new(AtomicBool::new(false)), // process_completed
+                Arc::new(AtomicBool::new(false)), // exit_dispatched
+                pending,
+                done,
+            ))
+        };
+
+        // Let the task reach (and park at) await_streams_drained.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // INVARIANT: while a stdout pump is still pending, Exit must not be
+        // queued. Pre-fix (no drain await) it is → this assertion flips red.
+        {
+            let g = queue.inner.lock().unwrap();
+            assert!(
+                !g.iter().any(|e| matches!(e, RuntimeEvent::Exit { .. })),
+                "Exit was queued before the still-pending stdout pump drained \
+                 (terminal event raced the stream pump)"
+            );
+        }
+
+        // Drain the pump: push its tail chunk, then finish_stream (1→0 + notify).
+        push_event(
+            &queue,
+            RuntimeEvent::Stdout {
+                cb: noop_stdout_cb,
+                user_data: 0xFEED,
+                data: b"tail-output".to_vec(),
+            },
+        )
+        .await;
+        finish_stream(&pending, &done);
+
+        // The exit task now unparks and pushes Exit.
+        task.await.expect("exit_pump task joined");
+
+        // Order: the stdout tail chunk must precede the Exit event.
+        let events: Vec<RuntimeEvent> = {
+            let mut g = queue.inner.lock().unwrap();
+            g.drain(..).collect()
+        };
+        let stdout_idx = events
+            .iter()
+            .position(|e| matches!(e, RuntimeEvent::Stdout { .. }));
+        let exit_idx = events
+            .iter()
+            .position(|e| matches!(e, RuntimeEvent::Exit { .. }));
+        assert!(
+            matches!((stdout_idx, exit_idx), (Some(s), Some(x)) if s < x),
+            "stdout must precede Exit; got stdout={stdout_idx:?} exit={exit_idx:?}"
+        );
+    }
+
+    // Symmetric guard for the wait task (execution_wait, line ~525). The wait
+    // task is spawned inline, so we drive it via the real `boxlite_execution_wait`
+    // on a handle whose stream-pump counter is pre-bumped to 1. An empty
+    // execution makes the inner wait error, but the drain+push-Wait logic runs
+    // unchanged. Removing line 525's `await_streams_drained` flips this red.
+    // Sync test (not #[tokio::test]): empty_handle() owns a Runtime, and
+    // dropping a Runtime inside an async context panics. We drive the async
+    // bits through the handle's own runtime via block_on, mirroring
+    // signal_dispatches_signal_event_through_queue.
+    #[test]
+    fn wait_event_waits_for_pending_stdout_drain() {
+        use std::sync::atomic::Ordering as O;
+        use std::time::{Duration, Instant};
+
+        let mut handle = empty_handle(); // execution = None
+        handle.streams_pending.store(1, O::Release); // one stdout pump in flight
+        let queue = handle.queue.clone();
+        let pending = handle.streams_pending.clone();
+        let done = handle.streams_done.clone();
+        let rt = handle.tokio_rt.clone();
+
+        let mut error = FFIError::default();
+        let code = unsafe {
+            boxlite_execution_wait(
+                &mut handle as *mut _,
+                Some(noop_wait),
+                ptr::null_mut(),
+                &mut error,
+            )
+        };
+        assert_eq!(code, BoxliteErrorCode::Ok);
+        unsafe { crate::boxlite_error_free(&mut error as *mut _) };
+
+        // Let the spawned wait task reach (and park at) await_streams_drained.
+        rt.block_on(async { tokio::time::sleep(Duration::from_millis(100)).await });
+
+        // INVARIANT: while a stdout pump is pending, Wait must not be queued.
+        {
+            let g = queue.inner.lock().unwrap();
+            assert!(
+                !g.iter().any(|e| matches!(e, RuntimeEvent::Wait { .. })),
+                "Wait was queued before the still-pending stdout pump drained \
+                 (terminal event raced the stream pump)"
+            );
+        }
+
+        // Drain the pump: push tail chunk, then finish_stream (1→0 + notify).
+        rt.block_on(push_event(
+            &queue,
+            RuntimeEvent::Stdout {
+                cb: noop_stdout_cb,
+                user_data: 0xFEED,
+                data: b"tail-output".to_vec(),
+            },
+        ));
+        finish_stream(&pending, &done);
+
+        // The wait task runs on the handle's own runtime; poll until Wait lands.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            {
+                let g = queue.inner.lock().unwrap();
+                if g.iter().any(|e| matches!(e, RuntimeEvent::Wait { .. })) {
+                    break;
+                }
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+            rt.block_on(async { tokio::time::sleep(Duration::from_millis(10)).await });
+        }
+
+        let events: Vec<RuntimeEvent> = {
+            let mut g = queue.inner.lock().unwrap();
+            g.drain(..).collect()
+        };
+        let stdout_idx = events
+            .iter()
+            .position(|e| matches!(e, RuntimeEvent::Stdout { .. }));
+        let wait_idx = events
+            .iter()
+            .position(|e| matches!(e, RuntimeEvent::Wait { .. }));
+        assert!(
+            matches!((stdout_idx, wait_idx), (Some(s), Some(w)) if s < w),
+            "stdout must precede Wait; got stdout={stdout_idx:?} wait={wait_idx:?}"
+        );
+    }
+
     // ─── Stream pumps must forward chunks byte-exact ─────────────────────
     //
     // The upstream contract from `boxlite::portal::interfaces::exec::
