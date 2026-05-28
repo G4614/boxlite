@@ -13,6 +13,7 @@ pub mod types;
 mod core;
 #[cfg(feature = "embedded-runtime")]
 pub(crate) mod embedded;
+pub mod gc;
 mod import;
 pub(crate) mod rt_impl;
 

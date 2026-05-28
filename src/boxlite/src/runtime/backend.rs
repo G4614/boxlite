@@ -60,6 +60,17 @@ pub(crate) trait RuntimeBackend: Send + Sync {
     /// Synchronous shutdown for atexit/Drop contexts.
     /// Default no-op (REST backend doesn't manage local processes).
     fn shutdown_sync(&self) {}
+
+    /// Reclaim disk by sweeping orphaned box dirs and unreferenced base disks.
+    /// Local-only — operates on the on-disk `~/.boxlite` caches.
+    fn collect_garbage(
+        &self,
+        _opts: &crate::runtime::gc::GcOptions,
+    ) -> BoxliteResult<crate::runtime::gc::GcReport> {
+        Err(BoxliteError::Unsupported(
+            "GC is only supported for local runtimes (not REST backends)".to_string(),
+        ))
+    }
 }
 
 /// Backend abstraction for individual box operations.

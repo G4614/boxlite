@@ -319,6 +319,15 @@ impl BoxliteRuntime {
         self.backend.remove(id_or_name, force).await
     }
 
+    /// Reclaim disk by sweeping orphaned box directories and unreferenced base
+    /// disks under the runtime home. Local backends only.
+    pub fn collect_garbage(
+        &self,
+        opts: &crate::runtime::gc::GcOptions,
+    ) -> BoxliteResult<crate::runtime::gc::GcReport> {
+        self.backend.collect_garbage(opts)
+    }
+
     /// Import a box from a `.boxlite` archive.
     ///
     /// Creates a new box with a new ID from archived disk images and configuration.

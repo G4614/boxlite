@@ -65,6 +65,9 @@ pub enum Commands {
     /// Remove one or more boxes
     Rm(crate::commands::rm::RmArgs),
 
+    /// Reclaim disk: remove orphaned box dirs and unreferenced base disks
+    Gc(crate::commands::gc::GcArgs),
+
     /// Start one or more stopped boxes
     Start(crate::commands::start::StartArgs),
 

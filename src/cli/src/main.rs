@@ -94,6 +94,7 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         cli::Commands::Create(args) => commands::create::execute(args, &global).await,
         cli::Commands::List(args) => commands::list::execute(args, &global).await,
         cli::Commands::Rm(args) => commands::rm::execute(args, &global).await,
+        cli::Commands::Gc(args) => commands::gc::execute(args, &global).await,
         cli::Commands::Start(args) => commands::start::execute(args, &global).await,
         cli::Commands::Stop(args) => commands::stop::execute(args, &global).await,
         cli::Commands::Restart(args) => commands::restart::execute(args, &global).await,
