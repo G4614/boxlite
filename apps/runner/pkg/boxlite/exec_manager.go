@@ -441,6 +441,22 @@ func (m *ExecManager) GetForBox(id, boxID string) (*ManagedExec, error) {
 	return e, nil
 }
 
+// finishedLocked reports whether the exec is over. Done is the canonical
+// "exec finished" signal — closed by the wait-task's outermost defer, so it
+// fires on any goroutine exit including a panic — while the `closed` flag is
+// set later in a nested defer an abnormal exit can skip. Checking Done first
+// closes the race window where Done is closed but `closed` is still false.
+// Callers must hold handleMu. The per-resource nil check (execution/stdinW)
+// stays at the call site since it differs per operation.
+func (e *ManagedExec) finishedLocked() bool {
+	select {
+	case <-e.Done:
+		return true
+	default:
+	}
+	return e.closed
+}
+
 func (m *ExecManager) Signal(id string, sig int) error {
 	m.mu.RLock()
 	e, ok := m.execs[id]
@@ -456,7 +472,7 @@ func (m *ExecManager) Signal(id string, sig int) error {
 	}
 	e.handleMu.Lock()
 	defer e.handleMu.Unlock()
-	if e.closed || e.execution == nil {
+	if e.finishedLocked() || e.execution == nil {
 		return fmt.Errorf("%w: %s", ErrExecClosed, id)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -548,7 +564,7 @@ func (m *ExecManager) ResizeTTY(id string, rows, cols int) error {
 	}
 	e.handleMu.Lock()
 	defer e.handleMu.Unlock()
-	if e.closed || e.execution == nil {
+	if e.finishedLocked() || e.execution == nil {
 		return fmt.Errorf("%w: %s", ErrExecClosed, id)
 	}
 	if !e.TTY {
@@ -843,7 +859,7 @@ func (e *ManagedExec) MarkDisconnected() {
 func (e *ManagedExec) AttachWriteStdin(data []byte) (int, error) {
 	e.handleMu.Lock()
 	defer e.handleMu.Unlock()
-	if e.closed || e.stdinW == nil {
+	if e.finishedLocked() || e.stdinW == nil {
 		return 0, fmt.Errorf("execution %s stdin is closed", e.ID)
 	}
 	return e.stdinW.Write(data)
@@ -875,7 +891,7 @@ func (e *ManagedExec) AttachCloseStdin() error {
 func (e *ManagedExec) AttachResize(rows, cols int) error {
 	e.handleMu.Lock()
 	defer e.handleMu.Unlock()
-	if e.closed || e.execution == nil {
+	if e.finishedLocked() || e.execution == nil {
 		return fmt.Errorf("execution %s is closed", e.ID)
 	}
 	if !e.TTY {
@@ -893,7 +909,7 @@ func (e *ManagedExec) AttachResize(rows, cols int) error {
 func (e *ManagedExec) AttachSignal(sig int) error {
 	e.handleMu.Lock()
 	defer e.handleMu.Unlock()
-	if e.closed || e.execution == nil {
+	if e.finishedLocked() || e.execution == nil {
 		return fmt.Errorf("execution %s is closed", e.ID)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
