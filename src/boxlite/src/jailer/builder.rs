@@ -29,6 +29,8 @@ pub struct JailerBuilder {
     layout: Option<BoxFilesystemLayout>,
     preserved_fds: Vec<(RawFd, i32)>,
     detach: bool,
+    /// VM guest memory in MiB, used to derive the host cgroup memory limit.
+    vm_memory_mib: Option<u32>,
 }
 
 impl Default for JailerBuilder {
@@ -47,6 +49,7 @@ impl JailerBuilder {
             layout: None,
             preserved_fds: Vec::new(),
             detach: false,
+            vm_memory_mib: None,
         }
     }
 
@@ -74,6 +77,15 @@ impl JailerBuilder {
     /// All volumes are added to readable paths; writable volumes also get write access.
     pub fn with_volumes(mut self, volumes: Vec<VolumeSpec>) -> Self {
         self.volumes = volumes;
+        self
+    }
+
+    /// Set the VM guest memory in MiB.
+    ///
+    /// Used to derive the host cgroup `memory.max` so the limit scales with
+    /// the box's configured RAM instead of being a fixed value.
+    pub fn with_vm_memory_mib(mut self, memory_mib: Option<u32>) -> Self {
+        self.vm_memory_mib = memory_mib;
         self
     }
 
@@ -156,6 +168,7 @@ impl JailerBuilder {
             layout,
             preserved_fds: self.preserved_fds,
             detach: self.detach,
+            vm_memory_mib: self.vm_memory_mib,
         })
     }
 }

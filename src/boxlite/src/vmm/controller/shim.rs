@@ -78,15 +78,11 @@ impl ShimHandler {
     }
 }
 
-impl VmmHandlerTrait for ShimHandler {
-    fn pid(&self) -> u32 {
-        self.pid
-    }
-
-    fn stop(&mut self) -> BoxliteResult<()> {
-        // Graceful shutdown: SIGTERM first, wait, then SIGKILL if needed.
-        // This gives libkrun time to flush its virtio-blk buffers to disk,
-        // preventing qcow2 corruption.
+impl ShimHandler {
+    /// Terminate the shim: SIGTERM for graceful shutdown (giving libkrun time
+    /// to flush virtio-blk buffers and avoid qcow2 corruption), then SIGKILL on
+    /// timeout. Returns once the process is dead and reaped.
+    fn terminate_shim(&mut self) {
         const GRACEFUL_SHUTDOWN_TIMEOUT_MS: u64 = 2000;
 
         if let Some(mut process) = self.process.take() {
@@ -102,7 +98,7 @@ impl VmmHandlerTrait for ShimHandler {
                 match process.try_wait() {
                     Ok(Some(_)) => {
                         // Process exited gracefully
-                        return Ok(());
+                        return;
                     }
                     Ok(None) => {
                         // Still running, check timeout
@@ -110,7 +106,7 @@ impl VmmHandlerTrait for ShimHandler {
                             // Timeout - force kill
                             let _ = process.kill();
                             let _ = process.wait();
-                            return Ok(());
+                            return;
                         }
                         // Brief sleep before checking again
                         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -119,7 +115,7 @@ impl VmmHandlerTrait for ShimHandler {
                         // Error checking status - try to kill anyway
                         let _ = process.kill();
                         let _ = process.wait();
-                        return Ok(());
+                        return;
                     }
                 }
             }
@@ -138,14 +134,14 @@ impl VmmHandlerTrait for ShimHandler {
 
                 if result > 0 {
                     // Process exited gracefully (we reaped it)
-                    return Ok(());
+                    return;
                 }
                 if result < 0 {
                     // Error - process may not be our child (common in attached mode)
                     // Fall back to checking if process still exists
                     let exists = crate::util::is_process_alive(self.pid);
                     if !exists {
-                        return Ok(()); // Already dead
+                        return; // Already dead
                     }
                 }
                 // result == 0 means still running
@@ -155,14 +151,42 @@ impl VmmHandlerTrait for ShimHandler {
                     unsafe {
                         libc::kill(self.pid as i32, libc::SIGKILL);
                     }
-                    return Ok(());
+                    return;
                 }
 
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
         }
+    }
 
-        #[allow(unreachable_code)]
+    /// Remove the host cgroup after the shim has stopped.
+    ///
+    /// A detached shim is reaped by init, not by us, so it can briefly remain
+    /// a zombie after `terminate_shim` returns — keeping the cgroup non-empty
+    /// and `rmdir` returning EBUSY. Retry until the kernel clears the membership.
+    /// Non-fatal: at worst an empty cgroup dir lingers.
+    #[cfg(target_os = "linux")]
+    fn remove_host_cgroup(&self) {
+        const MAX_ATTEMPTS: u32 = 20;
+        for _ in 0..MAX_ATTEMPTS {
+            match crate::jailer::cgroup::remove_cgroup(self.box_id.as_str()) {
+                Ok(()) => return,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            }
+        }
+        tracing::debug!(box_id = %self.box_id, "Host cgroup removal skipped (still busy)");
+    }
+}
+
+impl VmmHandlerTrait for ShimHandler {
+    fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    fn stop(&mut self) -> BoxliteResult<()> {
+        self.terminate_shim();
+        #[cfg(target_os = "linux")]
+        self.remove_host_cgroup();
         Ok(())
     }
 
