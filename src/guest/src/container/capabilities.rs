@@ -35,6 +35,59 @@ pub fn default_capabilities() -> HashSet<Capability> {
     .collect()
 }
 
+/// Every Linux capability known to the OCI spec — the expansion of
+/// `--cap-add ALL`. Privileged workloads such as dockerd (docker:dind)
+/// need the dangerous caps (`CAP_SYS_ADMIN` for mounts/cgroups,
+/// `CAP_NET_ADMIN` for the bridge/iptables) that [`default_capabilities`]
+/// deliberately omits.
+pub fn all_capabilities() -> HashSet<Capability> {
+    [
+        Capability::AuditControl,
+        Capability::AuditRead,
+        Capability::AuditWrite,
+        Capability::BlockSuspend,
+        Capability::Bpf,
+        Capability::CheckpointRestore,
+        Capability::Chown,
+        Capability::DacOverride,
+        Capability::DacReadSearch,
+        Capability::Fowner,
+        Capability::Fsetid,
+        Capability::IpcLock,
+        Capability::IpcOwner,
+        Capability::Kill,
+        Capability::Lease,
+        Capability::LinuxImmutable,
+        Capability::MacAdmin,
+        Capability::MacOverride,
+        Capability::Mknod,
+        Capability::NetAdmin,
+        Capability::NetBindService,
+        Capability::NetBroadcast,
+        Capability::NetRaw,
+        Capability::Perfmon,
+        Capability::Setgid,
+        Capability::Setfcap,
+        Capability::Setpcap,
+        Capability::Setuid,
+        Capability::SysAdmin,
+        Capability::SysBoot,
+        Capability::SysChroot,
+        Capability::SysModule,
+        Capability::SysNice,
+        Capability::SysPacct,
+        Capability::SysPtrace,
+        Capability::SysRawio,
+        Capability::SysResource,
+        Capability::SysTime,
+        Capability::SysTtyConfig,
+        Capability::Syslog,
+        Capability::WakeAlarm,
+    ]
+    .into_iter()
+    .collect()
+}
+
 /// Convert default capabilities to string names for libcontainer API.
 pub fn capability_names() -> Vec<String> {
     [
