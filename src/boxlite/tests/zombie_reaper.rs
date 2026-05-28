@@ -137,3 +137,38 @@ fn register_is_idempotent_and_survives_prior_cleanup() {
 
     reaper.shutdown();
 }
+
+/// Scoping guarantee: a child whose PID was never registered must be left
+/// untouched, so its owner's `wait()` still returns the real exit code. This
+/// is the property whose absence got PR #520's global `waitpid(-1)` reaper
+/// reverted (Issue #523) — it consumed children it did not own, and their
+/// owners then got `ECHILD` with the exit code lost. Guards against
+/// re-widening the reaper's blast radius past the registered shim-PID set.
+#[test]
+fn unregistered_child_exit_code_is_not_stolen() {
+    let reaper = ShimReaper::spawn();
+
+    // A real child that exits with a DISTINCT code, deliberately NOT
+    // registered with the reaper.
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "exit 42"])
+        .spawn()
+        .expect("spawn /bin/sh -c 'exit 42'");
+
+    // ~3x the reaper's 250 ms tick: ample cycles for a scoped reaper to sweep
+    // its (empty) registry without touching this child. A global waitpid(-1)
+    // reaper would consume it here, and the owner's wait() below would get
+    // ECHILD instead of exit code 42.
+    std::thread::sleep(Duration::from_millis(800));
+
+    let status = child
+        .wait()
+        .expect("owner must still be able to wait its own child");
+    assert_eq!(
+        status.code(),
+        Some(42),
+        "unregistered child's exit code must survive — reaper must stay scoped, not waitpid(-1)"
+    );
+
+    reaper.shutdown();
+}
