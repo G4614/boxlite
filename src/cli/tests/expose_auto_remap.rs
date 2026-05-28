@@ -167,3 +167,113 @@ fn expose_auto_remap_falls_back_when_desired_port_busy() {
 
     drop(blocker);
 }
+
+/// Scope guard: an explicit `-p HOST:GUEST` mapping is the user's deliberate
+/// choice and MUST NOT go through the EXPOSE auto-remap path — its host port
+/// is preserved and `inspect` tags it `Source=user` (never `auto_expose` /
+/// `auto_remap`).
+///
+/// Two-side regression contract:
+///   - Correct: user mapping kept as-is → `Source=user`.
+///   - Broken (user `-p` routed through `resolve_expose_host_port`): a free
+///     host port resolves to `AutoExpose`, so `Source` flips to `auto_expose`
+///     → the `Source=user` assertion fails.
+///
+/// Uses `alpine:latest` (no `EXPOSE`) so the only host-side mapping is the
+/// explicit `-p`, with no auto-publish entries to disambiguate.
+const USER_GUEST_PORT: u16 = 18080;
+
+#[test]
+fn user_published_port_keeps_user_source() {
+    // Pick a host port that's currently free (bind ephemeral, record, release
+    // so the box can take it). Small TOCTOU window; acceptable for a test.
+    let host_port = {
+        let l = TcpListener::bind(("0.0.0.0", 0)).expect("bind ephemeral to find a free host port");
+        let p = l.local_addr().expect("local_addr").port();
+        drop(l);
+        p
+    };
+
+    let ctx = common::boxlite();
+
+    let mapping = format!("{host_port}:{USER_GUEST_PORT}");
+    let run_output = ctx
+        .new_cmd()
+        .timeout(Duration::from_secs(120))
+        .args(["run", "-d", "-p", &mapping, "alpine:latest", "sleep", "300"])
+        .output()
+        .expect("spawn boxlite run -d");
+    let run_stdout = String::from_utf8_lossy(&run_output.stdout).to_string();
+    let run_stderr = String::from_utf8_lossy(&run_output.stderr).to_string();
+    assert!(
+        run_output.status.success(),
+        "boxlite run -d -p {mapping} alpine failed:\nrc: {rc:?}\nstdout:\n{run_stdout}\nstderr:\n{run_stderr}",
+        rc = run_output.status.code(),
+    );
+
+    let box_id = run_stdout.trim().to_string();
+    assert!(
+        !box_id.is_empty(),
+        "boxlite run -d returned an empty box id (stderr:\n{run_stderr})"
+    );
+
+    struct Cleanup<'a>(&'a common::TestContext, &'a str);
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            let _ = self.0.new_cmd().args(["rm", "--force", self.1]).output();
+        }
+    }
+    let _cleanup = Cleanup(&ctx, &box_id);
+
+    let inspect_output = ctx
+        .new_cmd()
+        .args(["inspect", &box_id])
+        .output()
+        .expect("spawn boxlite inspect");
+    let inspect_stdout = String::from_utf8_lossy(&inspect_output.stdout).to_string();
+    assert!(
+        inspect_output.status.success(),
+        "boxlite inspect exited non-zero — stderr:\n{}",
+        String::from_utf8_lossy(&inspect_output.stderr)
+    );
+
+    let parsed: Value =
+        serde_json::from_str(inspect_stdout.trim()).expect("inspect output must be valid JSON");
+    let arr = parsed
+        .as_array()
+        .expect("inspect output must be a JSON array");
+    let ports = arr[0]
+        .get("Ports")
+        .and_then(|p| p.as_array())
+        .unwrap_or_else(|| {
+            panic!("inspect output must include a `Ports` array; got:\n{inspect_stdout}")
+        });
+
+    let entry = ports
+        .iter()
+        .find(|m| m.get("GuestPort").and_then(|v| v.as_u64()) == Some(USER_GUEST_PORT as u64))
+        .unwrap_or_else(|| {
+            panic!("inspect Ports has no entry for guest port {USER_GUEST_PORT}; got: {ports:#?}")
+        });
+
+    let got_host = entry
+        .get("HostPort")
+        .and_then(|v| v.as_u64())
+        .unwrap_or_else(|| panic!("Ports entry missing HostPort: {entry:#?}")) as u16;
+    let source = entry
+        .get("Source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    assert_eq!(
+        got_host, host_port,
+        "explicit -p host port must be preserved, not remapped; entry: {entry:#?}",
+    );
+    assert_eq!(
+        source, "user",
+        "explicit -p mapping must be Source=user, never run through the EXPOSE \
+         auto-remap path (got {source:?}); entry: {entry:#?}",
+    );
+    eprintln!("[ok] user -p host:{host_port} → guest:{USER_GUEST_PORT} (source=user, not remapped)");
+}
