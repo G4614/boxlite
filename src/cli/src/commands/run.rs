@@ -85,6 +85,12 @@ impl BoxRunner {
         let exit_code = streamer.start().await?;
         // Exit with box's exit code
         if exit_code != 0 {
+            // Tear the box down before hard-exiting. std::process::exit skips
+            // Drop and the async auto-stop/auto-remove, so a non-zero command
+            // exit would otherwise leak the box's shim as a live process (the
+            // success path stops the box via normal teardown when run returns).
+            drop(execution);
+            let _ = litebox.stop().await;
             std::process::exit(to_shell_exit_code(exit_code));
         }
 
