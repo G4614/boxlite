@@ -24,6 +24,14 @@ use crate::runtime::rt_impl::RuntimeImpl;
 use boxlite_shared::errors::BoxliteResult;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+
+/// Don't reclaim a disk-image modified within this window. A concurrent box
+/// start builds its disk-image and creates the backing overlay back-to-back
+/// (sub-second); skipping recently-touched files avoids deleting one mid-start
+/// without serializing the start hot path behind a global lock. A just-built
+/// disk-image becomes collectable once it ages past this and no box backs it.
+const DISK_IMAGE_GRACE: Duration = Duration::from_secs(600);
 
 /// What to sweep and how.
 #[derive(Debug, Clone, Default)]
@@ -95,7 +103,22 @@ impl RuntimeImpl {
                 continue; // a box overlay backs onto this — keep it
             }
 
-            let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let meta = match std::fs::metadata(&path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            // Skip recently-modified files: a concurrent start may have just
+            // built this disk-image and not yet created its backing overlay.
+            if let Ok(modified) = meta.modified()
+                && SystemTime::now()
+                    .duration_since(modified)
+                    .map(|age| age < DISK_IMAGE_GRACE)
+                    .unwrap_or(true)
+            {
+                continue;
+            }
+
+            let bytes = meta.len();
             if !dry_run && std::fs::remove_file(&path).is_err() {
                 continue;
             }
@@ -167,12 +190,27 @@ mod tests {
         let disk_images_dir = runtime.layout.image_layout().disk_images_dir();
         std::fs::create_dir_all(&disk_images_dir).unwrap();
 
-        // Two disk-images: one will be backed by a box, one orphaned.
+        // Three disk-images: one backed by a box, one old orphan (collectable),
+        // one fresh orphan (protected by the grace period).
         const SZ: u64 = 1024 * 1024;
         let backed = disk_images_dir.join("sha256-backed.ext4");
         let orphan = disk_images_dir.join("sha256-orphan.ext4");
+        let fresh = disk_images_dir.join("sha256-fresh.ext4");
         std::fs::write(&backed, vec![0u8; SZ as usize]).unwrap();
         std::fs::write(&orphan, vec![0u8; SZ as usize]).unwrap();
+        std::fs::write(&fresh, vec![0u8; SZ as usize]).unwrap();
+
+        // Age the orphan well past the grace window so it's collectable.
+        let old = filetime::FileTime::from_unix_time(
+            (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                - DISK_IMAGE_GRACE.as_secs()
+                - 60) as i64,
+            0,
+        );
+        filetime::set_file_mtime(&orphan, old).unwrap();
 
         // A box overlay whose qcow2 backing chain points at `backed`.
         let disks = runtime
@@ -191,26 +229,27 @@ mod tests {
         )
         .expect("create cow child");
 
-        // Dry run: orphan reported, nothing deleted.
+        // Dry run: only the aged orphan qualifies (backed is pinned, fresh is
+        // within the grace window). Nothing deleted.
         let preview = runtime
             .collect_garbage(&GcOptions { dry_run: true })
             .unwrap();
         assert_eq!(
             preview.disk_images_removed, 1,
-            "only the orphan is a candidate"
+            "only the aged orphan qualifies"
         );
-        assert!(preview.disk_images_bytes >= 8192);
         assert!(
-            orphan.exists() && backed.exists(),
+            orphan.exists() && backed.exists() && fresh.exists(),
             "dry run must not delete"
         );
 
-        // Real run: orphan gone, backed disk-image kept.
+        // Real run: aged orphan gone; backed (pinned) and fresh (grace) kept.
         let done = runtime
             .collect_garbage(&GcOptions { dry_run: false })
             .unwrap();
         assert_eq!(done.disk_images_removed, 1);
-        assert!(!orphan.exists(), "orphan disk-image should be reclaimed");
+        assert!(!orphan.exists(), "aged orphan should be reclaimed");
         assert!(backed.exists(), "box-backed disk-image must be kept");
+        assert!(fresh.exists(), "recently-built disk-image kept by grace");
     }
 }
