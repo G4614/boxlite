@@ -2,7 +2,7 @@
 //!
 //! Creates OCI-compliant runtime specifications following the runtime-spec standard.
 
-use super::capabilities::{default_capabilities, capability_names};
+use super::capabilities::{all_capabilities, default_capabilities};
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use std::path::Path;
 
@@ -94,7 +94,7 @@ pub fn create_oci_spec(
 
     let process = build_process_spec(entrypoint, env, workdir, uid, gid, caps)?;
     let root = build_root_spec(rootfs)?;
-    let linux = build_linux_spec(container_id, namespaces)?;
+    let linux = build_linux_spec(container_id, namespaces, has_sys_admin)?;
 
     SpecBuilder::default()
         .version("1.0.2")
@@ -267,18 +267,16 @@ fn find_group_in_group_file(rootfs: &str, name: &str) -> BoxliteResult<u32> {
 // ====================
 
 /// Build default Linux capabilities matching Docker/OCI defaults.
-fn build_capabilities(added_caps: &[String]) -> BoxliteResult<oci_spec::runtime::LinuxCapabilities> {
+fn build_capabilities(
+    added_caps: &[String],
+) -> BoxliteResult<oci_spec::runtime::LinuxCapabilities> {
     use oci_spec::runtime::Capability;
     use std::str::FromStr;
 
     let mut caps = default_capabilities();
 
     if added_caps.iter().any(|c| c == "ALL") {
-        for name in capability_names() {
-            if let Ok(cap) = Capability::from_str(&format!("CAP_{name}")) {
-                caps.insert(cap);
-            }
-        }
+        caps.extend(all_capabilities());
     } else {
         for name in added_caps {
             let cap_name = if name.starts_with("CAP_") {
@@ -287,7 +285,9 @@ fn build_capabilities(added_caps: &[String]) -> BoxliteResult<oci_spec::runtime:
                 format!("CAP_{name}")
             };
             match Capability::from_str(&cap_name) {
-                Ok(cap) => { caps.insert(cap); }
+                Ok(cap) => {
+                    caps.insert(cap);
+                }
                 Err(_) => {
                     tracing::warn!("Unknown capability: {name}, skipping");
                 }
@@ -381,6 +381,7 @@ fn build_root_spec(rootfs: &str) -> BoxliteResult<oci_spec::runtime::Root> {
 fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
+    privileged: bool,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
     // Map full range of UIDs/GIDs to allow non-root users (nginx=33, etc.)
@@ -428,13 +429,26 @@ fn build_linux_spec(
     // let cgroups_path = format!("/boxlite/{}", container_id);
     let _ = container_id; // Suppress unused warning
 
-    LinuxBuilder::default()
+    let mut builder = LinuxBuilder::default()
         .namespaces(namespaces)
         .uid_mappings(uid_mappings)
-        .gid_mappings(gid_mappings)
-        // .masked_paths(masked_paths)
-        // .readonly_paths(readonly_paths)
-        // .cgroups_path(cgroups_path)
+        .gid_mappings(gid_mappings);
+    // .cgroups_path(cgroups_path)
+
+    if privileged {
+        // Privileged containers (`--cap-add ALL`/`SYS_ADMIN`, e.g. dockerd in
+        // docker:dind) need a writable /proc/sys: dockerd writes
+        // net.ipv4.ip_forward to bring up its default bridge. LinuxBuilder
+        // otherwise defaults readonlyPaths/maskedPaths to the standard OCI
+        // lists, which remount /proc/sys read-only. Override with empty sets —
+        // this is what `docker --privileged` does. Non-privileged boxes keep
+        // those default lists (which protect /proc/sys).
+        builder = builder
+            .masked_paths(Vec::<String>::new())
+            .readonly_paths(Vec::<String>::new());
+    }
+
+    builder
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
 }
@@ -539,9 +553,15 @@ fn build_standard_mounts(bundle_path: &Path, cgroup_rw: bool) -> BoxliteResult<V
                 .destination("/sys/fs/cgroup")
                 .typ("cgroup2")
                 .source("cgroup2")
-                .options(vec!["nosuid".to_string(), "noexec".to_string(), "nodev".to_string()])
+                .options(vec![
+                    "nosuid".to_string(),
+                    "noexec".to_string(),
+                    "nodev".to_string(),
+                ])
                 .build()
-                .map_err(|e| BoxliteError::Internal(format!("Failed to build cgroup2 mount: {}", e)))?,
+                .map_err(|e| {
+                    BoxliteError::Internal(format!("Failed to build cgroup2 mount: {}", e))
+                })?,
         );
     }
 
@@ -974,5 +994,56 @@ mod tests {
         // Malformed entries are silently skipped (not enough fields to match)
         let err = resolve_user(r, "short").unwrap_err().to_string();
         assert!(err.contains("User 'short' not found"), "got: {}", err);
+    }
+
+    #[test]
+    fn build_capabilities_all_grants_dangerous_caps() {
+        // `--cap-add ALL` must yield an effective set containing the caps
+        // dockerd/dind needs. The old ALL branch double-prefixed cap names
+        // ("CAP_CAP_*") so the expansion was a no-op — only the default
+        // 14-cap set survived, missing SYS_ADMIN/NET_ADMIN.
+        let caps = build_capabilities(&["ALL".to_string()]).unwrap();
+        let eff = caps.effective().as_ref().expect("effective set present");
+        for cap in [
+            oci_spec::runtime::Capability::SysAdmin,
+            oci_spec::runtime::Capability::NetAdmin,
+        ] {
+            assert!(
+                eff.contains(&cap),
+                "ALL effective set must include {:?}",
+                cap
+            );
+        }
+    }
+
+    #[test]
+    fn privileged_linux_spec_clears_readonly_and_masked_paths() {
+        // Privileged containers (cap-add ALL/SYS_ADMIN) need empty
+        // readonlyPaths/maskedPaths so /proc/sys is writable — dockerd writes
+        // net.ipv4.ip_forward to bring up its bridge. Non-privileged boxes
+        // keep LinuxBuilder's default OCI readonlyPaths (which include
+        // /proc/sys), preserving the protective behavior.
+        let priv_spec = build_linux_spec("c", build_default_namespaces().unwrap(), true).unwrap();
+        assert_eq!(
+            priv_spec.readonly_paths().as_ref().map(Vec::len),
+            Some(0),
+            "privileged must clear readonlyPaths"
+        );
+        assert_eq!(
+            priv_spec.masked_paths().as_ref().map(Vec::len),
+            Some(0),
+            "privileged must clear maskedPaths"
+        );
+
+        let unpriv_spec =
+            build_linux_spec("c", build_default_namespaces().unwrap(), false).unwrap();
+        let ro = unpriv_spec
+            .readonly_paths()
+            .as_ref()
+            .expect("non-privileged keeps default readonlyPaths");
+        assert!(
+            ro.iter().any(|p| p == "/proc/sys"),
+            "non-privileged must keep /proc/sys read-only; got {ro:?}"
+        );
     }
 }

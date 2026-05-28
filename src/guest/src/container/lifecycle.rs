@@ -81,6 +81,7 @@ impl Container {
     /// - Failed to create container directory
     /// - Failed to create or start container
     /// - Init process exited immediately
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         container_id: &str,
         rootfs: impl AsRef<Path>,
