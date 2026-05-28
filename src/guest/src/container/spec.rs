@@ -414,7 +414,7 @@ fn build_linux_spec(
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build memory spec: {e}")))?;
         let pids = LinuxPidsBuilder::default()
-            .limit(512)
+            .limit(CONTAINER_PIDS_MAX)
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build pids spec: {e}")))?;
         let resources = LinuxResourcesBuilder::default()
@@ -430,13 +430,26 @@ fn build_linux_spec(
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
 }
 
-/// Container memory hard limit (cgroup `memory.max`) from VM's available memory.
-///
-/// 90% of `MemAvailable` — the remaining 10% is headroom for the guest agent,
-/// zygote, and kernel. Cgroup OOM kills only hit container processes, never
-/// the guest agent.
+/// cgroup `pids.max` for a container: a hard ceiling on the process count so a
+/// fork bomb can't exhaust the VM's PID space and kernel memory. The cgroup
+/// blocks forks past this for container processes only — never the guest agent.
+const CONTAINER_PIDS_MAX: i64 = 512;
+
+/// Container memory hard limit (cgroup `memory.max`) from the VM's available
+/// memory. Thin I/O wrapper over [`memory_limit_from_meminfo`]; `None` (set no
+/// limit) when `/proc/meminfo` can't be read.
 fn container_memory_limit() -> Option<i64> {
-    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+    memory_limit_from_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?)
+}
+
+/// Pure: 90% of the `MemAvailable:` line in `/proc/meminfo` contents (the other
+/// 10% is headroom for the guest agent, zygote, and kernel, so a cgroup OOM
+/// kills container processes rather than panicking the guest kernel).
+///
+/// `None` when the field is missing, unparseable, or the result is non-positive
+/// — the caller then sets no memory limit rather than a bogus one. Split from
+/// the file read so the threshold math is unit-testable without `/proc`.
+fn memory_limit_from_meminfo(meminfo: &str) -> Option<i64> {
     let available_kb: i64 = meminfo
         .lines()
         .find(|l| l.starts_with("MemAvailable:"))?
@@ -445,11 +458,7 @@ fn container_memory_limit() -> Option<i64> {
         .parse()
         .ok()?;
     let limit = available_kb * 1024 * 9 / 10;
-    if limit > 0 {
-        Some(limit)
-    } else {
-        None
-    }
+    (limit > 0).then_some(limit)
 }
 
 /// Build standard mounts for container filesystem
@@ -972,5 +981,59 @@ mod tests {
         // Malformed entries are silently skipped (not enough fields to match)
         let err = resolve_user(r, "short").unwrap_err().to_string();
         assert!(err.contains("User 'short' not found"), "got: {}", err);
+    }
+
+    #[test]
+    fn memory_limit_is_90_percent_of_available() {
+        let meminfo = "MemTotal:        2048000 kB\n\
+                       MemFree:          100000 kB\n\
+                       MemAvailable:    1000000 kB\n\
+                       Buffers:            5000 kB\n";
+        let limit = memory_limit_from_meminfo(meminfo).expect("parse MemAvailable");
+        assert_eq!(limit, 1_000_000i64 * 1024 * 9 / 10);
+        // The whole point: leave headroom — the cap is strictly below the raw
+        // available bytes so the guest kernel + agent can't be starved.
+        assert!(
+            limit < 1_000_000i64 * 1024,
+            "memory cap must reserve headroom below MemAvailable"
+        );
+    }
+
+    #[test]
+    fn memory_limit_reads_memavailable_not_memfree_or_memtotal() {
+        // MemTotal/MemFree are larger and listed first; a sloppy parser that
+        // grabbed the wrong field would cap the container too high and defeat
+        // the OOM protection.
+        let meminfo = "MemTotal:        9999999 kB\n\
+                       MemFree:         8888888 kB\n\
+                       MemAvailable:     500000 kB\n";
+        assert_eq!(
+            memory_limit_from_meminfo(meminfo).unwrap(),
+            500_000i64 * 1024 * 9 / 10,
+            "must derive the cap from MemAvailable"
+        );
+    }
+
+    #[test]
+    fn memory_limit_none_when_field_missing() {
+        // No MemAvailable → no limit (degrade to unbounded rather than a bogus
+        // cap), so the caller sets no cgroup memory.max.
+        assert_eq!(
+            memory_limit_from_meminfo("MemTotal: 2048000 kB\nMemFree: 100000 kB\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn memory_limit_none_when_unparseable_or_zero() {
+        assert_eq!(
+            memory_limit_from_meminfo("MemAvailable:    notanumber kB\n"),
+            None
+        );
+        // 0 available → 0 cap is meaningless; must be None, never Some(0).
+        assert_eq!(
+            memory_limit_from_meminfo("MemAvailable:          0 kB\n"),
+            None
+        );
     }
 }
