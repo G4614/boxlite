@@ -259,7 +259,8 @@ fn user_published_port_keeps_user_source() {
     let got_host = entry
         .get("HostPort")
         .and_then(|v| v.as_u64())
-        .unwrap_or_else(|| panic!("Ports entry missing HostPort: {entry:#?}")) as u16;
+        .unwrap_or_else(|| panic!("Ports entry missing HostPort: {entry:#?}"))
+        as u16;
     let source = entry
         .get("Source")
         .and_then(|v| v.as_str())
@@ -275,5 +276,7 @@ fn user_published_port_keeps_user_source() {
         "explicit -p mapping must be Source=user, never run through the EXPOSE \
          auto-remap path (got {source:?}); entry: {entry:#?}",
     );
-    eprintln!("[ok] user -p host:{host_port} → guest:{USER_GUEST_PORT} (source=user, not remapped)");
+    eprintln!(
+        "[ok] user -p host:{host_port} → guest:{USER_GUEST_PORT} (source=user, not remapped)"
+    );
 }
