@@ -79,7 +79,8 @@ impl<'a> ShimSpawner<'a> {
             .with_layout(self.layout.clone())
             .with_security(self.options.advanced.security.clone())
             .with_volumes(self.options.volumes.clone())
-            .with_detach(detach);
+            .with_detach(detach)
+            .with_vm_memory_mib(self.options.memory_mib);
 
         if let Some(ref setup) = child_setup {
             builder = builder.with_preserved_fd(setup.raw_fd(), watchdog::PIPE_FD);
