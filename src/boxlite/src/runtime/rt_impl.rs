@@ -232,13 +232,12 @@ impl RuntimeImpl {
         // a sink that mirrors reap activity into the metrics storage
         // (visible via `RuntimeMetrics` and the REST /v1/metrics endpoint).
         let runtime_metrics = RuntimeMetricsStorage::new();
-        let shim_reaper = crate::util::ShimReaper::spawn_with_sink(Some(
-            crate::util::ShimReaperMetricsSink {
+        let shim_reaper =
+            crate::util::ShimReaper::spawn_with_sink(Some(crate::util::ShimReaperMetricsSink {
                 reaped_total: Arc::clone(&runtime_metrics.shim_reaped),
                 vanished_total: Arc::clone(&runtime_metrics.shim_reaper_vanished),
                 registered_now: Arc::clone(&runtime_metrics.shim_reaper_registered),
-            },
-        ));
+            }));
 
         let inner = Arc::new(Self {
             sync_state: RwLock::new(SynchronizedState {

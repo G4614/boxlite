@@ -346,7 +346,10 @@ impl ShimReaper {
     /// callers should not need this.
     #[cfg(any(test, debug_assertions))]
     pub fn registered(&self) -> Vec<u32> {
-        let mut v: Vec<u32> = lock_or_recover(&self.inner.registry).iter().copied().collect();
+        let mut v: Vec<u32> = lock_or_recover(&self.inner.registry)
+            .iter()
+            .copied()
+            .collect();
         v.sort_unstable();
         v
     }
@@ -385,7 +388,10 @@ impl Drop for ShimReaper {
 fn worker_loop(inner: Arc<Inner>) {
     loop {
         #[cfg(test)]
-        if inner.test_panic_next_iteration.swap(false, Ordering::SeqCst) {
+        if inner
+            .test_panic_next_iteration
+            .swap(false, Ordering::SeqCst)
+        {
             panic!("worker: test_panic_next_iteration triggered");
         }
         if inner.shutdown.load(Ordering::SeqCst) {
