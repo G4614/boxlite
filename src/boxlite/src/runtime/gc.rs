@@ -252,4 +252,206 @@ mod tests {
         assert!(backed.exists(), "box-backed disk-image must be kept");
         assert!(fresh.exists(), "recently-built disk-image kept by grace");
     }
+
+    /// Write a disk-image of `bytes` zeros and, if `age_secs > 0`, backdate its
+    /// mtime that far into the past (to move it past the grace window).
+    fn make_disk_image(
+        dir: &std::path::Path,
+        name: &str,
+        bytes: usize,
+        age_secs: u64,
+    ) -> std::path::PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, vec![0u8; bytes]).unwrap();
+        if age_secs > 0 {
+            let now = SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let t = filetime::FileTime::from_unix_time((now - age_secs) as i64, 0);
+            filetime::set_file_mtime(&p, t).unwrap();
+        }
+        p
+    }
+
+    /// Create a box overlay whose qcow2 backing chain pins `backing`. Returns the
+    /// `Disk` — the caller must keep it alive (Drop deletes the qcow2 unless
+    /// persistent, which would un-pin the backing image mid-test).
+    fn pin_with_overlay(
+        runtime: &RuntimeImpl,
+        box_name: &str,
+        backing: &std::path::Path,
+        size: u64,
+    ) -> crate::disk::Disk {
+        let disks = runtime.layout.boxes_dir().join(box_name).join("disks");
+        std::fs::create_dir_all(&disks).unwrap();
+        crate::disk::Qcow2Helper::create_cow_child_disk(
+            backing,
+            crate::disk::BackingFormat::Raw,
+            &disks.join("disk.qcow2"),
+            size,
+        )
+        .expect("create cow child")
+    }
+
+    /// Stress at scale: a directory full of aged orphans, fresh orphans, and
+    /// box-backed images. GC must reclaim exactly the aged orphans (byte-exact),
+    /// keep everything else, and be idempotent on a second pass.
+    #[test]
+    fn gc_at_scale_reclaims_only_aged_orphans() {
+        let home = PerTestBoxHome::isolated_in("/tmp");
+        let runtime = RuntimeImpl::new(BoxliteOptions {
+            home_dir: home.path.clone(),
+            image_registries: vec![],
+        })
+        .expect("create runtime");
+        let dir = runtime.layout.image_layout().disk_images_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        const AGED: usize = 150;
+        const FRESH: usize = 40;
+        const BACKED: usize = 20;
+        const SZ: usize = 4096;
+        let aged_secs = DISK_IMAGE_GRACE.as_secs() + 120;
+
+        for i in 0..AGED {
+            make_disk_image(&dir, &format!("aged-{i:04}.ext4"), SZ, aged_secs);
+        }
+        for i in 0..FRESH {
+            make_disk_image(&dir, &format!("fresh-{i:04}.ext4"), SZ, 0);
+        }
+        // Backed images are aged too, so only the live overlay pin keeps them —
+        // proves pinning, not the grace window, protects them.
+        let mut overlays = Vec::with_capacity(BACKED);
+        for i in 0..BACKED {
+            let img = make_disk_image(&dir, &format!("backed-{i:04}.ext4"), SZ, aged_secs);
+            overlays.push(pin_with_overlay(
+                &runtime,
+                &format!("backedbox-{i:04}"),
+                &img,
+                SZ as u64,
+            ));
+        }
+
+        let report = runtime.collect_garbage(&GcOptions::default()).unwrap();
+        assert_eq!(
+            report.disk_images_removed, AGED as u64,
+            "exactly the aged orphans are reclaimed"
+        );
+        assert_eq!(
+            report.disk_images_bytes,
+            (AGED * SZ) as u64,
+            "byte accounting must sum only the reclaimed orphans"
+        );
+
+        for i in 0..AGED {
+            assert!(
+                !dir.join(format!("aged-{i:04}.ext4")).exists(),
+                "aged orphan {i} must be gone"
+            );
+        }
+        for i in 0..FRESH {
+            assert!(
+                dir.join(format!("fresh-{i:04}.ext4")).exists(),
+                "fresh orphan {i} must be kept by grace"
+            );
+        }
+        for i in 0..BACKED {
+            assert!(
+                dir.join(format!("backed-{i:04}.ext4")).exists(),
+                "pinned image {i} must be kept"
+            );
+        }
+
+        let again = runtime.collect_garbage(&GcOptions::default()).unwrap();
+        assert_eq!(
+            again.disk_images_removed, 0,
+            "second pass must reclaim nothing (idempotent)"
+        );
+        drop(overlays);
+    }
+
+    /// Concurrency stress for the lock-free safety claim: hammer `collect_garbage`
+    /// in a tight loop while another thread simulates a flood of box starts, each
+    /// building a fresh disk-image and its backing overlay. No just-built or
+    /// pinned image may ever be deleted (fresh mtime + the pin both protect it),
+    /// while pre-seeded aged orphans are still reaped during the churn.
+    #[test]
+    fn gc_under_concurrent_starts_never_deletes_live_or_fresh_images() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let home = PerTestBoxHome::isolated_in("/tmp");
+        let runtime = Arc::new(
+            RuntimeImpl::new(BoxliteOptions {
+                home_dir: home.path.clone(),
+                image_registries: vec![],
+            })
+            .expect("create runtime"),
+        );
+        let dir = runtime.layout.image_layout().disk_images_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        const AGED: usize = 60;
+        const STARTS: usize = 50;
+        const SZ: usize = 4096;
+        let aged_secs = DISK_IMAGE_GRACE.as_secs() + 120;
+        for i in 0..AGED {
+            make_disk_image(&dir, &format!("aged-{i:04}.ext4"), SZ, aged_secs);
+        }
+
+        let done = Arc::new(AtomicBool::new(false));
+        let starter = {
+            let runtime = runtime.clone();
+            let dir = dir.clone();
+            let done = done.clone();
+            std::thread::spawn(move || {
+                // Keep overlays alive for the whole run so their pins hold.
+                let mut overlays = Vec::with_capacity(STARTS);
+                for i in 0..STARTS {
+                    let img = make_disk_image(&dir, &format!("live-{i:04}.ext4"), SZ, 0);
+                    overlays.push(pin_with_overlay(
+                        &runtime,
+                        &format!("livebox-{i:04}"),
+                        &img,
+                        SZ as u64,
+                    ));
+                }
+                done.store(true, Ordering::Release);
+                overlays
+            })
+        };
+
+        // Race GC against the start flood. The pass cap is a safety bound: if a
+        // regression breaks grace/pin protection the starter panics (its backing
+        // image gets deleted mid-create) and never sets `done`, so without the
+        // cap this loop would spin until the harness timeout instead of failing
+        // fast on the joined panic below.
+        let mut passes = 0u32;
+        while !done.load(Ordering::Acquire) && passes < 1_000_000 {
+            runtime.collect_garbage(&GcOptions::default()).unwrap();
+            passes += 1;
+        }
+        let overlays = starter
+            .join()
+            .expect("starter thread (backing image deleted under GC?)");
+        // A few more passes now that every start has landed.
+        for _ in 0..3 {
+            runtime.collect_garbage(&GcOptions::default()).unwrap();
+        }
+
+        for i in 0..STARTS {
+            assert!(
+                dir.join(format!("live-{i:04}.ext4")).exists(),
+                "live start image {i} was deleted under concurrent GC (passes={passes})"
+            );
+        }
+        for i in 0..AGED {
+            assert!(
+                !dir.join(format!("aged-{i:04}.ext4")).exists(),
+                "aged orphan {i} should be reaped despite the start churn"
+            );
+        }
+        drop(overlays);
+    }
 }

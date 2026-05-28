@@ -131,4 +131,123 @@ mod tests {
         assert!(total > 0, "total should be positive");
         assert!(free <= total, "free {free} should not exceed total {total}");
     }
+
+    /// Severity must never get *stricter* as free space rises (Reject ⊃ Warn ⊃
+    /// Ok). Sweeping the whole range catches any threshold inversion or off-by
+    /// in `classify`, and pins the exact transitions at the documented floors.
+    #[test]
+    fn classify_severity_is_monotonic_and_hits_thresholds() {
+        fn severity(v: &DiskSpaceVerdict) -> u8 {
+            match v {
+                DiskSpaceVerdict::Ok => 0,
+                DiskSpaceVerdict::Warn(_) => 1,
+                DiskSpaceVerdict::Reject(_) => 2,
+            }
+        }
+
+        const TOTAL: u64 = 100 * 1024 * 1024 * 1024; // 100 GiB
+        let step = TOTAL / 1000;
+        let mut prev = u8::MAX; // start at most-strict so the first sample can't trip it
+        let mut free = 0u64;
+        while free <= TOTAL {
+            let s = severity(&classify(free, TOTAL));
+            assert!(
+                s <= prev,
+                "verdict got STRICTER as free rose: {free} bytes free → severity {s} > prev {prev}"
+            );
+            prev = s;
+            free += step;
+        }
+
+        // Hard floor: just under rejects, exactly at does not.
+        assert!(matches!(
+            classify(disk_guard::MIN_FREE_BYTES_HARD - 1, TOTAL),
+            DiskSpaceVerdict::Reject(_)
+        ));
+        assert!(!matches!(
+            classify(disk_guard::MIN_FREE_BYTES_HARD, TOTAL),
+            DiskSpaceVerdict::Reject(_)
+        ));
+
+        // Soft *bytes* floor on a disk small enough that the 10% fraction isn't
+        // the binding constraint at 5 GiB (5 GiB / 40 GiB = 12.5% > 10%): just
+        // under warns, exactly at is Ok.
+        const SMALL: u64 = 40 * 1024 * 1024 * 1024;
+        assert!(matches!(
+            classify(disk_guard::MIN_FREE_BYTES_SOFT - 1, SMALL),
+            DiskSpaceVerdict::Warn(_)
+        ));
+        assert_eq!(
+            classify(disk_guard::MIN_FREE_BYTES_SOFT, SMALL),
+            DiskSpaceVerdict::Ok
+        );
+    }
+
+    /// End-to-end stress against the *real* `statvfs` path under genuine disk
+    /// pressure. Gated on `BOXLITE_DISKTEST_HOME` pointing at a writable dir on a
+    /// SMALL, dedicated filesystem (e.g. a loop-mounted ext4 — never your main
+    /// disk). The test fills it until free crosses the hard floor, asserting the
+    /// verdict goes from non-Reject to Reject through the production
+    /// `available_and_total` + `classify` path, then removes its filler. Skips
+    /// when the env var is unset, so CI and normal `make test` stay safe.
+    #[test]
+    fn real_disk_pressure_crosses_to_reject() {
+        let Ok(dir) = std::env::var("BOXLITE_DISKTEST_HOME") else {
+            eprintln!(
+                "SKIP real_disk_pressure_crosses_to_reject: set BOXLITE_DISKTEST_HOME to a \
+                 small (<8 GiB) dedicated FS to exercise real disk pressure"
+            );
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+
+        let (free0, total0) = available_and_total(&dir).expect("statvfs BOXLITE_DISKTEST_HOME");
+        // Hard safety rail: refuse to fill anything that looks like a real disk.
+        assert!(
+            total0 > 0 && total0 < 8 * 1024 * 1024 * 1024,
+            "BOXLITE_DISKTEST_HOME must be a SMALL (<8 GiB) dedicated FS; got total {} — refusing to fill",
+            human_bytes(total0)
+        );
+        // Empty verdict should not already be a hard reject, or there's nothing
+        // to prove by filling.
+        assert!(
+            !matches!(classify(free0, total0), DiskSpaceVerdict::Reject(_)),
+            "FS already below the hard floor ({} free); start with more headroom",
+            human_bytes(free0)
+        );
+
+        // Remove the filler no matter how the test exits.
+        struct Filler(std::path::PathBuf);
+        impl Drop for Filler {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let filler = Filler(dir.join("__boxlite_disktest_filler__"));
+
+        use std::io::Write;
+        let mut f = std::fs::File::create(&filler.0).expect("create filler");
+        let chunk = vec![0u8; 32 * 1024 * 1024]; // 32 MiB
+        let mut verdict = classify(free0, total0);
+        // Write until the guard would reject, ENOSPC, or a sane cap (256 chunks
+        // = 8 GiB, matching the size rail above) to avoid an unbounded loop.
+        for _ in 0..256 {
+            if matches!(verdict, DiskSpaceVerdict::Reject(_)) {
+                break;
+            }
+            if f.write_all(&chunk).is_err() {
+                break; // ENOSPC — the FS is now as full as it gets
+            }
+            let _ = f.flush();
+            let (free, total) = available_and_total(&dir).expect("statvfs during fill");
+            verdict = classify(free, total);
+        }
+        let _ = f.sync_all();
+
+        assert!(
+            matches!(verdict, DiskSpaceVerdict::Reject(_)),
+            "filling a small FS below the {} hard floor must yield Reject; final verdict {verdict:?}",
+            human_bytes(disk_guard::MIN_FREE_BYTES_HARD)
+        );
+    }
 }
