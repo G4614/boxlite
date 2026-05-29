@@ -96,6 +96,12 @@ impl RuntimeImpl {
             if !path.is_file() {
                 continue;
             }
+            // Only ever reclaim `*.ext4` disk-images. The directory should hold
+            // nothing else, but a stray partial/temp/foreign file must never be
+            // deleted just because it aged out of the grace window.
+            if path.extension().and_then(|e| e.to_str()) != Some("ext4") {
+                continue;
+            }
             // Compare by canonical path so a symlinked/relative backing pointer
             // still matches the file we're considering.
             let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
@@ -292,6 +298,44 @@ mod tests {
             size,
         )
         .expect("create cow child")
+    }
+
+    /// GC reclaims only `*.ext4` disk-images. A stray non-`.ext4` file (a
+    /// partial build, a temp, a foreign artifact) that has aged past the grace
+    /// window must be left untouched and never counted — otherwise GC could
+    /// delete unrelated files that happen to live in the disk-images directory.
+    #[test]
+    fn gc_ignores_non_ext4_orphans() {
+        let home = PerTestBoxHome::isolated_in("/tmp");
+        let runtime = RuntimeImpl::new(BoxliteOptions {
+            home_dir: home.path.clone(),
+            image_registries: vec![],
+        })
+        .expect("create runtime");
+        let dir = runtime.layout.image_layout().disk_images_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        const SZ: usize = 4096;
+        let aged = DISK_IMAGE_GRACE.as_secs() + 120;
+        // Both aged well past grace and both unpinned — only the extension differs.
+        let ext4 = make_disk_image(&dir, "sha256-orphan.ext4", SZ, aged);
+        let foreign = make_disk_image(&dir, "partial-build.tmp", SZ, aged);
+
+        let report = runtime.collect_garbage(&GcOptions::default()).unwrap();
+
+        assert_eq!(
+            report.disk_images_removed, 1,
+            "only the .ext4 orphan may be reclaimed"
+        );
+        assert_eq!(
+            report.disk_images_bytes, SZ as u64,
+            "byte accounting must exclude the non-.ext4 file"
+        );
+        assert!(!ext4.exists(), "aged .ext4 orphan should be reclaimed");
+        assert!(
+            foreign.exists(),
+            "aged non-.ext4 file must be left untouched by GC"
+        );
     }
 
     /// Stress at scale: a directory full of aged orphans, fresh orphans, and
