@@ -1,14 +1,14 @@
-//! Integration stress test: container cgroup `memory.max` + `pids.max` keep a
-//! hostile workload from panicking the guest VM kernel.
+//! Integration tests for the container cgroup resource guard (`memory.max` +
+//! `pids.max`) that keeps a hostile workload from taking down the guest VM.
 //!
-//! One 128 MB box is driven through three escalating attack waves, each of
-//! which tends to take down an unprotected tiny VM: a pids bomb (fork 1000 idle
-//! children, which `pids.max` = 512 must cap before PID/kernel-memory
-//! exhaustion), a memory bomb (one child mallocs+touches 512 MB — 4× the VM —
-//! which `memory.max` must OOM-kill on its own), and a combined wave (200
-//! children each touching 2 MB). After every wave the VM must still be
-//! `Running` and accept a fresh exec, proving the cgroup OOM killer hit only
-//! container processes — never the guest kernel or agent.
+//! Two angles, both against a real 128 MB box:
+//!   - enforcement — the limits are actually written to the container's own
+//!     cgroup (`/boxlite/<id>/memory.max` bounded, `pids.max` = 512), so a
+//!     regression that drops the resources or re-disables cgroups (leaving the
+//!     container in the root) is caught directly.
+//!   - survival — the VM stays `Running` and keeps serving exec through three
+//!     escalating attack waves (a 1000-fork pids bomb, a single 512 MB malloc
+//!     in a 128 MB VM, and a 200×2 MB fork+alloc bomb).
 //!
 //! Requires a VM-capable host with network to pull `alpine` and `apk add gcc`.
 
@@ -33,24 +33,97 @@ fn exec_sh(home: &Path, box_id: &str, script: &str, timeout: Duration) -> std::p
     boxlite(home, &["exec", box_id, "--", "sh", "-c", script], timeout)
 }
 
-/// The VM is healthy iff it still lists as `Running` and a fresh exec succeeds.
-/// A guest-kernel panic or dead agent fails one or both.
-fn assert_vm_survives(home: &Path, box_id: &str, ctx: &str) {
-    let list = boxlite(home, &["list"], Duration::from_secs(15));
-    let listing = String::from_utf8_lossy(&list.stdout);
-    assert!(
-        listing.contains("Running"),
-        "VM must survive {ctx}, but it is no longer Running; `list` =\n{listing}"
-    );
-    let echo = boxlite(
+/// Force-removes a box on drop so the `PerTestBoxHome` live-shim guard can't
+/// fire and mask the real failure. Declare it *after* the home so it drops
+/// first (reverse declaration order).
+struct BoxCleanup {
+    home: std::path::PathBuf,
+    id: String,
+}
+impl Drop for BoxCleanup {
+    fn drop(&mut self) {
+        let _ = boxlite(&self.home, &["rm", "-f", &self.id], Duration::from_secs(30));
+    }
+}
+
+/// Start a detached 128 MB alpine box running `sleep 600`; returns its id.
+fn start_128mb_box(home: &Path) -> String {
+    let out = boxlite(
         home,
-        &["exec", box_id, "--", "echo", "alive"],
-        Duration::from_secs(15),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "128",
+            "alpine:latest",
+            "sleep",
+            "600",
+        ],
+        Duration::from_secs(300),
     );
     assert!(
-        echo.status.success(),
-        "guest agent must accept exec after {ctx}; stderr = {}",
-        String::from_utf8_lossy(&echo.stderr)
+        out.status.success(),
+        "box start failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Directly verifies the limits are applied to the container's own cgroup: a
+/// `/boxlite/<id>` path with `memory.max` bounded below the VM and `pids.max`
+/// = 512. Guards both the explicit cgroups_path and that the resources are
+/// written — dropping either (or re-disabling cgroups, which puts the
+/// container back in the root) fails here.
+#[test]
+fn cgroup_limits_are_enforced_on_the_container() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_128mb_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Read the container's own cgroup path and its controller files.
+    let out = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "cg=$(sed 's/^0:://' /proc/self/cgroup); \
+         printf 'CG=%s\\nMEM=%s\\nPIDS=%s\\n' \
+           \"$cg\" \
+           \"$(cat /sys/fs/cgroup$cg/memory.max 2>&1)\" \
+           \"$(cat /sys/fs/cgroup$cg/pids.max 2>&1)\"",
+        Duration::from_secs(30),
+    );
+    let report = String::from_utf8_lossy(&out.stdout);
+    let field = |key: &str| -> String {
+        report
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+
+    let cg = field("CG=");
+    let mem = field("MEM=");
+    let pids = field("PIDS=");
+
+    assert!(
+        cg.starts_with("/boxlite/"),
+        "container must run in its own /boxlite/<id> cgroup, not the root; got {cg:?}\n{report}"
+    );
+    let mem_max: u64 = mem.parse().unwrap_or_else(|_| {
+        panic!("memory.max must be a concrete byte cap, not {mem:?} (cgroup not applied)\n{report}")
+    });
+    assert!(
+        mem_max > 0 && mem_max < 128 * 1024 * 1024,
+        "memory.max ({mem_max}) must be a positive cap below the 128 MB VM\n{report}"
+    );
+    assert_eq!(
+        pids, "512",
+        "pids.max must be the CONTAINER_PIDS_MAX ceiling\n{report}"
     );
 }
 
@@ -82,6 +155,27 @@ int main(int c, char **v) {
 }
 "#;
 
+/// The VM is healthy iff it still lists as `Running` and a fresh exec succeeds.
+/// A guest-kernel panic or dead agent fails one or both.
+fn assert_vm_survives(home: &Path, box_id: &str, ctx: &str) {
+    let list = boxlite(home, &["list"], Duration::from_secs(15));
+    let listing = String::from_utf8_lossy(&list.stdout);
+    assert!(
+        listing.contains("Running"),
+        "VM must survive {ctx}, but it is no longer Running; `list` =\n{listing}"
+    );
+    let echo = boxlite(
+        home,
+        &["exec", box_id, "--", "echo", "alive"],
+        Duration::from_secs(15),
+    );
+    assert!(
+        echo.status.success(),
+        "guest agent must accept exec after {ctx}; stderr = {}",
+        String::from_utf8_lossy(&echo.stderr)
+    );
+}
+
 /// Run one attack wave, then assert the VM survived and reset the box for the
 /// next wave by killing any lingering flood children.
 fn run_wave(home: &Path, box_id: &str, n: u32, mb: u32, ctx: &str) {
@@ -106,33 +200,16 @@ fn run_wave(home: &Path, box_id: &str, n: u32, mb: u32, ctx: &str) {
 }
 
 /// 128 MB box, gcc-compiled flood, driven through pids → memory → combined
-/// attack waves. Without the cgroup limits a tiny VM panics under these; with
-/// `memory.max` + `pids.max` it survives every wave.
+/// attack waves. The container's `memory.max` + `pids.max` keep the OOM kills
+/// scoped to container processes so the guest kernel and agent stay up.
 #[test]
 fn cgroup_limits_keep_vm_alive_under_pids_and_memory_bombs() {
     let home = PerTestBoxHome::new();
-
-    let out = boxlite(
-        home.path.as_path(),
-        &[
-            "--registry",
-            "docker.m.daocloud.io",
-            "run",
-            "-d",
-            "--memory",
-            "128",
-            "alpine:latest",
-            "sleep",
-            "600",
-        ],
-        Duration::from_secs(300),
-    );
-    assert!(
-        out.status.success(),
-        "box start failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let box_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let box_id = start_128mb_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
 
     // Toolchain to build the flood in-box (a real source of memory pressure too).
     let install = exec_sh(

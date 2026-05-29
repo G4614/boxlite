@@ -429,11 +429,6 @@ fn build_linux_spec(
         "/proc/sysrq-trigger".to_string(),
     ];
 
-    // NOTE: Cgroup path disabled for performance (see cgroup mount comment above)
-    // Re-enable together with cgroup namespace and mount if resource limits are needed.
-    // let cgroups_path = format!("/boxlite/{}", container_id);
-    let _ = container_id; // Suppress unused warning
-
     // Reserve memory for kernel + guest agent; cap container to the rest.
     let mut linux_builder = LinuxBuilder::default()
         .namespaces(namespaces)
@@ -454,7 +449,14 @@ fn build_linux_spec(
             .pids(pids)
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build resources spec: {e}")))?;
-        linux_builder = linux_builder.resources(resources);
+        // Pin the container to an explicit, predictable cgroup. youki applies
+        // the limits either way, but with no path it invents a default name
+        // (`/:youki:<id>`); a stable `/sys/fs/cgroup/boxlite/<id>` is what
+        // tooling and the enforcement test inspect and matches the
+        // per-container layout the rest of the runtime uses.
+        linux_builder = linux_builder
+            .resources(resources)
+            .cgroups_path(std::path::PathBuf::from(format!("/boxlite/{container_id}")));
     }
 
     linux_builder
