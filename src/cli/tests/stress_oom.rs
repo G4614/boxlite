@@ -177,11 +177,13 @@ fn assert_vm_survives(home: &Path, box_id: &str, ctx: &str) {
 }
 
 /// Run one attack wave, then assert the VM survived and reset the box for the
-/// next wave by killing any lingering flood children.
-fn run_wave(home: &Path, box_id: &str, n: u32, mb: u32, ctx: &str) {
+/// next wave by killing any lingering flood children. Returns the flood's
+/// stdout (`forked <succeeded>/<requested> x <mb>MB`) so a caller can assert on
+/// how many forks the cgroup actually let through.
+fn run_wave(home: &Path, box_id: &str, n: u32, mb: u32, ctx: &str) -> String {
     // The parent exits right after forking; give the cgroup a moment to OOM-kill
     // / block, then assert survival before cleaning up.
-    let _ = exec_sh(
+    let out = exec_sh(
         home,
         box_id,
         &format!("/tmp/flood {n} {mb} || true"),
@@ -197,6 +199,17 @@ fn run_wave(home: &Path, box_id: &str, n: u32, mb: u32, ctx: &str) {
         Duration::from_secs(15),
     );
     std::thread::sleep(Duration::from_secs(2));
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// Parse the `forked <succeeded>/<requested>` count the flood prints.
+fn forked_count(wave_stdout: &str) -> u32 {
+    wave_stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("forked "))
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or_else(|| panic!("flood did not report a fork count:\n{wave_stdout}"))
 }
 
 /// 128 MB box, gcc-compiled flood, driven through pids → memory → combined
@@ -240,12 +253,23 @@ fn cgroup_limits_keep_vm_alive_under_pids_and_memory_bombs() {
     );
 
     // Wave 1 — pids bomb: 1000 idle forks vs pids.max = 512.
-    run_wave(
+    let wave1 = run_wave(
         home.path.as_path(),
         &box_id,
         1000,
         0,
         "a 1000-fork pids bomb",
+    );
+    // Survival alone can't tell an enforced cap from a kernel that happened to
+    // cope: assert pids.max actually blocked the bomb. The container can hold
+    // at most 512 tasks (CONTAINER_PIDS_MAX) including the ones already running,
+    // so far fewer than the requested 1000 forks can succeed. 700 leaves slack
+    // above the 512 ceiling while still proving hundreds of forks were refused.
+    let forked = forked_count(&wave1);
+    assert!(
+        (1..700).contains(&forked),
+        "pids.max must cap the fork bomb well below the requested 1000 \
+         (ceiling 512 + already-running tasks); got forked={forked}\n{wave1}"
     );
     // Wave 2 — memory bomb: one process grabs 512 MB in a 128 MB VM.
     run_wave(
