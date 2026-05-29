@@ -117,6 +117,15 @@ impl<'a> ShimSpawner<'a> {
             BoxliteError::Engine(err_msg)
         })?;
 
+        // 7b. Rootless host cgroup: adopt the just-spawned shim into a systemd
+        // scope carrying the resource limits. Done here (not via pre_exec or an
+        // up-front cgroup) because a rootless process can't migrate itself
+        // across the root-owned user.slice — and doing it post-spawn keeps the
+        // shim's PID identity that the watchdog and recovery rely on. No-op for
+        // root and when no limit is configured.
+        #[cfg(target_os = "linux")]
+        jail.place_shim_in_scope(child.id());
+
         // 8. Write config to stdin, then close (shim reads until EOF).
         // The child is already spawned and will read from stdin, so this is a
         // producer-consumer pattern via the kernel pipe buffer. For typical
