@@ -41,6 +41,45 @@ impl Drop for BoxCleanup {
     }
 }
 
+/// Start a detached 256 MB alpine box running `sleep 600`; returns its id.
+fn start_box(home: &Path) -> String {
+    let out = boxlite(
+        home,
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "256",
+            "alpine:latest",
+            "sleep",
+            "600",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        out.status.success(),
+        "box start failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// The box is healthy iff a fresh exec still succeeds.
+fn assert_alive(home: &Path, box_id: &str, ctx: &str) {
+    let echo = boxlite(
+        home,
+        &["exec", box_id, "--", "echo", "alive"],
+        Duration::from_secs(15),
+    );
+    assert!(
+        echo.status.success(),
+        "VM must stay alive {ctx}; stderr = {}",
+        String::from_utf8_lossy(&echo.stderr)
+    );
+}
+
 /// A box's rootfs is its own small disk (not the host's), and filling it to
 /// ENOSPC leaves the VM alive and serving.
 #[test]
@@ -127,5 +166,85 @@ fn box_rootfs_is_bounded_isolated_and_survives_fill() {
         echo.status.success(),
         "guest agent must accept exec after the rootfs fills; stderr = {}",
         String::from_utf8_lossy(&echo.stderr)
+    );
+}
+
+/// Two boxes own independent rootfs disks: filling one to ENOSPC must not
+/// shrink the other or stop it serving. "self-bounded" (above) plus this
+/// "isolated from peers" check is what makes a box's disk a real per-box
+/// resource boundary, not a shared pool.
+#[test]
+fn two_boxes_rootfs_disks_are_isolated() {
+    let home = PerTestBoxHome::new();
+    let victim = start_box(home.path.as_path());
+    let _victim_cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: victim.clone(),
+    };
+    let bystander = start_box(home.path.as_path());
+    let _bystander_cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: bystander.clone(),
+    };
+
+    // Record the bystander's free space before the victim runs amok.
+    let avail = |box_id: &str| -> u64 {
+        let out = exec_sh(
+            home.path.as_path(),
+            box_id,
+            "df -P / | awk 'NR==2{print $4}'", // 1K-blocks available
+            Duration::from_secs(20),
+        );
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "could not read free space for {box_id}: {:?}",
+                    String::from_utf8_lossy(&out.stdout)
+                )
+            })
+    };
+    let bystander_free_before = avail(&bystander);
+
+    // The victim fills its own rootfs to ENOSPC.
+    let fill = exec_sh(
+        home.path.as_path(),
+        &victim,
+        "dd if=/dev/zero of=/fill bs=1M 2>&1; true",
+        Duration::from_secs(120),
+    );
+    let fill_out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
+    assert!(
+        fill_out.contains("No space left"),
+        "victim rootfs must fill to ENOSPC, got:\n{fill_out}"
+    );
+
+    // The bystander is untouched: a separate disk keeps essentially all its free
+    // space (allow a small slack for its own logging) and still accepts writes.
+    let bystander_free_after = avail(&bystander);
+    assert!(
+        bystander_free_after + 4096 >= bystander_free_before,
+        "bystander free space must not shrink when a peer box fills its disk: \
+         {bystander_free_before} KB before vs {bystander_free_after} KB after"
+    );
+    let write = exec_sh(
+        home.path.as_path(),
+        &bystander,
+        "echo isolated > /probe && cat /probe",
+        Duration::from_secs(20),
+    );
+    assert!(
+        String::from_utf8_lossy(&write.stdout).contains("isolated"),
+        "bystander box must still accept writes after a peer filled its disk; stderr = {}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+
+    // Both VMs survive.
+    assert_alive(home.path.as_path(), &victim, "after filling its own rootfs");
+    assert_alive(
+        home.path.as_path(),
+        &bystander,
+        "while a peer box filled its disk",
     );
 }
