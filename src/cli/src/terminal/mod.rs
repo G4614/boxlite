@@ -5,9 +5,9 @@ use nix::sys::signal::Signal;
 use nix::sys::termios::{
     InputFlags, LocalFlags, OutputFlags, SetArg, Termios, tcgetattr, tcsetattr,
 };
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::os::fd::{AsFd, AsRawFd};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::select;
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -237,22 +237,37 @@ impl<'a> StreamManager<'a> {
 }
 
 async fn stream_stdin(mut stdin_tx: boxlite::ExecStdin) {
-    let mut stdin = tokio::io::stdin();
-    let mut buf = [0u8; 8192];
-
-    loop {
-        match stdin.read(&mut buf).await {
-            Ok(0) => break,
-            Ok(n) => {
-                if let Err(e) = stdin_tx.write(&buf[..n]).await {
-                    tracing::debug!("failed to forward stdin: {}", e);
+    // The blocking read(2) on stdin lives on a dedicated OS thread, NOT a tokio
+    // blocking-pool thread (which is what `tokio::io::stdin()` uses). A parked
+    // read(2) cannot be cancelled; tokio joins its blocking pool on runtime
+    // shutdown, so reading stdin there would hang process exit until the user
+    // pressed ENTER to unblock the read after the remote shell already exited.
+    // A plain std::thread is not joined on shutdown, so the process exits
+    // promptly while this read is still parked. See tokio::io::stdin() docs.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(16);
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin();
+        let mut buf = [0u8; 8192];
+        loop {
+            match stdin.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.blocking_send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("stdin read error: {}", e);
                     break;
                 }
             }
-            Err(e) => {
-                tracing::debug!("stdin read error: {}", e);
-                break;
-            }
+        }
+    });
+
+    while let Some(chunk) = rx.recv().await {
+        if let Err(e) = stdin_tx.write(&chunk).await {
+            tracing::debug!("failed to forward stdin: {}", e);
+            break;
         }
     }
 }
