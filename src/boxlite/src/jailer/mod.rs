@@ -535,6 +535,13 @@ impl<S: Sandbox> Jailer<S> {
         if !config.has_limits() {
             return;
         }
+        // Root creates the cgroup up-front; the shim joins it via the pre_exec
+        // hook. Rootless can't migrate a process across the root-owned
+        // user.slice (EACCES), so limits are applied after spawn by adopting the
+        // shim PID into a systemd scope — see place_shim_in_scope().
+        if !cgroup::is_root() {
+            return;
+        }
         match cgroup::setup_cgroup(&self.box_id, &config) {
             Ok(path) => {
                 tracing::info!(box_id = %self.box_id, path = %path.display(), "Host cgroup created")
@@ -548,7 +555,10 @@ impl<S: Sandbox> Jailer<S> {
     /// no limit is configured (no cgroup was created in prepare()).
     #[cfg(target_os = "linux")]
     fn add_cgroup_join_hook(&self, cmd: &mut Command) {
-        if !self.cgroup_config().has_limits() {
+        // Only root joins the cgroup via pre_exec — it created the cgroup in
+        // prepare() and can migrate into it. A rootless process can't, so its
+        // limits are applied post-spawn by place_shim_in_scope() instead.
+        if !cgroup::is_root() || !self.cgroup_config().has_limits() {
             return;
         }
         if let Some(cgroup_procs) = cgroup::build_cgroup_procs_path(&self.box_id) {
@@ -560,6 +570,26 @@ impl<S: Sandbox> Jailer<S> {
                     Ok(())
                 });
             }
+        }
+    }
+
+    /// Rootless host-limit placement: once the shim is running, ask systemd to
+    /// adopt its PID into a transient scope carrying the configured limits.
+    /// Call this right after spawning the shim. No-op for root (handled up-front
+    /// by setup_host_cgroup + the pre_exec join) or when no limit is configured.
+    /// Non-fatal — an unscoped box beats no box.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn place_shim_in_scope(&self, pid: u32) {
+        let config = self.cgroup_config();
+        if !config.has_limits() || cgroup::is_root() {
+            return;
+        }
+        match cgroup::adopt_pid_into_scope(&self.box_id, pid, &config) {
+            Ok(()) => {
+                tracing::info!(box_id = %self.box_id, pid, "Shim adopted into host cgroup scope")
+            }
+            Err(e) => tracing::warn!(box_id = %self.box_id, pid, error = %e,
+                "Host cgroup scope adoption failed (continuing without limits)"),
         }
     }
 }

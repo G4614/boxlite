@@ -48,12 +48,12 @@ const BOXLITE_CGROUP: &str = "boxlite";
 
 /// Check if the current process is running as root.
 #[cfg(target_os = "linux")]
-fn is_root() -> bool {
+pub(crate) fn is_root() -> bool {
     unsafe { libc::getuid() == 0 }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn is_root() -> bool {
+pub(crate) fn is_root() -> bool {
     false
 }
 
@@ -445,6 +445,84 @@ pub fn build_cgroup_procs_path(box_id: &str) -> Option<std::ffi::CString> {
 
     let path = cgroup_path(box_id).join("cgroup.procs");
     std::ffi::CString::new(path.to_string_lossy().as_bytes()).ok()
+}
+
+/// Rootless host limits: ask the systemd *user* manager to wrap an already
+/// running shim PID in a transient scope carrying the resource limits.
+///
+/// Unlike the direct-cgroup path, an unprivileged process cannot migrate itself
+/// from its login `session-N.scope` into `user@.service/.../boxlite-<id>.scope`
+/// — the move needs write access to the root-owned `user.slice` common ancestor
+/// and fails with EACCES. systemd owns that hierarchy, so we hand it the PID and
+/// let it do the placement. The scope is transient and auto-removed once the
+/// shim exits.
+///
+/// Calls `busctl` (shelling out keeps systemd a runtime, not a build/link,
+/// dependency). Non-fatal to the caller: a box that can't be scoped is still
+/// better than no box, matching the prior cgroup behavior.
+#[cfg(target_os = "linux")]
+pub fn adopt_pid_into_scope(
+    box_id: &str,
+    pid: u32,
+    config: &CgroupConfig,
+) -> Result<(), JailerError> {
+    let unit = format!("boxlite-{box_id}.scope");
+
+    // StartTransientUnit(name, mode, properties: a(sv), aux: a(sa(sv))).
+    // busctl spells each property as `<name> <type> <value...>`; the count
+    // before the list must match the number of properties we pass.
+    let mut props: Vec<String> = vec![
+        // PIDs is an array of u32 (au): "1" element count, then the pid.
+        "PIDs".into(),
+        "au".into(),
+        "1".into(),
+        pid.to_string(),
+    ];
+    let mut count: u32 = 1;
+    let add = |name: &str, value: u64, props: &mut Vec<String>, count: &mut u32| {
+        props.push(name.into());
+        props.push("t".into());
+        props.push(value.to_string());
+        *count += 1;
+    };
+    if let Some(m) = config.memory_max {
+        add("MemoryMax", m, &mut props, &mut count);
+    }
+    if let Some(h) = config.memory_high {
+        add("MemoryHigh", h, &mut props, &mut count);
+    }
+    if let Some(p) = config.pids_max {
+        add("TasksMax", p, &mut props, &mut count);
+    }
+
+    let mut args: Vec<String> = vec![
+        "--user".into(),
+        "--quiet".into(),
+        "call".into(),
+        "org.freedesktop.systemd1".into(),
+        "/org/freedesktop/systemd1".into(),
+        "org.freedesktop.systemd1.Manager".into(),
+        "StartTransientUnit".into(),
+        "ssa(sv)a(sa(sv))".into(),
+        unit.clone(),
+        "fail".into(),
+        count.to_string(),
+    ];
+    args.extend(props);
+    args.push("0".into()); // empty aux array
+
+    let output = std::process::Command::new("busctl")
+        .args(&args)
+        .output()
+        .map_err(|e| JailerError::Cgroup(format!("failed to run busctl: {e}")))?;
+
+    if !output.status.success() {
+        return Err(JailerError::Cgroup(format!(
+            "StartTransientUnit for {unit} (pid {pid}) failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
