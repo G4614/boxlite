@@ -248,3 +248,69 @@ fn two_boxes_rootfs_disks_are_isolated() {
         "while a peer box filled its disk",
     );
 }
+
+/// Concurrent writers in the *same* box: when several `dd` processes race to
+/// fill the rootfs, every one of them must see a clean `No space left on
+/// device` (no hangs, no silent partial success, no corruption that the VM
+/// can't recover from), and the VM must stay alive. Guards against a bug
+/// where one writer hitting ENOSPC could deadlock or wedge the rootfs for the
+/// others — e.g. a stuck journal commit, an EXT4 lock pile-up, or a guest
+/// agent that dies on the I/O storm.
+#[test]
+fn concurrent_writers_all_hit_enospc_and_vm_survives() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Spawn N writers in parallel, each filling its own file. The shell waits
+    // for all of them, then dumps every writer's stderr — so the aggregated
+    // stdout carries exactly one ENOSPC message per writer if the rootfs
+    // serialized them cleanly. Capture per-writer rc too, so a writer that
+    // exited silently (not ENOSPC) shows up loudly.
+    const N: u32 = 6;
+    let script = format!(
+        "for i in $(seq 1 {N}); do \
+           ( dd if=/dev/zero of=/fill$i bs=1M 2>/tmp/dd-$i.err; \
+             echo \"RC=$? FILE=/fill$i\" >>/tmp/dd-$i.err ) & \
+         done; wait; \
+         for i in $(seq 1 {N}); do \
+           echo \"--- writer $i ---\"; cat /tmp/dd-$i.err; \
+         done"
+    );
+    let out = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        &script,
+        Duration::from_secs(180),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    // Every writer must hit ENOSPC. `dd` prints exactly one "No space left on
+    // device" per writer when the rootfs is full; ≥ N occurrences proves every
+    // one was rejected by the bounded ext4 rather than hanging or silently
+    // succeeding.
+    let enospc = stdout.matches("No space left").count();
+    assert!(
+        enospc >= N as usize,
+        "every one of the {N} concurrent writers must hit ENOSPC; saw {enospc} \
+         ENOSPC messages\n{stdout}"
+    );
+
+    // Every writer must have exited non-zero (dd returns 1 on write error).
+    // RC=0 would mean a writer somehow succeeded with the disk full.
+    let rc_zero = stdout.matches("RC=0 ").count();
+    assert_eq!(
+        rc_zero, 0,
+        "no concurrent writer may exit RC=0 while the rootfs is full;\n{stdout}"
+    );
+
+    // The VM and the guest agent survive the concurrent I/O storm + ENOSPC.
+    assert_alive(
+        home.path.as_path(),
+        &box_id,
+        "after a concurrent fill of the rootfs",
+    );
+}
