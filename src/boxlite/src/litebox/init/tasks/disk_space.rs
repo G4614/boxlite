@@ -30,43 +30,33 @@ impl PipelineTask<InitCtx> for DiskSpaceTask {
 
         // Failing to read free space must not block startup — degrade to a
         // warning. The guard is a safety net, not a hard dependency.
-        let Some((free, total)) = read_free(&home_dir, &box_id) else {
+        let Some(initial) = read_free(&home_dir, &box_id) else {
             return Ok(());
         };
 
-        let mut verdict = classify(free, total);
+        let (final_verdict, result) = decide_admission(
+            initial,
+            || read_free(&home_dir, &box_id),
+            || {
+                tracing::warn!(box_id = %box_id, "Disk pressure at box start — running cache GC");
+                match runtime.collect_garbage(&GcOptions::default()) {
+                    Ok(report) => tracing::info!(
+                        box_id = %box_id,
+                        reclaimed_bytes = report.total_bytes(),
+                        "Cache GC freed space before admission"
+                    ),
+                    Err(e) => tracing::warn!(box_id = %box_id, error = %e, "Cache GC failed"),
+                }
+            },
+        );
 
-        // Under pressure (Warn or Reject), try to reclaim space before
-        // deciding. GC removes orphaned image disk-images; a grace window keeps
-        // it from touching disk-images a concurrent start just built.
-        if !matches!(verdict, DiskSpaceVerdict::Ok) {
-            tracing::warn!(box_id = %box_id, "Disk pressure at box start — running cache GC");
-            match runtime.collect_garbage(&GcOptions::default()) {
-                Ok(report) => tracing::info!(
-                    box_id = %box_id,
-                    reclaimed_bytes = report.total_bytes(),
-                    "Cache GC freed space before admission"
-                ),
-                Err(e) => tracing::warn!(box_id = %box_id, error = %e, "Cache GC failed"),
-            }
-            if let Some((free, total)) = read_free(&home_dir, &box_id) {
-                verdict = classify(free, total);
-            }
+        if let DiskSpaceVerdict::Warn(msg) = &final_verdict {
+            tracing::warn!(box_id = %box_id, "{msg}");
         }
-
-        match verdict {
-            DiskSpaceVerdict::Ok => {}
-            DiskSpaceVerdict::Warn(msg) => {
-                tracing::warn!(box_id = %box_id, "{msg}");
-            }
-            DiskSpaceVerdict::Reject(msg) => {
-                let err = BoxliteError::ResourceExhausted(msg);
-                log_task_error(&box_id, task_name, &err);
-                return Err(err);
-            }
+        if let Err(e) = &result {
+            log_task_error(&box_id, task_name, e);
         }
-
-        Ok(())
+        result
     }
 
     fn name(&self) -> &str {
@@ -87,9 +77,39 @@ fn read_free(home_dir: &std::path::Path, box_id: &crate::BoxID) -> Option<(u64, 
     }
 }
 
+/// Pure admission decision over the classify/GC-retry cascade, so the Reject
+/// path can be exercised without a real low-disk filesystem.
+///
+/// - Ok → admit, GC not invoked.
+/// - Warn or Reject → invoke `run_gc`, re-read free space, re-classify.
+/// - Final Ok / Warn → admit (caller logs the Warn message).
+/// - Final Reject → `Err(ResourceExhausted)`.
+///
+/// Returns both the final verdict (so the caller can log a Warn) and the
+/// admission result.
+fn decide_admission(
+    initial: (u64, u64),
+    re_read: impl FnOnce() -> Option<(u64, u64)>,
+    run_gc: impl FnOnce(),
+) -> (DiskSpaceVerdict, BoxliteResult<()>) {
+    let mut verdict = classify(initial.0, initial.1);
+    // Under any non-Ok pressure, try GC and re-classify before deciding.
+    if !matches!(verdict, DiskSpaceVerdict::Ok) {
+        run_gc();
+        if let Some((free, total)) = re_read() {
+            verdict = classify(free, total);
+        }
+    }
+    let result = match &verdict {
+        DiskSpaceVerdict::Ok | DiskSpaceVerdict::Warn(_) => Ok(()),
+        DiskSpaceVerdict::Reject(msg) => Err(BoxliteError::ResourceExhausted(msg.clone())),
+    };
+    (verdict, result)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::DiskSpaceTask;
+    use super::{DiskSpaceTask, decide_admission};
     use crate::litebox::config::{BoxConfig, ContainerRuntimeConfig};
     use crate::litebox::init::tasks::InitCtx;
     use crate::litebox::init::types::InitPipelineContext;
@@ -101,8 +121,10 @@ mod tests {
     use crate::util::{DiskSpaceVerdict, available_and_total, classify};
     use crate::vmm::VmmKind;
     use boxlite_shared::Transport;
+    use boxlite_shared::errors::BoxliteError;
     use boxlite_test_utils::home::PerTestBoxHome;
     use chrono::Utc;
+    use std::cell::Cell;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -163,5 +185,91 @@ mod tests {
                 "a non-rejecting home must start; got {result:?}"
             ),
         }
+    }
+
+    // ── Pure decision tests (cover the branches CI's healthy host can't trip) ──
+
+    const MIB: u64 = 1024 * 1024;
+    const GIB: u64 = 1024 * MIB;
+
+    /// Free space already comfortable → admit immediately, GC must not run.
+    #[test]
+    fn decide_admission_admits_when_ok_without_running_gc() {
+        let gc_calls = Cell::new(0u32);
+        let (final_v, result) = decide_admission(
+            (50 * GIB, 100 * GIB), // plenty
+            || panic!("re_read must not be called when initial is Ok"),
+            || gc_calls.set(gc_calls.get() + 1),
+        );
+        assert_eq!(final_v, DiskSpaceVerdict::Ok);
+        assert!(result.is_ok());
+        assert_eq!(
+            gc_calls.get(),
+            0,
+            "GC must not run when free space is already Ok"
+        );
+    }
+
+    /// Critically low → GC runs, still low → Reject → `ResourceExhausted`.
+    /// Closes the production gap: this `Err` branch is the one a healthy CI
+    /// host can never exercise via [`run_matches_classify_verdict_for_real_home`].
+    #[test]
+    fn decide_admission_rejects_when_pressure_persists_after_gc() {
+        let gc_calls = Cell::new(0u32);
+        let (final_v, result) = decide_admission(
+            (100 * MIB, 100 * GIB), // below the 1 GiB hard floor
+            || Some((100 * MIB, 100 * GIB)),
+            || gc_calls.set(gc_calls.get() + 1),
+        );
+        assert!(
+            matches!(final_v, DiskSpaceVerdict::Reject(_)),
+            "got {final_v:?}"
+        );
+        assert!(
+            matches!(result, Err(BoxliteError::ResourceExhausted(_))),
+            "got {result:?}"
+        );
+        assert_eq!(
+            gc_calls.get(),
+            1,
+            "GC must be tried under any non-Ok pressure"
+        );
+    }
+
+    /// Critically low, but GC reclaims enough → admit. Proves the retry-after-GC
+    /// path actually re-classifies (and a successful reclaim flips Reject to Ok).
+    #[test]
+    fn decide_admission_admits_when_gc_clears_pressure() {
+        let gc_calls = Cell::new(0u32);
+        let (final_v, result) = decide_admission(
+            (100 * MIB, 100 * GIB),         // Reject
+            || Some((50 * GIB, 100 * GIB)), // GC freed up plenty
+            || gc_calls.set(gc_calls.get() + 1),
+        );
+        assert_eq!(final_v, DiskSpaceVerdict::Ok);
+        assert!(result.is_ok());
+        assert_eq!(gc_calls.get(), 1);
+    }
+
+    /// Soft-warn pressure must still admit (Warn is not a hard refusal), but
+    /// GC is still tried first — proves GC fires on Warn, not only on Reject.
+    #[test]
+    fn decide_admission_admits_warn_after_gc_still_warn() {
+        let gc_calls = Cell::new(0u32);
+        let (final_v, result) = decide_admission(
+            (3 * GIB, 1024 * GIB), // above hard, below soft → Warn
+            || Some((3 * GIB, 1024 * GIB)),
+            || gc_calls.set(gc_calls.get() + 1),
+        );
+        assert!(
+            matches!(final_v, DiskSpaceVerdict::Warn(_)),
+            "got {final_v:?}"
+        );
+        assert!(result.is_ok(), "Warn must not refuse a start");
+        assert_eq!(
+            gc_calls.get(),
+            1,
+            "GC must be attempted whenever the initial verdict is non-Ok"
+        );
     }
 }
