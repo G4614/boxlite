@@ -909,3 +909,122 @@ fn rm_after_fill_recovers_in_box_free_space_and_writes_resume() {
         String::from_utf8_lossy(&write.stderr)
     );
 }
+
+/// Three back-to-back fill → rm cycles, then verify the box is still
+/// "serving normally". The single-cycle test pins the first recovery; this
+/// one catches regressions that only surface after repeated churn — agent
+/// fd / handle leaks per cycle, ext4 journal exhaustion, qcow2 metadata
+/// growth, or any state the cgroup / mount layer accumulates per fill.
+#[test]
+fn three_fill_delete_cycles_leave_the_box_serving_normally() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let avail = || -> u64 {
+        let out = exec_sh(
+            home.path.as_path(),
+            &box_id,
+            "df -P / | awk 'NR==2{print $4}'",
+            Duration::from_secs(15),
+        );
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "unparseable df output: {:?}",
+                    String::from_utf8_lossy(&out.stdout)
+                )
+            })
+    };
+
+    let pre = avail();
+    assert!(
+        pre > 50 * 1024,
+        "box should start with substantial free space; got {pre} KB"
+    );
+
+    for cycle in 1..=3u32 {
+        let fill = exec_sh(
+            home.path.as_path(),
+            &box_id,
+            "dd if=/dev/zero of=/fill bs=1M 2>&1; true",
+            Duration::from_secs(120),
+        );
+        let out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
+        assert!(
+            out.contains("No space left"),
+            "cycle {cycle}: fill must hit ENOSPC, got:\n{out}"
+        );
+        let when_full = avail();
+        assert!(
+            when_full < 1024,
+            "cycle {cycle}: after fill, in-box available must be ~0; got {when_full} KB"
+        );
+
+        let rm = exec_sh(
+            home.path.as_path(),
+            &box_id,
+            "rm /fill && sync",
+            Duration::from_secs(30),
+        );
+        assert!(
+            rm.status.success(),
+            "cycle {cycle}: rm /fill must succeed on a full rootfs; stderr = {}",
+            String::from_utf8_lossy(&rm.stderr)
+        );
+
+        let after_rm = avail();
+        assert!(
+            after_rm + 5 * 1024 >= pre,
+            "cycle {cycle}: rm must recover free space to ≈ pre-fill; \
+             pre={pre} KB after_rm={after_rm} KB"
+        );
+    }
+
+    // After 3 cycles the box is "serving normally" iff:
+    //  - liveness probe passes (agent accepting exec)
+    //  - pre-existing files still readable
+    //  - a new small write succeeds (rootfs healthy)
+    //  - tmpfs still works (separate resource pool wasn't poisoned)
+    assert_alive(home.path.as_path(), &box_id, "after 3 fill/delete cycles");
+
+    let read = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "cat /etc/alpine-release",
+        Duration::from_secs(15),
+    );
+    assert!(
+        read.status.success() && !read.stdout.is_empty(),
+        "pre-existing files must remain readable after 3 fill/delete cycles; stderr = {}",
+        String::from_utf8_lossy(&read.stderr)
+    );
+
+    let write = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "echo healthy > /probe && cat /probe",
+        Duration::from_secs(15),
+    );
+    assert!(
+        String::from_utf8_lossy(&write.stdout).contains("healthy"),
+        "new writes to rootfs must work after 3 fill/delete cycles; stderr = {}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+
+    let tmpfs = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "echo tmpfs > /tmp/probe && cat /tmp/probe",
+        Duration::from_secs(15),
+    );
+    assert!(
+        String::from_utf8_lossy(&tmpfs.stdout).contains("tmpfs"),
+        "tmpfs (/tmp) must remain functional after 3 fill/delete cycles"
+    );
+}
