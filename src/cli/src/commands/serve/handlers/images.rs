@@ -77,24 +77,34 @@ pub(in crate::commands::serve) async fn pull_image(
     // would require duplicating the manifest-digest → cached_at lookup
     // the list path already performs, so the small extra round-trip
     // through `list()` is the simplest correct way.
+    //
+    // The list is keyed on the *resolved* reference
+    // (e.g. `docker.io/library/alpine:latest`), not the user's input
+    // (`alpine`), so we correlate the just-pulled image by its
+    // manifest digest — `ImageObject::manifest_digest()` is the same
+    // `sha256:…` that `ImageInfo::id` carries — instead of by string
+    // equality on the reference, which would 500 on every unqualified
+    // pull (POL-32 hardening).
     let handle = match state.runtime.images() {
         Ok(h) => h,
         Err(e) => return error_from_boxlite(&e),
     };
-    if let Err(e) = handle.pull(&req.reference).await {
-        return error_from_boxlite(&e);
-    }
+    let pulled = match handle.pull(&req.reference).await {
+        Ok(obj) => obj,
+        Err(e) => return error_from_boxlite(&e),
+    };
     let images = match handle.list().await {
         Ok(v) => v,
         Err(e) => return error_from_boxlite(&e),
     };
-    match images.iter().find(|i| i.reference == req.reference) {
+    match images.iter().find(|i| i.id == pulled.manifest_digest()) {
         Some(info) => Json(ImageInfoResponse::from(info)).into_response(),
         None => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!(
-                "pull succeeded but image {} did not appear in the cache listing",
-                req.reference
+                "pull of {} succeeded (digest {}) but the cache listing did not include it",
+                req.reference,
+                pulled.manifest_digest(),
             ),
             "InternalError",
             "internal",

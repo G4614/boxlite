@@ -73,6 +73,17 @@ impl ImageObject {
         &self.manifest.config_digest
     }
 
+    /// Get the manifest digest (the `sha256:...` identifier used by the
+    /// image store cache index). This is the stable id `ImageInfo::id`
+    /// returned from `ImageManager::list()` — use it to correlate a
+    /// just-pulled image with its cache listing entry, since the
+    /// reference passed to `pull()` is the user's input (e.g.
+    /// `"alpine"`) while `list()` keys on the resolved form
+    /// (`"docker.io/library/alpine:latest"`).
+    pub fn manifest_digest(&self) -> &str {
+        &self.manifest.manifest_digest
+    }
+
     /// Get number of layers
     #[allow(dead_code)]
     pub fn layer_count(&self) -> usize {
