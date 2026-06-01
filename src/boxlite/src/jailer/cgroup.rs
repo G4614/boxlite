@@ -114,6 +114,19 @@ pub struct CgroupConfig {
 
     /// Maximum number of processes (pids.max).
     pub pids_max: Option<u64>,
+
+    /// `CPUQuotaPerSecUSec` for the systemd transient scope (rootless host
+    /// path). Microseconds of CPU time per real second — `1_000_000` = 100% of
+    /// one core, `N * 1_000_000` = full N-core ceiling.
+    ///
+    /// Separate from `cpu_max` (which is the in-kernel `cpu.max` quota/period
+    /// pair) because rootless can't enable the `cpu` controller on the box
+    /// cgroup directly: the `+cpu` write to `cgroup.subtree_control` fails
+    /// with EINVAL when the parent slice hasn't delegated it. systemd's user
+    /// manager owns `user.slice` where `cpu` is pre-delegated under the
+    /// unified hierarchy, so the property reaches the kernel by riding the
+    /// `busctl StartTransientUnit` call alongside `MemoryMax`/`TasksMax`.
+    pub cpu_quota_us_per_sec: Option<u64>,
 }
 
 impl CgroupConfig {
@@ -125,6 +138,7 @@ impl CgroupConfig {
             || self.cpu_weight.is_some()
             || self.cpu_max.is_some()
             || self.pids_max.is_some()
+            || self.cpu_quota_us_per_sec.is_some()
     }
 }
 
@@ -352,6 +366,7 @@ impl From<&ResourceLimits> for CgroupConfig {
                 (t * 1_000_000, 1_000_000)
             }),
             pids_max: limits.max_processes,
+            cpu_quota_us_per_sec: None, // wired in by jailer's cgroup_config() defaults
         }
     }
 }
@@ -493,6 +508,9 @@ pub fn adopt_pid_into_scope(
     }
     if let Some(p) = config.pids_max {
         add("TasksMax", p, &mut props, &mut count);
+    }
+    if let Some(q) = config.cpu_quota_us_per_sec {
+        add("CPUQuotaPerSecUSec", q, &mut props, &mut count);
     }
 
     let mut args: Vec<String> = vec![
