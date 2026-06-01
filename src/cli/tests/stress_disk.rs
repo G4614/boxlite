@@ -66,6 +66,24 @@ fn start_box(home: &Path) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// Disk footprint (1K-blocks) of `path` and everything under it (via `du -sk`).
+/// Used to verify that filling a box's rootfs really does grow the home dir on
+/// the host and that `boxlite rm` releases that growth — du walks the actual
+/// directory tree, so it isn't confused by FD-cached free space or filesystem
+/// metadata noise the way `df` is.
+fn home_du_kb(path: &Path) -> u64 {
+    let out = std::process::Command::new("du")
+        .arg("-sk")
+        .arg(path)
+        .output()
+        .expect("spawn du");
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("could not parse `du -sk` for {}", path.display()))
+}
+
 /// The box is healthy iff a fresh exec still succeeds.
 fn assert_alive(home: &Path, box_id: &str, ctx: &str) {
     let echo = boxlite(
@@ -166,6 +184,39 @@ fn box_rootfs_is_bounded_isolated_and_survives_fill() {
         echo.status.success(),
         "guest agent must accept exec after the rootfs fills; stderr = {}",
         String::from_utf8_lossy(&echo.stderr)
+    );
+
+    // ENOSPC is a *write* error — reading pre-existing files must still work.
+    // A regression that remounts the rootfs read-only or panics on read would
+    // pass the bare echo probe but fail here.
+    let read_old = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "cat /etc/alpine-release",
+        Duration::from_secs(15),
+    );
+    assert!(
+        read_old.status.success() && !read_old.stdout.is_empty(),
+        "pre-existing files must remain readable after the rootfs fills; \
+         cat /etc/alpine-release stderr = {}",
+        String::from_utf8_lossy(&read_old.stderr)
+    );
+
+    // `/tmp` is a tmpfs (a separate, RAM-backed resource pool) — filling the
+    // rootfs must not poison it. A regression that mounted tmpfs *under* the
+    // rootfs limit, or that the VM kernel started serializing all I/O when one
+    // mount went ENOSPC, would fail this.
+    let write_tmpfs = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "echo tmpfs-still-writes > /tmp/probe && cat /tmp/probe",
+        Duration::from_secs(15),
+    );
+    assert!(
+        String::from_utf8_lossy(&write_tmpfs.stdout).contains("tmpfs-still-writes"),
+        "tmpfs (/tmp) must still accept writes after the rootfs (a different \
+         resource pool) fills; stderr = {}",
+        String::from_utf8_lossy(&write_tmpfs.stderr)
     );
 }
 
@@ -312,5 +363,305 @@ fn concurrent_writers_all_hit_enospc_and_vm_survives() {
         home.path.as_path(),
         &box_id,
         "after a concurrent fill of the rootfs",
+    );
+}
+
+/// Inode exhaustion is a separate resource axis from block exhaustion: ext4
+/// reserves a fixed number of inodes at mkfs time, and mass-creating empty
+/// files runs out of *those* (different code path from `dd`-style block
+/// fill). The VM must still survive and pre-existing files must remain
+/// readable.
+#[test]
+fn rootfs_inode_exhaustion_keeps_vm_alive_and_old_files_readable() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Mass-touch until the loop fails — record how many got through. A loop
+    // that finished without failing (created == hard cap) means the rootfs
+    // wasn't actually exhausted, so the assertion below catches that too.
+    let script = "mkdir -p /inotest && cd /inotest && \
+        i=0; while touch f$i 2>/tmp/last.err; do i=$((i+1)); \
+            if [ $i -gt 500000 ]; then echo 'exceeded safety cap'; break; fi; \
+        done; \
+        echo created=$i; echo last_err=$(cat /tmp/last.err)";
+    let out = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        script,
+        Duration::from_secs(180),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let created: u64 = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("created=").and_then(|n| n.parse().ok()))
+        .unwrap_or_else(|| panic!("expected `created=N`; got\n{stdout}"));
+    assert!(
+        created > 100,
+        "must create enough files for the exhaustion to be a real one \
+         (created={created})\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("exceeded safety cap"),
+        "loop must terminate via exhaustion, not the test safety cap (means \
+         rootfs has more inodes than expected — test is no longer probing the \
+         exhaustion path)\n{stdout}"
+    );
+
+    // VM still serving exec.
+    assert_alive(home.path.as_path(), &box_id, "after inode exhaustion");
+
+    // Pre-existing files remain readable (the rootfs didn't go read-only or
+    // hard-fault).
+    let read_old = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "cat /etc/alpine-release",
+        Duration::from_secs(15),
+    );
+    assert!(
+        read_old.status.success() && !read_old.stdout.is_empty(),
+        "pre-existing files must remain readable after inode exhaustion; \
+         stderr = {}",
+        String::from_utf8_lossy(&read_old.stderr)
+    );
+}
+
+/// `boxlite rm` must release the host disk space the box's qcow2 overlay grew
+/// to during a fill. A regression that leaks the overlay file would silently
+/// accumulate host disk usage across box churn — the host disk-space guard in
+/// #618 would eventually trip, but the leak itself would be invisible.
+#[test]
+fn rm_after_fill_releases_host_disk_space() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    // Safety-net cleanup if the explicit rm below panics; idempotent.
+    let _safety = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let pre_fill = home_du_kb(home.path.as_path());
+
+    let fill = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "dd if=/dev/zero of=/fill bs=1M 2>&1; true",
+        Duration::from_secs(120),
+    );
+    let fill_out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
+    assert!(
+        fill_out.contains("No space left"),
+        "fill must hit ENOSPC, got:\n{fill_out}"
+    );
+
+    let post_fill = home_du_kb(home.path.as_path());
+    let consumed = post_fill.saturating_sub(pre_fill);
+    assert!(
+        consumed >= 50 * 1024,
+        "filling a box rootfs must grow the home directory on the host \
+         (qcow2 overlay growth); pre_fill={pre_fill} KB post_fill={post_fill} KB \
+         (grew only {consumed} KB)"
+    );
+
+    let rm = boxlite(
+        home.path.as_path(),
+        &["rm", "-f", &box_id],
+        Duration::from_secs(60),
+    );
+    assert!(
+        rm.status.success(),
+        "rm failed: {}",
+        String::from_utf8_lossy(&rm.stderr)
+    );
+
+    // Poll briefly — boxlite may do async file removal; the test cares about
+    // "is the space eventually released", not "is it released the exact
+    // instant rm returns". A leaked qcow2 will never shrink.
+    let target_residual = consumed / 10; // ≤10% of growth still present = released
+    let timeout = Duration::from_secs(30);
+    let start = std::time::Instant::now();
+    let mut post_rm = post_fill;
+    while start.elapsed() < timeout {
+        post_rm = home_du_kb(home.path.as_path());
+        let still = post_rm.saturating_sub(pre_fill);
+        if still <= target_residual {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let still_consumed = post_rm.saturating_sub(pre_fill);
+    assert!(
+        still_consumed <= target_residual,
+        "rm must release ≥90% of the host-disk growth from the fill within {}s; \
+         pre_fill={pre_fill} KB post_fill={post_fill} KB (consumed {consumed}); \
+         post_rm={post_rm} KB → still_consumed={still_consumed} KB (target ≤ {target_residual})",
+        timeout.as_secs()
+    );
+}
+
+/// A full rootfs must not be a startup-blocking condition: an operator who
+/// hit ENOSPC inside a box should be able to `stop` and `start` it cleanly
+/// to investigate, with the box's filesystem state preserved across the cycle.
+#[test]
+fn box_restarts_cleanly_with_full_rootfs() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Fill the rootfs and drop a marker inside.
+    let fill = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "dd if=/dev/zero of=/fill bs=1M 2>&1; true; echo marker > /root/marker || true",
+        Duration::from_secs(120),
+    );
+    let fill_out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
+    assert!(
+        fill_out.contains("No space left"),
+        "initial fill must hit ENOSPC"
+    );
+
+    let stop = boxlite(
+        home.path.as_path(),
+        &["stop", &box_id],
+        Duration::from_secs(60),
+    );
+    assert!(
+        stop.status.success(),
+        "stop with full rootfs failed: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+
+    let start = boxlite(
+        home.path.as_path(),
+        &["start", &box_id],
+        Duration::from_secs(180),
+    );
+    assert!(
+        start.status.success(),
+        "start with full rootfs failed: {}",
+        String::from_utf8_lossy(&start.stderr)
+    );
+
+    // The /fill file (and the marker) must persist across stop/start.
+    let ls = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "ls -l /fill",
+        Duration::from_secs(15),
+    );
+    assert!(
+        ls.status.success(),
+        "/fill must persist across stop/start; stderr = {}",
+        String::from_utf8_lossy(&ls.stderr)
+    );
+
+    // The rootfs is still full — new writes still hit ENOSPC.
+    let retry = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "dd if=/dev/zero of=/fill2 bs=1M count=1 2>&1; true",
+        Duration::from_secs(30),
+    );
+    let retry_out = String::from_utf8_lossy(&retry.stdout) + String::from_utf8_lossy(&retry.stderr);
+    assert!(
+        retry_out.contains("No space left"),
+        "after restart, a full rootfs must still report ENOSPC on new writes; \
+         got:\n{retry_out}"
+    );
+
+    assert_alive(
+        home.path.as_path(),
+        &box_id,
+        "after restarting with a full rootfs",
+    );
+}
+
+/// A peer box filling its disk must not slow or stall a bystander box that is
+/// *actively writing*. The earlier `two_boxes_rootfs_disks_are_isolated` test
+/// has an idle bystander; this one runs a background appender in the bystander
+/// throughout the victim's fill and asserts the appender kept progressing.
+#[test]
+fn bystander_writes_keep_progressing_while_peer_fills_its_disk() {
+    let home = PerTestBoxHome::new();
+    let victim = start_box(home.path.as_path());
+    let _vc = BoxCleanup {
+        home: home.path.clone(),
+        id: victim.clone(),
+    };
+    let bystander = start_box(home.path.as_path());
+    let _bc = BoxCleanup {
+        home: home.path.clone(),
+        id: bystander.clone(),
+    };
+
+    // Start a background appender in the bystander (one line per ~100 ms).
+    let _ = exec_sh(
+        home.path.as_path(),
+        &bystander,
+        "mkdir -p /work && \
+         ( while true; do echo tick >> /work/log; sleep 0.1; done ) </dev/null >/dev/null 2>&1 & \
+         echo $! > /tmp/loop.pid",
+        Duration::from_secs(15),
+    );
+
+    // Let the loop settle, then snapshot.
+    std::thread::sleep(Duration::from_secs(1));
+    let line_count = |id: &str| -> u64 {
+        let out = exec_sh(
+            home.path.as_path(),
+            id,
+            "wc -l < /work/log",
+            Duration::from_secs(15),
+        );
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    };
+    let before = line_count(&bystander);
+
+    // Victim fills its rootfs.
+    let fill = exec_sh(
+        home.path.as_path(),
+        &victim,
+        "dd if=/dev/zero of=/fill bs=1M 2>&1; true",
+        Duration::from_secs(120),
+    );
+    let fill_out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
+    assert!(
+        fill_out.contains("No space left"),
+        "victim fill must hit ENOSPC"
+    );
+
+    let after = line_count(&bystander);
+
+    // Stop the loop before doing anything else.
+    let _ = exec_sh(
+        home.path.as_path(),
+        &bystander,
+        "kill $(cat /tmp/loop.pid) 2>/dev/null; true",
+        Duration::from_secs(10),
+    );
+
+    assert!(
+        after > before + 5,
+        "bystander's background writer must keep progressing during a peer's \
+         fill — at least a handful of new lines should land in /work/log; \
+         before={before} after={after}"
+    );
+
+    assert_alive(home.path.as_path(), &victim, "after filling its own rootfs");
+    assert_alive(
+        home.path.as_path(),
+        &bystander,
+        "while a peer box filled its disk",
     );
 }
