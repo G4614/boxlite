@@ -948,7 +948,7 @@ fn build_router(state: Arc<AppState>) -> Router {
 // Entry Point
 // ============================================================================
 
-pub async fn execute(args: ServeArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
+pub async fn execute(args: ServeArgs, global: &GlobalFlags) -> anyhow::Result<()> {
     let runtime = global.create_runtime()?;
 
     let state = Arc::new(AppState {
@@ -980,7 +980,7 @@ pub async fn execute(args: ServeArgs, global: &GlobalFlags) -> anyhow::Result<i3
         })
         .await?;
 
-    Ok(0)
+    Ok(())
 }
 
 #[cfg(test)]

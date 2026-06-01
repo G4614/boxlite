@@ -13,7 +13,7 @@ pub struct PullArgs {
     pub quiet: bool,
 }
 
-pub async fn execute(args: PullArgs, global: &GlobalFlags) -> Result<i32> {
+pub async fn execute(args: PullArgs, global: &GlobalFlags) -> Result<()> {
     let runtime = global.create_runtime()?;
     let images = runtime.images()?;
 
@@ -26,5 +26,5 @@ pub async fn execute(args: PullArgs, global: &GlobalFlags) -> Result<i32> {
         println!("Layers: {}", image.layer_count());
     }
 
-    Ok(0)
+    Ok(())
 }

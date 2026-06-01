@@ -23,7 +23,7 @@ pub struct LogsArgs {
     pub follow: bool,
 }
 
-pub async fn execute(args: LogsArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
+pub async fn execute(args: LogsArgs, global: &GlobalFlags) -> anyhow::Result<()> {
     let options = global.resolve_runtime_options()?;
     let home_dir = options.home_dir.clone();
     let rt = global.create_runtime_with_options(options)?;
@@ -44,7 +44,7 @@ pub async fn execute(args: LogsArgs, global: &GlobalFlags) -> anyhow::Result<i32
         eprintln!("No log file found for box '{}'", args.target);
         eprintln!("The box may not have been started yet.");
         eprintln!("Log path: {}", log_path.display());
-        return Ok(0);
+        return Ok(());
     }
 
     // Read initial logs (with --tail if specified)
@@ -58,7 +58,7 @@ pub async fn execute(args: LogsArgs, global: &GlobalFlags) -> anyhow::Result<i32
         follow_logs(&log_path).await?;
     }
 
-    Ok(0)
+    Ok(())
 }
 
 /// Read logs from a file, optionally returning only the last N lines.

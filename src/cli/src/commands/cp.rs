@@ -27,7 +27,7 @@ pub struct CpArgs {
     pub dst: String,
 }
 
-pub async fn execute(args: CpArgs, global: &GlobalFlags) -> Result<i32> {
+pub async fn execute(args: CpArgs, global: &GlobalFlags) -> Result<()> {
     let rt = global.create_runtime()?;
 
     let direction = parse_direction(&args.src, &args.dst)?;
@@ -57,7 +57,7 @@ pub async fn execute(args: CpArgs, global: &GlobalFlags) -> Result<i32> {
             if !was_running {
                 handle.stop().await?;
             }
-            Ok(0)
+            Ok(())
         }
         Direction::BoxToHost {
             box_name,
@@ -76,7 +76,7 @@ pub async fn execute(args: CpArgs, global: &GlobalFlags) -> Result<i32> {
             if !was_running {
                 handle.stop().await?;
             }
-            Ok(0)
+            Ok(())
         }
     }
 }

@@ -98,26 +98,29 @@ async fn run_cli(cli: Cli) -> i32 {
         .init();
 
     let global = cli.global;
-    // Every command returns `Result<i32>`; `run`/`exec` convey the box's
-    // mapped shell exit code, others return `Ok(0)` on success.
+    // Only `run`/`exec` carry a meaningful shell exit code (the box's
+    // mapped command exit); the rest are unit-success commands adapted to
+    // `Ok(0)` here so the dispatcher can produce one `Result<i32>` overall.
+    // Keeping the adapter at the call site (rather than pushing `i32` into
+    // 15 commands that have no exit-code concept) preserves type honesty.
     let result: anyhow::Result<i32> = match cli.command {
         cli::Commands::Run(args) => commands::run::execute(args, &global).await,
         cli::Commands::Exec(args) => commands::exec::execute(args, &global).await,
-        cli::Commands::Create(args) => commands::create::execute(args, &global).await,
-        cli::Commands::List(args) => commands::list::execute(args, &global).await,
-        cli::Commands::Rm(args) => commands::rm::execute(args, &global).await,
-        cli::Commands::Start(args) => commands::start::execute(args, &global).await,
-        cli::Commands::Stop(args) => commands::stop::execute(args, &global).await,
-        cli::Commands::Restart(args) => commands::restart::execute(args, &global).await,
-        cli::Commands::Pull(args) => commands::pull::execute(args, &global).await,
-        cli::Commands::Images(args) => commands::images::execute(args, &global).await,
-        cli::Commands::Inspect(args) => commands::inspect::execute(args, &global).await,
-        cli::Commands::Cp(args) => commands::cp::execute(args, &global).await,
-        cli::Commands::Info(args) => commands::info::execute(args, &global).await,
-        cli::Commands::Logs(args) => commands::logs::execute(args, &global).await,
-        cli::Commands::Stats(args) => commands::stats::execute(args, &global).await,
-        cli::Commands::Serve(args) => commands::serve::execute(args, &global).await,
-        cli::Commands::Auth(args) => commands::auth::run(args, &global).await,
+        cli::Commands::Create(args) => commands::create::execute(args, &global).await.map(|_| 0),
+        cli::Commands::List(args) => commands::list::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Rm(args) => commands::rm::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Start(args) => commands::start::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Stop(args) => commands::stop::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Restart(args) => commands::restart::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Pull(args) => commands::pull::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Images(args) => commands::images::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Inspect(args) => commands::inspect::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Cp(args) => commands::cp::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Info(args) => commands::info::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Logs(args) => commands::logs::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Stats(args) => commands::stats::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Serve(args) => commands::serve::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Auth(args) => commands::auth::run(args, &global).await.map(|_| 0),
         // Handled in main() before tokio; never reaches run_cli
         cli::Commands::Completion(_) => {
             unreachable!("completion subcommand is handled before tokio in main()")

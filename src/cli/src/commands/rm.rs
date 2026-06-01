@@ -15,7 +15,7 @@ pub struct RmArgs {
     pub targets: Vec<String>,
 }
 
-pub async fn execute(args: RmArgs, global: &crate::cli::GlobalFlags) -> anyhow::Result<i32> {
+pub async fn execute(args: RmArgs, global: &crate::cli::GlobalFlags) -> anyhow::Result<()> {
     let runtime = global.create_runtime()?;
 
     // Require confirmation for --all unless --force is specified
@@ -26,7 +26,7 @@ pub async fn execute(args: RmArgs, global: &crate::cli::GlobalFlags) -> anyhow::
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         if !input.trim().eq_ignore_ascii_case("y") {
-            return Ok(0);
+            return Ok(());
         }
     }
 
@@ -54,5 +54,5 @@ pub async fn execute(args: RmArgs, global: &crate::cli::GlobalFlags) -> anyhow::
     if active_error {
         anyhow::bail!("Some boxes could not be removed");
     }
-    Ok(0)
+    Ok(())
 }

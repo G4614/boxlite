@@ -56,7 +56,7 @@ impl From<BoxInfo> for BoxPresenter {
     }
 }
 
-pub async fn execute(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
+pub async fn execute(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<()> {
     let rt = global.create_runtime()?;
     let boxes = rt.list_info().await?;
 
@@ -69,7 +69,7 @@ pub async fn execute(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<i32
         for info in boxes {
             println!("{}", info.id);
         }
-        return Ok(0);
+        return Ok(());
     }
 
     let presenters: Vec<BoxPresenter> = boxes.into_iter().map(BoxPresenter::from).collect();
@@ -84,7 +84,7 @@ pub async fn execute(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<i32
         },
     )?;
 
-    Ok(0)
+    Ok(())
 }
 
 fn print_boxes(writer: &mut dyn std::io::Write, boxes: &[BoxPresenter]) -> anyhow::Result<()> {
