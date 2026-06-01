@@ -175,24 +175,44 @@ async fn build_config(
         need_resize,        // Only on fresh start with custom disk size
     };
 
-    // Sized user volumes go straight onto volume_mgr as virtio-blk disks —
-    // boxlite already materialised the ext4 image; the guest's existing
-    // BlockDeviceMount path picks it up at vol.guest_path. Process these
-    // first so the ContainerVolumeManager borrow below doesn't conflict.
+    // Sized user volumes → attach the ext4 image as virtio-blk and have the
+    // guest mount it at the SAME convention path the container init expects
+    // for a virtiofs-shared volume (`<SHARED>/containers/<cid>/volumes/<tag>`).
+    // The container's own bind mount (added below) is then identical to what
+    // it'd be for a regular virtiofs volume — only the source-side fs type
+    // differs. Process these BEFORE creating ContainerVolumeManager so its
+    // `&mut volume_mgr` borrow doesn't conflict with our add_block_device
+    // calls; remember the (volume_name, container_path, read_only) tuples
+    // and replay them as bind mounts on the manager afterwards.
+    // Same root the guest uses (see `boxlite_shared::layout::GUEST_BASE`):
+    // `/run/boxlite/shared`. The convention path under it is what the
+    // container init bind-mounts as the source.
+    let shared_guest = boxlite_shared::layout::SharedGuestLayout::new(
+        std::path::PathBuf::from(boxlite_shared::layout::GUEST_BASE).join("shared"),
+    );
+    let mut sized_binds: Vec<(String, String, bool)> = Vec::new();
     for vol in user_volumes.iter().filter(|v| v.size_bytes.is_some()) {
+        let mount_point = shared_guest
+            .container(container_id.as_str())
+            .volume_dir(&vol.tag);
+        let mount_point_str = mount_point.to_string_lossy().into_owned();
         volume_mgr.add_block_device(
             &vol.host_path,
             DiskFormat::Ext4,
             vol.read_only,
-            Some(vol.guest_path.as_str()),
+            Some(mount_point_str.as_str()),
             false, // need_format (already formatted in resolve_user_volumes)
             false, // need_resize
         );
+        sized_binds.push((vol.tag.clone(), vol.guest_path.clone(), vol.read_only));
     }
 
-    // Legacy (non-sized) user volumes go through virtiofs via
-    // ContainerVolumeManager — same path as before.
+    // Now the ContainerVolumeManager owns volume_mgr; replay the sized
+    // binds + add the legacy (virtiofs-backed) ones.
     let mut container_mgr = ContainerVolumeManager::new(&mut volume_mgr);
+    for (volume_name, dest, ro) in &sized_binds {
+        container_mgr.add_bind(volume_name, dest, *ro);
+    }
     for vol in user_volumes.iter().filter(|v| v.size_bytes.is_none()) {
         container_mgr.add_volume(
             container_id.as_str(),
