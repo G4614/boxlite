@@ -367,4 +367,94 @@ mod tests {
             elapsed,
         );
     }
+
+    /// End-to-end PTY reproducer that mirrors the manual `pexpect` probe
+    /// from this PR's description: a real terminal device under fd 0, a
+    /// full pass through `StreamManager::start` (RawModeGuard + select-loop
+    /// + abort-on-shell-exit), and then a timed runtime drop. The first
+    /// test isolates the mechanism on a pipe; this one demonstrates the
+    /// same hang on the actual code path the user hits with `boxlite exec
+    /// -ti`.
+    #[test]
+    fn stream_manager_with_pty_does_not_block_runtime_drop_after_exec_exit() {
+        use nix::pty::{openpty, OpenptyResult};
+        use std::os::fd::{AsRawFd, IntoRawFd};
+
+        let _serialize = STDIN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        // Real PTY pair. The slave is dup2'd onto fd 0, so the CLI's
+        // `tokio::io::stdin()` (pre-fix) or `std::io::stdin()` (post-fix)
+        // reads from a genuine terminal device — `RawModeGuard` activates,
+        // the same way it does for a real `exec -ti`. The master stays
+        // alive (no writes, no close) so reads on the slave park.
+        let OpenptyResult { master, slave } =
+            openpty(None, None).expect("openpty");
+        let master_fd = master.into_raw_fd();
+        let slave_fd = slave.as_raw_fd();
+
+        let saved = unsafe { libc::dup(libc::STDIN_FILENO) };
+        assert!(saved >= 0, "dup saved stdin");
+        let _restore = RestoreStdin(saved);
+
+        let rc = unsafe { libc::dup2(slave_fd, libc::STDIN_FILENO) };
+        assert_eq!(rc, libc::STDIN_FILENO, "dup2 slave onto fd 0");
+        // After dup2, fd 0 holds its own reference to the slave's file
+        // description; the OwnedFd `slave` can drop normally.
+        drop(slave);
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("build runtime");
+
+        let (mut exec, stdout_tx, stderr_tx, _stdin_rx, result_tx) =
+            boxlite::Execution::stub("stream-mgr-pty");
+
+        let exit = rt
+            .block_on(async {
+                // Simulate "remote shell exited cleanly": after the
+                // stdin task has had time to park on the slave, send
+                // the exit status and drop the output channels so
+                // `StreamManager::start`'s `io_finished` future
+                // completes and the select-loop breaks with exit=0.
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    let _ = result_tx.send(boxlite::ExecResult {
+                        exit_code: 0,
+                        error_message: None,
+                    });
+                    drop(stdout_tx);
+                    drop(stderr_tx);
+                });
+                StreamManager::new(&mut exec, /*interactive*/ true, /*tty*/ true)
+                    .start()
+                    .await
+            })
+            .expect("StreamManager::start");
+        assert_eq!(exit, 0, "stub signals clean exit");
+
+        // `start()` returned, the select-loop already aborted the stdin
+        // task — but with the buggy implementation that abort cannot
+        // unpark the blocking-pool `read(2)` on the slave, so the
+        // runtime cannot reap the pool on shutdown.
+        let start = Instant::now();
+        rt.shutdown_timeout(Duration::from_secs(2));
+        let elapsed = start.elapsed();
+
+        // Keep the master alive until after shutdown so the slave never
+        // sees EOF and never accidentally unparks the parked read.
+        unsafe { libc::close(master_fd) };
+
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "Runtime drop took {:?} with fd 0 on a PTY slave. Pre-fix \
+             the parked read(2) on the blocking-pool thread keeps \
+             shutdown waiting for the full timeout — same hang the \
+             manual `pexpect` repro in the PR description catches \
+             (host process should return immediately on shell exit, \
+             not after a stray ENTER).",
+            elapsed,
+        );
+    }
 }
