@@ -1028,3 +1028,115 @@ fn three_fill_delete_cycles_leave_the_box_serving_normally() {
         "tmpfs (/tmp) must remain functional after 3 fill/delete cycles"
     );
 }
+
+/// Box rootfs is bounded against a *host-driven* fill too — `boxlite cp`
+/// of an oversized host file into the box must hit ENOSPC, surface the
+/// failure as exit≠0, leave the box alive, and **not** grow the host
+/// qcow2 past the rootfs cap.
+///
+/// The earlier `box_rootfs_is_bounded_isolated_and_survives_fill` covers
+/// the in-box-write path (`dd`); this one exercises the orthogonal CLI
+/// path through `boxlite cp` → tar over vsock → guest extract. A
+/// regression where the CLI buffered the whole tar to host `/tmp`, or
+/// the guest agent staged it on a tmpfs that quietly filled to ENOSPC
+/// with `exit 0`, or the tar extractor left a wedged half-written file,
+/// would be invisible to the `dd` test but caught here.
+#[test]
+fn box_rootfs_is_bounded_against_host_cp_fill() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Read the box's rootfs free space so the host file we craft is
+    // unambiguously larger than what the rootfs can hold. Using 2x free
+    // gives a healthy margin even if the box has unusual prefill.
+    let avail_kb: u64 = {
+        let out = exec_sh(
+            home.path.as_path(),
+            &box_id,
+            "df -P / | awk 'NR==2{print $4}'",
+            Duration::from_secs(20),
+        );
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "could not read box rootfs free: {:?}",
+                    String::from_utf8_lossy(&out.stdout)
+                )
+            })
+    };
+    let oversized_bytes = (avail_kb as usize).saturating_mul(1024).saturating_mul(2);
+    assert!(
+        oversized_bytes > 16 * 1024 * 1024,
+        "box rootfs free must be at least a few MiB so the host source \
+         comfortably exceeds it; got {avail_kb} KiB free"
+    );
+
+    // Host source: a file of zeros, 2x the box rootfs free. Lives under
+    // the per-test home so the test doesn't pollute the system /tmp.
+    let src = home.path.join("oversized.bin");
+    {
+        use std::fs::File;
+        use std::io::{BufWriter, Write};
+        // Stream-write — a Vec<u8> of this size would balloon test RAM.
+        let f = File::create(&src).expect("create oversized source");
+        let mut w = BufWriter::new(f);
+        let chunk = vec![0u8; 4 * 1024 * 1024];
+        let mut remaining = oversized_bytes;
+        while remaining > 0 {
+            let n = remaining.min(chunk.len());
+            w.write_all(&chunk[..n]).expect("write source");
+            remaining -= n;
+        }
+        w.flush().expect("flush source");
+    }
+
+    // Host disk usage right before the cp — anything beyond this delta
+    // is host blast radius we couldn't keep contained.
+    let pre = home_du_kb(home.path.as_path());
+
+    // The actual probe: cp the oversized file into the box.
+    let dst_in_box = format!("{}:/oversized.bin", box_id);
+    let cp = boxlite(
+        home.path.as_path(),
+        &["cp", src.to_str().unwrap(), dst_in_box.as_str()],
+        Duration::from_secs(180),
+    );
+
+    // Failure must be visible. A regression that silently truncated +
+    // exited 0, or that hung past the 180 s deadline, fails here.
+    let stderr = String::from_utf8_lossy(&cp.stderr);
+    let stdout = String::from_utf8_lossy(&cp.stdout);
+    assert!(
+        !cp.status.success(),
+        "boxlite cp of an oversized file must exit non-zero on rootfs ENOSPC; \
+         stdout = {stdout:?} stderr = {stderr:?}"
+    );
+
+    // The box itself must still be alive — a regression that wedged the
+    // guest agent on a half-written file (stale tmpfs, hung tar reader,
+    // ext4 lock pile-up) would fail this probe.
+    assert_alive(home.path.as_path(), &box_id, "after a failed host->box cp");
+
+    // The host blast radius is the central invariant. The rootfs cap
+    // (read above as avail_kb) is the most the box can possibly consume
+    // on the host; we give a healthy margin (2x avail + 8 MiB slack)
+    // because tar metadata + ext4 journal can charge a few MiB beyond
+    // the file bytes themselves. A regression where the CLI cached the
+    // tar to host /tmp would blow this assertion by the full source
+    // size (~2x avail).
+    let post = home_du_kb(home.path.as_path());
+    let delta_kb = post.saturating_sub(pre);
+    let cap_kb = avail_kb * 2 + 8 * 1024;
+    assert!(
+        delta_kb <= cap_kb,
+        "host blast radius must be bounded by the box rootfs cap, not the \
+         source file size; pre={pre} post={post} delta={delta_kb} KiB, \
+         cap (~2x rootfs free + 8 MiB slack)={cap_kb} KiB"
+    );
+}
