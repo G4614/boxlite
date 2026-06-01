@@ -408,6 +408,9 @@ pub struct Jailer<S: Sandbox> {
     /// Whether the shim runs a network backend and needs its AF_UNIX endpoints.
     pub(crate) network_backend_enabled: bool,
     /// VM guest memory in MiB, used to derive the host cgroup memory limit.
+    /// Read only on Linux (`setup_host_cgroup` is `#[cfg(target_os = "linux")]`),
+    /// so quiet dead-code on the macOS build.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) vm_memory_mib: Option<u32>,
 }
 
