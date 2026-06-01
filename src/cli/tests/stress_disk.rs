@@ -84,18 +84,30 @@ fn home_du_kb(path: &Path) -> u64 {
         .unwrap_or_else(|| panic!("could not parse `du -sk` for {}", path.display()))
 }
 
-/// The box is healthy iff a fresh exec still succeeds.
+/// The box is healthy iff a fresh exec eventually succeeds. The agent may be
+/// momentarily busy draining I/O after a heavy fill / inode storm, so retry
+/// for up to 10 s — that buys reliability without hiding a truly wedged agent.
 fn assert_alive(home: &Path, box_id: &str, ctx: &str) {
-    let echo = boxlite(
-        home,
-        &["exec", box_id, "--", "echo", "alive"],
-        Duration::from_secs(15),
-    );
-    assert!(
-        echo.status.success(),
-        "VM must stay alive {ctx}; stderr = {}",
-        String::from_utf8_lossy(&echo.stderr)
-    );
+    let timeout = Duration::from_secs(10);
+    let start = std::time::Instant::now();
+    loop {
+        let echo = boxlite(
+            home,
+            &["exec", box_id, "--", "echo", "alive"],
+            Duration::from_secs(15),
+        );
+        if echo.status.success() {
+            return;
+        }
+        if start.elapsed() >= timeout {
+            panic!(
+                "VM must stay alive {ctx}; exec still failing after {}s of retries; last stderr = {}",
+                timeout.as_secs(),
+                String::from_utf8_lossy(&echo.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
 }
 
 /// A box's rootfs is its own small disk (not the host's), and filling it to
@@ -147,10 +159,14 @@ fn box_rootfs_is_bounded_isolated_and_survives_fill() {
                 String::from_utf8_lossy(&df.stdout)
             )
         });
+    // Lower bound 50 MiB rules out an empty/uninitialised mount; upper bound
+    // 2 GiB still discriminates the host fs (a 124 GiB host ≈ 130M blocks)
+    // while being tight enough to flag a regression that lets the rootfs grow
+    // far past the documented "few hundred MB" image-derived sizing.
     assert!(
-        (1..4 * 1024 * 1024).contains(&total_kb),
-        "box rootfs must be its own bounded disk (a few hundred MB), not the host fs; \
-         got {total_kb} 1K-blocks (~{} MiB)",
+        (50 * 1024..2 * 1024 * 1024).contains(&total_kb),
+        "box rootfs must be its own bounded disk (~few hundred MB), not the host fs \
+         and not a runaway image sizing; got {total_kb} 1K-blocks (~{} MiB)",
         total_kb / 1024
     );
 
@@ -663,5 +679,136 @@ fn bystander_writes_keep_progressing_while_peer_fills_its_disk() {
         home.path.as_path(),
         &bystander,
         "while a peer box filled its disk",
+    );
+}
+
+/// A fill → delete → fill cycle inside one box must not roughly double the
+/// box's host-side qcow2 overlay. qcow2 grows monotonically as clusters are
+/// dirtied unless discard / unmap is plumbed end-to-end (ext4 → virtio-blk →
+/// qcow2), so a regression that drops discard would silently leak the first
+/// fill's worth of host disk on every churn cycle.
+#[test]
+fn rootfs_fill_delete_fill_does_not_double_qcow2_footprint() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let pre = home_du_kb(home.path.as_path());
+
+    // Round 1: fill to ENOSPC, then delete the fill file + sync to push the
+    // discard request (if the stack supports it) downwards.
+    let fill1 = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "dd if=/dev/zero of=/fill bs=1M 2>&1; true",
+        Duration::from_secs(120),
+    );
+    let fill1_out = String::from_utf8_lossy(&fill1.stdout) + String::from_utf8_lossy(&fill1.stderr);
+    assert!(
+        fill1_out.contains("No space left"),
+        "round-1 fill must hit ENOSPC"
+    );
+    let after_first = home_du_kb(home.path.as_path());
+    let grew = after_first.saturating_sub(pre);
+    assert!(
+        grew >= 50 * 1024,
+        "round-1 fill must visibly grow the host qcow2 footprint; \
+         pre={pre} after_first={after_first} (grew {grew} KB)"
+    );
+
+    let _ = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "rm -f /fill && sync",
+        Duration::from_secs(30),
+    );
+
+    // Round 2: fill again. With discard / unmap working, qcow2 can reuse the
+    // freed clusters and the host footprint should not roughly double.
+    let fill2 = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "dd if=/dev/zero of=/fill bs=1M 2>&1; true",
+        Duration::from_secs(120),
+    );
+    let fill2_out = String::from_utf8_lossy(&fill2.stdout) + String::from_utf8_lossy(&fill2.stderr);
+    assert!(
+        fill2_out.contains("No space left"),
+        "round-2 fill must hit ENOSPC"
+    );
+    let after_second = home_du_kb(home.path.as_path());
+
+    // Cap at pre + 1.6 × first-fill growth (60% slack for qcow2 metadata + ext4
+    // journal noise). Anything near 2× = discard is not propagating; the box's
+    // churn would leak host disk forever.
+    let upper = pre + (grew * 16) / 10;
+    assert!(
+        after_second <= upper,
+        "fill→delete→fill must not balloon the qcow2 to ≈2× the single-fill size; \
+         pre={pre} KB after_first={after_first} (grew {grew}); \
+         after_second={after_second} (upper bound {upper}). \
+         This usually means discard / unmap is not propagating through the stack."
+    );
+}
+
+/// Inode exhaustion and block exhaustion are independent ENOSPC paths. After
+/// mass-touch exhausts the rootfs's inodes, appending to a pre-existing file
+/// (which needs new data blocks, not a new inode) must still succeed — a
+/// regression that conflated the two error paths would reject this write too
+/// and silently break workloads that hold a fixed set of log files.
+#[test]
+fn rootfs_inode_exhaustion_does_not_block_appending_to_existing_files() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let setup = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "echo initial > /persistent.log && \
+         mkdir -p /inotest && cd /inotest && \
+         i=0; while touch f$i 2>/dev/null; do \
+             i=$((i+1)); \
+             if [ $i -gt 500000 ]; then echo 'safety cap'; break; fi; \
+         done; \
+         echo created=$i",
+        Duration::from_secs(180),
+    );
+    let setup_out = String::from_utf8_lossy(&setup.stdout);
+    let created: u64 = setup_out
+        .lines()
+        .find_map(|l| l.strip_prefix("created=").and_then(|n| n.parse().ok()))
+        .unwrap_or_else(|| panic!("setup script must report created=N; got\n{setup_out}"));
+    assert!(
+        created > 100 && !setup_out.contains("safety cap"),
+        "inode exhaustion must actually run to completion (created={created})\n{setup_out}"
+    );
+
+    // Appending to /persistent.log uses no new inodes — it must succeed.
+    let append = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "echo appended >> /persistent.log && cat /persistent.log",
+        Duration::from_secs(15),
+    );
+    let stdout = String::from_utf8_lossy(&append.stdout);
+    assert!(
+        append.status.success() && stdout.contains("initial") && stdout.contains("appended"),
+        "appending to a pre-existing file after inode exhaustion must succeed; \
+         exit_ok={} stdout={stdout:?} stderr={}",
+        append.status.success(),
+        String::from_utf8_lossy(&append.stderr)
+    );
+
+    assert_alive(
+        home.path.as_path(),
+        &box_id,
+        "after inode-exhaustion + append-to-existing",
     );
 }
