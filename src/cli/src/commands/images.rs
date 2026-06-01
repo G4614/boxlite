@@ -55,8 +55,15 @@ impl From<&ImageInfo> for ImagePresenter {
 
 pub async fn execute(args: ImagesArgs, global: &GlobalFlags) -> anyhow::Result<()> {
     let rt = global.create_runtime()?;
-    let image_handle = rt.images()?;
-    let images = image_handle.list().await?;
+    // REST path: bypass the local-only `images()` handle (which would
+    // return `Unsupported`) and list directly via the server (POL-32).
+    // The wire DTO maps back into the same `ImageInfo` shape the local
+    // path produces, so the rest of this function is backend-agnostic.
+    let images = if rt.is_rest() {
+        rt.list_images_remote().await?
+    } else {
+        rt.images()?.list().await?
+    };
 
     if args.quiet {
         for info in images {

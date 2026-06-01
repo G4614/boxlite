@@ -450,6 +450,58 @@ fn parse_box_status(status: &str) -> BoxStatus {
     }
 }
 
+// ============================================================================
+// Images (POL-32)
+// ============================================================================
+
+/// `POST /v1/images/pull` body — mirrors the OpenAPI `PullImageRequest`.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct PullImageRequest {
+    pub reference: String,
+}
+
+/// Wire-shape image metadata returned by `/v1/images/pull` and listed by
+/// `/v1/images`. Mirrors OpenAPI `ImageInfo`. Kept separate from the
+/// in-process `crate::runtime::types::ImageInfo` so on-disk and wire
+/// formats can drift independently; `to_image_info` adapts at the
+/// boundary.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct ImageInfoResponse {
+    pub reference: String,
+    pub repository: String,
+    pub tag: String,
+    pub id: String,
+    pub cached_at: String,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+}
+
+impl ImageInfoResponse {
+    /// Convert the wire DTO into the in-process `ImageInfo`. Invalid
+    /// `cached_at` falls back to the unix epoch so a malformed server
+    /// payload doesn't blow up the whole `images` listing — the rest of
+    /// the row is still readable.
+    pub fn to_image_info(&self) -> crate::runtime::types::ImageInfo {
+        use crate::runtime::types::Bytes;
+        let cached_at = chrono::DateTime::parse_from_rfc3339(&self.cached_at)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|_| chrono::DateTime::<chrono::Utc>::UNIX_EPOCH);
+        crate::runtime::types::ImageInfo {
+            reference: self.reference.clone(),
+            repository: self.repository.clone(),
+            tag: self.tag.clone(),
+            id: self.id.clone(),
+            cached_at,
+            size: self.size_bytes.map(Bytes::from_bytes),
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct ListImagesResponse {
+    pub images: Vec<ImageInfoResponse>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

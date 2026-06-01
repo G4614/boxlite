@@ -62,6 +62,14 @@ pub struct BoxliteRuntime {
     /// not a second client). Surfaced via `auth()`, mirroring
     /// `image_backend` / `images()`.
     auth_backend: Option<Arc<dyn crate::runtime::auth::AuthBackend>>,
+    /// Typed handle on the REST backend for capabilities that aren't
+    /// part of the `RuntimeBackend` trait (image pull / list — POL-32).
+    /// `Some` mirrors `auth_backend.is_some()` exactly: both are set
+    /// when `BoxliteRuntime::rest` constructs the runtime and never
+    /// after, so the two flags can't drift. Local runtimes leave it
+    /// `None` and the public `*_remote` methods return `Unsupported`.
+    #[cfg(feature = "rest")]
+    rest_runtime: Option<Arc<RestRuntime>>,
 }
 
 // ============================================================================
@@ -88,6 +96,8 @@ impl BoxliteRuntime {
             backend: backend_arc,
             image_backend: Some(image_backend),
             auth_backend: None,
+            #[cfg(feature = "rest")]
+            rest_runtime: None,
         })
     }
 
@@ -113,9 +123,14 @@ impl BoxliteRuntime {
         let rest_runtime = Arc::new(RestRuntime::new(&config)?);
         let auth_backend = Arc::clone(&rest_runtime) as Arc<dyn crate::runtime::auth::AuthBackend>;
         Ok(Self {
-            backend: rest_runtime,
-            image_backend: None, // REST runtime doesn't support image operations
+            backend: Arc::clone(&rest_runtime) as Arc<dyn RuntimeBackend>,
+            // Image ops are exposed via `pull_image_remote` / `list_images_remote`
+            // (which downcast through `rest_runtime`), not the local-only
+            // `ImageBackend` trait — that trait returns `ImageObject`, which
+            // carries blob-store pointers that don't exist on the client side.
+            image_backend: None,
             auth_backend: Some(auth_backend),
+            rest_runtime: Some(rest_runtime),
         })
     }
 
@@ -452,6 +467,43 @@ impl BoxliteRuntime {
             Some(backend) => Ok(crate::runtime::auth::AuthHandle::new(Arc::clone(backend))),
             None => Err(BoxliteError::Unsupported(
                 "identity (auth) is only available on REST runtimes".to_string(),
+            )),
+        }
+    }
+
+    /// True iff this runtime is REST-backed (vs. a local VM backend).
+    /// Pairs with `pull_image_remote` / `list_images_remote` so callers
+    /// can branch without try-and-catch.
+    pub fn is_rest(&self) -> bool {
+        self.auth_backend.is_some()
+    }
+
+    /// Pull an image into the *remote* runtime's cache (POL-32). Returns
+    /// `Unsupported` on local runtimes — local callers keep using
+    /// `images()?.pull()`, which returns the local-only `ImageObject`
+    /// the existing SDKs depend on.
+    #[cfg(feature = "rest")]
+    pub async fn pull_image_remote(
+        &self,
+        image_ref: &str,
+    ) -> BoxliteResult<crate::runtime::types::ImageInfo> {
+        match &self.rest_runtime {
+            Some(rest) => rest.pull_image_remote(image_ref).await,
+            None => Err(BoxliteError::Unsupported(
+                "pull_image_remote requires a REST runtime".to_string(),
+            )),
+        }
+    }
+
+    /// List images cached by the *remote* runtime (POL-32). Local
+    /// callers should use `images()?.list()` — both return `ImageInfo`,
+    /// just from different source-of-truth.
+    #[cfg(feature = "rest")]
+    pub async fn list_images_remote(&self) -> BoxliteResult<Vec<crate::runtime::types::ImageInfo>> {
+        match &self.rest_runtime {
+            Some(rest) => rest.list_images_remote().await,
+            None => Err(BoxliteError::Unsupported(
+                "list_images_remote requires a REST runtime".to_string(),
             )),
         }
     }

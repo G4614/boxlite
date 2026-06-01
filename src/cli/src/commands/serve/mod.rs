@@ -838,7 +838,7 @@ async fn get_or_fetch_box(state: &AppState, box_id: &str) -> Result<Arc<LiteBox>
 // ============================================================================
 
 fn build_router(state: Arc<AppState>) -> Router {
-    use handlers::{advanced, boxes, config, executions, files, me, metrics, snapshots};
+    use handlers::{advanced, boxes, config, executions, files, images, me, metrics, snapshots};
 
     Router::new()
         // Identity (no tenant prefix)
@@ -920,6 +920,9 @@ fn build_router(state: Arc<AppState>) -> Router {
             "/v1/boxes/{box_id}/export",
             post(advanced::export_box),
         )
+        // Images (POL-32)
+        .route("/v1/images/pull", post(images::pull_image))
+        .route("/v1/images", get(images::list_images))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             require_api_key,

@@ -12,8 +12,12 @@ use crate::{BoxInfo, LiteBox};
 use super::client::ApiClient;
 use super::litebox::RestBox;
 use super::options::BoxliteRestOptions;
-use super::types::{BoxResponse, CreateBoxRequest, ListBoxesResponse, RuntimeMetricsResponse};
+use super::types::{
+    BoxResponse, CreateBoxRequest, ImageInfoResponse, ListBoxesResponse, ListImagesResponse,
+    PullImageRequest, RuntimeMetricsResponse,
+};
 use crate::runtime::auth::{AuthBackend, Principal};
+use crate::runtime::types::ImageInfo;
 
 pub(crate) struct RestRuntime {
     client: ApiClient,
@@ -23,6 +27,25 @@ impl RestRuntime {
     pub fn new(config: &BoxliteRestOptions) -> BoxliteResult<Self> {
         let client = ApiClient::new(config)?;
         Ok(Self { client })
+    }
+
+    /// `POST /v1/images/pull` — ask the server to pull `image_ref` into
+    /// *its* cache, return the cached image's metadata. The wire DTO is
+    /// adapted to the in-process `ImageInfo` so callers can mix this
+    /// with `list_images`'s output without caring it came from a
+    /// remote.
+    pub(crate) async fn pull_image_remote(&self, image_ref: &str) -> BoxliteResult<ImageInfo> {
+        let req = PullImageRequest {
+            reference: image_ref.to_string(),
+        };
+        let resp: ImageInfoResponse = self.client.post("/images/pull", &req).await?;
+        Ok(resp.to_image_info())
+    }
+
+    /// `GET /v1/images` — list the server's cached images.
+    pub(crate) async fn list_images_remote(&self) -> BoxliteResult<Vec<ImageInfo>> {
+        let resp: ListImagesResponse = self.client.get("/images").await?;
+        Ok(resp.images.iter().map(|r| r.to_image_info()).collect())
     }
 }
 
