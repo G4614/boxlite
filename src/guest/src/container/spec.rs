@@ -429,37 +429,54 @@ fn build_linux_spec(
         "/proc/sysrq-trigger".to_string(),
     ];
 
-    // Reserve memory for kernel + guest agent; cap container to the rest.
-    let mut linux_builder = LinuxBuilder::default()
-        .namespaces(namespaces)
-        .uid_mappings(uid_mappings)
-        .gid_mappings(gid_mappings);
+    // Resource limits. `pids.max` is a constant — applied unconditionally so a
+    // transient `/proc/meminfo` blip doesn't take down the fork-bomb defence
+    // alongside the memory cap. `memory.max` is derived from the VM's current
+    // `MemAvailable`; missing/unparseable falls back to unbounded with a loud
+    // warning (silent degrade-to-unprotected is exactly what this PR fights).
+    let pids = LinuxPidsBuilder::default()
+        .limit(CONTAINER_PIDS_MAX)
+        .build()
+        .map_err(|e| BoxliteError::Internal(format!("Failed to build pids spec: {e}")))?;
+    let mut resources_builder = LinuxResourcesBuilder::default().pids(pids);
 
     if let Some(mem_max) = container_memory_limit() {
         let memory = LinuxMemoryBuilder::default()
             .limit(mem_max)
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build memory spec: {e}")))?;
-        let pids = LinuxPidsBuilder::default()
-            .limit(CONTAINER_PIDS_MAX)
-            .build()
-            .map_err(|e| BoxliteError::Internal(format!("Failed to build pids spec: {e}")))?;
-        let resources = LinuxResourcesBuilder::default()
-            .memory(memory)
-            .pids(pids)
-            .build()
-            .map_err(|e| BoxliteError::Internal(format!("Failed to build resources spec: {e}")))?;
-        // Pin the container to an explicit, predictable cgroup. youki applies
-        // the limits either way, but with no path it invents a default name
-        // (`/:youki:<id>`); a stable `/sys/fs/cgroup/boxlite/<id>` is what
-        // tooling and the enforcement test inspect and matches the
-        // per-container layout the rest of the runtime uses.
-        linux_builder = linux_builder
-            .resources(resources)
-            .cgroups_path(std::path::PathBuf::from(format!("/boxlite/{container_id}")));
+        resources_builder = resources_builder.memory(memory);
+    } else {
+        // Loud because: zero memory cap is the failure mode this PR exists to
+        // prevent. If you see this in logs, fix the cause; don't ignore.
+        tracing::warn!(
+            container_id,
+            "/proc/meminfo unreadable or MemAvailable missing — container memory.max NOT set (cgroup OOM protection downgraded; pids.max still enforced)"
+        );
     }
 
-    linux_builder
+    let resources = resources_builder
+        .build()
+        .map_err(|e| BoxliteError::Internal(format!("Failed to build resources spec: {e}")))?;
+
+    // Pin the container to an explicit, predictable cgroup. youki applies the
+    // limits either way, but with no path it invents `/:youki:<id>`; a stable
+    // `/sys/fs/cgroup/boxlite/<id>` is what tooling and the enforcement test
+    // inspect and matches the per-container layout the rest of the runtime
+    // uses. Set unconditionally so pids.max enforcement survives a None memory
+    // limit.
+    //
+    // FOLLOW-UP: `LinuxNamespaceType::Cgroup` would hide the host cgroup tree
+    // from the container (peer-box leakage hardening). Deferred — adding it
+    // changes `/proc/self/cgroup` semantics for every container and the
+    // existing enforcement test reads that path; needs a coordinated test
+    // update.
+    LinuxBuilder::default()
+        .namespaces(namespaces)
+        .uid_mappings(uid_mappings)
+        .gid_mappings(gid_mappings)
+        .cgroups_path(std::path::PathBuf::from(format!("/boxlite/{container_id}")))
+        .resources(resources)
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
 }
@@ -491,8 +508,12 @@ fn memory_limit_from_meminfo(meminfo: &str) -> Option<i64> {
         .nth(1)?
         .parse()
         .ok()?;
-    let limit = available_kb * 1024 * 9 / 10;
-    (limit > 0).then_some(limit)
+    // Saturating: a pathological MemAvailable (~9 PB+) would overflow i64
+    // multiplication and panic under debug arithmetic checks. Saturate to
+    // i64::MAX so the cap stays sane on every realistic and pathological host.
+    let bytes = available_kb.saturating_mul(1024);
+    let nine_tenths = bytes.saturating_mul(9) / 10;
+    (nine_tenths > 0).then_some(nine_tenths)
 }
 
 /// Build standard mounts for container filesystem
@@ -1068,6 +1089,29 @@ mod tests {
         assert_eq!(
             memory_limit_from_meminfo("MemAvailable:          0 kB\n"),
             None
+        );
+    }
+
+    #[test]
+    fn memory_limit_saturates_on_overflow_doesnt_panic() {
+        // i64::MAX kB is ~18 EB; raw `* 1024 * 9` would overflow i64 and
+        // panic under debug arithmetic checks. Saturating math must keep the
+        // guest agent alive at container creation — the value returned is
+        // bounded but the call must NOT panic. The exact saturated value
+        // depends on the multiplication order; assert what we can: it's
+        // `Some(positive)` and large enough to be useless as a cap on
+        // realistic hardware (i.e., effectively "unlimited").
+        let meminfo = format!("MemAvailable: {} kB\n", i64::MAX);
+        let out = memory_limit_from_meminfo(&meminfo);
+        let v = out.expect("must return Some, not panic, on saturated input");
+        assert!(v > 0, "saturated limit must be positive (got {v})");
+        // Saturated bytes ≈ i64::MAX / 10 ≈ 9.2 × 10^17 bytes (~800 PiB) —
+        // way larger than any realistic host. 1 PB (10^15) is a conservative
+        // floor that proves saturation actually happened (a plain overflow
+        // would wrap to a small or negative value).
+        assert!(
+            v > 1_000_000_000_000_000,
+            "saturated limit must be enormous (>1 PB), not a small overflow remainder (got {v})"
         );
     }
 }
