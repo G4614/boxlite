@@ -23,6 +23,21 @@ use std::process::Command;
 /// volume. Reject smaller requests up front with a clear error.
 pub const MIN_SIZED_VOLUME_BYTES: u64 = 16 * 1024 * 1024;
 
+/// Bytes the host must retain free after a sized-volume admission decision.
+///
+/// Without this floor, `-v /data:size=N` with N close to `statvfs.f_bavail`
+/// would succeed at create (the image file is sparse so `set_len` doesn't
+/// allocate) but a runaway workload could later fill the sparse image and
+/// drain the host root filesystem down to zero — corrupting SQLite WAL,
+/// breaking concurrent box rootfs writes, and locking the operator out of
+/// recovery commands until disk is freed by hand.
+///
+/// 10 GiB is a coarse default: large enough to keep image pulls + state
+/// writes + log rotation working on a single-disk dev host, small enough
+/// not to be absurd on a 1 TiB server. Production deployments with their
+/// own SLO should override this.
+pub const HOST_RESERVE_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+
 /// Create a sparse image file at `img_path` of `size_bytes` and format it
 /// as ext4 in place. The image is **not mounted on the host** — the caller
 /// is expected to attach it to the VM as a virtio-blk device (libkrun's
@@ -44,6 +59,31 @@ pub fn create_sized_volume_image(
             "volume size must be at least {} bytes \
              (ext4 needs room for journal + reserved blocks); requested {}",
             MIN_SIZED_VOLUME_BYTES, size_bytes
+        )));
+    }
+
+    // 0. Refuse to over-commit the host filesystem. The image file is
+    // sparse, so create itself would succeed for any u64 size, but a
+    // workload could later fill it and drain the host below the floor
+    // we reserve for image pulls / state DB / recovery commands. Fail
+    // fast at the size the operator declares, not later mid-write.
+    let parent = img_path.parent().unwrap_or(std::path::Path::new("/"));
+    let vfs = nix::sys::statvfs::statvfs(parent).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "statvfs {} (for sized volume admission): {e}",
+            parent.display()
+        ))
+    })?;
+    let free_bytes = vfs.blocks_available() as u64 * vfs.fragment_size();
+    if size_bytes.saturating_add(HOST_RESERVE_BYTES) > free_bytes {
+        return Err(BoxliteError::Config(format!(
+            "sized volume {} requests {} bytes but host fs at {} has only \
+             {} free; refusing to over-commit (reserving {} bytes for the host)",
+            img_path.display(),
+            size_bytes,
+            parent.display(),
+            free_bytes,
+            HOST_RESERVE_BYTES
         )));
     }
 
@@ -91,6 +131,36 @@ mod tests {
             }
         }
         panic!("mke2fs not found in standard paths");
+    }
+
+    /// Declared size that would push the host below `HOST_RESERVE_BYTES`
+    /// is rejected at create time, before any image file is opened, so the
+    /// operator gets a clean refusal instead of a runaway workload later
+    /// draining the host root fs through a sparse image.
+    #[test]
+    fn rejects_size_exceeding_host_free_minus_reserve() {
+        let tmp = tempfile::tempdir().unwrap();
+        let img = tmp.path().join("huge.img");
+        let mkfs = PathBuf::from("/usr/sbin/mke2fs"); // not invoked
+
+        // statvfs the same parent dir the production code path will check.
+        // Pick a size guaranteed to exceed (free - reserve): take current
+        // free, add 1 EiB on top. u64 can hold it; the admission check
+        // must refuse regardless of host capacity at test time.
+        let vfs = nix::sys::statvfs::statvfs(tmp.path()).expect("statvfs in test");
+        let free_bytes = vfs.blocks_available() as u64 * vfs.fragment_size();
+        let oversize = free_bytes.saturating_add(1024_u64.pow(6)); // free + 1 EiB
+
+        let err = create_sized_volume_image(&img, oversize, &mkfs)
+            .expect_err("must reject sizes that would over-commit the host");
+        assert!(
+            matches!(err, BoxliteError::Config(_)),
+            "expected Config error, got {err:?}"
+        );
+        assert!(
+            !img.exists(),
+            "no image must be created on host-over-commit refusal"
+        );
     }
 
     /// Below the minimum size → `Config` error, no fs work attempted.
