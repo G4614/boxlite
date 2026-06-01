@@ -271,3 +271,100 @@ async fn stream_stdin(mut stdin_tx: boxlite::ExecStdin) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    // fd 0 is process-global. Serialize tests that swap stdin so they don't
+    // race with each other in the same test binary. Matches the pattern in
+    // `credentials.rs::ENV_LOCK`.
+    static STDIN_LOCK: Mutex<()> = Mutex::new(());
+
+    /// RAII guard: restore the original fd 0 on drop so a panic inside the
+    /// test does not leave the binary running with a hijacked stdin.
+    struct RestoreStdin(libc::c_int);
+    impl Drop for RestoreStdin {
+        fn drop(&mut self) {
+            unsafe {
+                libc::dup2(self.0, libc::STDIN_FILENO);
+                libc::close(self.0);
+            }
+        }
+    }
+
+    /// Reproducer for the hang fixed in PR #626 — `boxlite exec -ti` used
+    /// to hang after the in-box shell exited until the user pressed ENTER.
+    ///
+    /// Before the fix, `stream_stdin` read via `tokio::io::stdin().read().await`,
+    /// which parks the blocking `read(2)` on a tokio blocking-pool thread.
+    /// Once the remote shell exits, the select-loop aborts the stdin task
+    /// (`StreamManager::start` at line 191), but `JoinHandle::abort` cannot
+    /// interrupt a thread already parked in `read(2)`. Runtime shutdown then
+    /// blocks on that pool thread — the user-visible "press ENTER to exit".
+    ///
+    /// This test parks `stream_stdin` on a pipe with no writer activity,
+    /// aborts the spawned task, and times `Runtime::shutdown_timeout`.
+    /// Pre-fix: shutdown waits the full timeout because the pool thread
+    /// cannot be reaped while parked in `read(2)`. Post-fix: the read lives
+    /// on a plain `std::thread` that the tokio runtime does not own, so
+    /// shutdown returns immediately.
+    #[test]
+    fn stream_stdin_does_not_block_runtime_shutdown_after_abort() {
+        let _serialize = STDIN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        // Pipe whose write end stays open: every read on fd 0 will park
+        // indefinitely (no data, no EOF). The read end is dup2'd onto fd 0.
+        let mut fds = [0 as libc::c_int; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0, "pipe");
+        let (read_end, write_end) = (fds[0], fds[1]);
+
+        let saved = unsafe { libc::dup(libc::STDIN_FILENO) };
+        assert!(saved >= 0, "dup saved stdin");
+        let _restore = RestoreStdin(saved);
+
+        let rc = unsafe { libc::dup2(read_end, libc::STDIN_FILENO) };
+        assert_eq!(rc, libc::STDIN_FILENO, "dup2 onto fd 0");
+        // The pipe description is kept alive by the kernel's reference
+        // from fd 0; closing the original read_end here is fine.
+        unsafe { libc::close(read_end) };
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("build runtime");
+
+        let (mut exec, _stdout_tx, _stderr_tx, _stdin_rx, _result_tx) =
+            boxlite::Execution::stub("stream-stdin-shutdown");
+        let stdin_tx = exec.stdin().expect("stub exposes stdin");
+
+        // Same call shape as the production path at line 151.
+        let handle = rt.spawn(stream_stdin(stdin_tx));
+
+        // Let the inner read syscall reach the kernel and park.
+        std::thread::sleep(Duration::from_millis(150));
+
+        // Mimic the select-loop on remote-shell exit (line 190-192).
+        handle.abort();
+
+        let start = Instant::now();
+        rt.shutdown_timeout(Duration::from_secs(2));
+        let elapsed = start.elapsed();
+
+        // Keep the write end alive until after shutdown so the pipe never
+        // EOFs and the test never accidentally unparks the read.
+        unsafe { libc::close(write_end) };
+
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "Runtime::shutdown_timeout took {:?}; expected <500 ms. With \
+             tokio::io::stdin() the parked read(2) on a blocking-pool \
+             thread keeps the runtime from reaping the pool, so shutdown \
+             waits the full timeout before forcibly terminating.",
+            elapsed,
+        );
+    }
+}
