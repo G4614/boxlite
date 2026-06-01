@@ -195,3 +195,219 @@ fn shim_scope_is_cleaned_up_when_box_is_removed() {
         timeout.as_secs()
     );
 }
+
+// ============================================================================
+// Review-pass additions: the rootful direct-write path (half of production!),
+// concurrent boxes, and restart. Original two tests only covered the
+// rootless systemd-scope path.
+// ============================================================================
+
+/// **Rootful production path** — half of production (CI, server deployments)
+/// runs `boxlite` as root, taking the `/sys/fs/cgroup/boxlite/<id>` direct-
+/// write path instead of the rootless systemd-scope. The rootless tests
+/// above `SKIP` for root, leaving this path completely unguarded.
+#[test]
+fn rootful_host_cgroup_is_created_with_limits() {
+    if !is_root() {
+        eprintln!("SKIP: this test exercises the root-only direct-write path");
+        return;
+    }
+    let home = PerTestBoxHome::new();
+    let out = boxlite(
+        home.path.as_path(),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "128",
+            "alpine:latest",
+            "sleep",
+            "600",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        out.status.success(),
+        "box start failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let box_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let cg = std::path::PathBuf::from("/sys/fs/cgroup/boxlite").join(&box_id);
+    assert!(
+        cg.exists(),
+        "rootful direct-write path: cgroup dir {} must exist",
+        cg.display()
+    );
+    let mem = std::fs::read_to_string(cg.join("memory.max"))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let pids = std::fs::read_to_string(cg.join("pids.max"))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let expected_mem = (128u64 * 2 * 1024 * 1024) + (512 * 1024 * 1024);
+    assert_eq!(
+        mem,
+        expected_mem.to_string(),
+        "memory.max must be 2×VM + 512 MiB; got {mem:?} in {}",
+        cg.display()
+    );
+    assert_eq!(
+        pids,
+        "1024",
+        "pids.max must be 1024; got {pids:?} in {}",
+        cg.display()
+    );
+}
+
+/// Three boxes started together must each get a distinct host cgroup unit
+/// (rootless `boxlite-<idN>.scope` or rootful `/sys/fs/cgroup/boxlite/<idN>`),
+/// no collisions or shared caps. A regression that derived the scope name
+/// from something shared would fail this.
+#[test]
+fn concurrent_boxes_get_distinct_host_cgroups() {
+    let home = PerTestBoxHome::new();
+    if !is_root() && systemctl_show("init.scope", "MemoryMax").is_none() {
+        eprintln!("SKIP: rootless without systemd --user manager");
+        return;
+    }
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut cleanups: Vec<BoxCleanup> = Vec::new();
+    for _ in 0..3 {
+        let out = boxlite(
+            home.path.as_path(),
+            &[
+                "--registry",
+                "docker.m.daocloud.io",
+                "run",
+                "-d",
+                "--memory",
+                "64",
+                "alpine:latest",
+                "sleep",
+                "300",
+            ],
+            Duration::from_secs(300),
+        );
+        assert!(
+            out.status.success(),
+            "box start failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        cleanups.push(BoxCleanup {
+            home: home.path.clone(),
+            id: id.clone(),
+        });
+        ids.push(id);
+    }
+
+    let unique: std::collections::HashSet<&String> = ids.iter().collect();
+    assert_eq!(
+        unique.len(),
+        ids.len(),
+        "boxlite must generate distinct ids per box; got {ids:?}"
+    );
+
+    for id in &ids {
+        if is_root() {
+            let cg = std::path::PathBuf::from("/sys/fs/cgroup/boxlite").join(id);
+            assert!(
+                cg.exists(),
+                "rootful: cgroup dir {} for box {id} must exist",
+                cg.display()
+            );
+        } else if let Some(state) = systemctl_show(&format!("boxlite-{id}.scope"), "ActiveState") {
+            assert_eq!(
+                state, "active",
+                "scope for box {id} must be active; got {state:?}"
+            );
+        }
+    }
+}
+
+/// Stop → start: the new shim's scope/cgroup must be re-created cleanly.
+/// A stale unit from the previous run would make `StartTransientUnit` fail
+/// with `mode=fail` on the second start (rootless), or `mkdir` fail with
+/// EEXIST followed by no re-application of limits (rootful).
+#[test]
+fn host_cgroup_is_reset_across_stop_and_start() {
+    let home = PerTestBoxHome::new();
+    if !is_root() && systemctl_show("init.scope", "MemoryMax").is_none() {
+        eprintln!("SKIP: rootless without systemd --user manager");
+        return;
+    }
+
+    let out = boxlite(
+        home.path.as_path(),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "64",
+            "alpine:latest",
+            "sleep",
+            "300",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        out.status.success(),
+        "box start failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let box_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let stop = boxlite(
+        home.path.as_path(),
+        &["stop", &box_id],
+        Duration::from_secs(60),
+    );
+    assert!(
+        stop.status.success(),
+        "stop failed: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+
+    // Brief poll so systemd reaps the empty scope / kernel empties the cgroup.
+    std::thread::sleep(Duration::from_secs(2));
+
+    let start = boxlite(
+        home.path.as_path(),
+        &["start", &box_id],
+        Duration::from_secs(120),
+    );
+    assert!(
+        start.status.success(),
+        "start (after stop) failed — likely a stale unit/cgroup from the previous \
+         run blocking re-creation: {}",
+        String::from_utf8_lossy(&start.stderr)
+    );
+
+    if is_root() {
+        let cg = std::path::PathBuf::from("/sys/fs/cgroup/boxlite").join(&box_id);
+        assert!(
+            cg.exists(),
+            "after restart, rootful cgroup dir {} must exist again",
+            cg.display()
+        );
+    } else if let Some(state) = systemctl_show(&format!("boxlite-{box_id}.scope"), "ActiveState") {
+        assert_eq!(
+            state, "active",
+            "after restart, scope must be active again; got {state:?}"
+        );
+    }
+}

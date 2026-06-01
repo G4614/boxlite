@@ -757,8 +757,12 @@ impl<S: Sandbox> Jailer<S> {
             Ok(()) => {
                 tracing::info!(box_id = %self.box_id, pid, "Shim adopted into host cgroup scope")
             }
-            Err(e) => tracing::warn!(box_id = %self.box_id, pid, error = %e,
-                "Host cgroup scope adoption failed (continuing without limits)"),
+            // Same as setup_host_cgroup above: best-effort by design, but the
+            // failure must be LOUD so operators notice (missing busctl,
+            // no systemd user manager, dbus errors, etc. are all real
+            // causes a silent warn would hide).
+            Err(e) => tracing::error!(box_id = %self.box_id, pid, error = %e,
+                "Host cgroup scope adoption failed — shim runs WITHOUT host limits; check busctl / systemd --user availability"),
         }
     }
 }
