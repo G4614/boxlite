@@ -275,6 +275,10 @@ async fn stream_stdin(mut stdin_tx: boxlite::ExecStdin) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `nix` already re-exports `libc` (nix-0.30/src/lib.rs:107 `pub use libc;`),
+    // so the tests reach for raw syscalls through `nix::libc` rather than
+    // pulling libc in as a separate dev-dep.
+    use nix::libc;
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
 

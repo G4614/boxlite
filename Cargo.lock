@@ -492,7 +492,6 @@ dependencies = [
  "futures",
  "gtmpl",
  "gtmpl_value",
- "libc",
  "nix 0.30.1",
  "notify",
  "openidconnect",
