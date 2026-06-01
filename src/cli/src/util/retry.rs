@@ -26,15 +26,21 @@ const MAX_BACKOFF_MS: u64 = 2_000;
 
 /// Returns true when the error message looks like a transient lifecycle
 /// state — the box is mid-transition and the same call will likely
-/// succeed once it settles. We deliberately key on string content
-/// because the server emits these messages via `BoxStatus::Display`
-/// and there is no dedicated `BoxliteError` variant today.
+/// succeed once it settles.
+///
+/// We key on string content because the server emits these messages
+/// via `BoxStatus::Display` and there is no dedicated `BoxliteError`
+/// variant today. The match list is intentionally narrow: of the
+/// `BoxStatus` variants in `src/boxlite/src/litebox/state.rs`, only
+/// `Stopping` is genuinely transient — `Running` is "already there",
+/// `Paused` is deliberate, `Failed` is permanent, `Configured` /
+/// `Stopped` are valid `start` targets. The single producer today is
+/// `box_impl.rs`'s `"Cannot start box in {} state"` (line 208), so the
+/// keyword set follows what that message can actually contain.
+/// Adding more keywords here without a corresponding producer would
+/// be dead matching — keep this in sync with real error text.
 fn is_transient_state(msg: &str) -> bool {
-    let m = msg.to_lowercase();
-    m.contains("stopping")
-        || m.contains("starting")
-        || m.contains("in progress")
-        || m.contains("transitioning")
+    msg.to_lowercase().contains("stopping")
 }
 
 fn budget() -> Duration {
@@ -213,5 +219,25 @@ mod tests {
         .await;
         assert!(matches!(result, Err(BoxliteError::NotFound(_))));
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    /// Pins the narrow `stopping`-only classifier: messages whose
+    /// keywords look transient but are not produced anywhere in
+    /// the runtime today must propagate, not retry. Without this,
+    /// the keyword list could silently grow back to "stopping /
+    /// starting / in progress / transitioning" and the helper would
+    /// happily burn the whole budget on dead-code matches.
+    #[test]
+    fn classifier_matches_only_stopping_today() {
+        assert!(is_transient_state("Cannot start box in stopping state"));
+        assert!(is_transient_state("STOPPING"));
+        // None of these are produced by `box_impl.rs` or any other
+        // `InvalidState` site in `src/boxlite`. They look plausible
+        // but would be dead matches.
+        assert!(!is_transient_state("Cannot start box in starting state"));
+        assert!(!is_transient_state("transition in progress"));
+        assert!(!is_transient_state("box is transitioning"));
+        assert!(!is_transient_state("Cannot start box in running state"));
+        assert!(!is_transient_state("Cannot start box in failed state"));
     }
 }
