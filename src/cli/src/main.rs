@@ -129,8 +129,10 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         if looks_like_host_enospc(&error) {
             eprintln!(
                 "\nHost disk is full. To free recovery headroom, run:\n  \
-                 boxlite reserve-release\nthen retry your command \
-                 (typically `boxlite gc` or `boxlite rm -f <box>`)."
+                 boxlite reserve-release\nthen `boxlite rm -f <box>` to \
+                 reclaim space. The reserve is automatically restored on \
+                 the next runtime construction after the host has \
+                 visibly recovered."
             );
         }
         process::exit(1);
