@@ -75,10 +75,7 @@ pub fn resolve_user_volumes(
         if let Some(size) = vol.size_bytes {
             // Sized volume → boxlite-managed virtio-blk image.
             std::fs::create_dir_all(volumes_dir).map_err(|e| {
-                BoxliteError::Storage(format!(
-                    "create volumes dir {}: {e}",
-                    volumes_dir.display()
-                ))
+                BoxliteError::Storage(format!("create volumes dir {}: {e}", volumes_dir.display()))
             })?;
             let img_path = volumes_dir.join(format!("{tag}.img"));
             crate::runtime::sized_volume::create_sized_volume_image(&img_path, size, mkfs_bin)?;
@@ -388,7 +385,7 @@ mod tests {
             host_path: tmp.path().to_str().unwrap().to_string(),
             guest_path: "/data".to_string(),
             read_only: false,
-                size_bytes: None,
+            size_bytes: None,
         }];
 
         let vols_dir = tempfile::tempdir().unwrap();
@@ -412,7 +409,7 @@ mod tests {
             host_path: "/nonexistent/path/12345".to_string(),
             guest_path: "/data".to_string(),
             read_only: false,
-                size_bytes: None,
+            size_bytes: None,
         }];
 
         let vols_dir = tempfile::tempdir().unwrap();
@@ -428,7 +425,7 @@ mod tests {
             host_path: tmp.path().to_str().unwrap().to_string(),
             guest_path: "/data".to_string(),
             read_only: false,
-                size_bytes: None,
+            size_bytes: None,
         }];
 
         let vols_dir = tempfile::tempdir().unwrap();

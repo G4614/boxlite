@@ -49,9 +49,8 @@ pub fn create_sized_volume_image(
 
     // 1. Sparse image. `set_len` reserves the length without writing zeros,
     //    so the on-host bytes track real usage, not the cap.
-    let f = std::fs::File::create(img_path).map_err(|e| {
-        BoxliteError::Storage(format!("create image {}: {e}", img_path.display()))
-    })?;
+    let f = std::fs::File::create(img_path)
+        .map_err(|e| BoxliteError::Storage(format!("create image {}: {e}", img_path.display())))?;
     f.set_len(size_bytes).map_err(|e| {
         let _ = std::fs::remove_file(img_path);
         BoxliteError::Storage(format!("set image size {}: {e}", img_path.display()))
@@ -101,10 +100,12 @@ mod tests {
         let img = tmp.path().join("tiny.img");
         let mkfs = PathBuf::from("/usr/sbin/mke2fs"); // unused at this guard
         let err = create_sized_volume_image(&img, 1024 * 1024, &mkfs)
-            .err()
-            .expect("must reject sizes below the ext4 minimum");
+            .expect_err("must reject sizes below the ext4 minimum");
         assert!(matches!(err, BoxliteError::Config(_)), "got {err:?}");
-        assert!(!img.exists(), "no image must be created on size validation failure");
+        assert!(
+            !img.exists(),
+            "no image must be created on size validation failure"
+        );
     }
 
     /// The happy path: image created, sparse (on-host bytes ≪ declared length),
@@ -119,7 +120,11 @@ mod tests {
         create_sized_volume_image(&img, size, &system_mkfs()).expect("create");
 
         let meta = std::fs::metadata(&img).expect("stat image");
-        assert_eq!(meta.len(), size, "image must be exactly the requested length");
+        assert_eq!(
+            meta.len(),
+            size,
+            "image must be exactly the requested length"
+        );
         // Sparse: blocks * 512 should be far smaller than the declared length.
         // After mke2fs there's metadata written (a few hundred KiB) but
         // nowhere near the full 16 MiB.

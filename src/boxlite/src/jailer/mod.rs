@@ -704,7 +704,7 @@ mod tests {
             host_path: "/does/not/exist".to_string(),
             guest_path: "/mnt/data".to_string(),
             read_only: true,
-                size_bytes: None,
+            size_bytes: None,
         }];
 
         let paths = build_path_access(&layout, &volumes);
