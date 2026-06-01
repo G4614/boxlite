@@ -8,7 +8,7 @@ pub mod terminal;
 pub mod util;
 
 use std::path::{Path, PathBuf};
-use std::process;
+use std::process::ExitCode;
 use std::sync::OnceLock;
 
 use clap::CommandFactory;
@@ -19,14 +19,14 @@ use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::Subs
 
 static FILE_LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
-fn main() {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
     // Handle shell completion before starting tokio or tracing
     if let cli::Commands::Completion(args) = &cli.command {
         let mut cmd = Cli::command();
         cli::generate_completion(&args.shell, &mut cmd, "boxlite", &mut std::io::stdout());
-        process::exit(0);
+        return ExitCode::SUCCESS;
     }
 
     // Start tokio runtime manually to ensure environment is set up safely
@@ -35,10 +35,16 @@ fn main() {
         .build()
         .expect("Failed to build tokio runtime");
 
-    let _ = rt.block_on(run_cli(cli));
+    // Returning the exit code (rather than calling `std::process::exit`
+    // mid-command) is what makes the RAII teardown in `commands::run`/`exec`
+    // work: every `BoxliteRuntime` created inside `run_cli` drops on the way
+    // back here, firing `RuntimeImpl::Drop` -> `shutdown_sync` and stopping
+    // any non-detached box. `std::process::exit` would skip that chain (#622).
+    let code = rt.block_on(run_cli(cli));
+    ExitCode::from(code.clamp(0, u8::MAX as i32) as u8)
 }
 
-async fn run_cli(cli: Cli) -> anyhow::Result<()> {
+async fn run_cli(cli: Cli) -> i32 {
     // Per-layer filters: stderr stays peer-CLI quiet (warn), the optional file
     // layer carries richer info-level data for triage. Precedence (docker
     // convention): `--debug` flag > `RUST_LOG` env > per-layer default.
@@ -88,40 +94,43 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         .init();
 
     let global = cli.global;
-    let result = match cli.command {
+    // `run`/`exec` need to convey the box's mapped shell exit code on a
+    // non-zero command exit; every other command's success is just `0`.
+    let result: anyhow::Result<i32> = match cli.command {
         cli::Commands::Run(args) => commands::run::execute(args, &global).await,
         cli::Commands::Exec(args) => commands::exec::execute(args, &global).await,
-        cli::Commands::Create(args) => commands::create::execute(args, &global).await,
-        cli::Commands::List(args) => commands::list::execute(args, &global).await,
-        cli::Commands::Rm(args) => commands::rm::execute(args, &global).await,
-        cli::Commands::Start(args) => commands::start::execute(args, &global).await,
-        cli::Commands::Stop(args) => commands::stop::execute(args, &global).await,
-        cli::Commands::Restart(args) => commands::restart::execute(args, &global).await,
-        cli::Commands::Pull(args) => commands::pull::execute(args, &global).await,
-        cli::Commands::Images(args) => commands::images::execute(args, &global).await,
-        cli::Commands::Inspect(args) => commands::inspect::execute(args, &global).await,
-        cli::Commands::Cp(args) => commands::cp::execute(args, &global).await,
-        cli::Commands::Info(args) => commands::info::execute(args, &global).await,
-        cli::Commands::Logs(args) => commands::logs::execute(args, &global).await,
-        cli::Commands::Stats(args) => commands::stats::execute(args, &global).await,
-        cli::Commands::Serve(args) => commands::serve::execute(args, &global).await,
-        cli::Commands::Auth(args) => commands::auth::run(args, &global).await,
+        cli::Commands::Create(args) => commands::create::execute(args, &global).await.map(|_| 0),
+        cli::Commands::List(args) => commands::list::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Rm(args) => commands::rm::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Start(args) => commands::start::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Stop(args) => commands::stop::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Restart(args) => commands::restart::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Pull(args) => commands::pull::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Images(args) => commands::images::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Inspect(args) => commands::inspect::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Cp(args) => commands::cp::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Info(args) => commands::info::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Logs(args) => commands::logs::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Stats(args) => commands::stats::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Serve(args) => commands::serve::execute(args, &global).await.map(|_| 0),
+        cli::Commands::Auth(args) => commands::auth::run(args, &global).await.map(|_| 0),
         // Handled in main() before tokio; never reaches run_cli
         cli::Commands::Completion(_) => {
             unreachable!("completion subcommand is handled before tokio in main()")
         }
     };
 
-    if let Err(error) = result {
-        // `{:#}` prints the anyhow chain (outer context: inner cause: ...),
-        // not just the outer message. Without this, `.with_context()` calls
-        // swallow the underlying reqwest / openidconnect failure that the
-        // user actually needs to see.
-        eprintln!("Error: {:#}", error);
-        process::exit(1);
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            // `{:#}` prints the anyhow chain (outer context: inner cause: ...),
+            // not just the outer message. Without this, `.with_context()` calls
+            // swallow the underlying reqwest / openidconnect failure that the
+            // user actually needs to see.
+            eprintln!("Error: {:#}", error);
+            1
+        }
     }
-
-    Ok(())
 }
 
 /// Build a tracing filter with docker-style precedence:

@@ -30,6 +30,40 @@ fn test_run_exit_code_125() {
     ctx.cmd.assert().code(125);
 }
 
+/// Regression for #622: `boxlite run --rm <image> <cmd>` exiting non-zero
+/// must tear the box down before the CLI returns. Pre-fix, the non-zero
+/// path took a `std::process::exit` shortcut that skipped `BoxRunner` /
+/// `BoxliteRuntime` drop and therefore `RuntimeImpl::Drop` ->
+/// `shutdown_sync`, leaving the microVM's shim alive (the "orphan shims in
+/// /tmp" that motivated #604).
+///
+/// The PerTestBoxHome drop guard catches this implicitly, but this test
+/// asserts the no-leak property *explicitly* in the test body so the intent
+/// is visible at the call site: scan the per-test home's `boxes/<id>/shim.pid`
+/// files after `run` returns and confirm none of them point at a live
+/// process.
+#[test]
+fn test_run_rm_non_zero_exit_does_not_leak_shim() {
+    let mut ctx = common::boxlite();
+    ctx.cmd
+        .args(["run", "--rm", "alpine:latest", "sh", "-c", "exit 7"]);
+    ctx.cmd.assert().code(7);
+
+    // Read the boxes directory directly from the shared `ctx.home` so the
+    // assertion is independent of `PerTestBoxHome`'s drop hook. If the
+    // production cleanup path runs, every shim.pid we find should refer
+    // to a dead PID (or have been removed by `--rm`).
+    let boxes_dir = ctx.home.join("boxes");
+    let leaks = boxlite_test_utils::home::live_shim_pids(&boxes_dir);
+    assert!(
+        leaks.is_empty(),
+        "non-zero `boxlite run --rm` left live shim PID(s): {leaks:?}. \
+         The std::process::exit fast path skipped RuntimeImpl::Drop ->\
+         shutdown_sync; tearing the runtime down via a normal return is\
+         what reaps the shim (see #622)."
+    );
+}
+
 // ============================================================================
 // Command Execution Error Tests
 // ============================================================================
