@@ -94,6 +94,7 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         cli::Commands::Create(args) => commands::create::execute(args, &global).await,
         cli::Commands::List(args) => commands::list::execute(args, &global).await,
         cli::Commands::Rm(args) => commands::rm::execute(args, &global).await,
+        cli::Commands::ReserveRelease(args) => commands::reserve::execute(args, &global).await,
         cli::Commands::Start(args) => commands::start::execute(args, &global).await,
         cli::Commands::Stop(args) => commands::stop::execute(args, &global).await,
         cli::Commands::Restart(args) => commands::restart::execute(args, &global).await,
@@ -118,10 +119,50 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         // swallow the underlying reqwest / openidconnect failure that the
         // user actually needs to see.
         eprintln!("Error: {:#}", error);
+        // ENOSPC-on-host is the one error class where the operator has a
+        // specific recovery path (release the reserve, then gc/rm). Catch
+        // it here so every command gets the same friendly hint without
+        // each having to remember to wrap its errors. Pattern match on
+        // the chain rather than a status code so it works whether the
+        // ENOSPC came from a kernel write, an io::Error, a BoxliteError,
+        // or a wrapped reqwest body upload.
+        if looks_like_host_enospc(&error) {
+            eprintln!(
+                "\nHost disk is full. To free recovery headroom, run:\n  \
+                 boxlite reserve-release\nthen retry your command \
+                 (typically `boxlite gc` or `boxlite rm -f <box>`)."
+            );
+        }
         process::exit(1);
     }
 
     Ok(())
+}
+
+/// True iff any layer of the anyhow error chain mentions ENOSPC. We match
+/// on the message text rather than a fixed error type because the same
+/// kernel ENOSPC propagates through several wrappers — `std::io::Error`
+/// (with `ErrorKind::StorageFull` on stable rust 1.83+ but only
+/// best-effort on older toolchains), `BoxliteError::Storage(String)`,
+/// `reqwest::Error` from a failed body upload, etc. Substring match keeps
+/// the hint working across all of them.
+fn looks_like_host_enospc(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        let msg = format!("{cause}").to_lowercase();
+        if msg.contains("no space left on device") || msg.contains("enospc") {
+            return true;
+        }
+        // std::io::Error sometimes reports the raw_os_error rather than
+        // a fixed string — also catch that. ENOSPC is errno 28 on Linux
+        // / macOS / *BSD — hard-coding avoids pulling libc into the CLI
+        // just for this constant.
+        if let Some(io) = cause.downcast_ref::<std::io::Error>()
+            && io.raw_os_error() == Some(28)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Build a tracing filter with docker-style precedence:
@@ -325,5 +366,45 @@ mod tests {
             prepare_serve_log_dir(tmp.path()).expect("mkdir on writable tempdir should succeed");
         assert_eq!(logs_dir, tmp.path().join("logs"));
         assert!(logs_dir.is_dir(), "logs dir should exist after mkdir");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // ENOSPC hint detection
+    // ──────────────────────────────────────────────────────────────────
+
+    /// A raw `std::io::Error` carrying `ENOSPC` is the canonical case —
+    /// anything that wraps a kernel write will look like this.
+    #[test]
+    fn looks_like_enospc_matches_io_error_raw_os() {
+        let err: anyhow::Error = std::io::Error::from_raw_os_error(28).into();
+        assert!(looks_like_host_enospc(&err));
+    }
+
+    /// Even when wrapped by `anyhow::Context`, the string surfaces
+    /// `"No space left on device"` somewhere in the chain — that's the
+    /// substring branch.
+    #[test]
+    fn looks_like_enospc_matches_wrapped_no_space_left_message() {
+        let inner = std::io::Error::from_raw_os_error(28);
+        let wrapped: anyhow::Error = anyhow::anyhow!(inner)
+            .context("while extracting layer sha256:abc into images/extracted/...");
+        assert!(looks_like_host_enospc(&wrapped));
+    }
+
+    /// A different errno (ENOENT = 2) must NOT trigger the hint —
+    /// otherwise every "file not found" would get a misleading
+    /// reserve-release suggestion.
+    #[test]
+    fn looks_like_enospc_does_not_match_other_errnos() {
+        let err: anyhow::Error = std::io::Error::from_raw_os_error(2).into();
+        assert!(!looks_like_host_enospc(&err));
+    }
+
+    /// Plain non-IO errors stay unmatched — e.g. an HTTP 401 chain
+    /// shouldn't say "release the reserve."
+    #[test]
+    fn looks_like_enospc_does_not_match_unrelated_errors() {
+        let err = anyhow::anyhow!("authentication failed: HTTP 401").context("calling /v1/me");
+        assert!(!looks_like_host_enospc(&err));
     }
 }

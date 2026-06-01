@@ -1,9 +1,11 @@
 mod binary_finder;
 mod pid_file;
 pub mod process;
+pub mod reserve;
 
 pub use binary_finder::{RuntimeBinaryFinder, find_binary};
 pub use pid_file::{PidFileReader, PidFileWriter, PidRecord, ProcessIdentity};
+pub use reserve::{RESERVE_BYTES, ReserveReleased, ensure_reserve, release_reserve, reserve_path};
 
 use std::path::PathBuf;
 use std::process::Command;

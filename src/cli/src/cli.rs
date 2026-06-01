@@ -65,6 +65,9 @@ pub enum Commands {
     /// Remove one or more boxes
     Rm(crate::commands::rm::RmArgs),
 
+    /// Emergency: release the host disk reserve so `rm` / `gc` can run on a full host
+    ReserveRelease(crate::commands::reserve::ReserveReleaseArgs),
+
     /// Start one or more stopped boxes
     Start(crate::commands::start::StartArgs),
 

@@ -193,6 +193,13 @@ impl RuntimeImpl {
             ))
         })?;
 
+        // Lay down (or top up) the recovery reserve. From this moment on
+        // the kernel's free-space accounting hides ~64 MiB from every
+        // writer on the host, including boxlite itself. Replaces the
+        // old per-command `enforce_recovery_budget` policy check: the
+        // floor is now structural, not runtime-policy.
+        crate::util::ensure_reserve(layout.home_dir())?;
+
         let runtime_lock = RuntimeLock::acquire(layout.home_dir()).map_err(|e| {
             BoxliteError::Internal(format!(
                 "Failed to acquire runtime lock at {}: {}",

@@ -8,6 +8,7 @@ pub mod inspect;
 pub mod list;
 pub mod logs;
 pub mod pull;
+pub mod reserve;
 pub mod restart;
 pub mod rm;
 pub mod run;
