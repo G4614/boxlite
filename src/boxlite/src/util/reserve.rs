@@ -37,6 +37,7 @@
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use std::fs::OpenOptions;
 use std::io::Write;
+#[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
@@ -129,23 +130,33 @@ fn ensure_reserve_with_free(home_dir: &Path, host_free: u64) -> BoxliteResult<()
         .open(&path)
         .map_err(|e| BoxliteError::Storage(format!("open reserve {}: {e}", path.display())))?;
 
-    // Try fallocate first — single syscall, real blocks, fast.
+    // Try Linux fallocate first — single syscall, real blocks, fast.
     // SAFETY: fd is owned by `file`, len is positive, mode=0 is the
     // "allocate" variant (not punch-hole / collapse-range).
-    let rc = unsafe { libc::fallocate(file.as_raw_fd(), 0, 0, RESERVE_BYTES as libc::off_t) };
-    if rc == 0 {
-        return Ok(());
-    }
-    let err = std::io::Error::last_os_error();
-    // Only fall back on EOPNOTSUPP / ENOSYS — anything else is a real
-    // failure we want surfaced. EOPNOTSUPP shows up on tmpfs, some FUSE
-    // backends, and certain NFS configurations.
-    let raw = err.raw_os_error();
-    if raw != Some(libc::EOPNOTSUPP) && raw != Some(libc::ENOSYS) {
-        return Err(BoxliteError::Storage(format!(
-            "fallocate reserve {}: {err}",
-            path.display()
-        )));
+    //
+    // libc::fallocate is Linux-only. On macOS / other targets we skip
+    // straight to the zero-write fallback below; semantics stay the same
+    // (the reserve still consumes 64 MiB of real disk), only the cost
+    // shifts from one syscall to ~16 4-MiB sequential writes. boxlite's
+    // runtime targets Linux anyway, so the non-Linux path matters only
+    // for CLI / SDK build-validation.
+    #[cfg(target_os = "linux")]
+    {
+        let rc = unsafe { libc::fallocate(file.as_raw_fd(), 0, 0, RESERVE_BYTES as libc::off_t) };
+        if rc == 0 {
+            return Ok(());
+        }
+        let err = std::io::Error::last_os_error();
+        // Only fall back on EOPNOTSUPP / ENOSYS — anything else is a real
+        // failure we want surfaced. EOPNOTSUPP shows up on tmpfs, some
+        // FUSE backends, and certain NFS configurations.
+        let raw = err.raw_os_error();
+        if raw != Some(libc::EOPNOTSUPP) && raw != Some(libc::ENOSYS) {
+            return Err(BoxliteError::Storage(format!(
+                "fallocate reserve {}: {err}",
+                path.display()
+            )));
+        }
     }
 
     // Zero-write fallback. This is the one-time cost: 64 MiB sequential
