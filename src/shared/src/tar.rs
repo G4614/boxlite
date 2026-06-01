@@ -4,6 +4,7 @@
 //! duplicating tar building/extraction logic.
 
 use crate::{BoxliteError, BoxliteResult};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 // ── Pack ──────────────────────────────────────────────────────────
@@ -104,16 +105,60 @@ pub struct UnpackContext {
 ///
 /// Runs blocking I/O on a dedicated thread via `spawn_blocking`.
 pub async fn unpack(tar_path: PathBuf, dest: PathBuf, opts: UnpackContext) -> BoxliteResult<()> {
-    tokio::task::spawn_blocking(move || unpack_blocking(&tar_path, &dest, &opts))
-        .await
-        .map_err(|e| BoxliteError::Storage(format!("unpack task join error: {}", e)))?
+    tokio::task::spawn_blocking(move || {
+        unpack_archive_blocking(
+            || {
+                std::fs::File::open(&tar_path).map_err(|e| {
+                    BoxliteError::Storage(format!(
+                        "failed to open tar {}: {}",
+                        tar_path.display(),
+                        e
+                    ))
+                })
+            },
+            &dest,
+            &opts,
+        )
+    })
+    .await
+    .map_err(|e| BoxliteError::Storage(format!("unpack task join error: {}", e)))?
 }
 
-fn unpack_blocking(tar_path: &Path, dest: &Path, opts: &UnpackContext) -> BoxliteResult<()> {
+/// Unpack an in-memory tar archive to `dest`.
+///
+/// Same detection rules as [`unpack`]; differs only in that the archive
+/// source is a byte buffer rather than a path. The REST `copy_out`
+/// client uses this so it can route docker-cp-style single-file tars
+/// (the server's stream contains synthetic parent-dir entries that
+/// otherwise force IntoDirectory mode) to FileToFile without first
+/// staging the response body to disk.
+///
+/// Runs blocking I/O on a dedicated thread via `spawn_blocking`.
+pub async fn unpack_bytes(bytes: Vec<u8>, dest: PathBuf, opts: UnpackContext) -> BoxliteResult<()> {
+    tokio::task::spawn_blocking(move || {
+        unpack_archive_blocking(|| Ok(std::io::Cursor::new(bytes.as_slice())), &dest, &opts)
+    })
+    .await
+    .map_err(|e| BoxliteError::Storage(format!("unpack task join error: {}", e)))?
+}
+
+/// Core extraction routine. `open` is called twice (once for the
+/// detection pass, once for the extraction pass), so the caller must
+/// return a fresh tar reader each invocation — file paths re-open the
+/// file, byte buffers hand back a new `Cursor`.
+fn unpack_archive_blocking<F, R>(
+    mut open: F,
+    dest: &Path,
+    opts: &UnpackContext,
+) -> BoxliteResult<()>
+where
+    F: FnMut() -> BoxliteResult<R>,
+    R: Read,
+{
     let mode = if opts.force_directory {
         ExtractionMode::IntoDirectory
     } else {
-        detect_extraction_mode(dest, tar_path)?
+        detect_extraction_mode(dest, &mut open)?
     };
 
     match mode {
@@ -140,17 +185,22 @@ fn unpack_blocking(tar_path: &Path, dest: &Path, opts: &UnpackContext) -> Boxlit
                     dest.display()
                 )));
             }
-            let tar_file = std::fs::File::open(tar_path).map_err(|e| {
-                BoxliteError::Storage(format!("failed to open tar {}: {}", tar_path.display(), e))
-            })?;
-            let mut archive = tar::Archive::new(tar_file);
+            let mut archive = tar::Archive::new(open()?);
             let mut entries = archive
                 .entries()
                 .map_err(|e| BoxliteError::Storage(format!("failed to read tar entries: {}", e)))?;
-            if let Some(entry) = entries.next() {
+            // Walk past synthetic directory entries the server might
+            // interleave (e.g. `./`, `./etc/` before `./etc/hosts`) and
+            // unpack the first regular file's contents to `dest`. The
+            // detection pass already confirmed there is exactly one
+            // regular file in the archive.
+            for entry in entries.by_ref() {
                 let mut entry = entry.map_err(|e| {
                     BoxliteError::Storage(format!("failed to read tar entry: {}", e))
                 })?;
+                if entry.header().entry_type().is_dir() {
+                    continue;
+                }
                 entry.unpack(dest).map_err(|e| {
                     BoxliteError::Storage(format!(
                         "failed to unpack file to {}: {}",
@@ -158,6 +208,7 @@ fn unpack_blocking(tar_path: &Path, dest: &Path, opts: &UnpackContext) -> Boxlit
                         e
                     ))
                 })?;
+                break;
             }
             Ok(())
         }
@@ -184,10 +235,7 @@ fn unpack_blocking(tar_path: &Path, dest: &Path, opts: &UnpackContext) -> Boxlit
                     dest.display()
                 )));
             }
-            let tar_file = std::fs::File::open(tar_path).map_err(|e| {
-                BoxliteError::Storage(format!("failed to open tar {}: {}", tar_path.display(), e))
-            })?;
-            let mut archive = tar::Archive::new(tar_file);
+            let mut archive = tar::Archive::new(open()?);
             archive
                 .unpack(dest)
                 .map_err(|e| BoxliteError::Storage(format!("failed to extract archive: {}", e)))
@@ -207,32 +255,49 @@ enum ExtractionMode {
 /// Rules (evaluated in order):
 /// 1. Dest path has trailing `/` → directory mode
 /// 2. Dest exists as a directory → directory mode
-/// 3. Tar contains exactly one regular file → file-to-file mode
+/// 3. Tar contains exactly one non-directory entry, and it is a regular
+///    file → file-to-file mode. Pure directory entries (the synthetic
+///    `./` / `./etc/` ancestors that some servers — notably the box's
+///    REST `copy_out` — interleave ahead of the file content) are
+///    skipped when counting, so docker-cp-style `cp box:/etc/hosts
+///    ./hosts` lands the file at `./hosts` rather than building a
+///    `./hosts/etc/hosts` tree.
 /// 4. Fallback → directory mode
-fn detect_extraction_mode(dest: &Path, tar_path: &Path) -> BoxliteResult<ExtractionMode> {
+fn detect_extraction_mode<F, R>(dest: &Path, open: &mut F) -> BoxliteResult<ExtractionMode>
+where
+    F: FnMut() -> BoxliteResult<R>,
+    R: Read,
+{
     if dest.as_os_str().to_string_lossy().ends_with('/') {
         return Ok(ExtractionMode::IntoDirectory);
     }
     if dest.is_dir() {
         return Ok(ExtractionMode::IntoDirectory);
     }
-    let tar_file = std::fs::File::open(tar_path).map_err(|e| {
-        BoxliteError::Storage(format!("failed to open tar {}: {}", tar_path.display(), e))
-    })?;
-    let mut archive = tar::Archive::new(tar_file);
+    let mut archive = tar::Archive::new(open()?);
     if let Ok(entries) = archive.entries() {
-        let mut count = 0u32;
-        let mut is_regular = false;
+        let mut content_count = 0u32;
+        let mut single_was_regular = false;
         for entry in entries {
-            count += 1;
-            if count > 1 {
+            let Ok(e) = entry else { continue };
+            let ty = e.header().entry_type();
+            // Skip directory entries: the server may emit synthetic
+            // parents (`./`, `./etc/`) ahead of `./etc/hosts`, and those
+            // should not flip detection out of single-file mode. Other
+            // non-content variants (Symlink, hardlink Link, Char, Block,
+            // Fifo, Sparse, Continuous) DO count — a tar carrying one
+            // regular plus one symlink is multi-entry and should go to
+            // directory mode so the symlink is not silently dropped.
+            if ty.is_dir() {
+                continue;
+            }
+            content_count += 1;
+            if content_count > 1 {
                 break;
             }
-            if let Ok(e) = entry {
-                is_regular = e.header().entry_type() == tar::EntryType::Regular;
-            }
+            single_was_regular = ty == tar::EntryType::Regular;
         }
-        if count == 1 && is_regular {
+        if content_count == 1 && single_was_regular {
             return Ok(ExtractionMode::FileToFile);
         }
     }
@@ -943,6 +1008,144 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&extracted).unwrap(),
             "print('hello')"
+        );
+    }
+
+    // ── unpack_bytes: in-memory archive ──────────────────────────
+
+    /// Construct an in-memory tar where a regular file is preceded by
+    /// the synthetic parent-directory entries a docker-style server
+    /// emits — `./` and `./etc/` before `./etc/hosts`. This is the
+    /// exact shape REST `copy_out` receives and the layout that
+    /// the old `archive.unpack(dest)` mishandled (it built
+    /// `dest/etc/hosts` instead of writing to `dest`).
+    fn dockercp_style_tar(file_name: &str, content: &[u8]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+
+        // Two synthetic parent dirs ("./" and "./etc/", say).
+        for dir in ["./", "./etc/"] {
+            let mut h = tar::Header::new_gnu();
+            h.set_entry_type(tar::EntryType::Directory);
+            h.set_size(0);
+            h.set_mode(0o755);
+            h.set_cksum();
+            builder.append_data(&mut h, dir, &[] as &[u8]).unwrap();
+        }
+
+        // The single content-bearing entry.
+        let mut h = tar::Header::new_gnu();
+        h.set_size(content.len() as u64);
+        h.set_mode(0o644);
+        h.set_cksum();
+        builder.append_data(&mut h, file_name, content).unwrap();
+
+        builder.into_inner().unwrap()
+    }
+
+    #[tokio::test]
+    async fn unpack_bytes_routes_single_file_through_synthetic_parents_to_dest() {
+        let tmp = TempDir::new().unwrap();
+        let bytes = dockercp_style_tar("./etc/hosts", b"127.0.0.1 localhost\n");
+
+        let dest = tmp.path().join("hosts");
+        unpack_bytes(bytes, dest.clone(), default_unpack(true))
+            .await
+            .unwrap();
+
+        // The whole point: a regular file at `dest`, NOT a `dest/etc/hosts` tree.
+        assert!(
+            dest.is_file(),
+            "dest must be a regular file, not a directory"
+        );
+        assert!(
+            !dest.join("etc").exists(),
+            "no synthetic dir tree should have been built"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "127.0.0.1 localhost\n",
+        );
+    }
+
+    #[tokio::test]
+    async fn unpack_bytes_multi_regular_still_uses_dir_mode() {
+        let tmp = TempDir::new().unwrap();
+        let mut builder = tar::Builder::new(Vec::new());
+        for (name, content) in [("a.txt", b"aaa" as &[u8]), ("b.txt", b"bbb")] {
+            let mut h = tar::Header::new_gnu();
+            h.set_size(content.len() as u64);
+            h.set_mode(0o644);
+            h.set_cksum();
+            builder.append_data(&mut h, name, content).unwrap();
+        }
+        let bytes = builder.into_inner().unwrap();
+
+        let dest = tmp.path().join("out");
+        unpack_bytes(bytes, dest.clone(), default_unpack(true))
+            .await
+            .unwrap();
+
+        assert!(dest.is_dir());
+        assert_eq!(std::fs::read_to_string(dest.join("a.txt")).unwrap(), "aaa");
+        assert_eq!(std::fs::read_to_string(dest.join("b.txt")).unwrap(), "bbb");
+    }
+
+    #[tokio::test]
+    async fn unpack_bytes_regular_plus_symlink_uses_dir_mode_not_file_mode() {
+        // Without the `is_dir`-only skip, a count-regulars-only detector
+        // would mistakenly route this to FileToFile and silently drop
+        // the symlink. Pin the symmetric behavior (Regular + Symlink =
+        // 2 content entries → IntoDirectory).
+        let tmp = TempDir::new().unwrap();
+        let mut builder = tar::Builder::new(Vec::new());
+
+        let content = b"aaa";
+        let mut h = tar::Header::new_gnu();
+        h.set_size(content.len() as u64);
+        h.set_mode(0o644);
+        h.set_cksum();
+        builder.append_data(&mut h, "a.txt", &content[..]).unwrap();
+
+        let mut sym = tar::Header::new_gnu();
+        sym.set_entry_type(tar::EntryType::Symlink);
+        sym.set_size(0);
+        sym.set_mode(0o777);
+        sym.set_link_name("a.txt").unwrap();
+        sym.set_cksum();
+        builder
+            .append_data(&mut sym, "link.txt", &[] as &[u8])
+            .unwrap();
+
+        let bytes = builder.into_inner().unwrap();
+        let dest = tmp.path().join("out");
+        unpack_bytes(bytes, dest.clone(), default_unpack(true))
+            .await
+            .unwrap();
+
+        assert!(dest.is_dir(), "two content entries → directory mode");
+        assert!(dest.join("a.txt").is_file());
+    }
+
+    #[tokio::test]
+    async fn unpack_bytes_honors_overwrite_false() {
+        let tmp = TempDir::new().unwrap();
+        let bytes = dockercp_style_tar("./etc/hosts", b"new content\n");
+
+        let dest = tmp.path().join("hosts");
+        std::fs::write(&dest, b"original\n").unwrap();
+
+        let err = unpack_bytes(bytes, dest.clone(), default_unpack(false))
+            .await
+            .expect_err("must refuse to overwrite existing dest");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("overwrite=false"),
+            "expected overwrite=false in error, got: {msg}",
+        );
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "original\n",
+            "pre-existing content must be preserved",
         );
     }
 
