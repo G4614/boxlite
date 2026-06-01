@@ -561,4 +561,80 @@ mod tests {
         assert_eq!(config.pids_max, Some(100));
         assert!(config.cpu_max.is_some());
     }
+
+    /// The whole point of the rootless fix in this PR: when the parent's
+    /// `cgroup.controllers` doesn't list `cpu` (the common rootless case),
+    /// the atomic `+cpu +memory +pids` write fails and takes memory+pids
+    /// down with it. `enable_controllers` must intersect what we want with
+    /// what's available, so memory/pids still get delegated when cpu isn't.
+    #[test]
+    fn enable_controllers_writes_only_intersection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cgroup_path = dir.path();
+        std::fs::write(cgroup_path.join("cgroup.controllers"), "memory pids\n")
+            .expect("write cgroup.controllers");
+        std::fs::write(cgroup_path.join("cgroup.subtree_control"), "")
+            .expect("write cgroup.subtree_control");
+
+        enable_controllers(cgroup_path).expect("must succeed with non-empty intersection");
+
+        let written = std::fs::read_to_string(cgroup_path.join("cgroup.subtree_control"))
+            .expect("read cgroup.subtree_control");
+        assert!(
+            written.contains("+memory"),
+            "must enable memory when delegated; subtree_control={written:?}"
+        );
+        assert!(
+            written.contains("+pids"),
+            "must enable pids when delegated; subtree_control={written:?}"
+        );
+        assert!(
+            !written.contains("+cpu"),
+            "must NOT try to enable cpu when not delegated (the atomic write would fail and \
+             take memory+pids with it); subtree_control={written:?}"
+        );
+    }
+
+    /// All three controllers delegated (root / fully-privileged): every want
+    /// is in the available set, all three get written.
+    #[test]
+    fn enable_controllers_writes_all_when_all_delegated() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cgroup_path = dir.path();
+        std::fs::write(
+            cgroup_path.join("cgroup.controllers"),
+            "cpuset cpu io memory hugetlb pids rdma misc\n",
+        )
+        .expect("write cgroup.controllers");
+        std::fs::write(cgroup_path.join("cgroup.subtree_control"), "")
+            .expect("write cgroup.subtree_control");
+
+        enable_controllers(cgroup_path).expect("must succeed");
+
+        let written = std::fs::read_to_string(cgroup_path.join("cgroup.subtree_control"))
+            .expect("read cgroup.subtree_control");
+        for want in ["+cpu", "+memory", "+pids"] {
+            assert!(written.contains(want), "missing {want} in {written:?}");
+        }
+    }
+
+    /// Pathological host: none of {cpu, memory, pids} are delegated. The
+    /// function must Err loudly rather than silently writing an empty
+    /// subtree_control (which would land later limits in the wrong place).
+    #[test]
+    fn enable_controllers_errors_when_none_delegated() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cgroup_path = dir.path();
+        std::fs::write(cgroup_path.join("cgroup.controllers"), "io rdma\n")
+            .expect("write cgroup.controllers");
+        std::fs::write(cgroup_path.join("cgroup.subtree_control"), "")
+            .expect("write cgroup.subtree_control");
+
+        let err = enable_controllers(cgroup_path).expect_err("must err on empty intersection");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("none of cpu/memory/pids"),
+            "error must spell out the missing controllers; got {msg:?}"
+        );
+    }
 }

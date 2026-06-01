@@ -549,8 +549,14 @@ impl<S: Sandbox> Jailer<S> {
             Ok(path) => {
                 tracing::info!(box_id = %self.box_id, path = %path.display(), "Host cgroup created")
             }
-            Err(e) => tracing::warn!(box_id = %self.box_id, error = %e,
-                "Host cgroup setup failed (continuing without limits)"),
+            // Loud (error, not warn): the whole point of this PR is to make
+            // hosts safe against DoS, and silently degrading to unlimited is
+            // exactly the failure mode the review flagged. The box still
+            // starts (best-effort by design — see comment above), but the
+            // operator needs to SEE this so they can fix the underlying
+            // delegation / cgroup-v2 problem.
+            Err(e) => tracing::error!(box_id = %self.box_id, error = %e,
+                "Host cgroup setup failed — box starts without resource limits; fix the underlying delegation issue"),
         }
     }
 
@@ -591,8 +597,12 @@ impl<S: Sandbox> Jailer<S> {
             Ok(()) => {
                 tracing::info!(box_id = %self.box_id, pid, "Shim adopted into host cgroup scope")
             }
-            Err(e) => tracing::warn!(box_id = %self.box_id, pid, error = %e,
-                "Host cgroup scope adoption failed (continuing without limits)"),
+            // Same as setup_host_cgroup above: best-effort by design, but the
+            // failure must be LOUD so operators notice (missing busctl,
+            // no systemd user manager, dbus errors, etc. are all real
+            // causes a silent warn would hide).
+            Err(e) => tracing::error!(box_id = %self.box_id, pid, error = %e,
+                "Host cgroup scope adoption failed — shim runs WITHOUT host limits; check busctl / systemd --user availability"),
         }
     }
 }
