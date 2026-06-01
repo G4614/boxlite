@@ -370,14 +370,14 @@ mod tests {
 
     /// End-to-end PTY reproducer that mirrors the manual `pexpect` probe
     /// from this PR's description: a real terminal device under fd 0, a
-    /// full pass through `StreamManager::start` (RawModeGuard + select-loop
-    /// + abort-on-shell-exit), and then a timed runtime drop. The first
-    /// test isolates the mechanism on a pipe; this one demonstrates the
-    /// same hang on the actual code path the user hits with `boxlite exec
-    /// -ti`.
+    /// full pass through `StreamManager::start` (raw-mode guard, select
+    /// loop, abort-on-shell-exit), and then a timed runtime drop. The
+    /// first test isolates the mechanism on a pipe; this one demonstrates
+    /// the same hang on the actual code path the user hits with
+    /// `boxlite exec -ti`.
     #[test]
     fn stream_manager_with_pty_does_not_block_runtime_drop_after_exec_exit() {
-        use nix::pty::{openpty, OpenptyResult};
+        use nix::pty::{OpenptyResult, openpty};
         use std::os::fd::{AsRawFd, IntoRawFd};
 
         let _serialize = STDIN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -387,8 +387,7 @@ mod tests {
         // reads from a genuine terminal device — `RawModeGuard` activates,
         // the same way it does for a real `exec -ti`. The master stays
         // alive (no writes, no close) so reads on the slave park.
-        let OpenptyResult { master, slave } =
-            openpty(None, None).expect("openpty");
+        let OpenptyResult { master, slave } = openpty(None, None).expect("openpty");
         let master_fd = master.into_raw_fd();
         let slave_fd = slave.as_raw_fd();
 
