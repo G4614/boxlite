@@ -812,3 +812,100 @@ fn rootfs_inode_exhaustion_does_not_block_appending_to_existing_files() {
         "after inode-exhaustion + append-to-existing",
     );
 }
+
+/// The user-visible recovery story: an operator who hit ENOSPC inside a box
+/// can `rm` the offending file (a pure metadata op — works even when blocks
+/// are 100 % consumed because the directory blocks are already allocated and
+/// the journal is pre-reserved) and immediately get the box back to a writable
+/// state. The companion `fill_delete_fill_does_not_double_qcow2_footprint`
+/// asserts the same at the *host* qcow2 layer; this one pins the *in-box*
+/// `df` view + write-resumption that a real operator actually sees.
+#[test]
+fn rm_after_fill_recovers_in_box_free_space_and_writes_resume() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let avail = || -> u64 {
+        let out = exec_sh(
+            home.path.as_path(),
+            &box_id,
+            "df -P / | awk 'NR==2{print $4}'",
+            Duration::from_secs(15),
+        );
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "unparseable df output: {:?}",
+                    String::from_utf8_lossy(&out.stdout)
+                )
+            })
+    };
+
+    let before = avail();
+    assert!(
+        before > 50 * 1024,
+        "box should start with substantial free space (>50 MiB); got {before} KB"
+    );
+
+    // Fill to ENOSPC.
+    let fill = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "dd if=/dev/zero of=/fill bs=1M 2>&1; true",
+        Duration::from_secs(120),
+    );
+    let fill_out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
+    assert!(
+        fill_out.contains("No space left"),
+        "fill must hit ENOSPC, got:\n{fill_out}"
+    );
+    let when_full = avail();
+    assert!(
+        when_full < 1024,
+        "after fill, in-box df Available must be ~0; got {when_full} KB"
+    );
+
+    // The whole point: `rm` is a pure metadata op (dir-entry write into an
+    // already-allocated block, no new block allocation), so it succeeds even
+    // when df Available = 0.
+    let rm = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "rm /fill && sync",
+        Duration::from_secs(30),
+    );
+    assert!(
+        rm.status.success(),
+        "rm /fill on a 100%-full rootfs must succeed (metadata-only op); \
+         stderr = {}",
+        String::from_utf8_lossy(&rm.stderr)
+    );
+
+    // Available recovers to ≈ pre-fill within 5 MiB slack.
+    let after_rm = avail();
+    assert!(
+        after_rm + 5 * 1024 >= before,
+        "rm + sync must recover the in-box free space; \
+         before={before} KB, when_full={when_full} KB, after_rm={after_rm} KB"
+    );
+
+    // And new writes work again — the user-visible "back to normal" signal.
+    let write = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "echo recovered > /probe && cat /probe",
+        Duration::from_secs(15),
+    );
+    let stdout = String::from_utf8_lossy(&write.stdout);
+    assert!(
+        stdout.contains("recovered"),
+        "writes must succeed again after rm + sync; stdout = {stdout:?} stderr = {}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+}
