@@ -41,36 +41,88 @@ pub struct ResolvedVolume {
     pub owner_uid: u32,
     /// Owner GID of host directory (for auto-idmap in guest).
     pub owner_gid: u32,
+    /// Hard size cap for virtio-blk sized volumes. `None` for legacy
+    /// virtiofs/bind volumes (host_path is a directory shared via virtiofs).
+    /// `Some(n)` means host_path points at an ext4 image file boxlite created
+    /// (sparse, mkfs.ext4-formatted), to be attached as `/dev/vdN` and
+    /// mounted by the guest agent.
+    pub size_bytes: Option<u64>,
 }
 
-pub fn resolve_user_volumes(volumes: &[VolumeSpec]) -> BoxliteResult<Vec<ResolvedVolume>> {
+/// Resolve user volume specs to host paths the rest of the init pipeline can
+/// consume.
+///
+/// - Legacy volumes (`size_bytes == None`): host_path must already exist and
+///   be a directory; we just canonicalise + stat it. Downstream shares it
+///   via virtiofs.
+/// - Sized volumes (`size_bytes == Some(n)`): we materialise the backing
+///   image at `<volumes_dir>/<tag>.img` (sparse + mkfs.ext4, via
+///   [`create_sized_volume_image`]). host_path is the image file. Downstream
+///   attaches it as a virtio-blk disk.
+///
+/// `volumes_dir` must live somewhere boxlite owns (per-box home), so the
+/// images go away when the box is removed.
+pub fn resolve_user_volumes(
+    volumes: &[VolumeSpec],
+    volumes_dir: &std::path::Path,
+    mkfs_bin: &std::path::Path,
+) -> BoxliteResult<Vec<ResolvedVolume>> {
     let mut resolved = Vec::with_capacity(volumes.len());
 
     for (i, vol) in volumes.iter().enumerate() {
-        let host_path = PathBuf::from(&vol.host_path);
+        let tag = format!("uservol{}", i);
 
+        if let Some(size) = vol.size_bytes {
+            // Sized volume → boxlite-managed virtio-blk image.
+            std::fs::create_dir_all(volumes_dir).map_err(|e| {
+                BoxliteError::Storage(format!(
+                    "create volumes dir {}: {e}",
+                    volumes_dir.display()
+                ))
+            })?;
+            let img_path = volumes_dir.join(format!("{tag}.img"));
+            crate::runtime::sized_volume::create_sized_volume_image(&img_path, size, mkfs_bin)?;
+            tracing::info!(
+                tag = %tag,
+                img = %img_path.display(),
+                guest_path = %vol.guest_path,
+                size_bytes = size,
+                "Materialised sized volume image"
+            );
+            // Owner uid/gid are unused on the block-device path (the guest
+            // kernel owns the FS), but ResolvedVolume carries them, so use 0.
+            resolved.push(ResolvedVolume {
+                tag,
+                host_path: img_path,
+                guest_path: vol.guest_path.clone(),
+                read_only: vol.read_only,
+                owner_uid: 0,
+                owner_gid: 0,
+                size_bytes: Some(size),
+            });
+            continue;
+        }
+
+        // Legacy virtiofs/bind: host_path must exist as a directory.
+        let host_path = PathBuf::from(&vol.host_path);
         if !host_path.exists() {
             return Err(BoxliteError::Config(format!(
                 "Volume host path does not exist: {}",
                 vol.host_path
             )));
         }
-
         let resolved_path = host_path.canonicalize().map_err(|e| {
             BoxliteError::Config(format!(
                 "Failed to resolve volume path '{}': {}",
                 vol.host_path, e
             ))
         })?;
-
         if !resolved_path.is_dir() {
             return Err(BoxliteError::Config(format!(
                 "Volume host path is not a directory: {}",
                 vol.host_path
             )));
         }
-
-        let tag = format!("uservol{}", i);
 
         // Stat host path to get owner UID/GID for auto-idmap in guest
         let (owner_uid, owner_gid) = {
@@ -102,6 +154,7 @@ pub fn resolve_user_volumes(volumes: &[VolumeSpec]) -> BoxliteResult<Vec<Resolve
             read_only: vol.read_only,
             owner_uid,
             owner_gid,
+            size_bytes: None,
         });
     }
 
@@ -338,7 +391,9 @@ mod tests {
                 size_bytes: None,
         }];
 
-        let resolved = resolve_user_volumes(&volumes).unwrap();
+        let vols_dir = tempfile::tempdir().unwrap();
+        let mkfs = std::path::Path::new("/usr/sbin/mke2fs");
+        let resolved = resolve_user_volumes(&volumes, vols_dir.path(), mkfs).unwrap();
         assert_eq!(resolved.len(), 1);
 
         // owner_uid should be the current user's UID
@@ -360,7 +415,9 @@ mod tests {
                 size_bytes: None,
         }];
 
-        let result = resolve_user_volumes(&volumes);
+        let vols_dir = tempfile::tempdir().unwrap();
+        let mkfs = std::path::Path::new("/usr/sbin/mke2fs");
+        let result = resolve_user_volumes(&volumes, vols_dir.path(), mkfs);
         assert!(result.is_err());
     }
 
@@ -374,9 +431,45 @@ mod tests {
                 size_bytes: None,
         }];
 
-        let result = resolve_user_volumes(&volumes);
+        let vols_dir = tempfile::tempdir().unwrap();
+        let mkfs = std::path::Path::new("/usr/sbin/mke2fs");
+        let result = resolve_user_volumes(&volumes, vols_dir.path(), mkfs);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not a directory"));
+    }
+
+    /// Sized volume: host_path doesn't need to exist (boxlite creates the
+    /// image), and the resolved ResolvedVolume points at the freshly-mkfs'd
+    /// `.img` file plus carries size_bytes so the downstream loop routes it
+    /// to the block-device path instead of virtiofs.
+    #[test]
+    fn resolve_sized_volume_creates_image_and_carries_size() {
+        let vols_dir = tempfile::tempdir().unwrap();
+        let mkfs = std::path::Path::new("/usr/sbin/mke2fs");
+        let volumes = vec![VolumeSpec {
+            // host_path is the anon-volume placeholder name; boxlite owns
+            // the actual image file location.
+            host_path: "/will-not-exist/and-should-not-matter".to_string(),
+            guest_path: "/data".to_string(),
+            read_only: false,
+            size_bytes: Some(16 * 1024 * 1024),
+        }];
+
+        let resolved = resolve_user_volumes(&volumes, vols_dir.path(), mkfs).unwrap();
+        assert_eq!(resolved.len(), 1);
+        let r = &resolved[0];
+        assert_eq!(r.size_bytes, Some(16 * 1024 * 1024));
+        assert_eq!(r.guest_path, "/data");
+        assert_eq!(r.tag, "uservol0");
+        assert!(
+            r.host_path.exists() && r.host_path.is_file(),
+            "resolved host_path must be the created image file"
+        );
+        // The image file should live under vols_dir.
+        assert!(
+            r.host_path.starts_with(vols_dir.path()),
+            "image must live in the boxlite-owned volumes dir"
+        );
     }
 
     /// Reverting Drop to call `remove_box` (the pre-fix behavior) flips this red:

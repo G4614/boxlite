@@ -134,7 +134,11 @@ async fn build_config(
     let transport = Transport::unix(layout.socket_path());
     let ready_transport = Transport::unix(layout.ready_socket_path());
 
-    let user_volumes = resolve_user_volumes(&options.volumes)?;
+    // Boxlite-owned dir for any sized-volume backing images we materialise
+    // below. Lives under the per-box home so it gets cleaned up with the box.
+    let sized_volumes_dir = layout.root().join("volumes");
+    let mkfs_bin = find_binary("mke2fs")?;
+    let user_volumes = resolve_user_volumes(&options.volumes, &sized_volumes_dir, &mkfs_bin)?;
 
     // Prepare container directories (image/, rw/, rootfs/)
     let container_layout = layout.shared_layout().container(container_id.as_str());
@@ -171,9 +175,25 @@ async fn build_config(
         need_resize,        // Only on fresh start with custom disk size
     };
 
-    // Add user volumes via ContainerVolumeManager
+    // Sized user volumes go straight onto volume_mgr as virtio-blk disks —
+    // boxlite already materialised the ext4 image; the guest's existing
+    // BlockDeviceMount path picks it up at vol.guest_path. Process these
+    // first so the ContainerVolumeManager borrow below doesn't conflict.
+    for vol in user_volumes.iter().filter(|v| v.size_bytes.is_some()) {
+        volume_mgr.add_block_device(
+            &vol.host_path,
+            DiskFormat::Ext4,
+            vol.read_only,
+            Some(vol.guest_path.as_str()),
+            false, // need_format (already formatted in resolve_user_volumes)
+            false, // need_resize
+        );
+    }
+
+    // Legacy (non-sized) user volumes go through virtiofs via
+    // ContainerVolumeManager — same path as before.
     let mut container_mgr = ContainerVolumeManager::new(&mut volume_mgr);
-    for vol in &user_volumes {
+    for vol in user_volumes.iter().filter(|v| v.size_bytes.is_none()) {
         container_mgr.add_volume(
             container_id.as_str(),
             &vol.tag,
