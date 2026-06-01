@@ -243,7 +243,10 @@ fn two_sized_volumes_on_one_box_are_independent() {
             ],
             Duration::from_secs(20),
         );
-        String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().unwrap_or(0)
+        String::from_utf8_lossy(&o.stdout)
+            .trim()
+            .parse::<u64>()
+            .unwrap_or(0)
     };
 
     let fill = boxlite(
@@ -258,8 +261,8 @@ fn two_sized_volumes_on_one_box_are_independent() {
         ],
         Duration::from_secs(60),
     );
-    let fill_out = String::from_utf8_lossy(&fill.stdout).to_string()
-        + &String::from_utf8_lossy(&fill.stderr);
+    let fill_out =
+        String::from_utf8_lossy(&fill.stdout).to_string() + &String::from_utf8_lossy(&fill.stderr);
     assert!(
         fill_out.contains("No space left"),
         "/a fill must hit ENOSPC at its own cap; got:\n{fill_out}"

@@ -89,9 +89,7 @@ pub fn resolve_user_volumes(
                     "Reusing existing sized volume image (persistent across stop/start)"
                 );
             } else {
-                crate::runtime::sized_volume::create_sized_volume_image(
-                    &img_path, size, mkfs_bin,
-                )?;
+                crate::runtime::sized_volume::create_sized_volume_image(&img_path, size, mkfs_bin)?;
                 tracing::info!(
                     tag = %tag,
                     img = %img_path.display(),
