@@ -78,14 +78,28 @@ pub fn resolve_user_volumes(
                 BoxliteError::Storage(format!("create volumes dir {}: {e}", volumes_dir.display()))
             })?;
             let img_path = volumes_dir.join(format!("{tag}.img"));
-            crate::runtime::sized_volume::create_sized_volume_image(&img_path, size, mkfs_bin)?;
-            tracing::info!(
-                tag = %tag,
-                img = %img_path.display(),
-                guest_path = %vol.guest_path,
-                size_bytes = size,
-                "Materialised sized volume image"
-            );
+            // Idempotent across stop/start: the box's persistent state lives
+            // in this image, so on a restart we MUST reuse it rather than
+            // truncate+reformat (that would silently wipe the user's data).
+            // First-create still goes through the full sparse + mkfs path.
+            if img_path.exists() {
+                tracing::info!(
+                    tag = %tag,
+                    img = %img_path.display(),
+                    "Reusing existing sized volume image (persistent across stop/start)"
+                );
+            } else {
+                crate::runtime::sized_volume::create_sized_volume_image(
+                    &img_path, size, mkfs_bin,
+                )?;
+                tracing::info!(
+                    tag = %tag,
+                    img = %img_path.display(),
+                    guest_path = %vol.guest_path,
+                    size_bytes = size,
+                    "Materialised sized volume image"
+                );
+            }
             // Owner uid/gid are unused on the block-device path (the guest
             // kernel owns the FS), but ResolvedVolume carries them, so use 0.
             resolved.push(ResolvedVolume {

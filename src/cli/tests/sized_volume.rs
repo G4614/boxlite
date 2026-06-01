@@ -149,3 +149,261 @@ fn sized_volume_caps_writes_and_rm_cleans_up_image() {
         img.display()
     );
 }
+
+/// Two sized volumes on one box are independent — filling one to ENOSPC must
+/// not shrink, corrupt, or unmount the other. Catches regressions in the
+/// `uservol{i}` naming, the `/dev/vdN` index handoff, or any state the
+/// volume-mgr loop shares incorrectly between entries.
+#[test]
+fn two_sized_volumes_on_one_box_are_independent() {
+    let home = PerTestBoxHome::new();
+    let out = boxlite(
+        home.path.as_path(),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "256",
+            "-v",
+            "/a:size=32M",
+            "-v",
+            "/b:size=64M",
+            "alpine:latest",
+            "sleep",
+            "600",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        out.status.success(),
+        "box start failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let box_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Both volumes mount at distinct caps. df reports 1K-blocks; after ext4
+    // overhead /a (32 MiB) lands around 20-32 MiB, /b (64 MiB) around 40-64.
+    // The key invariant is `/b` is roughly DOUBLE `/a` — a wiring mistake
+    // that crossed devices would either fail to mount or show the same size.
+    let sizes = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            &box_id,
+            "--",
+            "sh",
+            "-c",
+            "df -P /a | awk 'NR==2{print \"A_KB=\" $2}'; \
+             df -P /b | awk 'NR==2{print \"B_KB=\" $2}'",
+        ],
+        Duration::from_secs(20),
+    );
+    let stdout = String::from_utf8_lossy(&sizes.stdout);
+    let parse = |key: &str| -> u64 {
+        stdout
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| panic!("missing {key} in:\n{stdout}"))
+    };
+    let a_kb = parse("A_KB=");
+    let b_kb = parse("B_KB=");
+    assert!(
+        (15 * 1024..=35 * 1024).contains(&a_kb),
+        "/a (size=32M) must be ≈ 32 MiB; got {a_kb} KB\n{stdout}"
+    );
+    assert!(
+        (40 * 1024..=70 * 1024).contains(&b_kb),
+        "/b (size=64M) must be ≈ 64 MiB; got {b_kb} KB\n{stdout}"
+    );
+    assert!(
+        b_kb > a_kb + 10 * 1024,
+        "/b must be visibly larger than /a (independent devices, not crossed); \
+         got A={a_kb} B={b_kb}"
+    );
+
+    // Fill /a to ENOSPC. /b must be completely unaffected — read original
+    // available bytes, fill /a, re-read /b, expect ~no change.
+    let b_avail_before = {
+        let o = boxlite(
+            home.path.as_path(),
+            &[
+                "exec",
+                &box_id,
+                "--",
+                "sh",
+                "-c",
+                "df -P /b | awk 'NR==2{print $4}'",
+            ],
+            Duration::from_secs(20),
+        );
+        String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().unwrap_or(0)
+    };
+
+    let fill = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            &box_id,
+            "--",
+            "sh",
+            "-c",
+            "dd if=/dev/zero of=/a/fill bs=1M 2>&1; true",
+        ],
+        Duration::from_secs(60),
+    );
+    let fill_out = String::from_utf8_lossy(&fill.stdout).to_string()
+        + &String::from_utf8_lossy(&fill.stderr);
+    assert!(
+        fill_out.contains("No space left"),
+        "/a fill must hit ENOSPC at its own cap; got:\n{fill_out}"
+    );
+
+    // /b: still mounted, still has roughly the same free space.
+    let after = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            &box_id,
+            "--",
+            "sh",
+            "-c",
+            "df -P /b | awk 'NR==2{print $4}' && echo bystander > /b/probe && cat /b/probe",
+        ],
+        Duration::from_secs(20),
+    );
+    let out = String::from_utf8_lossy(&after.stdout);
+    let b_avail_after: u64 = out
+        .lines()
+        .next()
+        .and_then(|l| l.trim().parse().ok())
+        .unwrap_or_else(|| panic!("/b df failed after /a fill:\n{out}"));
+    assert!(
+        b_avail_after + 1024 >= b_avail_before,
+        "/b must not shrink when /a fills (separate devices): \
+         before={b_avail_before} after={b_avail_after}"
+    );
+    assert!(
+        out.contains("bystander"),
+        "/b must still accept writes when /a is full; got:\n{out}"
+    );
+}
+
+/// Data written into a sized volume survives a `stop`/`start` cycle — the
+/// image is persistent on the host across box lifecycle transitions, and the
+/// guest re-mounts it on next start. The user-most-likely-to-want behaviour.
+#[test]
+fn sized_volume_data_persists_across_stop_start() {
+    let home = PerTestBoxHome::new();
+    let out = boxlite(
+        home.path.as_path(),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "256",
+            "-v",
+            "/data:size=32M",
+            "alpine:latest",
+            "sleep",
+            "600",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        out.status.success(),
+        "box start failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let box_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Write a marker the test will look for after restart.
+    let marker = "persisted-across-stop-start-cycle-7c9";
+    let write = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            &box_id,
+            "--",
+            "sh",
+            "-c",
+            &format!("echo {marker} > /data/marker.txt && cat /data/marker.txt"),
+        ],
+        Duration::from_secs(30),
+    );
+    assert!(
+        String::from_utf8_lossy(&write.stdout).contains(marker),
+        "writing the marker must succeed in the fresh box; got:\n{}",
+        String::from_utf8_lossy(&write.stdout)
+    );
+
+    // Stop the box, then start it back up.
+    let stop = boxlite(
+        home.path.as_path(),
+        &["stop", &box_id],
+        Duration::from_secs(60),
+    );
+    assert!(
+        stop.status.success(),
+        "stop failed: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+    let start = boxlite(
+        home.path.as_path(),
+        &["start", &box_id],
+        Duration::from_secs(180),
+    );
+    assert!(
+        start.status.success(),
+        "start failed after stop: {}",
+        String::from_utf8_lossy(&start.stderr)
+    );
+
+    // The marker must still be there — sized volume is persistent storage,
+    // not tmpfs.
+    let read = boxlite(
+        home.path.as_path(),
+        &["exec", &box_id, "--", "cat", "/data/marker.txt"],
+        Duration::from_secs(30),
+    );
+    let stdout = String::from_utf8_lossy(&read.stdout);
+    assert!(
+        stdout.contains(marker),
+        "marker must persist across stop/start; got:\n{stdout}\nstderr={}",
+        String::from_utf8_lossy(&read.stderr)
+    );
+
+    // The volume's cap must also persist — df still reports ~32 MiB.
+    let size = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            &box_id,
+            "--",
+            "sh",
+            "-c",
+            "df -P /data | awk 'NR==2{print $2}'",
+        ],
+        Duration::from_secs(20),
+    );
+    let size_kb: u64 = String::from_utf8_lossy(&size.stdout)
+        .trim()
+        .parse()
+        .unwrap_or_else(|_| panic!("could not read /data size after restart"));
+    assert!(
+        (15 * 1024..=35 * 1024).contains(&size_kb),
+        "sized cap must persist; got {size_kb} KB after restart"
+    );
+}
