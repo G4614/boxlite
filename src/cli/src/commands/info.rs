@@ -36,7 +36,7 @@ pub enum InfoFormat {
     Json,
 }
 
-pub async fn execute(args: InfoArgs, global: &GlobalFlags) -> anyhow::Result<()> {
+pub async fn execute(args: InfoArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
     let options = global.resolve_runtime_options()?;
     let home_dir = options.home_dir.to_string_lossy().to_string();
 
@@ -80,5 +80,5 @@ pub async fn execute(args: InfoArgs, global: &GlobalFlags) -> anyhow::Result<()>
         InfoFormat::Json => formatter::format_json(&info)?,
     };
     println!("{}", out);
-    Ok(())
+    Ok(0)
 }

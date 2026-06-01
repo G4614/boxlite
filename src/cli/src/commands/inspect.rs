@@ -73,7 +73,7 @@ impl From<&BoxInfo> for InspectPresenter {
     }
 }
 
-pub async fn execute(args: InspectArgs, global: &GlobalFlags) -> anyhow::Result<()> {
+pub async fn execute(args: InspectArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
     if !args.latest && args.boxes.is_empty() {
         return Err(anyhow::anyhow!("no names or ids specified"));
     }
@@ -102,7 +102,7 @@ pub async fn execute(args: InspectArgs, global: &GlobalFlags) -> anyhow::Result<
         return Err(errs.into_iter().next().unwrap());
     }
 
-    Ok(())
+    Ok(0)
 }
 
 fn looks_like_template(s: &str) -> bool {

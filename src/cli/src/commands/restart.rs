@@ -7,7 +7,7 @@ pub struct RestartArgs {
     pub targets: Vec<String>,
 }
 
-pub async fn execute(args: RestartArgs, global: &crate::cli::GlobalFlags) -> anyhow::Result<()> {
+pub async fn execute(args: RestartArgs, global: &crate::cli::GlobalFlags) -> anyhow::Result<i32> {
     let runtime = global.create_runtime()?;
 
     let mut errors = Vec::new();
@@ -63,5 +63,5 @@ pub async fn execute(args: RestartArgs, global: &crate::cli::GlobalFlags) -> any
 
         anyhow::bail!("{}\nErrors:\n  {}", error_summary, errors.join("\n  "));
     }
-    Ok(())
+    Ok(0)
 }

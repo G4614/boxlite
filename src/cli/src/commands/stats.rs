@@ -34,7 +34,7 @@ struct StatsPresenter {
     value: String,
 }
 
-pub async fn execute(args: StatsArgs, global: &GlobalFlags) -> anyhow::Result<()> {
+pub async fn execute(args: StatsArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
     let rt = global.create_runtime()?;
     let litebox = rt
         .get(&args.target)
@@ -85,7 +85,7 @@ pub async fn execute(args: StatsArgs, global: &GlobalFlags) -> anyhow::Result<()
         )?;
     }
 
-    Ok(())
+    Ok(0)
 }
 
 fn format_metrics(metrics: BoxMetrics) -> Vec<StatsPresenter> {

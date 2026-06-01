@@ -53,7 +53,7 @@ impl From<&ImageInfo> for ImagePresenter {
     }
 }
 
-pub async fn execute(args: ImagesArgs, global: &GlobalFlags) -> anyhow::Result<()> {
+pub async fn execute(args: ImagesArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
     let rt = global.create_runtime()?;
     let image_handle = rt.images()?;
     let images = image_handle.list().await?;
@@ -62,7 +62,7 @@ pub async fn execute(args: ImagesArgs, global: &GlobalFlags) -> anyhow::Result<(
         for info in images {
             println!("{}", info.id);
         }
-        return Ok(());
+        return Ok(0);
     }
 
     let presenters: Vec<ImagePresenter> = images.iter().map(Into::into).collect();
@@ -77,7 +77,7 @@ pub async fn execute(args: ImagesArgs, global: &GlobalFlags) -> anyhow::Result<(
         },
     )?;
 
-    Ok(())
+    Ok(0)
 }
 
 fn print_images(writer: &mut impl std::io::Write, images: &[ImagePresenter]) -> anyhow::Result<()> {

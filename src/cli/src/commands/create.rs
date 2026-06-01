@@ -30,14 +30,14 @@ pub struct CreateArgs {
     pub volume: VolumeFlags,
 }
 
-pub async fn execute(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<()> {
+pub async fn execute(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
     let rt = global.create_runtime()?;
     let box_options = args.to_box_options(global)?;
 
     let litebox = rt.create(box_options, args.management.name.clone()).await?;
     println!("{}", litebox.id());
 
-    Ok(())
+    Ok(0)
 }
 
 impl CreateArgs {

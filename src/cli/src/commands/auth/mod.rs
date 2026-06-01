@@ -33,12 +33,13 @@ pub enum AuthCommand {
     Whoami,
 }
 
-pub async fn run(args: AuthArgs, global: &GlobalFlags) -> anyhow::Result<()> {
+pub async fn run(args: AuthArgs, global: &GlobalFlags) -> anyhow::Result<i32> {
     let profile = global.resolved_profile();
     match args.command {
-        AuthCommand::Login(a) => login::run(a, &profile).await,
-        AuthCommand::Logout(a) => logout::run(a, &profile).await,
-        AuthCommand::Status => status::run(&profile),
-        AuthCommand::Whoami => whoami::run(&profile).await,
+        AuthCommand::Login(a) => login::run(a, &profile).await?,
+        AuthCommand::Logout(a) => logout::run(a, &profile).await?,
+        AuthCommand::Status => status::run(&profile)?,
+        AuthCommand::Whoami => whoami::run(&profile).await?,
     }
+    Ok(0)
 }
