@@ -335,6 +335,7 @@ mod tests {
             host_path: tmp.path().to_str().unwrap().to_string(),
             guest_path: "/data".to_string(),
             read_only: false,
+                size_bytes: None,
         }];
 
         let resolved = resolve_user_volumes(&volumes).unwrap();
@@ -356,6 +357,7 @@ mod tests {
             host_path: "/nonexistent/path/12345".to_string(),
             guest_path: "/data".to_string(),
             read_only: false,
+                size_bytes: None,
         }];
 
         let result = resolve_user_volumes(&volumes);
@@ -369,6 +371,7 @@ mod tests {
             host_path: tmp.path().to_str().unwrap().to_string(),
             guest_path: "/data".to_string(),
             read_only: false,
+                size_bytes: None,
         }];
 
         let result = resolve_user_volumes(&volumes);
