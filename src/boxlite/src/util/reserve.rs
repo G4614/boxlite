@@ -376,6 +376,32 @@ mod tests {
         );
     }
 
+    /// The point of the whole reserve is "after release, the host fs really
+    /// gives those bytes back to writers." The earlier
+    /// `allocates_real_blocks` pins the *consumption* direction; this pins
+    /// the *return* direction. Without this, a regression that switched
+    /// `release` to `truncate(0)` without `unlink` would still pass the
+    /// "file is gone" assertion but the blocks could stay reserved until
+    /// the next fsync — and the operator would still hit ENOSPC.
+    #[test]
+    fn release_returns_bytes_to_host_available() {
+        let home = TempDir::new().unwrap();
+        ensure_reserve(home.path()).expect("ensure_reserve");
+        let before = statvfs_bavail_bytes(home.path());
+        release_reserve(home.path()).expect("release_reserve");
+        let after = statvfs_bavail_bytes(home.path());
+
+        let recovered = after.saturating_sub(before);
+        // Allow some slack: shared /tmp gets concurrent activity, and
+        // ext4 returns whole filesystem blocks not byte-precise amounts.
+        assert!(
+            recovered >= RESERVE_BYTES.saturating_sub(4 * 1024 * 1024),
+            "release must hand the host back ~{RESERVE_BYTES} bytes of \
+             available space; got a delta of {recovered} \
+             (before={before}, after={after})"
+        );
+    }
+
     fn statvfs_bavail_bytes(p: &Path) -> u64 {
         host_free_bytes(p).expect("statvfs in test")
     }
