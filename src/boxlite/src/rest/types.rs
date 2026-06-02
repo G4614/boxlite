@@ -102,6 +102,12 @@ pub(crate) struct CreateBoxRequest {
     pub detach: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<String>,
+    /// Disable the per-box health check (Issue #523: also disables
+    /// the async-death zombie reaper that piggybacks on health check).
+    /// Omitted when absent so existing clients keep the default-on
+    /// behaviour without changing their POST body shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_check_disabled: Option<bool>,
 }
 
 impl CreateBoxRequest {
@@ -128,6 +134,15 @@ impl CreateBoxRequest {
             Some(options.secrets.iter().map(CreateBoxSecret::from).collect())
         };
 
+        // Only set the wire field when the operator explicitly disabled
+        // health check. `None` on the wire = "use server default" (which
+        // is currently `Some(HealthCheckOptions::default())`).
+        let health_check_disabled = if options.advanced.health_check.is_none() {
+            Some(true)
+        } else {
+            None
+        };
+
         Self {
             name,
             image,
@@ -145,6 +160,7 @@ impl CreateBoxRequest {
             auto_remove: Some(options.auto_remove),
             detach: Some(options.detach),
             security: None, // TODO: map security preset
+            health_check_disabled,
         }
     }
 }
@@ -481,6 +497,7 @@ mod tests {
             auto_remove: Some(true),
             detach: None,
             security: None,
+            health_check_disabled: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"name\":\"mybox\""));
@@ -532,6 +549,52 @@ mod tests {
         assert_eq!(
             req.secrets.as_ref().unwrap()[0].placeholder,
             "<BOXLITE_SECRET:openai>"
+        );
+    }
+
+    /// Wire serialization: when the operator disabled health check
+    /// (`options.advanced.health_check = None`), `from_options` flips
+    /// `health_check_disabled = Some(true)` on the wire body so the
+    /// server side actually receives the intent.
+    #[test]
+    fn test_create_box_request_carries_health_check_disabled_on_the_wire() {
+        use crate::runtime::advanced_options::AdvancedBoxOptions;
+        use crate::runtime::options::{BoxOptions, RootfsSpec};
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            advanced: AdvancedBoxOptions {
+                health_check: None,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        assert_eq!(req.health_check_disabled, Some(true));
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            json.contains("\"health_check_disabled\":true"),
+            "explicit disable must appear on the wire; got: {json}"
+        );
+    }
+
+    /// Backward compat: a `BoxOptions` with the default health_check
+    /// (i.e. `Some(HealthCheckOptions::default())`) omits the wire
+    /// field entirely — old clients/servers that don't know about
+    /// `health_check_disabled` keep behaving exactly as before.
+    #[test]
+    fn test_create_box_request_omits_health_check_disabled_when_default() {
+        use crate::runtime::options::{BoxOptions, RootfsSpec};
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            // Don't touch `advanced` — uses default (health_check on).
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        assert_eq!(req.health_check_disabled, None);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            !json.contains("health_check_disabled"),
+            "wire form must omit the field when default health check is in effect; got: {json}"
         );
     }
 

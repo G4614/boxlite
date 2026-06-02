@@ -39,6 +39,12 @@ pub(super) struct CreateBoxRequest {
     pub auto_remove: Option<bool>,
     #[serde(default)]
     pub detach: Option<bool>,
+    /// Disable the per-box health check (Issue #523: also disables the
+    /// async-death zombie reaper that piggybacks on health check).
+    /// `Some(true)` → disable; `Some(false)` / absent → server default
+    /// (currently `Some(HealthCheckOptions::default())`).
+    #[serde(default)]
+    pub health_check_disabled: Option<bool>,
 }
 
 #[derive(Deserialize)]
