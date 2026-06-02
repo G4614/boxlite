@@ -526,6 +526,26 @@ impl<S: Sandbox> Jailer<S> {
         if config.pids_max.is_none() {
             config.pids_max = Some(DEFAULT_HOST_PIDS_MAX);
         }
+        // CPU cap: explicit `ResourceLimits.max_cpu_time` wins (lands in
+        // `cpu_max`); otherwise default to the host's online core count, in the
+        // same spirit as `memory.max = 2× VM` and `pids.max = 1024` — a loose
+        // ceiling that no healthy box hits, but bounds a runaway VMM that
+        // spawns spinning threads. Set both `cpu_max` (rootful direct
+        // cgroup-file write in `apply_limits`) and `cpu_quota_us_per_sec`
+        // (rootless busctl property in `adopt_pid_into_scope`) so the cap
+        // applies symmetrically — previously rootless deployments had NO CPU
+        // cap whatsoever even when the user set `max_cpu_time`, because the
+        // file-write path doesn't run rootless.
+        let host_cores = std::thread::available_parallelism()
+            .map(|n| n.get() as u64)
+            .unwrap_or(1);
+        let host_cpu_us_per_sec = host_cores.saturating_mul(1_000_000);
+        if config.cpu_max.is_none() {
+            config.cpu_max = Some((host_cpu_us_per_sec, 1_000_000));
+        }
+        if config.cpu_quota_us_per_sec.is_none() {
+            config.cpu_quota_us_per_sec = Some(host_cpu_us_per_sec);
+        }
         config
     }
 

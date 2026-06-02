@@ -141,6 +141,60 @@ fn shim_is_scoped_with_host_memory_and_pids_limits() {
     );
 }
 
+/// `cgroup_config()` defaults `cpu_quota_us_per_sec` to `host_cores ×
+/// 1_000_000` µs/s (mirroring how `memory.max` defaults to `2× VM` and
+/// `pids.max` to `1024`) so a rootless deployment without explicit
+/// `ResourceLimits.max_cpu_time` is no longer silently uncapped on CPU.
+///
+/// Before this PR's CPU-default change the property landed as `infinity`
+/// — a runaway shim could pin every core forever. This test pins the new
+/// behaviour end-to-end: start a box rootless, look up
+/// `CPUQuotaPerSecUSec` on the scope, assert it matches the host's online
+/// core count (`std::thread::available_parallelism()`).
+///
+/// Two-sided naturally: rip the `cpu_quota_us_per_sec` default block out
+/// of `jailer::cgroup_config()` and this test fails with `got "infinity"`
+/// — proving the default is the load-bearing piece. Skipped under root
+/// (rootful uses `cpu.max` file-write, a different code path covered by
+/// `rootful_host_cgroup_is_created_with_limits`) or no systemd
+/// user-manager.
+#[test]
+fn shim_scope_caps_cpu_quota_at_host_core_count() {
+    let home = PerTestBoxHome::new();
+    let Some(box_id) = start_scoped_box_or_skip(&home) else {
+        return;
+    };
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    let unit = format!("boxlite-{box_id}.scope");
+    let raw = systemctl_show(&unit, "CPUQuotaPerSecUSec").unwrap_or_default();
+
+    assert!(
+        raw != "infinity",
+        "CPUQuotaPerSecUSec on {unit} must NOT be `infinity` — the \
+         rootless default cap was silently dropped. Got: {raw:?}"
+    );
+
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get() as u64)
+        .unwrap_or(1);
+    let expected_us = cores.saturating_mul(1_000_000);
+
+    // systemd `show` formats the value back as `<N>s` for whole-second
+    // multiples and as `<N>` µs otherwise. Accept either form.
+    let formatted_s = format!("{cores}s");
+    let formatted_us = expected_us.to_string();
+    assert!(
+        raw == formatted_s || raw == formatted_us,
+        "CPUQuotaPerSecUSec must default to host_cores × 1s = {cores}s \
+         (= {expected_us} µs/s); systemd reported {raw:?} on {unit}. \
+         Did `jailer::cgroup_config()` lose its CPU default branch?"
+    );
+}
+
 #[test]
 fn shim_scope_is_cleaned_up_when_box_is_removed() {
     let home = PerTestBoxHome::new();
