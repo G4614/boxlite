@@ -383,10 +383,24 @@ fn build_root_spec(rootfs: &str) -> BoxliteResult<oci_spec::runtime::Root> {
         .map_err(|e| BoxliteError::Internal(format!("Failed to build root spec: {}", e)))
 }
 
-/// Build Linux-specific configuration
+/// Build Linux-specific configuration.
+///
+/// `memory_limit` is passed in (rather than read from `/proc/meminfo` inside
+/// the builder) so the "meminfo unreadable → memory cap absent, pids cap
+/// still enforced" degradation path can be unit-tested without mocking the
+/// filesystem. Production call goes through `build_linux_spec_with_memory`
+/// below which feeds `container_memory_limit()`.
 fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
+) -> BoxliteResult<oci_spec::runtime::Linux> {
+    build_linux_spec_with_memory(container_id, namespaces, container_memory_limit())
+}
+
+fn build_linux_spec_with_memory(
+    container_id: &str,
+    namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
+    memory_limit: Option<i64>,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
     // Map full range of UIDs/GIDs to allow non-root users (nginx=33, etc.)
@@ -440,7 +454,7 @@ fn build_linux_spec(
         .map_err(|e| BoxliteError::Internal(format!("Failed to build pids spec: {e}")))?;
     let mut resources_builder = LinuxResourcesBuilder::default().pids(pids);
 
-    if let Some(mem_max) = container_memory_limit() {
+    if let Some(mem_max) = memory_limit {
         let memory = LinuxMemoryBuilder::default()
             .limit(mem_max)
             .build()
@@ -1112,6 +1126,89 @@ mod tests {
         assert!(
             v > 1_000_000_000_000_000,
             "saturated limit must be enormous (>1 PB), not a small overflow remainder (got {v})"
+        );
+    }
+
+    /// Production-path: `memory_limit = Some(N)` lands `memory.max = N` on the
+    /// cgroup spec alongside the constant `pids.max = 512`. Pins that both
+    /// caps are set when meminfo is healthy.
+    #[test]
+    fn linux_spec_with_memory_limit_has_both_memory_and_pids_caps() {
+        let limit: i64 = 256 * 1024 * 1024; // 256 MiB
+        let linux = build_linux_spec_with_memory("container-with-mem", vec![], Some(limit))
+            .expect("must build with Some memory limit");
+
+        let resources = linux
+            .resources()
+            .as_ref()
+            .expect("linux.resources must be set");
+        let memory = resources
+            .memory()
+            .as_ref()
+            .expect("memory.max must be set when memory_limit is Some");
+        assert_eq!(
+            memory.limit(),
+            Some(limit),
+            "memory.max must equal the explicit memory_limit"
+        );
+        let pids = resources.pids().as_ref().expect("pids.max must be set");
+        assert_eq!(
+            pids.limit(),
+            CONTAINER_PIDS_MAX,
+            "pids.max must always be the constant {CONTAINER_PIDS_MAX}"
+        );
+    }
+
+    /// **Load-bearing for the meminfo-degradation contract**: when
+    /// `/proc/meminfo` can't be read (or `MemAvailable` is missing /
+    /// unparseable / zero), `container_memory_limit()` returns `None` and
+    /// `build_linux_spec` must STILL produce a spec whose cgroup has
+    /// `pids.max = 512`. The whole point of pulling pids.max out of the
+    /// `if let Some` block in #605 was to keep fork-bomb protection alive
+    /// even when memory.max can't be derived — silently dropping both
+    /// would be the regression this PR exists to fight.
+    ///
+    /// A regression that, for example, moves the `pids` builder back inside
+    /// the `Some` arm would land here as: `pids().is_none()`.
+    #[test]
+    fn linux_spec_without_memory_limit_still_has_pids_cap() {
+        let linux = build_linux_spec_with_memory("container-no-mem", vec![], None)
+            .expect("must build with None memory limit (degraded path)");
+
+        let resources = linux
+            .resources()
+            .as_ref()
+            .expect("linux.resources must be set even in the degraded path");
+
+        assert!(
+            resources.memory().is_none(),
+            "memory.max must be ABSENT when memory_limit is None — \
+             #605's loud-warn-and-degrade contract means we don't \
+             silently invent a cap"
+        );
+
+        let pids = resources.pids().as_ref().expect(
+            "pids.max must STILL be set when memory_limit is None — \
+             the whole point of decoupling pids from the memory if-let \
+             is to keep fork-bomb protection alive when meminfo fails",
+        );
+        assert_eq!(
+            pids.limit(),
+            CONTAINER_PIDS_MAX,
+            "pids.max must always be the constant {CONTAINER_PIDS_MAX}, \
+             regardless of memory_limit"
+        );
+
+        // The cgroup path must also still be set — youki applies pids.max
+        // there. A regression that moves `cgroups_path` into the Some arm
+        // would silently bury the pids cap in `/:youki:<id>` instead.
+        assert_eq!(
+            linux
+                .cgroups_path()
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
+            Some("/boxlite/container-no-mem".to_string()),
+            "cgroups_path must always be /boxlite/<id>"
         );
     }
 }
