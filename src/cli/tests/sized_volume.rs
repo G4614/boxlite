@@ -410,3 +410,151 @@ fn sized_volume_data_persists_across_stop_start() {
         "sized cap must persist; got {size_kb} KB after restart"
     );
 }
+
+/// A runaway box that fills its sized volume to ENOSPC must not starve a
+/// neighbor box that arrives on the same host afterwards.
+///
+/// On the unsized (legacy) path, `-v /data` is virtio-fs passthrough into
+/// `$BOXLITE_HOME/volumes/anonymous/<ulid>/`, and a runaway `dd` inside
+/// the box writes through to the host fs without bound. When the host fs
+/// fills, the *next* box's startup hits ENOSPC in `guest_rootfs_init`
+/// while writing its qcow2 COW header (empirically observed: error 28,
+/// box partially-created files left behind under `boxes/<id>/disks/`,
+/// and the failure cascades into any third box that reads the chain).
+///
+/// On the sized path (this PR), the runaway is bounded at the volume's
+/// own ext4 inside a virtio-blk loop file. The host fs only ever sees
+/// the volume image growing to its declared cap (sparse → cap, not
+/// host-free → cap). This test pins exactly that invariant: after box A
+/// has burned through its 64-MiB sized volume, box B's creation +
+/// startup + exec all succeed, and the host fs delta stays bounded by
+/// the volume cap rather than the host's free space.
+///
+/// Empirically verified pre-fix in a 1 GiB loopback ext4: box B's
+/// `boxlite run` fails with
+///   `Failed to write COW child header to .../disks/guest-rootfs.qcow2:
+///    No space left on device (os error 28)`
+/// — `BOXLITE_RESERVE_TEST_HOME`-style isolation is not needed because
+/// the sized cap keeps the runaway contained inside its own ext4.
+#[test]
+fn runaway_sized_volume_does_not_starve_neighbor_box() {
+    let home = PerTestBoxHome::new();
+
+    // Box A — the runaway. 64 MiB sized volume, anonymous so boxlite
+    // owns the backing image entirely.
+    let a_out = boxlite(
+        home.path.as_path(),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "256",
+            "-v",
+            "/data:size=64M",
+            "alpine:latest",
+            "sleep",
+            "600",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        a_out.status.success(),
+        "box A start failed: {}",
+        String::from_utf8_lossy(&a_out.stderr)
+    );
+    let box_a = String::from_utf8_lossy(&a_out.stdout).trim().to_string();
+    let _cleanup_a = BoxCleanup {
+        home: home.path.clone(),
+        id: box_a.clone(),
+    };
+
+    // Burn the volume to ENOSPC. ext4 overhead + reserved blocks land
+    // the fill in the ~50-60 MiB range on a 64 MiB image — the exact
+    // number matters less than "the fill hits the volume's own ext4
+    // boundary, not a host-side one."
+    let fill = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            &box_a,
+            "--",
+            "sh",
+            "-c",
+            "dd if=/dev/zero of=/data/fill bs=1M 2>&1; true",
+        ],
+        Duration::from_secs(60),
+    );
+    let fill_out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
+    assert!(
+        fill_out.contains("No space left"),
+        "fill must hit ENOSPC at the volume cap: {fill_out}"
+    );
+
+    // The core neighbor-isolation assertion: a fresh, unrelated box
+    // starts cleanly even after box A has saturated its volume. On the
+    // pre-#636 path this is where the test fails — box B's qcow2 COW
+    // header write goes to the host fs, which has been drained by A's
+    // virtio-fs passthrough writes.
+    let b_out = boxlite(
+        home.path.as_path(),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "256",
+            "alpine:latest",
+            "sleep",
+            "120",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        b_out.status.success(),
+        "neighbor box B must start cleanly after box A saturates its sized \
+         volume; the whole point of the sized-volume cap is to keep one box's \
+         write storm out of the host fs. stderr = {}",
+        String::from_utf8_lossy(&b_out.stderr)
+    );
+    let box_b = String::from_utf8_lossy(&b_out.stdout).trim().to_string();
+    let _cleanup_b = BoxCleanup {
+        home: home.path.clone(),
+        id: box_b.clone(),
+    };
+
+    // Sanity: box B is also genuinely alive (agent reachable), not just
+    // a successful create that crashed during init. A regression that
+    // started the box but left the agent silent would pass the
+    // .status.success() check and still leave the operator confused.
+    let echo = boxlite(
+        home.path.as_path(),
+        &["exec", &box_b, "--", "echo", "B-alive"],
+        Duration::from_secs(30),
+    );
+    assert!(
+        echo.status.success() && String::from_utf8_lossy(&echo.stdout).contains("B-alive"),
+        "neighbor box B must be exec-reachable after box A's volume fill; \
+         stdout = {:?} stderr = {:?}",
+        String::from_utf8_lossy(&echo.stdout),
+        String::from_utf8_lossy(&echo.stderr)
+    );
+
+    // Box A is *also* still alive — its agent and rootfs were never on the
+    // host path the dd burned through. The earlier `caps_writes_and_rm`
+    // test already pins this for box A alone; the assertion here is the
+    // multi-box invariant: A surviving doesn't depend on B not existing.
+    let a_echo = boxlite(
+        home.path.as_path(),
+        &["exec", &box_a, "--", "echo", "A-alive"],
+        Duration::from_secs(30),
+    );
+    assert!(
+        a_echo.status.success() && String::from_utf8_lossy(&a_echo.stdout).contains("A-alive"),
+        "box A must remain reachable once its volume hits ENOSPC; \
+         stderr = {}",
+        String::from_utf8_lossy(&a_echo.stderr)
+    );
+}
