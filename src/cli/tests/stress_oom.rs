@@ -104,11 +104,15 @@ fn cgroup_limits_are_enforced_on_the_container() {
         id: box_id.clone(),
     };
 
-    // Read the container's own cgroup path and its controller files.
+    // Read the container *init* (PID 1)'s cgroup — that's where the workload
+    // limits live. `/proc/self/cgroup` would return the exec'd shell's cgroup
+    // which is now in the operator sibling subgroup (carved out so a workload
+    // bomb doesn't lock the operator out), and that subgroup has a different
+    // smaller budget. The contract this test pins is the WORKLOAD's cap.
     let out = exec_sh(
         home.path.as_path(),
         &box_id,
-        "cg=$(sed 's/^0:://' /proc/self/cgroup); \
+        "cg=$(sed 's/^0:://' /proc/1/cgroup); \
          printf 'CG=%s\\nMEM=%s\\nPIDS=%s\\n' \
            \"$cg\" \
            \"$(cat /sys/fs/cgroup$cg/memory.max 2>&1)\" \
@@ -130,8 +134,9 @@ fn cgroup_limits_are_enforced_on_the_container() {
     let pids = field("PIDS=");
 
     assert!(
-        cg.starts_with("/boxlite/"),
-        "container must run in its own /boxlite/<id> cgroup, not the root; got {cg:?}\n{report}"
+        cg.starts_with("/boxlite/") && cg.ends_with("/workload"),
+        "container init must run in /boxlite/<id>/workload subgroup (workload + \
+         operator carve-out); got {cg:?}\n{report}"
     );
     let mem_max: u64 = mem.parse().unwrap_or_else(|_| {
         panic!("memory.max must be a concrete byte cap, not {mem:?} (cgroup not applied)\n{report}")
@@ -478,5 +483,118 @@ fn cgroup_limits_survive_stop_and_start() {
     assert!(
         cg.starts_with("/boxlite/"),
         "after restart, container must still run under /boxlite/<id>; got {cg:?}"
+    );
+}
+
+/// **The carve-out's load-bearing test**: after a workload bomb saturates the
+/// workload subgroup, `boxlite exec --debug` must land in the sibling
+/// `/operator` subgroup (own `pids.max=64`), not the workload's saturated one.
+///
+/// What the assertions pin:
+///   1. The `--debug` exec succeeds (operator can still get into the box).
+///   2. The exec'd process's `/proc/self/cgroup` ends with `/operator` —
+///      the structural proof of the carve-out. Without the swap-on-debug
+///      logic this would be `/workload` (or `/boxlite/<id>` if the spec
+///      change is also reverted), and the operator would share fate with
+///      a runaway workload.
+///
+/// Honest caveat: the libcontainer-tenant lockout that originally motivated
+/// the carve-out (workload saturating `/boxlite/<id>` → `failed to launch
+/// init process`) does not reproduce deterministically with this bomb size
+/// in CI — libcontainer needs only ~1 PID slot for tenant exec and the
+/// workload bomb usually leaves at least that much. Assertion #2 is the
+/// deterministic guard; #1 is a smoke check that the API works end-to-end.
+#[test]
+fn operator_exec_works_when_workload_saturates_pids_cap() {
+    let home = PerTestBoxHome::new();
+    let box_id = start_128mb_box(home.path.as_path());
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // Bring up gcc + compile the flood binary (same recipe as the other
+    // stress tests).
+    let install = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "apk add -q --no-cache gcc musl-dev >/dev/null 2>&1 && echo ok",
+        Duration::from_secs(180),
+    );
+    assert!(
+        String::from_utf8_lossy(&install.stdout).contains("ok"),
+        "gcc install failed: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let compile = format!(
+        "cat > /tmp/flood.c << 'CEOF'\n{FLOOD_C}\nCEOF\ngcc -O0 -o /tmp/flood /tmp/flood.c && echo compiled"
+    );
+    let out = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        &compile,
+        Duration::from_secs(90),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("compiled"),
+        "flood compile failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Saturate the workload subgroup: 1000 forks against pids.max=512. The
+    // flood binary's forked children sleep 20 s holding their PIDs, so
+    // they're still alive when we probe `exec` below.
+    let _ = exec_sh(
+        home.path.as_path(),
+        &box_id,
+        "(/tmp/flood 1000 0 &) ; sleep 1 ; echo bomb-launched",
+        Duration::from_secs(30),
+    );
+
+    // Give the bomb a moment to climb to the 512 ceiling. After this the
+    // workload subgroup IS full — any libcontainer cgroup-join into the
+    // same subgroup would EAGAIN.
+    std::thread::sleep(Duration::from_secs(3));
+
+    // Assertion #1 — smoke: `boxlite exec --debug` succeeds against a box
+    // whose workload subgroup is at pids.max. The `--debug` flag is what
+    // routes us out of workload's saturated subgroup.
+    let probe = boxlite(
+        home.path.as_path(),
+        &["exec", "--debug", &box_id, "--", "echo", "operator-alive"],
+        Duration::from_secs(30),
+    );
+    let stdout = String::from_utf8_lossy(&probe.stdout);
+    let stderr = String::from_utf8_lossy(&probe.stderr);
+    assert!(
+        probe.status.success() && stdout.contains("operator-alive"),
+        "boxlite exec --debug must succeed on a workload-saturated box. \
+         exit: {:?}\nstdout: {stdout}\nstderr: {stderr}",
+        probe.status.code()
+    );
+
+    // Assertion #2 (the deterministic one): the `--debug`-exec'd process
+    // landed in the operator subgroup, not workload. This is what catches
+    // a regression where the swap is silently a no-op — the bomb might not
+    // be strong enough to lock workload out, but the cgroup path tells us
+    // definitively whether the carve-out is active.
+    let cg_probe = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            "--debug",
+            &box_id,
+            "--",
+            "sh",
+            "-c",
+            "sed 's/^0:://' /proc/self/cgroup",
+        ],
+        Duration::from_secs(15),
+    );
+    let cg = String::from_utf8_lossy(&cg_probe.stdout).trim().to_string();
+    assert!(
+        cg.ends_with("/operator"),
+        "--debug exec must land in /boxlite/<id>/operator (the carve-out \
+         sibling), not in workload or a single combined cgroup; got {cg:?}"
     );
 }

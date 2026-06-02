@@ -87,6 +87,8 @@ pub(super) struct ExecRequest {
     pub working_dir: Option<String>,
     #[serde(default)]
     pub tty: bool,
+    #[serde(default)]
+    pub debug: bool,
 }
 
 #[derive(Serialize)]

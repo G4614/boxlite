@@ -485,14 +485,35 @@ fn build_linux_spec_with_memory(
     // changes `/proc/self/cgroup` semantics for every container and the
     // existing enforcement test reads that path; needs a coordinated test
     // update.
+    // Container init lives in the `workload` subgroup of `/boxlite/<id>`. The
+    // sibling `operator` subgroup carries a separate small PID/memory budget
+    // for `boxlite exec` so a workload bomb that saturates `pids.max=512` in
+    // workload doesn't lock the operator out of the box. See
+    // `crate::container::cgroup_carve::ensure_box_cgroup_hierarchy` for the
+    // pre-init setup and `crate::service::exec::executor` for the per-exec
+    // `cgroupsPath` swap that routes operator processes into the operator
+    // subgroup at libcontainer-build time.
     LinuxBuilder::default()
         .namespaces(namespaces)
         .uid_mappings(uid_mappings)
         .gid_mappings(gid_mappings)
-        .cgroups_path(std::path::PathBuf::from(format!("/boxlite/{container_id}")))
+        .cgroups_path(std::path::PathBuf::from(format!(
+            "/boxlite/{container_id}/workload"
+        )))
         .resources(resources)
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
+}
+
+/// OCI cgroupsPath for operator-injected processes (`boxlite exec`). Lives as
+/// a sibling of `/boxlite/<id>/workload` under the same parent budget so that
+/// a workload bomb saturating the workload subgroup can't lock the operator
+/// out of the box. See [`build_linux_spec_with_memory`] for the workload
+/// counterpart. Used by `cgroup_carve::swap_to_operator_cgroup_path` only —
+/// libcontainer reads it back from the rewritten config.json on disk.
+#[allow(dead_code)] // production callers use the inline format string; this is here for tests + docs
+pub(crate) fn operator_cgroup_path(container_id: &str) -> String {
+    format!("/boxlite/{container_id}/operator")
 }
 
 /// cgroup `pids.max` for a container: a hard ceiling on the process count so a
