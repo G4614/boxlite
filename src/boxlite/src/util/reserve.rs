@@ -159,18 +159,32 @@ fn ensure_reserve_with_free(home_dir: &Path, host_free: u64) -> BoxliteResult<()
         }
     }
 
-    // Zero-write fallback. This is the one-time cost: 64 MiB sequential
-    // write to a fresh file. Use a 4 MiB buffer so we don't pay 64M
-    // syscalls.
+    // Zero-write fallback on filesystems where `fallocate` returns
+    // `EOPNOTSUPP` (tmpfs / NFSv3 / some FUSE). Extracted into a helper
+    // so we can drive its loop logic from a unit test directly — we can't
+    // easily fake `EOPNOTSUPP` from the dispatch above on a host whose
+    // tempdir fs *does* support fallocate.
     let mut file = file;
+    zero_write_to(&mut file, RESERVE_BYTES, &path)
+}
+
+/// Pad `file` to `total_bytes` by writing zeros from the current position.
+/// Used as the `fallocate` fallback. 4 MiB buffer keeps syscall count low
+/// (~16 writes for a 64 MiB reserve). `path_for_error` only enriches the
+/// error message.
+fn zero_write_to(
+    file: &mut std::fs::File,
+    total_bytes: u64,
+    path_for_error: &Path,
+) -> BoxliteResult<()> {
     let buf = vec![0u8; 4 * 1024 * 1024];
-    let mut remaining = RESERVE_BYTES;
+    let mut remaining = total_bytes;
     while remaining > 0 {
         let n = (remaining as usize).min(buf.len());
         file.write_all(&buf[..n]).map_err(|e| {
             BoxliteError::Storage(format!(
                 "write reserve {} (fallocate-fallback): {e}",
-                path.display()
+                path_for_error.display()
             ))
         })?;
         remaining -= n as u64;
@@ -178,7 +192,7 @@ fn ensure_reserve_with_free(home_dir: &Path, host_free: u64) -> BoxliteResult<()
     file.sync_all().map_err(|e| {
         BoxliteError::Storage(format!(
             "fsync reserve {} (fallocate-fallback): {e}",
-            path.display()
+            path_for_error.display()
         ))
     })?;
     Ok(())
@@ -415,5 +429,120 @@ mod tests {
 
     fn statvfs_bavail_bytes(p: &Path) -> u64 {
         host_free_bytes(p).expect("statvfs in test")
+    }
+
+    /// `zero_write_to` is the fallback path used when `fallocate` returns
+    /// `EOPNOTSUPP` on tmpfs / NFSv3 / FUSE. We can't easily get the dev
+    /// box's tempdir fs to return `EOPNOTSUPP`, so we test the helper
+    /// directly: drive it with a totally normal file and verify it
+    /// produces a file of the requested length filled with zeros.
+    ///
+    /// A regression where this helper writes the wrong byte count or
+    /// stops early would silently leave the reserve undersized on
+    /// fallback-only filesystems, breaking the recovery guarantee.
+    #[test]
+    fn zero_write_to_produces_exact_size_filled_with_zeros() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("probe.bin");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .read(true)
+            .open(&path)
+            .unwrap();
+
+        // Use a smaller target than RESERVE_BYTES to keep the test fast —
+        // the helper's loop is size-agnostic, so the smaller value still
+        // exercises the same boundary logic (full-buffer write + tail
+        // partial write).
+        let target: u64 = 4 * 1024 * 1024 + 7; // forces a full 4 MiB write + a 7-byte tail
+        zero_write_to(&mut file, target, &path).expect("zero_write_to");
+
+        let meta = std::fs::metadata(&path).unwrap();
+        assert_eq!(
+            meta.len(),
+            target,
+            "zero_write_to must produce a file of exactly `total_bytes` long"
+        );
+
+        // Spot-check the content is actually zero — catches a regression
+        // where the helper writes uninitialised buffer contents.
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            bytes.iter().all(|b| *b == 0),
+            "zero_write_to must fill the file with 0x00; found non-zero bytes"
+        );
+    }
+
+    /// Self-heal at partial size: if the reserve file already exists but is
+    /// *smaller* than `RESERVE_BYTES` (e.g. boxlite crashed mid-fallocate, or
+    /// an external tool truncated it), `ensure_reserve` must top it back up
+    /// to the full size on the next runtime construction. Without this, a
+    /// crash window would leave a permanently-undersized reserve and the
+    /// next ENOSPC event would not have the documented 64 MiB headroom.
+    ///
+    /// Pins the `meta.len() >= RESERVE_BYTES` check at line 99 in the live
+    /// code — a regression that loosens this (e.g. `> 0` instead of
+    /// `>= RESERVE_BYTES`) would silently make undersized reserves OK.
+    #[test]
+    fn ensure_reserve_self_heals_partial_reserve_file() {
+        let home = TempDir::new().unwrap();
+        let path = reserve_path(home.path());
+
+        // Pre-create a too-small reserve, simulating a crash mid-allocate.
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(RESERVE_BYTES / 2)
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            RESERVE_BYTES / 2,
+            "precondition: reserve exists but is undersized"
+        );
+
+        ensure_reserve(home.path()).expect("ensure_reserve must self-heal");
+
+        let final_len = std::fs::metadata(&path).unwrap().len();
+        assert_eq!(
+            final_len, RESERVE_BYTES,
+            "ensure_reserve must top up a partial reserve to RESERVE_BYTES; \
+             saw {final_len}"
+        );
+    }
+
+    /// Two boxlite processes can race on `RuntimeImpl::new`, both calling
+    /// `ensure_reserve` on the same home at the same time. Neither must
+    /// error out, and the resulting reserve must be exactly `RESERVE_BYTES`
+    /// (not 2× or some torn intermediate state). We model this with four
+    /// threads pounding on a shared home and assert the invariant.
+    ///
+    /// The kernel side of this (fallocate on an open fd) is atomic per call,
+    /// so the worst that can happen is the second thread sees a file already
+    /// at size and no-ops. This test pins that behaviour against a future
+    /// refactor (e.g. switching to `O_TRUNC` open) that could break it.
+    #[test]
+    fn concurrent_ensure_reserve_is_safe() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let home = Arc::new(TempDir::new().unwrap());
+        let mut handles = Vec::with_capacity(4);
+        for _ in 0..4 {
+            let home = Arc::clone(&home);
+            handles.push(thread::spawn(move || ensure_reserve(home.path())));
+        }
+        for (i, h) in handles.into_iter().enumerate() {
+            h.join()
+                .expect("thread panic")
+                .unwrap_or_else(|e| panic!("thread {i} ensure_reserve failed: {e:?}"));
+        }
+
+        let final_len = std::fs::metadata(reserve_path(home.path())).unwrap().len();
+        assert_eq!(
+            final_len, RESERVE_BYTES,
+            "after concurrent ensure_reserve, file must be exactly \
+             RESERVE_BYTES (not torn / not doubled); got {final_len}"
+        );
     }
 }
