@@ -862,6 +862,14 @@ impl BoxImpl {
                             // status, even when /proc already shows State: Z.
                             // Bounded by `REAP_DEADLINE_MS` to avoid stalling
                             // the health check loop on a wedged shim.
+                            //
+                            // `tokio::time::sleep().await` (not `std::thread
+                            // ::sleep`) — this runs inside a `tokio::spawn`
+                            // task, and `std::thread::sleep` would block the
+                            // worker thread, starving other tasks on the
+                            // runtime (matters during host-wide shim death
+                            // events where many `shim_died` arms fire at
+                            // once).
                             const REAP_DEADLINE_MS: u64 = 500;
                             let deadline = std::time::Instant::now()
                                 + std::time::Duration::from_millis(REAP_DEADLINE_MS);
@@ -897,7 +905,7 @@ impl BoxImpl {
                                     );
                                     break;
                                 }
-                                std::thread::sleep(std::time::Duration::from_millis(10));
+                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                             }
                         }
 
