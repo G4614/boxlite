@@ -1119,6 +1119,102 @@ mod tests {
         );
     }
 
+    /// Same-name overrides: later wins, both directions.
+    ///
+    /// `--cap SYS_ADMIN=0 --cap SYS_ADMIN=1` keeps the cap; the reverse
+    /// drops it. Cli parse preserves order in `BoxOptions.cap_overrides`,
+    /// then `resolve_cap_set` applies entries left-to-right, so the
+    /// last write to a given name wins. Pins that contract explicitly
+    /// — without it, an operator who appends an override on top of an
+    /// inherited config can't reason about whether their change took
+    /// effect.
+    #[test]
+    fn build_capabilities_same_name_later_overrides_earlier() {
+        // drop-then-grant: final state must include SYS_ADMIN.
+        let drop_then_grant = vec![
+            CapOverride {
+                name: "SYS_ADMIN".to_string(),
+                enabled: false,
+            },
+            CapOverride {
+                name: "SYS_ADMIN".to_string(),
+                enabled: true,
+            },
+        ];
+        let caps = build_capabilities(&drop_then_grant).unwrap();
+        let eff = caps.effective().as_ref().unwrap();
+        assert!(
+            eff.contains(&oci_spec::runtime::Capability::SysAdmin),
+            "SYS_ADMIN=0 then SYS_ADMIN=1 must end up granted; got {eff:?}"
+        );
+
+        // grant-then-drop: final state must NOT include SYS_ADMIN.
+        // Starting baseline is ALL so the `=1` is a redundant explicit
+        // grant followed by a drop — the test is here to pin that the
+        // drop still applies even when the prior entry was the same name.
+        let grant_then_drop = vec![
+            CapOverride {
+                name: "SYS_ADMIN".to_string(),
+                enabled: true,
+            },
+            CapOverride {
+                name: "SYS_ADMIN".to_string(),
+                enabled: false,
+            },
+        ];
+        let caps = build_capabilities(&grant_then_drop).unwrap();
+        let eff = caps.effective().as_ref().unwrap();
+        assert!(
+            !eff.contains(&oci_spec::runtime::Capability::SysAdmin),
+            "SYS_ADMIN=1 then SYS_ADMIN=0 must end up dropped; got {eff:?}"
+        );
+    }
+
+    /// `build_tty_exec_process` threads cap_overrides through to the
+    /// returned OCI Process spec.
+    ///
+    /// Necessary because `boxlite exec -t` uses a different code path
+    /// from non-TTY exec — it hands libcontainer a `process.json` built
+    /// here, instead of going through `with_capabilities(...)`. Before
+    /// the refactor, this function hardcoded `build_capabilities(&[])`,
+    /// so even after the container-init path correctly applied
+    /// `--cap SYS_ADMIN=0`, a `boxlite exec -t bash` would still come up
+    /// with SYS_ADMIN granted. The integration test
+    /// `cap::exec_inherits_container_cap_drops` covers the non-TTY path
+    /// at the kernel boundary; this unit test pins the same contract
+    /// for the TTY path against the OCI spec without needing a real PTY.
+    #[test]
+    fn tty_exec_process_honours_cap_overrides() {
+        let drop_sys_admin = vec![CapOverride {
+            name: "SYS_ADMIN".to_string(),
+            enabled: false,
+        }];
+        let process =
+            build_tty_exec_process(&["/bin/sh".to_string()], &[], "/", 0, 0, &drop_sys_admin)
+                .expect("build tty exec process");
+
+        let caps = process
+            .capabilities()
+            .as_ref()
+            .expect("tty exec process must carry a capabilities block");
+        let eff = caps
+            .effective()
+            .as_ref()
+            .expect("tty exec effective set present");
+        assert!(
+            !eff.contains(&oci_spec::runtime::Capability::SysAdmin),
+            "tty exec must honour --cap SYS_ADMIN=0 from the container's overrides; \
+             effective set still includes SysAdmin: {eff:?}"
+        );
+        // Default-ALL preserved for the *unmentioned* caps — the drop
+        // must be surgical, not a fall-back to a 14-cap docker default.
+        assert!(
+            eff.contains(&oci_spec::runtime::Capability::NetAdmin),
+            "tty exec must not collapse to a 14-cap docker baseline; \
+             missing NetAdmin in effective set: {eff:?}"
+        );
+    }
+
     #[test]
     fn linux_spec_keeps_default_proc_sys_hardening() {
         let spec = build_linux_spec("c", build_default_namespaces().unwrap()).unwrap();
