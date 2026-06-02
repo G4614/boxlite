@@ -57,8 +57,9 @@ pub fn create_oci_spec(
     added_caps: &[String],
 ) -> BoxliteResult<Spec> {
     let caps = build_capabilities(added_caps)?;
+    let privileged = added_caps.iter().any(|c| c == "ALL" || c == "SYS_ADMIN");
     let namespaces = build_default_namespaces()?;
-    let mut mounts = build_standard_mounts(bundle_path)?;
+    let mut mounts = build_standard_mounts(bundle_path, privileged)?;
 
     // Add user-specified bind mounts
     for user_mount in user_mounts {
@@ -93,7 +94,7 @@ pub fn create_oci_spec(
 
     let process = build_process_spec(entrypoint, env, workdir, uid, gid, caps)?;
     let root = build_root_spec(rootfs)?;
-    let linux = build_linux_spec(container_id, namespaces)?;
+    let linux = build_linux_spec(container_id, namespaces, privileged)?;
 
     SpecBuilder::default()
         .version("1.0.2")
@@ -412,6 +413,7 @@ fn build_root_spec(rootfs: &str) -> BoxliteResult<oci_spec::runtime::Root> {
 fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
+    privileged: bool,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
     // Map full range of UIDs/GIDs to allow non-root users (nginx=33, etc.)
@@ -459,19 +461,28 @@ fn build_linux_spec(
     // let cgroups_path = format!("/boxlite/{}", container_id);
     let _ = container_id; // Suppress unused warning
 
-    LinuxBuilder::default()
+    let mut builder = LinuxBuilder::default()
         .namespaces(namespaces)
         .uid_mappings(uid_mappings)
-        .gid_mappings(gid_mappings)
-        // .masked_paths(masked_paths)
-        // .readonly_paths(readonly_paths)
-        // .cgroups_path(cgroups_path)
+        .gid_mappings(gid_mappings);
+    // .cgroups_path(cgroups_path)
+
+    if privileged {
+        // DinD writes /proc/sys/net/ipv4/ip_forward when bringing up its
+        // bridge. Clearing these lists matches the privileged-container shape
+        // needed for that path while non-privileged boxes keep OCI defaults.
+        builder = builder
+            .masked_paths(Vec::<String>::new())
+            .readonly_paths(Vec::<String>::new());
+    }
+
+    builder
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
 }
 
 /// Build standard mounts for container filesystem
-fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
+fn build_standard_mounts(bundle_path: &Path, cgroup_rw: bool) -> BoxliteResult<Vec<Mount>> {
     let mut mounts = vec![
         // /proc - Process information
         MountBuilder::default()
@@ -562,6 +573,27 @@ fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
         //     .map_err(|e| {
         //         BoxliteError::Internal(format!("Failed to build /sys/fs/cgroup mount: {}", e))
         //     })?,
+    ];
+
+    if cgroup_rw {
+        mounts.push(
+            MountBuilder::default()
+                .destination("/sys/fs/cgroup")
+                .typ("cgroup2")
+                .source("cgroup2")
+                .options(vec![
+                    "nosuid".to_string(),
+                    "noexec".to_string(),
+                    "nodev".to_string(),
+                ])
+                .build()
+                .map_err(|e| {
+                    BoxliteError::Internal(format!("Failed to build cgroup2 mount: {}", e))
+                })?,
+        );
+    }
+
+    mounts.extend(vec![
         // /tmp - Temporary filesystem
         MountBuilder::default()
             .destination("/tmp")
@@ -574,7 +606,7 @@ fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
             ])
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /tmp mount: {}", e)))?,
-    ];
+    ]);
 
     // Bind-mount /etc/hostname, /etc/hosts, /etc/resolv.conf from the bundle
     // dir into the container. Uses rbind + rprivate (matching Docker defaults).
@@ -1013,7 +1045,7 @@ mod tests {
 
     #[test]
     fn linux_spec_keeps_default_proc_sys_hardening() {
-        let spec = build_linux_spec("c", build_default_namespaces().unwrap()).unwrap();
+        let spec = build_linux_spec("c", build_default_namespaces().unwrap(), false).unwrap();
         let ro = spec
             .readonly_paths()
             .as_ref()
@@ -1021,6 +1053,42 @@ mod tests {
         assert!(
             ro.iter().any(|p| p == "/proc/sys"),
             "security options must not implicitly make /proc/sys writable; got {ro:?}"
+        );
+    }
+
+    #[test]
+    fn privileged_linux_spec_clears_readonly_and_masked_paths() {
+        let spec = build_linux_spec("c", build_default_namespaces().unwrap(), true).unwrap();
+        assert_eq!(
+            spec.readonly_paths().as_ref().map(Vec::len),
+            Some(0),
+            "privileged containers need writable /proc/sys for DinD bridge setup"
+        );
+        assert_eq!(
+            spec.masked_paths().as_ref().map(Vec::len),
+            Some(0),
+            "privileged containers should clear masked paths"
+        );
+    }
+
+    #[test]
+    fn privileged_standard_mounts_add_cgroup2() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mounts = build_standard_mounts(dir.path(), true).unwrap();
+        assert!(
+            mounts
+                .iter()
+                .any(|m| m.destination() == "/sys/fs/cgroup"
+                    && m.typ().as_deref() == Some("cgroup2")),
+            "privileged DinD path must mount writable cgroup2"
+        );
+
+        let unprivileged_mounts = build_standard_mounts(dir.path(), false).unwrap();
+        assert!(
+            unprivileged_mounts
+                .iter()
+                .all(|m| m.destination() != "/sys/fs/cgroup"),
+            "default boxes should not pay the cgroup2 mount cost"
         );
     }
 }
