@@ -65,6 +65,10 @@ pub struct ContainerCommand {
 
     /// PTY configuration (set via with_pty())
     pty_config: Option<PtyConfig>,
+
+    /// Cap overrides inherited from the parent container's init. Replayed
+    /// into every exec'd process so it sees the same cap set as init.
+    cap_overrides: Vec<super::capabilities::CapOverride>,
 }
 
 impl ContainerCommand {
@@ -78,6 +82,7 @@ impl ContainerCommand {
         env: HashMap<String, String>,
         user: (u32, u32),
         rootfs: PathBuf,
+        cap_overrides: Vec<super::capabilities::CapOverride>,
     ) -> Self {
         Self {
             program: None,
@@ -91,6 +96,7 @@ impl ContainerCommand {
             pty_config: None,
             id,
             state_root,
+            cap_overrides,
         }
     }
 
@@ -386,6 +392,7 @@ impl ContainerCommand {
             args: container_args.clone(),
             uid,
             gid,
+            cap_overrides: self.cap_overrides.clone(),
         };
 
         // Blocking IPC to zygote — use spawn_blocking to not block tokio.
@@ -556,6 +563,7 @@ mod tests {
             HashMap::new(),
             (0, 0),
             PathBuf::from("/tmp/rootfs"),
+            vec![],
         )
     }
 

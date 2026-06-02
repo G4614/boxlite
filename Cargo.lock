@@ -494,6 +494,7 @@ dependencies = [
  "gtmpl_value",
  "nix 0.30.1",
  "notify",
+ "oci-spec 0.6.7",
  "openidconnect",
  "predicates",
  "reqwest",

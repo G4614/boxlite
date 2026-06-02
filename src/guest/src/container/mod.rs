@@ -58,7 +58,7 @@
 //! ```
 
 #[cfg(target_os = "linux")]
-mod capabilities;
+pub(crate) mod capabilities;
 #[cfg(target_os = "linux")]
 mod command;
 #[cfg(target_os = "linux")]

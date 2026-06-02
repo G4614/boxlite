@@ -694,18 +694,62 @@ pub struct ManagementFlags {
     #[arg(long)]
     pub rm: bool,
 
-    /// Add a Linux capability. Repeatable. Use "ALL" for every cap.
-    /// e.g. --cap-add SYS_ADMIN --cap-add NET_ADMIN
-    #[arg(long = "cap-add", value_name = "CAP")]
-    pub cap_add: Vec<String>,
+    /// Override a Linux capability. Form: `NAME=0` to drop, `NAME=1` to
+    /// explicitly grant (no-op against the default-ALL baseline but kept
+    /// for audit clarity). Repeatable. `ALL=0` drops every capability;
+    /// `ALL=1` is the default. The CAP_ prefix is accepted but optional.
+    /// e.g. `--cap SYS_ADMIN=0 --cap NET_ADMIN=0`.
+    ///
+    /// boxlite's default is to grant every capability inside the
+    /// container — the VM is the trust boundary, not the container — so
+    /// this flag is "subtract what you don't want", not "add what you do
+    /// want."
+    #[arg(long = "cap", value_name = "NAME=0|1", value_parser = parse_cap_override)]
+    pub cap: Vec<boxlite::CapOverride>,
+}
+
+/// Parse a single `--cap NAME=0|1` argument into a CapOverride.
+///
+/// Surface validation here (not at guest-init time) so a typo or
+/// unsupported name is reported up-front against `boxlite run` instead
+/// of being silently swallowed in the guest agent's logs.
+fn parse_cap_override(s: &str) -> anyhow::Result<boxlite::CapOverride> {
+    let (name_raw, value_raw) = s
+        .split_once('=')
+        .ok_or_else(|| anyhow::anyhow!("expected NAME=0|1, got {s:?}"))?;
+    let name = name_raw.trim().to_uppercase();
+    if name.is_empty() {
+        anyhow::bail!("capability name must be non-empty in {s:?}");
+    }
+    let enabled = match value_raw.trim() {
+        "0" => false,
+        "1" => true,
+        other => anyhow::bail!("capability value must be 0 or 1 (got {other:?} in {s:?})"),
+    };
+    // ALL is always accepted; otherwise the bare-form name must match
+    // oci-spec's known capabilities so a typo fails at parse, not later.
+    let normalised = name.strip_prefix("CAP_").unwrap_or(&name);
+    if normalised != "ALL" {
+        use std::str::FromStr;
+        oci_spec::runtime::Capability::from_str(normalised).map_err(|_| {
+            anyhow::anyhow!(
+                "unknown capability {name:?}; expected ALL or a Linux capability \
+                 like SYS_ADMIN, NET_ADMIN, SYS_PTRACE (with or without the CAP_ prefix)"
+            )
+        })?;
+    }
+    Ok(boxlite::CapOverride {
+        name: normalised.to_string(),
+        enabled,
+    })
 }
 
 impl ManagementFlags {
     pub fn apply_to(&self, opts: &mut BoxOptions) {
         opts.detach = self.detach;
         opts.auto_remove = self.rm;
-        if !self.cap_add.is_empty() {
-            opts.added_caps = self.cap_add.iter().map(|c| c.to_uppercase()).collect();
+        if !self.cap.is_empty() {
+            opts.cap_overrides = self.cap.clone();
         }
     }
 }
@@ -885,42 +929,130 @@ mod tests {
     }
 
     #[test]
-    fn cap_add_propagates_to_options() {
+    fn cap_overrides_propagate_to_options() {
         let flags = ManagementFlags {
             name: None,
             detach: false,
             rm: false,
-            cap_add: vec!["sys_admin".to_string(), "net_admin".to_string()],
+            cap: vec![
+                boxlite::CapOverride {
+                    name: "SYS_ADMIN".to_string(),
+                    enabled: false,
+                },
+                boxlite::CapOverride {
+                    name: "NET_ADMIN".to_string(),
+                    enabled: false,
+                },
+            ],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts);
-        assert_eq!(opts.added_caps, vec!["SYS_ADMIN", "NET_ADMIN"]);
+        assert_eq!(
+            opts.cap_overrides,
+            vec![
+                boxlite::CapOverride {
+                    name: "SYS_ADMIN".to_string(),
+                    enabled: false,
+                },
+                boxlite::CapOverride {
+                    name: "NET_ADMIN".to_string(),
+                    enabled: false,
+                },
+            ]
+        );
     }
 
     #[test]
-    fn cap_add_all_propagates() {
+    fn cap_all_zero_propagates_as_single_override() {
         let flags = ManagementFlags {
             name: None,
             detach: false,
             rm: false,
-            cap_add: vec!["all".to_string()],
+            cap: vec![boxlite::CapOverride {
+                name: "ALL".to_string(),
+                enabled: false,
+            }],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts);
-        assert_eq!(opts.added_caps, vec!["ALL"]);
+        assert_eq!(
+            opts.cap_overrides,
+            vec![boxlite::CapOverride {
+                name: "ALL".to_string(),
+                enabled: false,
+            }]
+        );
     }
 
     #[test]
-    fn no_cap_add_leaves_empty() {
+    fn no_cap_flag_leaves_overrides_empty() {
         let flags = ManagementFlags {
             name: None,
             detach: false,
             rm: false,
-            cap_add: vec![],
+            cap: vec![],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts);
-        assert!(opts.added_caps.is_empty());
+        assert!(opts.cap_overrides.is_empty());
+    }
+
+    /// `--cap` value parser exhaustively covers each input shape so a
+    /// regression in the surface validation can't slip through.
+    #[test]
+    fn parse_cap_override_accepts_bare_and_prefixed_names_with_either_value() {
+        let drop = super::parse_cap_override("SYS_ADMIN=0").unwrap();
+        assert_eq!(drop.name, "SYS_ADMIN");
+        assert!(!drop.enabled);
+
+        let grant = super::parse_cap_override("net_admin=1").unwrap();
+        assert_eq!(grant.name, "NET_ADMIN");
+        assert!(grant.enabled);
+
+        // CAP_ prefix is stripped so both forms map to the same override.
+        let prefixed = super::parse_cap_override("CAP_SYS_PTRACE=0").unwrap();
+        assert_eq!(prefixed.name, "SYS_PTRACE");
+        assert!(!prefixed.enabled);
+
+        // ALL is the reserved literal — accepted with either value.
+        let all_off = super::parse_cap_override("ALL=0").unwrap();
+        assert_eq!(all_off.name, "ALL");
+        assert!(!all_off.enabled);
+        let all_on = super::parse_cap_override("ALL=1").unwrap();
+        assert_eq!(all_on.name, "ALL");
+        assert!(all_on.enabled);
+    }
+
+    #[test]
+    fn parse_cap_override_rejects_unknown_name_at_parse_time() {
+        // The whole point of the surface validation: a typo like SYS-ADMIN
+        // (with a dash) must error at `--cap` parse, not get quietly
+        // dropped in the guest log.
+        let err = super::parse_cap_override("SYS-ADMIN=0").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("unknown capability"),
+            "must explain the cap name is unknown; got {msg:?}"
+        );
+    }
+
+    #[test]
+    fn parse_cap_override_rejects_missing_or_bad_value() {
+        // No `=` at all.
+        let err = super::parse_cap_override("SYS_ADMIN").unwrap_err();
+        assert!(format!("{err}").contains("NAME=0|1"));
+
+        // Non-binary value.
+        let err = super::parse_cap_override("SYS_ADMIN=true").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("must be 0 or 1"),
+            "must explain the value constraint; got {msg:?}"
+        );
+
+        // Empty NAME.
+        let err = super::parse_cap_override("=0").unwrap_err();
+        assert!(format!("{err}").contains("non-empty"));
     }
 
     #[test]

@@ -47,6 +47,10 @@ pub struct Container {
     env: HashMap<String, String>,
     /// Resolved (uid, gid) from image USER directive, propagated to exec commands.
     user: (u32, u32),
+    /// Cap overrides applied at init; replayed verbatim for any subsequent
+    /// `boxlite exec` so exec processes inherit the same cap set as init.
+    /// Empty = default-ALL baseline (no drops).
+    cap_overrides: Vec<super::capabilities::CapOverride>,
     /// Stdio pipes that keep init process alive.
     /// Dropping this closes pipes → init gets EOF → init exits.
     #[allow(dead_code)]
@@ -90,7 +94,7 @@ impl Container {
         workdir: impl AsRef<Path>,
         user: &str,
         user_mounts: Vec<UserMount>,
-        added_caps: Vec<String>,
+        cap_overrides: Vec<super::capabilities::CapOverride>,
     ) -> BoxliteResult<Self> {
         let rootfs = rootfs.as_ref();
         let workdir = workdir.as_ref();
@@ -165,7 +169,7 @@ impl Container {
             gid,
             &layout.containers_dir(),
             &user_mounts,
-            &added_caps,
+            &cap_overrides,
         )?;
 
         // Create stdio pipes before container creation.
@@ -182,6 +186,7 @@ impl Container {
             bundle_path,
             env: env_map,
             user: (uid, gid),
+            cap_overrides,
             stdio,
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
@@ -269,6 +274,7 @@ impl Container {
             self.env.clone(),
             self.user,
             self.bundle_path.join("rootfs"),
+            self.cap_overrides.clone(),
         )
     }
 

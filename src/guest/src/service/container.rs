@@ -247,6 +247,11 @@ impl ContainerService for GuestServer {
             entrypoint = ?config.entrypoint,
             "Starting OCI container with pipe-based stdio"
         );
+        // Convert proto cap_overrides → guest-local form at the gRPC
+        // boundary so the rest of the guest doesn't drag the prost type
+        // through serde-derived IPC structures (BuildSpec).
+        let cap_overrides: Vec<crate::container::capabilities::CapOverride> =
+            init_req.cap_overrides.into_iter().map(Into::into).collect();
         match Container::start(
             &container_id,
             &bundle_rootfs,
@@ -255,7 +260,7 @@ impl ContainerService for GuestServer {
             &config.workdir,
             &config.user,
             user_mounts,
-            init_req.added_caps,
+            cap_overrides,
         ) {
             Ok(mut container) => {
                 debug!(container_id = %container_id, "Container started, checking if init process is running");

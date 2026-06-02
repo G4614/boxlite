@@ -99,7 +99,7 @@ impl ContainerInterface {
         rootfs: ContainerRootfsInitConfig,
         mounts: Vec<ContainerMount>,
         ca_certs: Vec<String>,
-        added_caps: Vec<String>,
+        cap_overrides: Vec<crate::runtime::options::CapOverride>,
     ) -> BoxliteResult<String> {
         let proto_config = ProtoContainerConfig {
             entrypoint: image_config.final_cmd(),
@@ -134,13 +134,20 @@ impl ContainerInterface {
             "Container configuration"
         );
 
+        let proto_cap_overrides: Vec<boxlite_shared::CapOverride> = cap_overrides
+            .into_iter()
+            .map(|o| boxlite_shared::CapOverride {
+                name: o.name,
+                enabled: o.enabled,
+            })
+            .collect();
         let request = ContainerInitRequest {
             container_id: container_id.to_string(),
             container_config: Some(proto_config),
             rootfs: Some(rootfs.into_proto()),
             mounts: proto_mounts,
             ca_certs: ca_certs.into_iter().map(|pem| CaCert { pem }).collect(),
-            added_caps,
+            cap_overrides: proto_cap_overrides,
         };
 
         let response = self.client.init(request).await?.into_inner();

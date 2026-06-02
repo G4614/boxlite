@@ -2,7 +2,7 @@
 //!
 //! Creates OCI-compliant runtime specifications following the runtime-spec standard.
 
-use super::capabilities::{all_capabilities, default_capabilities};
+use super::capabilities::{all_capabilities, CapOverride};
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use std::path::Path;
 
@@ -54,9 +54,9 @@ pub fn create_oci_spec(
     gid: u32,
     bundle_path: &Path,
     user_mounts: &[UserMount],
-    added_caps: &[String],
+    cap_overrides: &[CapOverride],
 ) -> BoxliteResult<Spec> {
-    let caps = build_capabilities(added_caps)?;
+    let caps = build_capabilities(cap_overrides)?;
     let namespaces = build_default_namespaces()?;
     let mut mounts = build_standard_mounts(bundle_path)?;
 
@@ -265,35 +265,57 @@ fn find_group_in_group_file(rootfs: &str, name: &str) -> BoxliteResult<u32> {
 // Spec Component Builders
 // ====================
 
-/// Build default Linux capabilities matching Docker/OCI defaults.
-fn build_capabilities(
-    added_caps: &[String],
-) -> BoxliteResult<oci_spec::runtime::LinuxCapabilities> {
+/// Resolve `cap_overrides` against the default-ALL baseline into the
+/// concrete capability set the container should run with.
+///
+/// Default = every cap on; the VM (libkrun) is the trust boundary, not
+/// the container, so docker-style restricted defaults would mostly add
+/// friction without adding meaningful isolation against the host.
+/// Overrides apply in order — later entries override earlier ones.
+///
+/// Unknown cap names error rather than warn — the CLI already validates
+/// at parse, so a name reaching here that doesn't resolve is almost
+/// certainly a host/proto-version mismatch worth surfacing loudly.
+pub(crate) fn resolve_cap_set(
+    cap_overrides: &[CapOverride],
+) -> BoxliteResult<std::collections::HashSet<oci_spec::runtime::Capability>> {
     use oci_spec::runtime::Capability;
     use std::str::FromStr;
 
-    let mut caps = default_capabilities();
+    let mut caps = all_capabilities();
 
-    if added_caps.iter().any(|c| c == "ALL") {
-        caps.extend(all_capabilities());
-    } else {
-        for name in added_caps {
-            // oci-spec 0.6 `Capability::FromStr` accepts the bare form
-            // (e.g. "SYS_ADMIN"), not the CAP_-prefixed form. Strip the
-            // prefix if the caller passed one — both `--cap-add SYS_ADMIN`
-            // and `--cap-add CAP_SYS_ADMIN` then map to the same variant.
-            let cap_name = name.strip_prefix("CAP_").unwrap_or(name);
-            match Capability::from_str(cap_name) {
-                Ok(cap) => {
-                    caps.insert(cap);
-                }
-                Err(_) => {
-                    tracing::warn!("Unknown capability: {name}, skipping");
-                }
+    for override_entry in cap_overrides {
+        let raw = override_entry.name.as_str();
+        let normalised = raw.strip_prefix("CAP_").unwrap_or(raw);
+        if normalised == "ALL" {
+            if override_entry.enabled {
+                caps = all_capabilities();
+            } else {
+                caps.clear();
             }
+            continue;
+        }
+        let cap = Capability::from_str(normalised).map_err(|_| {
+            BoxliteError::Config(format!(
+                "unknown Linux capability {raw:?}; expected ALL or a name \
+                 like SYS_ADMIN, NET_ADMIN, SYS_PTRACE (with or without the CAP_ prefix)"
+            ))
+        })?;
+        if override_entry.enabled {
+            caps.insert(cap);
+        } else {
+            caps.remove(&cap);
         }
     }
 
+    Ok(caps)
+}
+
+/// Build the OCI process.capabilities block from cap_overrides.
+pub(crate) fn build_capabilities(
+    cap_overrides: &[CapOverride],
+) -> BoxliteResult<oci_spec::runtime::LinuxCapabilities> {
+    let caps = resolve_cap_set(cap_overrides)?;
     LinuxCapabilitiesBuilder::default()
         .bounding(caps.clone())
         .effective(caps.clone())
@@ -302,6 +324,16 @@ fn build_capabilities(
         .ambient(caps)
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build capabilities: {}", e)))
+}
+
+/// Same cap set as [`build_capabilities`] but rendered as CAP_-prefixed
+/// strings — the form libcontainer's `with_capabilities` builder expects
+/// when constructing a tenant container (non-TTY exec path).
+pub(crate) fn cap_override_libcontainer_names(
+    cap_overrides: &[CapOverride],
+) -> BoxliteResult<Vec<String>> {
+    let caps = resolve_cap_set(cap_overrides)?;
+    Ok(caps.iter().map(|c| format!("CAP_{c}")).collect())
 }
 
 /// Build default namespaces for container isolation
@@ -380,6 +412,7 @@ pub(crate) fn build_tty_exec_process(
     cwd: &str,
     uid: u32,
     gid: u32,
+    cap_overrides: &[CapOverride],
 ) -> BoxliteResult<oci_spec::runtime::Process> {
     let user = UserBuilder::default()
         .uid(uid)
@@ -393,7 +426,13 @@ pub(crate) fn build_tty_exec_process(
         .args(args.to_vec())
         .env(env)
         .cwd(cwd)
-        .capabilities(build_capabilities(&[])?)
+        // Inherit the container's cap_overrides instead of hardcoding an
+        // empty list. Without this, every `boxlite exec -t` would silently
+        // run with the default-ALL baseline, ignoring any `--cap NAME=0`
+        // the operator set at `boxlite run` — and the symmetric case
+        // (operator did NOT drop) would still get ALL, so the regression
+        // was invisible by default.
+        .capabilities(build_capabilities(cap_overrides)?)
         .no_new_privileges(false)
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build tty exec process: {}", e)))
@@ -993,22 +1032,91 @@ mod tests {
     }
 
     #[test]
-    fn build_capabilities_all_grants_dangerous_caps() {
-        // `--cap-add ALL` must yield the full OCI capability set. The old
-        // ALL branch double-prefixed cap names ("CAP_CAP_*"), so the
-        // expansion was a no-op and only the default 14-cap set survived.
-        let caps = build_capabilities(&["ALL".to_string()]).unwrap();
+    fn build_capabilities_default_baseline_is_all_caps() {
+        // boxlite's default-ALL baseline: an empty override list yields
+        // every Linux capability in the effective set. Pins the inverted
+        // model — pre-refactor the empty list yielded the docker 14-cap
+        // default, which silently neutered `boxlite exec` for privileged
+        // workloads.
+        let caps = build_capabilities(&[]).unwrap();
         let eff = caps.effective().as_ref().expect("effective set present");
         for cap in [
             oci_spec::runtime::Capability::SysAdmin,
             oci_spec::runtime::Capability::NetAdmin,
+            oci_spec::runtime::Capability::SysPtrace,
+            oci_spec::runtime::Capability::SysModule,
         ] {
             assert!(
                 eff.contains(&cap),
-                "ALL effective set must include {:?}",
+                "default-ALL baseline must include {:?}",
                 cap
             );
         }
+    }
+
+    #[test]
+    fn build_capabilities_drop_removes_only_named_cap() {
+        let drop_sys_admin = vec![CapOverride {
+            name: "SYS_ADMIN".to_string(),
+            enabled: false,
+        }];
+        let caps = build_capabilities(&drop_sys_admin).unwrap();
+        let eff = caps.effective().as_ref().unwrap();
+        assert!(
+            !eff.contains(&oci_spec::runtime::Capability::SysAdmin),
+            "SYS_ADMIN=0 must drop SysAdmin from effective set"
+        );
+        // Sibling caps untouched — the override must be surgical, not
+        // collateral damage like "drop everything except this one."
+        assert!(
+            eff.contains(&oci_spec::runtime::Capability::NetAdmin),
+            "drop must not touch unrelated caps"
+        );
+    }
+
+    #[test]
+    fn build_capabilities_all_zero_clears_set() {
+        let all_off = vec![CapOverride {
+            name: "ALL".to_string(),
+            enabled: false,
+        }];
+        let caps = build_capabilities(&all_off).unwrap();
+        let eff = caps.effective().as_ref().unwrap();
+        assert!(eff.is_empty(), "ALL=0 must clear the effective set");
+    }
+
+    #[test]
+    fn build_capabilities_grant_after_all_zero_restores_just_that_cap() {
+        // Order matters: later overrides override earlier. ALL=0 then
+        // SYS_ADMIN=1 must leave a 1-cap set, not the full default-ALL.
+        let overrides = vec![
+            CapOverride {
+                name: "ALL".to_string(),
+                enabled: false,
+            },
+            CapOverride {
+                name: "SYS_ADMIN".to_string(),
+                enabled: true,
+            },
+        ];
+        let caps = build_capabilities(&overrides).unwrap();
+        let eff = caps.effective().as_ref().unwrap();
+        assert_eq!(eff.len(), 1, "expected exactly SYS_ADMIN; got {eff:?}");
+        assert!(eff.contains(&oci_spec::runtime::Capability::SysAdmin));
+    }
+
+    #[test]
+    fn build_capabilities_unknown_name_errors() {
+        let bogus = vec![CapOverride {
+            name: "SYS-ADMIN".to_string(), // dash, not underscore
+            enabled: false,
+        }];
+        let err = build_capabilities(&bogus).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown Linux capability"),
+            "guest must reject unknown caps, not silently warn; got {msg:?}"
+        );
     }
 
     #[test]

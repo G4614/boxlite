@@ -397,11 +397,37 @@ pub struct BoxOptions {
     #[serde(default)]
     pub secrets: Vec<Secret>,
 
-    /// Additional Linux capabilities to grant the container.
-    /// e.g. `["SYS_ADMIN", "NET_ADMIN"]`. Merged with the default
-    /// OCI capability set. "ALL" grants every capability.
+    /// Per-capability overrides on top of the default-ALL baseline.
+    ///
+    /// boxlite defaults every Linux capability to *on* inside the
+    /// container — the VM (libkrun) is the trust boundary, not the
+    /// container, so docker-style restricted defaults would mostly add
+    /// friction without adding meaningful isolation.
+    ///
+    /// Each entry pins one capability:
+    /// - `CapOverride { name: "SYS_ADMIN", enabled: false }` — drop it.
+    /// - `CapOverride { name: "SYS_ADMIN", enabled: true }` — explicit
+    ///   grant (no-op vs. the default, but preserved for explicit audit
+    ///   trails).
+    /// - `CapOverride { name: "ALL", enabled: false }` — drop every cap.
+    /// - `CapOverride { name: "ALL", enabled: true }` — keep every cap
+    ///   (= the default).
+    ///
+    /// Later entries override earlier ones for the same name.
     #[serde(default)]
-    pub added_caps: Vec<String>,
+    pub cap_overrides: Vec<CapOverride>,
+}
+
+/// A single capability override on top of the default-ALL baseline.
+///
+/// See [`BoxOptions::cap_overrides`] for the semantic model.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CapOverride {
+    /// Capability name without the CAP_ prefix (e.g. "SYS_ADMIN"), or
+    /// the reserved literal "ALL" meaning every capability.
+    pub name: String,
+    /// true → cap is on; false → cap is dropped.
+    pub enabled: bool,
 }
 
 /// A secret for MITM proxy injection.
@@ -503,7 +529,7 @@ impl Default for BoxOptions {
             cmd: None,
             user: None,
             secrets: Vec::new(),
-            added_caps: Vec::new(),
+            cap_overrides: Vec::new(),
         }
     }
 }

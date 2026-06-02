@@ -208,13 +208,31 @@ message ContainerInitRequest {
   // Additional CA certificates to install in the container trust store.
   // Used for MITM secret substitution — the container trusts the proxy CA.
   repeated CACert ca_certs = 5;
-  // Additional Linux capabilities (e.g. "SYS_ADMIN", "NET_ADMIN", "ALL").
-  repeated string added_caps = 6;
+  // Linux capability selection overrides on top of the default ALL-on
+  // baseline. Each entry pins a single capability to `enabled=true`
+  // (kept; redundant since default is on) or `enabled=false` (dropped).
+  // Empty list = every capability is on (the boxlite default — the VM
+  // is the trust boundary, not the container).
+  repeated CapOverride cap_overrides = 6;
 }
 
 // A CA certificate to add to the container's trust store.
 message CACert {
   string pem = 1;  // PEM-encoded X.509 certificate
+}
+
+// Per-capability override for the container's process capability set.
+//
+// boxlite's default-ALL model puts the trust boundary at the VM rather
+// than the container; `--cap NAME=0` records a drop here and `=1` records
+// an explicit grant (no-op against the default but allowed for forward
+// compatibility / explicit audit trails).
+message CapOverride {
+  // Capability name without the CAP_ prefix (e.g. "SYS_ADMIN").
+  // The reserved literal "ALL" means every capability.
+  string name = 1;
+  // true → cap kept/granted; false → cap dropped.
+  bool enabled = 2;
 }
 
 // Bind mount from guest volume to container path
