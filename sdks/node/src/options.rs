@@ -427,6 +427,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             cmd: js_opts.cmd,
             user: js_opts.user,
             secrets,
+            added_caps: Vec::new(),
         })
     }
 }
