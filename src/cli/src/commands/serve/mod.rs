@@ -752,6 +752,18 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
     // the default-flip (jailer + seccomp on for Linux/macOS) applies
     // uniformly. Operators who want a different policy run the
     // server with a different default; clients cannot relax it.
+    let cap_overrides = req
+        .cap_overrides
+        .as_ref()
+        .map(|caps| {
+            caps.iter()
+                .map(|c| boxlite::CapOverride {
+                    name: c.name.clone(),
+                    enabled: c.enabled,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     let auto_delete = req.auto_delete.unwrap_or(0);
     Ok(BoxOptions {
@@ -772,6 +784,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         // Preserve the serve API's historical detached default for persistent
         // boxes, but do not synthesize an invalid detached remove-on-stop box.
         detach: req.detach.unwrap_or(auto_delete == 0),
+        cap_overrides,
         ..Default::default()
     })
 }
@@ -1397,6 +1410,49 @@ mod tests {
             msg.contains("unknown field") && msg.contains("security_settings"),
             "expected deny-unknown-fields rejection mentioning `security_settings`; got {msg}"
         );
+    }
+
+    /// REST `POST /boxes` body: `cap_overrides` deserializes off the
+    /// wire AND threads through `build_box_options` into the core
+    /// `BoxOptions.cap_overrides` the rest of the pipeline consumes.
+    ///
+    /// Pre-fix, the field was missing on both the client-side
+    /// `CreateBoxRequest` (boxlite::rest::types) and the server-side
+    /// `CreateBoxRequest` (this module's types), and `deny_unknown_fields`
+    /// on the server would actually error out a JSON body that tried to
+    /// include it. Every SDK→REST→server caller was silently capped at
+    /// the default-ALL baseline regardless of `--cap`. This test pins
+    /// the wire→core conversion so a regression on either side flips it
+    /// red.
+    #[test]
+    fn build_box_options_threads_cap_overrides_from_rest_body() {
+        let json = r#"{
+            "image": "alpine:latest",
+            "cap_overrides": [
+                {"name": "SYS_ADMIN", "enabled": false},
+                {"name": "NET_ADMIN", "enabled": false}
+            ]
+        }"#;
+        let req: super::types::CreateBoxRequest =
+            serde_json::from_str(json).expect("body with cap_overrides must deserialize");
+        let opts = build_box_options(&req).expect("build_box_options");
+        assert_eq!(opts.cap_overrides.len(), 2);
+        assert_eq!(opts.cap_overrides[0].name, "SYS_ADMIN");
+        assert!(!opts.cap_overrides[0].enabled);
+        assert_eq!(opts.cap_overrides[1].name, "NET_ADMIN");
+        assert!(!opts.cap_overrides[1].enabled);
+    }
+
+    /// Backward-compat: a `POST /boxes` body without `cap_overrides`
+    /// (the shape every pre-existing client sends) still deserializes
+    /// and yields the default-ALL baseline (= empty list).
+    #[test]
+    fn build_box_options_no_cap_overrides_defaults_to_empty() {
+        let json = r#"{"image": "alpine:latest"}"#;
+        let req: super::types::CreateBoxRequest =
+            serde_json::from_str(json).expect("legacy body must still deserialize");
+        let opts = build_box_options(&req).expect("build_box_options");
+        assert!(opts.cap_overrides.is_empty());
     }
 
     /// Build an `ActiveExecution` backed by a stub `Execution` whose

@@ -57,6 +57,20 @@ pub(super) struct CreateBoxRequest {
     // serde_json::from_str — there is no quiet fall-through. See
     // `build_box_options_rejects_client_supplied_security_*` tests
     // below for the wire-shape pin.
+    /// Linux capability overrides on top of the default-ALL baseline.
+    /// Each entry pins one cap: `enabled=false` drops, `enabled=true`
+    /// is an explicit grant (no-op vs the default but kept for audit
+    /// clarity). `ALL` applies to every capability at once. Later
+    /// entries override earlier ones for the same name.
+    #[serde(default)]
+    pub cap_overrides: Option<Vec<CreateBoxCapOverride>>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CreateBoxCapOverride {
+    pub name: String,
+    pub enabled: bool,
 }
 
 #[derive(Deserialize)]
