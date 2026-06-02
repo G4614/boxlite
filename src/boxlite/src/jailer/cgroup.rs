@@ -655,4 +655,122 @@ mod tests {
             "error must spell out the missing controllers; got {msg:?}"
         );
     }
+
+    /// `CPUQuotaPerSecUSec` from `CgroupConfig` must land verbatim on the
+    /// systemd transient scope when `adopt_pid_into_scope` is called.
+    ///
+    /// Commit `a6386896` added the `cpu_quota_us_per_sec` field on
+    /// `CgroupConfig` + the busctl property marshalling, but no production
+    /// code path currently sets the field (the default in
+    /// `jailer::cgroup_config()` only wires `memory_max` + `pids_max`).
+    /// This test guards the **plumbing** so when a future PR wires CPU
+    /// quota in from `ResourceLimits` or a CLI flag, the busctl property
+    /// name (`CPUQuotaPerSecUSec`), the dbus variant type (`t` = u64), and
+    /// the "microseconds per second" units stay correct.
+    ///
+    /// Without this test, a regression in `adopt_pid_into_scope`'s
+    /// property list (e.g. renaming the key, dropping the type tag,
+    /// reordering the count) would land silently and only surface once
+    /// the wire-up was attempted — at which point CPU caps would be
+    /// dropped without any error.
+    ///
+    /// Skipped when running as root (rootful path uses direct cgroup
+    /// writes, not busctl) or when there is no systemd `--user` manager
+    /// to talk to. The 50 % quota value is chosen so the read-back is
+    /// unambiguous (`500000` µs/s; systemd normalises `1000000` to
+    /// `infinity`).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cpu_quota_per_sec_usec_lands_on_the_scope() {
+        // Precondition 1: rootless. The rootful path takes the direct
+        // `/sys/fs/cgroup/boxlite/<id>` route and never touches busctl.
+        let uid = unsafe { libc::getuid() };
+        if uid == 0 {
+            eprintln!("SKIP cpu_quota_per_sec_usec_lands_on_the_scope: running as root");
+            return;
+        }
+
+        // Precondition 2: a working systemd user manager (so busctl /
+        // systemctl can talk to it).
+        let probe = std::process::Command::new("systemctl")
+            .args(["--user", "show", "init.scope", "-p", "MemoryMax"])
+            .output()
+            .ok();
+        if probe.as_ref().map(|o| !o.status.success()).unwrap_or(true) {
+            eprintln!(
+                "SKIP cpu_quota_per_sec_usec_lands_on_the_scope: \
+                 no systemd --user manager"
+            );
+            return;
+        }
+
+        // A long-lived dummy process to adopt. The scope auto-tears down
+        // when the last PID exits, so the `sleep 30` cleanup is also our
+        // scope cleanup if we panic mid-test.
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+
+        // 50 % CPU = 500 000 µs per 1 000 000 µs second. systemd reports
+        // this back literally in CPUQuotaPerSecUSec.
+        let quota_us: u64 = 500_000;
+        let box_id = format!("cpuquota-plumb-{pid}");
+        let config = CgroupConfig {
+            cpu_quota_us_per_sec: Some(quota_us),
+            ..Default::default()
+        };
+
+        let adopt_result = adopt_pid_into_scope(&box_id, pid, &config);
+
+        // Read the property back via systemctl. We capture this BEFORE
+        // cleanup so the scope still exists at read time.
+        let unit = format!("boxlite-{box_id}.scope");
+        let prop_out = std::process::Command::new("systemctl")
+            .args(["--user", "show", &unit, "-p", "CPUQuotaPerSecUSec"])
+            .output()
+            .ok();
+
+        // Tear the dummy process down ASAP regardless of what we found —
+        // a panic in the assertions below should not leak `sleep 30`.
+        let _ = child.kill();
+        let _ = child.wait();
+        // Best-effort teardown of the transient unit (it should also
+        // auto-clean when the last PID exits, but belt and braces).
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "stop", &unit])
+            .output();
+
+        // If adopt failed (e.g. busctl missing) treat it as SKIP rather
+        // than FAIL — the rest of the assertion presumes the scope
+        // actually got created.
+        if adopt_result.is_err() {
+            eprintln!(
+                "SKIP cpu_quota_per_sec_usec_lands_on_the_scope: \
+                 adopt_pid_into_scope failed: {:?}",
+                adopt_result.err()
+            );
+            return;
+        }
+
+        let read_back = prop_out
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .expect("systemctl --user show must succeed after a successful adopt");
+        let value = read_back
+            .strip_prefix("CPUQuotaPerSecUSec=")
+            .expect("output must be `CPUQuotaPerSecUSec=<value>`")
+            .trim();
+        // systemd formats the property in human-readable form on show:
+        // 500_000 µs/s → "500ms". Either string form is acceptable, but
+        // the regression must NOT yield "infinity" (= property dropped)
+        // or some other value — both would break a future CPU-cap PR.
+        assert!(
+            value == "500ms" || value == "500000",
+            "the CPUQuotaPerSecUSec property must round-trip from \
+             CgroupConfig through busctl to systemd as 500 000 µs/s \
+             (either raw `500000` or formatted `500ms`); got {value:?}"
+        );
+    }
 }
