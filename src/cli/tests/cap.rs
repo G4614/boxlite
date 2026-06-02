@@ -211,6 +211,126 @@ fn exec_inherits_container_cap_drops() {
     );
 }
 
+/// Cap overrides survive a stop/start cycle.
+///
+/// `boxlite restart` is literally `stop()` + `start()` (see
+/// `src/cli/src/commands/restart.rs`), so this test pins both
+/// `restart` and the manual `stop`-then-`start` flow. The contract:
+/// once a box has been created with `--cap NAME=0`, every subsequent
+/// lifecycle transition must replay the same override — operators
+/// don't expect "restart a privileged-dropped box and it comes back
+/// privileged."
+///
+/// The break the test catches sits at the persistence layer: if
+/// `BoxConfig.options.cap_overrides` isn't included in the on-disk
+/// state, the second `start` reconstructs `BoxOptions` from a
+/// truncated config and the guest_init path receives an empty
+/// `cap_overrides`, which under default-ALL silently restores
+/// SYS_ADMIN. A regression there would inflate the cap set on
+/// restart — exactly the surprise this test fails on.
+#[test]
+fn cap_overrides_persist_across_stop_start() {
+    let (ctx, box_id) = run_alpine(&["--cap", "SYS_ADMIN=0"]);
+    let _cleanup = BoxCleanup {
+        ctx: &ctx,
+        id: box_id.clone(),
+    };
+
+    // First confirm the drop took on the fresh box — without this
+    // anchor a regression that doesn't drop in the first place
+    // would still pass the "still dropped" assertion below.
+    let cap_eff_before = exec_read_cap_eff(&ctx, &box_id);
+    assert_eq!(
+        cap_eff_before & (1u64 << CAP_SYS_ADMIN_BIT),
+        0,
+        "SYS_ADMIN must be dropped before stop/start; got CapEff = 0x{cap_eff_before:016x}"
+    );
+
+    // stop → start (= what `boxlite restart` does internally).
+    let stop = ctx
+        .new_cmd()
+        .args(["stop", &box_id])
+        .timeout(Duration::from_secs(60))
+        .output()
+        .expect("stop");
+    assert!(
+        stop.status.success(),
+        "stop failed: {}",
+        String::from_utf8_lossy(&stop.stderr)
+    );
+    let start = ctx
+        .new_cmd()
+        .args(["start", &box_id])
+        .timeout(Duration::from_secs(180))
+        .output()
+        .expect("start");
+    assert!(
+        start.status.success(),
+        "start failed: {}",
+        String::from_utf8_lossy(&start.stderr)
+    );
+
+    // The dropped cap must still be dropped after restart. A regression
+    // that loses cap_overrides on persistence would restore SYS_ADMIN
+    // (back to the default-ALL baseline) — bit 21 set is the smoking gun.
+    let cap_eff_after = exec_read_cap_eff(&ctx, &box_id);
+    assert_eq!(
+        cap_eff_after & (1u64 << CAP_SYS_ADMIN_BIT),
+        0,
+        "SYS_ADMIN must remain dropped after stop/start; got CapEff = 0x{cap_eff_after:016x} \
+         (pre-stop was 0x{cap_eff_before:016x})"
+    );
+    assert_eq!(
+        cap_eff_after, cap_eff_before,
+        "the entire cap set must be byte-for-byte preserved across stop/start; \
+         before = 0x{cap_eff_before:016x}, after = 0x{cap_eff_after:016x}"
+    );
+}
+
+/// `boxlite restart` preserves cap_overrides — the verb-level
+/// counterpart of `cap_overrides_persist_across_stop_start`.
+///
+/// `restart`'s impl is `stop()` + `start()` in one command (see
+/// `src/cli/src/commands/restart.rs`), so structurally this exercises
+/// the same persistence path. Pinning it as a separate test guards
+/// against a future refactor that gives `restart` its own (possibly
+/// cap-losing) shortcut path — e.g. an in-process restart that bypasses
+/// the persistent BoxConfig.
+#[test]
+fn cap_overrides_persist_across_restart_verb() {
+    let (ctx, box_id) = run_alpine(&["--cap", "SYS_ADMIN=0"]);
+    let _cleanup = BoxCleanup {
+        ctx: &ctx,
+        id: box_id.clone(),
+    };
+
+    let cap_eff_before = exec_read_cap_eff(&ctx, &box_id);
+    assert_eq!(
+        cap_eff_before & (1u64 << CAP_SYS_ADMIN_BIT),
+        0,
+        "SYS_ADMIN must be dropped before restart; got CapEff = 0x{cap_eff_before:016x}"
+    );
+
+    let restart = ctx
+        .new_cmd()
+        .args(["restart", &box_id])
+        .timeout(Duration::from_secs(240))
+        .output()
+        .expect("restart");
+    assert!(
+        restart.status.success(),
+        "restart failed: {}",
+        String::from_utf8_lossy(&restart.stderr)
+    );
+
+    let cap_eff_after = exec_read_cap_eff(&ctx, &box_id);
+    assert_eq!(
+        cap_eff_after, cap_eff_before,
+        "the cap set must be byte-for-byte preserved across `restart`; \
+         before = 0x{cap_eff_before:016x}, after = 0x{cap_eff_after:016x}"
+    );
+}
+
 /// `--cap SYS_ADMIN=0` makes a `mount(2)` actually fail with EPERM.
 ///
 /// CapEff bit asserts are the kernel's view of the cap set, but the
