@@ -102,6 +102,40 @@ pub(crate) struct CreateBoxRequest {
     pub detach: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<String>,
+    /// Linux capability overrides on top of the default-ALL baseline.
+    /// Omitted from the wire form when empty so existing clients that
+    /// never set `--cap` don't change their POST body shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cap_overrides: Option<Vec<CreateBoxCapOverride>>,
+}
+
+/// Wire form of a single cap override on the REST create-box endpoint.
+///
+/// Mirrors `boxlite::CapOverride` 1:1 — kept as a separate type so the
+/// REST module owns its own serde derives (the core options module's
+/// `CapOverride` doesn't impose `skip_serializing_if` on Option fields).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreateBoxCapOverride {
+    pub name: String,
+    pub enabled: bool,
+}
+
+impl From<&crate::runtime::options::CapOverride> for CreateBoxCapOverride {
+    fn from(c: &crate::runtime::options::CapOverride) -> Self {
+        Self {
+            name: c.name.clone(),
+            enabled: c.enabled,
+        }
+    }
+}
+
+impl From<CreateBoxCapOverride> for crate::runtime::options::CapOverride {
+    fn from(c: CreateBoxCapOverride) -> Self {
+        Self {
+            name: c.name,
+            enabled: c.enabled,
+        }
+    }
 }
 
 impl CreateBoxRequest {
@@ -128,6 +162,18 @@ impl CreateBoxRequest {
             Some(options.secrets.iter().map(CreateBoxSecret::from).collect())
         };
 
+        let cap_overrides = if options.cap_overrides.is_empty() {
+            None
+        } else {
+            Some(
+                options
+                    .cap_overrides
+                    .iter()
+                    .map(CreateBoxCapOverride::from)
+                    .collect(),
+            )
+        };
+
         Self {
             name,
             image,
@@ -145,6 +191,7 @@ impl CreateBoxRequest {
             auto_remove: Some(options.auto_remove),
             detach: Some(options.detach),
             security: None, // TODO: map security preset
+            cap_overrides,
         }
     }
 }
@@ -481,6 +528,7 @@ mod tests {
             auto_remove: Some(true),
             detach: None,
             security: None,
+            cap_overrides: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"name\":\"mybox\""));
@@ -532,6 +580,76 @@ mod tests {
         assert_eq!(
             req.secrets.as_ref().unwrap()[0].placeholder,
             "<BOXLITE_SECRET:openai>"
+        );
+    }
+
+    /// Wire serialization: `BoxOptions.cap_overrides` (>0 entries)
+    /// reaches the JSON body, with names preserved verbatim.
+    ///
+    /// Pre-fix, both `CreateBoxRequest` (this struct) and the
+    /// server-side mirror in `cli/src/commands/serve/types.rs` were
+    /// missing the field entirely, so the SDK→REST→server path
+    /// silently dropped every `--cap` choice — operators using the
+    /// Python/Node/Go SDKs (which route through REST) saw the new
+    /// flag in the CLI but couldn't actually use it. This test pins
+    /// the *client-side* half of the round-trip; the server-side
+    /// deserialize + into-BoxOptions half is pinned by
+    /// `build_box_options_threads_cap_overrides_from_rest_body` in
+    /// `cli/src/commands/serve/mod.rs`.
+    #[test]
+    fn test_create_box_request_carries_cap_overrides_on_the_wire() {
+        use crate::runtime::options::{BoxOptions, CapOverride, RootfsSpec};
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            cap_overrides: vec![
+                CapOverride {
+                    name: "SYS_ADMIN".into(),
+                    enabled: false,
+                },
+                CapOverride {
+                    name: "NET_ADMIN".into(),
+                    enabled: false,
+                },
+            ],
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            json.contains("\"cap_overrides\""),
+            "cap_overrides must appear on the wire when present; got: {json}"
+        );
+        assert!(
+            json.contains("SYS_ADMIN") && json.contains("NET_ADMIN"),
+            "both cap names must round-trip through serialization; got: {json}"
+        );
+        // Both entries land as dropped — `enabled:false` survives.
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let arr = parsed["cap_overrides"]
+            .as_array()
+            .expect("cap_overrides must be an array on the wire");
+        assert_eq!(arr.len(), 2);
+        for entry in arr {
+            assert_eq!(entry["enabled"], false);
+        }
+    }
+
+    /// Default-path round-trip: when no caps are set, the wire form
+    /// omits the field entirely (clients that never touched `--cap`
+    /// don't change their POST body shape) AND the server decodes a
+    /// missing field to an empty list (= default-ALL).
+    #[test]
+    fn test_create_box_request_omits_cap_overrides_when_empty() {
+        use crate::runtime::options::{BoxOptions, RootfsSpec};
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            !json.contains("cap_overrides"),
+            "wire form must omit cap_overrides when empty (backward compat); got: {json}"
         );
     }
 
