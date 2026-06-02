@@ -61,13 +61,13 @@ impl JsImageHandle {
     #[napi]
     pub async fn pull(&self, reference: String) -> Result<JsImagePullResult> {
         let handle = Arc::clone(&self.handle);
-        let image = handle.pull(&reference).await.map_err(map_err)?;
+        let image = handle.pull_info(&reference).await.map_err(map_err)?;
         Ok(JsImagePullResult {
-            reference: image.reference().to_string(),
-            config_digest: image.config_digest().to_string(),
+            reference: image.reference,
+            config_digest: image.config_digest,
             // Saturating cast keeps the public JS contract stable even if the
             // underlying count type ever grows wider than u32.
-            layer_count: u32::try_from(image.layer_count()).unwrap_or(u32::MAX),
+            layer_count: u32::try_from(image.layer_count).unwrap_or(u32::MAX),
         })
     }
 

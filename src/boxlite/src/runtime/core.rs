@@ -428,9 +428,16 @@ impl BoxliteRuntime {
     pub fn images(&self) -> BoxliteResult<crate::runtime::ImageHandle> {
         match &self.image_backend {
             Some(manager) => Ok(crate::runtime::ImageHandle::new(Arc::clone(manager))),
-            None => Err(BoxliteError::Unsupported(
-                "Image operations not supported over REST API".to_string(),
-            )),
+            None => {
+                #[cfg(feature = "rest")]
+                if let Some(rest) = &self.rest_runtime {
+                    return Ok(crate::runtime::ImageHandle::new_rest(Arc::clone(rest)));
+                }
+
+                Err(BoxliteError::Unsupported(
+                    "Image operations not supported by this runtime".to_string(),
+                ))
+            }
         }
     }
 

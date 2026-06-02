@@ -253,12 +253,12 @@ unsafe fn image_pull(
         let user_data_addr = user_data as usize;
 
         handle_ref.tokio_rt.spawn(async move {
-            let result = core_handle.pull(&image_ref).await.map(|image| {
+            let result = core_handle.pull_info(&image_ref).await.map(|image| {
                 crate::event_queue::OwnedFfiPtr::new_with(
                     Box::new(CImagePullResult::new(
-                        image.reference(),
-                        image.config_digest(),
-                        image.layer_count(),
+                        &image.reference,
+                        &image.config_digest,
+                        image.layer_count,
                     )),
                     free_image_pull_result,
                 )

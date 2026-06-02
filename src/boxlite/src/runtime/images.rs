@@ -11,10 +11,12 @@ use crate::BoxliteResult;
 use crate::images::ImageObject;
 use crate::runtime::types::ImageInfo;
 
+#[cfg(feature = "rest")]
+use crate::rest::runtime::RestRuntime;
+
 /// Internal trait for image management.
 ///
-/// Implemented by runtime backends that support image operations.
-/// Currently only `LocalRuntime` implements this trait; REST runtime does not.
+/// Implemented by runtime backends that support local image operations.
 #[async_trait]
 pub(crate) trait ImageBackend: Send + Sync {
     /// Pull an image from a registry.
@@ -22,6 +24,30 @@ pub(crate) trait ImageBackend: Send + Sync {
 
     /// List all locally cached images.
     async fn list_images(&self) -> BoxliteResult<Vec<ImageInfo>>;
+}
+
+/// Metadata returned from a runtime image pull.
+///
+/// Local runtimes can report the OCI config digest and layer count because they
+/// have direct access to the pulled image object. REST runtimes report the
+/// server's stable image id (manifest digest) in `config_digest` for backward
+/// compatibility with the existing SDK shape, and use `0` when layer count is
+/// not available over the wire.
+#[derive(Debug, Clone)]
+pub struct ImagePullResult {
+    pub reference: String,
+    pub config_digest: String,
+    pub layer_count: usize,
+}
+
+impl From<&ImageObject> for ImagePullResult {
+    fn from(image: &ImageObject) -> Self {
+        Self {
+            reference: image.reference().to_string(),
+            config_digest: image.config_digest().to_string(),
+            layer_count: image.layer_count(),
+        }
+    }
 }
 
 /// Handle for performing image operations.
@@ -52,7 +78,14 @@ pub(crate) trait ImageBackend: Send + Sync {
 /// ```
 #[derive(Clone)]
 pub struct ImageHandle {
-    manager: Arc<dyn ImageBackend>,
+    backend: ImageHandleBackend,
+}
+
+#[derive(Clone)]
+enum ImageHandleBackend {
+    Local(Arc<dyn ImageBackend>),
+    #[cfg(feature = "rest")]
+    Rest(Arc<RestRuntime>),
 }
 
 impl ImageHandle {
@@ -60,7 +93,16 @@ impl ImageHandle {
     ///
     /// This is an internal constructor used by `BoxliteRuntime`.
     pub(crate) fn new(manager: Arc<dyn ImageBackend>) -> Self {
-        Self { manager }
+        Self {
+            backend: ImageHandleBackend::Local(manager),
+        }
+    }
+
+    #[cfg(feature = "rest")]
+    pub(crate) fn new_rest(rest: Arc<RestRuntime>) -> Self {
+        Self {
+            backend: ImageHandleBackend::Rest(rest),
+        }
     }
 
     /// Pull an image from a registry.
@@ -82,7 +124,35 @@ impl ImageHandle {
     /// # }
     /// ```
     pub async fn pull(&self, image_ref: &str) -> BoxliteResult<ImageObject> {
-        self.manager.pull_image(image_ref).await
+        match &self.backend {
+            ImageHandleBackend::Local(manager) => manager.pull_image(image_ref).await,
+            #[cfg(feature = "rest")]
+            ImageHandleBackend::Rest(_) => Err(crate::BoxliteError::Unsupported(
+                "REST image pulls return metadata only; use pull_info()".to_string(),
+            )),
+        }
+    }
+
+    /// Pull an image and return portable metadata.
+    ///
+    /// This works for both local and REST runtimes and is the preferred SDK
+    /// bridge for image pulls.
+    pub async fn pull_info(&self, image_ref: &str) -> BoxliteResult<ImagePullResult> {
+        match &self.backend {
+            ImageHandleBackend::Local(manager) => {
+                let image = manager.pull_image(image_ref).await?;
+                Ok(ImagePullResult::from(&image))
+            }
+            #[cfg(feature = "rest")]
+            ImageHandleBackend::Rest(rest) => {
+                let info = rest.pull_image_remote(image_ref).await?;
+                Ok(ImagePullResult {
+                    reference: info.reference,
+                    config_digest: info.id,
+                    layer_count: 0,
+                })
+            }
+        }
     }
 
     /// List all locally cached images.
@@ -105,6 +175,10 @@ impl ImageHandle {
     /// # }
     /// ```
     pub async fn list(&self) -> BoxliteResult<Vec<ImageInfo>> {
-        self.manager.list_images().await
+        match &self.backend {
+            ImageHandleBackend::Local(manager) => manager.list_images().await,
+            #[cfg(feature = "rest")]
+            ImageHandleBackend::Rest(rest) => rest.list_images_remote().await,
+        }
     }
 }

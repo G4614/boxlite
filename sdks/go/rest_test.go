@@ -106,3 +106,20 @@ func TestNewRestDoubleCloseSafe(t *testing.T) {
 		t.Fatalf("second Close() returned error: %v", err)
 	}
 }
+
+func TestRestRuntimeImagesHandle(t *testing.T) {
+	rt, err := NewRest(BoxliteRestOptions{URL: "http://localhost:1"})
+	if err != nil {
+		t.Fatalf("NewRest returned error: %v", err)
+	}
+	defer rt.Close()
+
+	images, err := rt.Images()
+	if err != nil {
+		t.Fatalf("Images on REST runtime returned error: %v", err)
+	}
+	if images == nil {
+		t.Fatal("Images on REST runtime returned nil handle")
+	}
+	defer images.Close()
+}

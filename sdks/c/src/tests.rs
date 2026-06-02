@@ -212,7 +212,7 @@ fn test_free_functions_null_safe() {
 }
 
 #[test]
-fn test_runtime_images_unsupported_on_rest_runtime() {
+fn test_runtime_images_supported_on_rest_runtime() {
     let tokio_rt = crate::runtime::create_tokio_runtime().expect("create tokio runtime");
     let runtime = BoxliteRuntime::rest(boxlite::BoxliteRestOptions::new("http://localhost:1"))
         .expect("create rest runtime");
@@ -233,11 +233,11 @@ fn test_runtime_images_unsupported_on_rest_runtime() {
         )
     };
 
-    assert_eq!(code, BoxliteErrorCode::Unsupported);
-    assert!(image_handle.is_null());
-    assert!(!error.message.is_null());
+    assert_eq!(code, BoxliteErrorCode::Ok);
+    assert!(!image_handle.is_null());
 
     unsafe {
+        boxlite_image_free(image_handle);
         boxlite_error_free(&mut error as *mut _);
     }
 }

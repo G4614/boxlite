@@ -16,12 +16,12 @@ function newIsolatedRuntime() {
 }
 
 describe("runtime image handle integration", { timeout: 120_000 }, () => {
-  test("REST runtime rejects image handle access", () => {
+  test("REST runtime exposes image handle access", () => {
     const runtime = JsBoxlite.rest(
       new BoxliteRestOptions({ url: "http://localhost:1" }),
     );
 
-    expect(() => runtime.images).toThrow(/Image operations not supported/);
+    expect(runtime.images).toBeDefined();
   });
 
   test("pull returns image metadata", async () => {

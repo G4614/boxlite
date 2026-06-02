@@ -77,11 +77,11 @@ impl PyImageHandle {
     fn pull<'py>(&self, py: Python<'py>, reference: String) -> PyResult<Bound<'py, PyAny>> {
         let handle = Arc::clone(&self.handle);
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let image = handle.pull(&reference).await.map_err(map_err)?;
+            let image = handle.pull_info(&reference).await.map_err(map_err)?;
             Ok(PyImagePullResult {
-                reference: image.reference().to_string(),
-                config_digest: image.config_digest().to_string(),
-                layer_count: image.layer_count(),
+                reference: image.reference,
+                config_digest: image.config_digest,
+                layer_count: image.layer_count,
             })
         })
     }

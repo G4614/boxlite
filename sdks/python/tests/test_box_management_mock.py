@@ -137,12 +137,11 @@ class TestBoxliteManagementMethods:
     def test_method_exists(self, cls, method):
         assert hasattr(cls, method), f"Boxlite missing method: {method}"
 
-    def test_rest_runtime_images_unsupported(self):
+    def test_rest_runtime_images_supported(self):
         runtime = boxlite.Boxlite.rest(
             boxlite.BoxliteRestOptions(url="http://localhost:1")
         )
-        with pytest.raises(RuntimeError, match="Image operations not supported"):
-            _ = runtime.images
+        assert runtime.images is not None
 
 
 class TestSyncBoxliteManagementMethods:
