@@ -366,8 +366,42 @@ impl From<&ResourceLimits> for CgroupConfig {
                 (t * 1_000_000, 1_000_000)
             }),
             pids_max: limits.max_processes,
-            cpu_quota_us_per_sec: None, // wired in by jailer's cgroup_config() defaults
+            cpu_quota_us_per_sec: None, // wired in by apply_cgroup_defaults
         }
+    }
+}
+
+/// Default host process cap. Baseline box uses ~22 host tasks (libkrun vCPUs +
+/// gvproxy + tokio); 1024 leaves wide headroom while still catching a runaway
+/// thread/fork leak in the VMM stack.
+pub(crate) const DEFAULT_HOST_PIDS_MAX: u64 = 1024;
+
+/// Apply default DoS caps in place: `memory.max = 2× VM RAM + 512 MiB`,
+/// `pids.max = 1024`, `cpu.max = host_cores × 1_000_000`. Mirrors any explicit
+/// `cpu_max` to `cpu_quota_us_per_sec` so rootless (systemd-scope `CPUQuota`)
+/// and rootful (direct `cpu.max` file write) caps stay in sync — without this
+/// mirror, a user-set `ResourceLimits.max_cpu_time` lands on `cpu_max` only
+/// and gets silently dropped rootless.
+///
+/// `host_cores` is injected (rather than queried from `available_parallelism`
+/// inside this function) so the defaults are pure and unit-testable.
+pub(crate) fn apply_cgroup_defaults(
+    config: &mut CgroupConfig,
+    vm_memory_mib: u64,
+    host_cores: u64,
+) {
+    if config.memory_max.is_none() {
+        config.memory_max = Some(vm_memory_mib * 2 * 1024 * 1024 + 512 * 1024 * 1024);
+    }
+    if config.pids_max.is_none() {
+        config.pids_max = Some(DEFAULT_HOST_PIDS_MAX);
+    }
+    let host_cpu_us_per_sec = host_cores.saturating_mul(1_000_000);
+    if config.cpu_max.is_none() {
+        config.cpu_max = Some((host_cpu_us_per_sec, 1_000_000));
+    }
+    if config.cpu_quota_us_per_sec.is_none() {
+        config.cpu_quota_us_per_sec = config.cpu_max.map(|(q, _period)| q);
     }
 }
 
@@ -653,6 +687,86 @@ mod tests {
         assert!(
             msg.contains("none of cpu/memory/pids"),
             "error must spell out the missing controllers; got {msg:?}"
+        );
+    }
+
+    /// `apply_cgroup_defaults` fills every cap when none was set explicitly:
+    /// memory.max = 2× VM + 512 MiB, pids.max = 1024, cpu.max = host_cores ×
+    /// 1_000_000, and cpu_quota_us_per_sec mirrors cpu.max. Pins the default
+    /// values themselves — a regression that quietly lowers any of them
+    /// would land here.
+    #[test]
+    fn apply_defaults_fills_every_cap_when_none_explicit() {
+        let mut config = CgroupConfig::default();
+        apply_cgroup_defaults(&mut config, 128, 8);
+
+        let expected_mem = 128u64 * 2 * 1024 * 1024 + 512 * 1024 * 1024;
+        assert_eq!(config.memory_max, Some(expected_mem));
+        assert_eq!(config.pids_max, Some(DEFAULT_HOST_PIDS_MAX));
+        assert_eq!(config.cpu_max, Some((8 * 1_000_000, 1_000_000)));
+        assert_eq!(
+            config.cpu_quota_us_per_sec,
+            Some(8 * 1_000_000),
+            "cpu_quota_us_per_sec must mirror the default cpu_max"
+        );
+    }
+
+    /// The load-bearing mirror: when `ResourceLimits.max_cpu_time` is set,
+    /// the `From<&ResourceLimits>` impl populates `cpu_max` only —
+    /// `cpu_quota_us_per_sec` stays `None`. `apply_cgroup_defaults` must
+    /// derive `cpu_quota_us_per_sec` *from* `cpu_max`, otherwise rootless
+    /// (busctl `CPUQuotaPerSecUSec`) silently drops the user's CPU cap
+    /// even though rootful (`cpu.max` file write) honours it.
+    ///
+    /// Before this PR's `15c50197 + apply_cgroup_defaults` refactor the
+    /// mirror didn't exist — explicit caps worked rootful but silently
+    /// failed rootless. This test pins the property so a future refactor
+    /// can't quietly regress.
+    #[test]
+    fn apply_defaults_mirrors_explicit_cpu_max_to_quota() {
+        // Simulate what `From<&ResourceLimits>` produces when the user
+        // sets `max_cpu_time = 2`: cpu_max = (2_000_000, 1_000_000),
+        // cpu_quota_us_per_sec = None.
+        let mut config = CgroupConfig {
+            cpu_max: Some((2_000_000, 1_000_000)),
+            ..Default::default()
+        };
+        apply_cgroup_defaults(&mut config, 128, 8);
+
+        assert_eq!(
+            config.cpu_max,
+            Some((2_000_000, 1_000_000)),
+            "explicit cpu_max must NOT be overridden by the default"
+        );
+        assert_eq!(
+            config.cpu_quota_us_per_sec,
+            Some(2_000_000),
+            "cpu_quota_us_per_sec must mirror the explicit cpu_max so \
+             the rootless busctl path enforces the same cap as the \
+             rootful cpu.max file-write path; got {:?}",
+            config.cpu_quota_us_per_sec
+        );
+    }
+
+    /// Explicit `memory_max` / `pids_max` must NOT be clobbered by the
+    /// defaults — the user knows what they want, the defaults are
+    /// fallbacks only.
+    #[test]
+    fn apply_defaults_does_not_override_explicit_values() {
+        let mut config = CgroupConfig {
+            memory_max: Some(42),
+            pids_max: Some(7),
+            cpu_quota_us_per_sec: Some(13),
+            ..Default::default()
+        };
+        apply_cgroup_defaults(&mut config, 128, 8);
+
+        assert_eq!(config.memory_max, Some(42), "explicit memory_max preserved");
+        assert_eq!(config.pids_max, Some(7), "explicit pids_max preserved");
+        assert_eq!(
+            config.cpu_quota_us_per_sec,
+            Some(13),
+            "explicit cpu_quota_us_per_sec preserved (not overwritten by mirror)"
         );
     }
 
