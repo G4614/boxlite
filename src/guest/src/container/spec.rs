@@ -278,12 +278,12 @@ fn build_capabilities(
         caps.extend(all_capabilities());
     } else {
         for name in added_caps {
-            let cap_name = if name.starts_with("CAP_") {
-                name.clone()
-            } else {
-                format!("CAP_{name}")
-            };
-            match Capability::from_str(&cap_name) {
+            // oci-spec 0.6 `Capability::FromStr` accepts the bare form
+            // (e.g. "SYS_ADMIN"), not the CAP_-prefixed form. Strip the
+            // prefix if the caller passed one — both `--cap-add SYS_ADMIN`
+            // and `--cap-add CAP_SYS_ADMIN` then map to the same variant.
+            let cap_name = name.strip_prefix("CAP_").unwrap_or(name);
+            match Capability::from_str(cap_name) {
                 Ok(cap) => {
                     caps.insert(cap);
                 }
