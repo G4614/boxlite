@@ -1626,6 +1626,20 @@ impl super::backend::RuntimeBackend for LocalRuntime {
     }
 
     async fn remove(&self, id_or_name: &str, force: bool) -> BoxliteResult<()> {
+        // Force path: route the kill through the canonical 持-Child
+        // `ShimHandler::stop_force` path so `rm --force` shares the
+        // same lifecycle teardown as `stop` / non-force `rm` /
+        // `restart`. After `stop_force()` returns, `state.pid` is
+        // None and the shim is reaped, so the sync `remove_box` call
+        // below skips its inline-waitpid fallback and only does the
+        // DB / disk cleanup.
+        //
+        // If lookup fails (box doesn't exist), let the sync path
+        // surface the not-found error so behaviour stays identical
+        // for that case.
+        if force && let Ok(Some(litebox)) = self.0.get(id_or_name).await {
+            litebox.stop_force().await?;
+        }
         self.0.remove(id_or_name, force)
     }
 

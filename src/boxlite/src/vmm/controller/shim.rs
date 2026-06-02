@@ -166,6 +166,56 @@ impl VmmHandlerTrait for ShimHandler {
         Ok(())
     }
 
+    fn stop_force(&mut self) -> BoxliteResult<()> {
+        // Skip the SIGTERM graceful phase — operator asked for force.
+        // Path mirrors `stop()` except SIGTERM never goes out, so the
+        // `process.try_wait()` poll loop is also unnecessary; we kill
+        // and immediately block on Child::wait (which reaps).
+        if let Some(mut process) = self.process.take() {
+            // SIGKILL via Child::kill (sends signal, doesn't wait).
+            let _ = process.kill();
+            // Child::wait — blocks until the kernel reaps, returns
+            // ExitStatus. Same blocking behaviour as `stop()`'s
+            // timeout-fallback `process.wait()` branch; std worker
+            // pattern in this crate is sync-inside-async (see
+            // ShimHandler::stop documentation).
+            let _ = process.wait();
+            return Ok(());
+        }
+
+        // Attached mode: no Child handle (the shim was reattached after
+        // a daemon restart). Use raw libc kill+waitpid same as
+        // `stop()`'s attached arm but with SIGKILL and no SIGTERM
+        // grace.
+        unsafe {
+            libc::kill(self.pid as i32, libc::SIGKILL);
+        }
+        // Bounded reap — same deadline shape as the inline waitpid
+        // used in the old rt_impl force path, kept here for the
+        // attached-only fallback.
+        const REAP_DEADLINE_MS: u64 = 2000;
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(REAP_DEADLINE_MS);
+        loop {
+            let mut status: i32 = 0;
+            let r = unsafe { libc::waitpid(self.pid as i32, &mut status, libc::WNOHANG) };
+            if r > 0 {
+                return Ok(());
+            }
+            if r < 0 {
+                // ECHILD — not our child in attached mode; nothing
+                // we can reap from here. The shim's actual parent
+                // (or init after the daemon that spawned it exited)
+                // will reap.
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
     fn metrics(&self) -> BoxliteResult<VmmMetrics> {
         use sysinfo::Pid;
 

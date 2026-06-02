@@ -321,6 +321,24 @@ impl BoxImpl {
     }
 
     pub(crate) async fn stop(&self) -> BoxliteResult<()> {
+        self.stop_impl(false).await
+    }
+
+    /// Force-stop variant for `rm --force`: skips the SIGTERM grace
+    /// phase + the 10 s guest-agent shutdown wait, and goes straight to
+    /// SIGKILL via `ShimHandler::stop_force()`. Shares the rest of the
+    /// teardown pipeline with `stop()` (health-check cancel, PID-file
+    /// cleanup, state transition, DB sync, listener notification) so
+    /// the only behavioural delta is "no graceful steps". This aligns
+    /// `rm --force` with the canonical 持-Child kill path; the inline
+    /// `kill_process + libc::waitpid` block in `rt_impl::remove_box`'s
+    /// force branch is now a fallback for direct sync callers
+    /// (Drop / tests) that bypass the async surface.
+    pub(crate) async fn stop_force(&self) -> BoxliteResult<()> {
+        self.stop_impl(true).await
+    }
+
+    async fn stop_impl(&self, force: bool) -> BoxliteResult<()> {
         let t0 = Instant::now();
 
         // Early exit if already stopped (idempotent, prevents double-counting)
@@ -357,22 +375,33 @@ impl BoxImpl {
         if should_attach && let Ok(live) = self.live_state().await {
             // Recovered boxes lazy-attach here via vmm_attach (now
             // ProcessIdentity-gated). Live boxes hit the cached LiveState.
-            // Either way the teardown is identical:
-            let guest_shutdown = async {
-                if let Ok(mut guest) = live.guest_session.guest().await {
-                    let _ = guest.shutdown().await;
+            // Force path skips the graceful guest-agent shutdown
+            // (operator asked for `rm --force` precisely to not wait).
+            if !force {
+                let guest_shutdown = async {
+                    if let Ok(mut guest) = live.guest_session.guest().await {
+                        let _ = guest.shutdown().await;
+                    }
+                };
+                if tokio::time::timeout(Duration::from_secs(10), guest_shutdown)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!(box_id = %self.config.id, "Guest shutdown timed out after 10s");
                 }
-            };
-            if tokio::time::timeout(Duration::from_secs(10), guest_shutdown)
-                .await
-                .is_err()
-            {
-                tracing::warn!(box_id = %self.config.id, "Guest shutdown timed out after 10s");
             }
 
-            // Stop handler
+            // Stop handler — SIGTERM-then-SIGKILL for `stop`, immediate
+            // SIGKILL for `stop_force`. Both paths block on
+            // `Child::wait()` (the 持-Child canonical reap) when the
+            // handler owns a Child, or fall back to `libc::waitpid`
+            // in attached mode.
             if let Ok(mut handler) = live.handler.lock() {
-                handler.stop()?;
+                if force {
+                    handler.stop_force()?;
+                } else {
+                    handler.stop()?;
+                }
             }
         }
         // If live_state() failed (vmm_attach said Absent — shim is gone),
@@ -446,7 +475,11 @@ impl BoxImpl {
             .boxes_stopped
             .fetch_add(1, Ordering::Relaxed);
 
-        if self.config.options.auto_remove {
+        // Skip auto_remove when force-stopping — `rm --force` is the
+        // caller, and it'll run `runtime.remove_box` itself once
+        // stop_force returns. Triggering remove_box from here would
+        // race with the caller's own removal.
+        if !force && self.config.options.auto_remove {
             self.runtime.remove_box(self.id(), false)?;
         }
 
@@ -1165,6 +1198,10 @@ impl crate::runtime::backend::BoxBackend for BoxImpl {
 
     async fn stop(&self) -> BoxliteResult<()> {
         self.stop().await
+    }
+
+    async fn stop_force(&self) -> BoxliteResult<()> {
+        self.stop_force().await
     }
 
     async fn copy_into(

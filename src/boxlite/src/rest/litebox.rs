@@ -205,6 +205,16 @@ impl BoxBackend for RestBox {
         Ok(())
     }
 
+    async fn stop_force(&self) -> BoxliteResult<()> {
+        // The REST surface doesn't expose a force-stop verb today;
+        // the server side reaches the same outcome through
+        // `DELETE /v1/boxes/<id>?force=true` (which calls
+        // `RuntimeBackend::remove(force=true)` server-side). A
+        // client-driven stop_force currently falls back to graceful
+        // stop — best the wire protocol can do without a new endpoint.
+        self.stop().await
+    }
+
     async fn copy_into(
         &self,
         host_src: &Path,
