@@ -481,6 +481,81 @@ mod tests {
         );
     }
 
+    /// Reuse contract: when the resolver runs against a `volumes_dir` where
+    /// an image already exists for this tag, it MUST reuse the on-disk
+    /// image as-is — even if the caller passes a *different* declared
+    /// `size_bytes` than the original create.
+    ///
+    /// The persistent contract: the box's user data lives in this image.
+    /// A silent re-mkfs (or even a `set_len` to the new size) on
+    /// `boxlite start` after a stop would wipe data. The resolver's
+    /// `if img_path.exists() { reuse }` branch is what guarantees this;
+    /// this test pins it so a refactor that "honours the new size" can't
+    /// slip through without flipping the test red.
+    ///
+    /// Companion behaviour worth noting (not asserted here, since the
+    /// resolver is local): the operator therefore can't grow a sized
+    /// volume by editing the spec. Growing it would have to be an
+    /// explicit out-of-band action (online resize2fs, or `rm` + recreate).
+    /// If we later add explicit growth or a loud refusal of mismatches,
+    /// this test is the canary that fires.
+    #[test]
+    fn resolve_sized_volume_reuses_existing_image_ignoring_declared_size_change() {
+        use std::os::unix::fs::MetadataExt;
+
+        let vols_dir = tempfile::tempdir().unwrap();
+        let mkfs = std::path::Path::new("/usr/sbin/mke2fs");
+
+        // First call: materialise an image of `initial_size`. We capture
+        // both length and on-disk block count so the second-call assertion
+        // can prove no I/O hit the file (a re-mkfs would change blocks
+        // even if length stayed identical via set_len).
+        let initial_size: u64 = 16 * 1024 * 1024;
+        let vols_initial = vec![VolumeSpec {
+            host_path: "/anon".to_string(),
+            guest_path: "/data".to_string(),
+            read_only: false,
+            size_bytes: Some(initial_size),
+        }];
+        let r1 = resolve_user_volumes(&vols_initial, vols_dir.path(), mkfs).unwrap();
+        assert_eq!(r1.len(), 1);
+        let img_path = r1[0].host_path.clone();
+        let meta_after_create = std::fs::metadata(&img_path).unwrap();
+        assert_eq!(
+            meta_after_create.len(),
+            initial_size,
+            "first-create image must be exactly the requested length"
+        );
+        let blocks_after_create = meta_after_create.blocks();
+
+        // Second call: same tag (single-volume list → uservol0), but a
+        // larger declared size. The on-disk image must not be touched.
+        let vols_changed = vec![VolumeSpec {
+            host_path: "/anon".to_string(),
+            guest_path: "/data".to_string(),
+            read_only: false,
+            size_bytes: Some(initial_size * 8), // 128 MiB declared
+        }];
+        let r2 = resolve_user_volumes(&vols_changed, vols_dir.path(), mkfs).unwrap();
+        assert_eq!(r2.len(), 1);
+        assert_eq!(
+            r2[0].host_path, img_path,
+            "second resolve must point at the same image file (same tag, same dir)"
+        );
+
+        let meta_after_reuse = std::fs::metadata(&img_path).unwrap();
+        assert_eq!(
+            meta_after_reuse.len(),
+            initial_size,
+            "image length must be preserved across re-resolve (reuse, not truncate or grow)"
+        );
+        assert_eq!(
+            meta_after_reuse.blocks(),
+            blocks_after_create,
+            "image on-disk blocks must not change across re-resolve (no mkfs, no I/O)"
+        );
+    }
+
     /// Reverting Drop to call `remove_box` (the pre-fix behavior) flips this red:
     /// `update_box` would return `NotFound` because the row was deleted.
     #[test]

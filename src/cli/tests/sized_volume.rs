@@ -558,3 +558,96 @@ fn runaway_sized_volume_does_not_starve_neighbor_box() {
         String::from_utf8_lossy(&a_echo.stderr)
     );
 }
+
+/// `-v /data:size=N,ro` mounts the sized volume read-only inside the guest.
+///
+/// The CLI parse layer already pins that `ro` and `size=N` co-exist on the
+/// spec (`cli.rs::test_parse_volume_spec_anonymous_with_size_and_ro`). The
+/// integration risk is the *wiring* downstream — `VolumeSpec.read_only`
+/// rides through `add_block_device(..., read_only, ...)` and
+/// `container_mgr.add_bind(..., ro)` to the guest agent's mount call. Any
+/// hop dropping the flag yields a silently-writable mount: the CLI parses
+/// `ro`, the operator believes the volume is protected, but writes go
+/// through. This test pins the kernel-visible end of that chain.
+#[test]
+fn sized_volume_ro_rejects_writes_in_guest() {
+    let home = PerTestBoxHome::new();
+
+    let out = boxlite(
+        home.path.as_path(),
+        &[
+            "--registry",
+            "docker.m.daocloud.io",
+            "run",
+            "-d",
+            "--memory",
+            "256",
+            "-v",
+            "/data:size=32M,ro",
+            "alpine:latest",
+            "sleep",
+            "600",
+        ],
+        Duration::from_secs(300),
+    );
+    assert!(
+        out.status.success(),
+        "ro sized-volume box start failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let box_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let _cleanup = BoxCleanup {
+        home: home.path.clone(),
+        id: box_id.clone(),
+    };
+
+    // touch -> EROFS. We append `echo EXIT=$?` so the assertion sees an
+    // exit code even when `touch` itself prints nothing (some Alpine
+    // builds suppress on EROFS). The combined assertion (non-zero exit
+    // AND a kernel read-only signal) pins "mount succeeded but is ro",
+    // not "mount didn't happen at all" (which would also fail touch).
+    let probe = boxlite(
+        home.path.as_path(),
+        &[
+            "exec",
+            &box_id,
+            "--",
+            "sh",
+            "-c",
+            "touch /data/should-fail 2>&1; echo EXIT=$?",
+        ],
+        Duration::from_secs(20),
+    );
+    let combined = String::from_utf8_lossy(&probe.stdout).to_string()
+        + &String::from_utf8_lossy(&probe.stderr);
+
+    let exit_line = combined
+        .lines()
+        .find(|l| l.starts_with("EXIT="))
+        .unwrap_or_else(|| panic!("no EXIT= line in probe output:\n{combined}"));
+    assert_ne!(
+        exit_line, "EXIT=0",
+        "touch on a ro sized volume must exit non-zero; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("Read-only file system") || combined.contains("EROFS"),
+        "kernel must report read-only file system on a ro sized volume; got:\n{combined}"
+    );
+
+    // The sized image itself (host side) must still be in place — `ro` is
+    // a mount-time flag, not "don't create the image". A regression that
+    // turned ro into "don't materialise" would also pass the EROFS check
+    // by accident (mount failure → no /data → touch fails differently),
+    // so we explicitly assert the image file is present.
+    let img = home
+        .path
+        .join("boxes")
+        .join(&box_id)
+        .join("volumes")
+        .join("uservol0.img");
+    assert!(
+        img.exists(),
+        "ro sized-volume image must still be materialised on the host at {}",
+        img.display()
+    );
+}
