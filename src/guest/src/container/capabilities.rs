@@ -36,10 +36,9 @@ pub fn default_capabilities() -> HashSet<Capability> {
 }
 
 /// Every Linux capability known to the OCI spec — the expansion of
-/// `--cap-add ALL`. Privileged workloads such as dockerd (docker:dind)
-/// need the dangerous caps (`CAP_SYS_ADMIN` for mounts/cgroups,
-/// `CAP_NET_ADMIN` for the bridge/iptables) that [`default_capabilities`]
-/// deliberately omits.
+/// `--cap-add ALL`. This includes capabilities deliberately omitted from
+/// [`default_capabilities`], such as `CAP_SYS_ADMIN`, `CAP_NET_ADMIN`,
+/// `CAP_SYS_MODULE`, and `CAP_BPF`.
 pub fn all_capabilities() -> HashSet<Capability> {
     [
         Capability::AuditControl,
