@@ -97,14 +97,21 @@ pub(in crate::commands::serve) async fn pull_image(
         Ok(v) => v,
         Err(e) => return error_from_boxlite(&e),
     };
-    match images.iter().find(|i| i.id == pulled.manifest_digest()) {
+    pulled_image_response(&req.reference, pulled.manifest_digest(), &images)
+}
+
+fn pulled_image_response(
+    req_reference: &str,
+    manifest_digest: &str,
+    images: &[ImageInfo],
+) -> Response {
+    match images.iter().find(|i| i.id == manifest_digest) {
         Some(info) => Json(ImageInfoResponse::from(info)).into_response(),
         None => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!(
                 "pull of {} succeeded (digest {}) but the cache listing did not include it",
-                req.reference,
-                pulled.manifest_digest(),
+                req_reference, manifest_digest,
             ),
             "InternalError",
             "internal",
@@ -127,5 +134,73 @@ pub(in crate::commands::serve) async fn list_images(
             Json(resp).into_response()
         }
         Err(e) => error_from_boxlite(&e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::to_bytes;
+    use chrono::{DateTime, Utc};
+    use serde_json::Value;
+
+    fn image_info(reference: &str, id: &str) -> ImageInfo {
+        ImageInfo {
+            reference: reference.to_string(),
+            repository: reference
+                .rsplit_once(':')
+                .map(|(repo, _)| repo)
+                .unwrap_or(reference)
+                .to_string(),
+            tag: reference
+                .rsplit_once(':')
+                .map(|(_, tag)| tag)
+                .unwrap_or("latest")
+                .to_string(),
+            id: id.to_string(),
+            cached_at: DateTime::<Utc>::UNIX_EPOCH,
+            size: None,
+        }
+    }
+
+    async fn response_body_json(response: Response) -> (StatusCode, Value) {
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap();
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn pulled_image_response_matches_by_manifest_digest_not_user_reference() {
+        let digest = "sha256:1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff";
+        let images = vec![image_info("docker.io/library/alpine:latest", digest)];
+
+        let (status, json) =
+            response_body_json(pulled_image_response("alpine", digest, &images)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["reference"], "docker.io/library/alpine:latest");
+        assert_eq!(json["id"], digest);
+    }
+
+    #[tokio::test]
+    async fn pulled_image_response_500s_when_cache_listing_misses_digest() {
+        let pulled_digest =
+            "sha256:aaaabbbbccccddddeeeeffff1111222233334444555566667777888899990000";
+        let listed_digest =
+            "sha256:0000999988887777666655554444333322221111ffffeeeeddddccccbbbbaaaa";
+        let images = vec![image_info("docker.io/library/alpine:latest", listed_digest)];
+
+        let (status, json) =
+            response_body_json(pulled_image_response("alpine", pulled_digest, &images)).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .is_some_and(|msg| msg.contains("alpine") && msg.contains(pulled_digest)),
+            "error should identify the pulled ref and missing digest, got {json}",
+        );
     }
 }
