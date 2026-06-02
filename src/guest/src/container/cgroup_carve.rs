@@ -178,8 +178,8 @@ pub(crate) fn swap_to_operator_cgroup_path(container_id: &str) -> BoxliteResult<
             path.display()
         ))
     })?;
-    let workload = format!("/boxlite/{container_id}/workload");
-    let operator = format!("/boxlite/{container_id}/operator");
+    let workload = super::spec::workload_cgroup_path(container_id);
+    let operator = super::spec::operator_cgroup_path(container_id);
     let modified = content.replace(&workload, &operator);
     if modified == content {
         return Err(BoxliteError::Internal(format!(
@@ -214,8 +214,8 @@ pub(crate) fn restore_workload_cgroup_path(container_id: &str) {
         );
         return;
     };
-    let workload = format!("/boxlite/{container_id}/workload");
-    let operator = format!("/boxlite/{container_id}/operator");
+    let workload = super::spec::workload_cgroup_path(container_id);
+    let operator = super::spec::operator_cgroup_path(container_id);
     let restored = content.replace(&operator, &workload);
     if restored != content {
         if let Err(e) = fs::write(&path, restored) {

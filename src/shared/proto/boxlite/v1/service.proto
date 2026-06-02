@@ -285,7 +285,7 @@ message ExecRequest {
   // gets the full workload budget.
   //
   // Set this via `boxlite exec --debug`. The operator subgroup has a tight
-  // cap (~64 PIDs / 64 MiB) intended for inspection only — running a heavy
+  // cap (~64 PIDs / 32 MiB) intended for inspection only — running a heavy
   // command under `--debug` may hit ENOSPC/EAGAIN in the operator subgroup
   // even when the workload subgroup has room.
   bool debug = 9;

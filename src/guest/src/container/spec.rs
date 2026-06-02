@@ -497,21 +497,26 @@ fn build_linux_spec_with_memory(
         .namespaces(namespaces)
         .uid_mappings(uid_mappings)
         .gid_mappings(gid_mappings)
-        .cgroups_path(std::path::PathBuf::from(format!(
-            "/boxlite/{container_id}/workload"
-        )))
+        .cgroups_path(std::path::PathBuf::from(workload_cgroup_path(container_id)))
         .resources(resources)
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
 }
 
-/// OCI cgroupsPath for operator-injected processes (`boxlite exec`). Lives as
-/// a sibling of `/boxlite/<id>/workload` under the same parent budget so that
-/// a workload bomb saturating the workload subgroup can't lock the operator
-/// out of the box. See [`build_linux_spec_with_memory`] for the workload
-/// counterpart. Used by `cgroup_carve::swap_to_operator_cgroup_path` only —
-/// libcontainer reads it back from the rewritten config.json on disk.
-#[allow(dead_code)] // production callers use the inline format string; this is here for tests + docs
+/// OCI cgroupsPath for the container's init + workload — `pids.max=512`,
+/// `memory.max=container_memory_limit()`. Single source of truth used by both
+/// the OCI spec builder and `cgroup_carve`'s swap (paired with the operator
+/// path below). Keeping them as functions guarantees the two siblings can't
+/// drift in name.
+pub(crate) fn workload_cgroup_path(container_id: &str) -> String {
+    format!("/boxlite/{container_id}/workload")
+}
+
+/// OCI cgroupsPath for operator-injected processes (`boxlite exec --debug`).
+/// Lives as a sibling of `/boxlite/<id>/workload` under the same parent budget
+/// so a workload bomb saturating the workload subgroup can't lock the operator
+/// out of the box. Used by `cgroup_carve` (the swap-on-debug path that rewrites
+/// the OCI config.json on disk so libcontainer reads it back at tenant build).
 pub(crate) fn operator_cgroup_path(container_id: &str) -> String {
     format!("/boxlite/{container_id}/operator")
 }
