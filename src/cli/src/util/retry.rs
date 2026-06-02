@@ -7,12 +7,15 @@
 //! `starting` / `in progress` / `transitioning`) triggers the retry
 //! loop. Every other error — `NotFound`, `Unauthenticated`, generic
 //! `Internal` — propagates immediately so a real failure isn't masked
-//! by a 30-second wait.
+//! by a multi-second wait.
 //!
-//! The total wait budget is bounded (default 30 s, override with
+//! The total wait budget is bounded (default 10 s, override with
 //! `BOXLITE_TRANSIENT_RETRY_MS` for tests) and uses exponential backoff
 //! capped at 2 s so a long-running transition doesn't starve interactive
-//! CLI feedback.
+//! CLI feedback. 10 s comfortably covers a clean libkrun stop+restart
+//! (1-2 s each) plus host load slack; pathological hangs (shim deadlock,
+//! kernel stuck) won't unblock at 30 s either, so the longer default
+//! traded user-visible wait for no extra signal.
 
 use boxlite::{BoxliteError, BoxliteResult};
 use std::future::Future;
@@ -20,7 +23,7 @@ use std::time::{Duration, Instant};
 
 /// Default total time we'll spend waiting for a transient state to
 /// clear before giving up.
-const DEFAULT_BUDGET_MS: u64 = 30_000;
+const DEFAULT_BUDGET_MS: u64 = 10_000;
 const INITIAL_BACKOFF_MS: u64 = 200;
 const MAX_BACKOFF_MS: u64 = 2_000;
 
