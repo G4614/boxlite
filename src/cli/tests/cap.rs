@@ -211,6 +211,85 @@ fn exec_inherits_container_cap_drops() {
     );
 }
 
+/// `--cap SYS_ADMIN=0` makes a `mount(2)` actually fail with EPERM.
+///
+/// CapEff bit asserts are the kernel's view of the cap set, but the
+/// load-bearing question is whether the cap is *enforced*. mount(2) is
+/// the canonical SYS_ADMIN-gated syscall: with the cap, mounting tmpfs
+/// onto an empty dir works; without it, the kernel returns EPERM
+/// before any path/namespace checks. Two-side: assert both directions
+/// in one test so a regression that flips the enforcement to a no-op
+/// (e.g. the cap set being attached to the wrong slot — bounding-only,
+/// or read-only mounted via the OCI spec but not gated at exec time)
+/// also fails the test.
+#[test]
+fn cap_drop_sys_admin_blocks_mount_syscall() {
+    // With default-ALL caps, mounting tmpfs must succeed.
+    {
+        let (ctx, box_id) = run_alpine(&[]);
+        let _c = BoxCleanup {
+            ctx: &ctx,
+            id: box_id.clone(),
+        };
+        let mut probe = ctx.new_cmd();
+        probe
+            .args([
+                "exec",
+                &box_id,
+                "--",
+                "sh",
+                "-c",
+                "mkdir -p /tmp/mnt && mount -t tmpfs tmpfs /tmp/mnt 2>&1; echo EXIT=$?",
+            ])
+            .timeout(Duration::from_secs(30));
+        let out = probe.output().expect("spawn exec");
+        let combined = String::from_utf8_lossy(&out.stdout).to_string()
+            + &String::from_utf8_lossy(&out.stderr);
+        assert!(
+            combined.contains("EXIT=0"),
+            "default-cap box must allow mount tmpfs; got:\n{combined}"
+        );
+    }
+
+    // With SYS_ADMIN dropped, mount(2) must fail EPERM.
+    {
+        let (ctx, box_id) = run_alpine(&["--cap", "SYS_ADMIN=0"]);
+        let _c = BoxCleanup {
+            ctx: &ctx,
+            id: box_id.clone(),
+        };
+        let mut probe = ctx.new_cmd();
+        probe
+            .args([
+                "exec",
+                &box_id,
+                "--",
+                "sh",
+                "-c",
+                "mkdir -p /tmp/mnt && mount -t tmpfs tmpfs /tmp/mnt 2>&1; echo EXIT=$?",
+            ])
+            .timeout(Duration::from_secs(30));
+        let out = probe.output().expect("spawn exec");
+        let combined = String::from_utf8_lossy(&out.stdout).to_string()
+            + &String::from_utf8_lossy(&out.stderr);
+        // BusyBox `mount` returns "mount: permission denied (are you root?)"
+        // on EPERM. Either the exit code OR the textual cue is enough; the
+        // conjunction catches a regression that gets the exit right via an
+        // unrelated failure (e.g. broken mount binary).
+        assert!(
+            !combined.contains("EXIT=0"),
+            "--cap SYS_ADMIN=0 box must reject mount tmpfs; got:\n{combined}"
+        );
+        assert!(
+            combined.contains("permission denied")
+                || combined.contains("Operation not permitted")
+                || combined.contains("EPERM"),
+            "mount failure must look like a kernel-level EPERM, not some \
+             unrelated error; got:\n{combined}"
+        );
+    }
+}
+
 /// Unknown cap names must fail at `boxlite run` parse, not silently
 /// drop into a guest-side warn. Catches the UX regression where a
 /// typo like `SYS-ADMIN` (dash) silently no-ops.
