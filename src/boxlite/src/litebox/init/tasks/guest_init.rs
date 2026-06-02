@@ -36,7 +36,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
             network_spec,
             ca_cert_pem,
             tty,
-            added_caps,
+            cap_overrides,
         ) =
             {
                 let mut ctx = ctx.lock().await;
@@ -60,7 +60,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                 let network_spec = ctx.config.options.network.clone();
                 let ca_cert_pem = ctx.ca_cert_pem.clone();
                 let tty = ctx.config.options.tty;
-                let added_caps = ctx.config.options.added_caps.clone();
+                let cap_overrides = ctx.config.options.cap_overrides.clone();
                 let tty = ctx.config.options.tty;
                 (
                     guest_session,
@@ -72,7 +72,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                     network_spec,
                     ca_cert_pem,
                     tty,
-                    added_caps,
+                    cap_overrides,
                     tty,
                 )
             };
@@ -87,7 +87,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
             &network_spec,
             ca_cert_pem.as_deref(),
             tty,
-            &added_caps,
+            &cap_overrides,
             tty,
         )
         .await
@@ -119,7 +119,7 @@ async fn run_guest_init(
     network_spec: &NetworkSpec,
     ca_cert_pem: Option<&str>,
     tty: bool,
-    added_caps: &[String],
+    cap_overrides: &[crate::runtime::options::CapOverride],
     tty: bool,
 ) -> BoxliteResult<()> {
     let container_id_str = container_id.as_str();
@@ -160,7 +160,7 @@ async fn run_guest_init(
             container_mounts.to_vec(),
             ca_certs,
             tty,
-            added_caps.to_vec(),
+            cap_overrides.to_vec(),
             tty,
         )
         .await?;

@@ -450,7 +450,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             // do until they grow `attach()` (see sdk-run-semantics-api.md).
             tty: false,
             secrets,
-            added_caps: vec![],
+            cap_overrides: vec![],
         })
     }
 }

@@ -101,7 +101,7 @@ impl ContainerInterface {
         mounts: Vec<ContainerMount>,
         ca_certs: Vec<String>,
         tty: bool,
-        added_caps: Vec<String>,
+        cap_overrides: Vec<crate::runtime::options::CapOverride>,
     ) -> BoxliteResult<String> {
         let proto_config = ProtoContainerConfig {
             entrypoint: image_config.final_cmd(),
@@ -140,6 +140,13 @@ impl ContainerInterface {
             "Container configuration"
         );
 
+        let proto_cap_overrides: Vec<boxlite_shared::CapOverride> = cap_overrides
+            .into_iter()
+            .map(|o| boxlite_shared::CapOverride {
+                name: o.name,
+                enabled: o.enabled,
+            })
+            .collect();
         let request = ContainerInitRequest {
             container_id: container_id.to_string(),
             container_config: Some(proto_config),
@@ -150,7 +157,7 @@ impl ContainerInterface {
             // `LiteBox::attach()` can address the main command with the same id
             // it sent, instead of both sides separately hard-coding it.
             execution_id: container_id.to_string(),
-            added_caps,
+            cap_overrides: proto_cap_overrides,
         };
 
         let response = self.client.init(request).await?.into_inner();

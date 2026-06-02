@@ -11,7 +11,6 @@
 //!
 //! See `docs/investigations/concurrent-exec-deadlock.md` for full analysis.
 
-use super::capabilities::capability_names;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use libcontainer::container::builder::ContainerBuilder;
 use libcontainer::syscall::syscall::SyscallType;
@@ -58,6 +57,11 @@ pub(crate) struct BuildSpec {
     pub args: Vec<String>,
     pub uid: u32,
     pub gid: u32,
+    /// Cap overrides inherited from the parent container; replayed
+    /// verbatim into both TTY and non-TTY exec paths so a `boxlite exec`
+    /// child sees the same cap set as the container's init process.
+    #[serde(default)]
+    pub cap_overrides: Vec<super::capabilities::CapOverride>,
 }
 
 /// What init to build. Serialized over IPC to the zygote.
@@ -265,9 +269,15 @@ fn do_build(spec: BuildSpec, fds: Option<[RawFd; 3]>) -> BuildResult {
             // The PTY path passes no stdio fds — youki wires the PTY slave instead.
             let env_vec: Vec<String> = spec.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
             let cwd = spec.cwd.to_str().unwrap_or("/");
-            let process =
-                super::spec::build_tty_exec_process(&spec.args, &env_vec, cwd, spec.uid, spec.gid)
-                    .map_err(|e| format!("build tty exec process: {e}"))?;
+            let process = super::spec::build_tty_exec_process(
+                &spec.args,
+                &env_vec,
+                cwd,
+                spec.uid,
+                spec.gid,
+                &spec.cap_overrides,
+            )
+            .map_err(|e| format!("build tty exec process: {e}"))?;
             let process_json = serde_json::to_vec(&process)
                 .map_err(|e| format!("serialize tty process.json: {e}"))?;
             let process_path = spec
@@ -286,13 +296,18 @@ fn do_build(spec: BuildSpec, fds: Option<[RawFd; 3]>) -> BuildResult {
             result?
         } else {
             // Non-TTY exec: stdio via the passed pipe fds, no console socket,
-            // terminal=false, non-detached.
+            // terminal=false, non-detached. Inherit the parent container's
+            // cap_overrides — without this, with_capabilities used to
+            // hardcode the docker 14-cap default and silently drop any
+            // user-requested cap on every exec.
+            let cap_names = super::spec::cap_override_libcontainer_names(&spec.cap_overrides)
+                .map_err(|e| format!("resolve exec capabilities: {e}"))?;
             builder
                 .as_tenant()
                 // CLONE_PARENT so the tenant reparents to guest main (not the
                 // zygote); guest main's reaper owns its exit. The zygote never waits.
                 .as_sibling(true)
-                .with_capabilities(capability_names())
+                .with_capabilities(cap_names)
                 .with_no_new_privs(false)
                 .with_detach(false)
                 .with_cwd(Some(spec.cwd))
@@ -578,6 +593,7 @@ mod tests {
             ],
             uid: 1000,
             gid: 1000,
+            cap_overrides: vec![],
         }
     }
 
@@ -633,6 +649,7 @@ mod tests {
             args: vec![],
             uid: 0,
             gid: 0,
+            cap_overrides: vec![],
         };
         let json = serde_json::to_vec(&spec).unwrap();
         let decoded: BuildSpec = serde_json::from_slice(&json).unwrap();
@@ -790,6 +807,7 @@ mod tests {
             args,
             uid: 65534,
             gid: 65534,
+            cap_overrides: vec![],
         };
 
         send_request(fd_a, &ZygoteRequest::Build(spec.clone()), None).unwrap();
@@ -819,6 +837,7 @@ mod tests {
             args: vec![],
             uid: 0,
             gid: 0,
+            cap_overrides: vec![],
         };
 
         let (a, _b) = socketpair(
@@ -968,6 +987,7 @@ mod tests {
                     args: vec!["echo".to_string()],
                     uid: 0,
                     gid: 0,
+                    cap_overrides: vec![],
                 };
                 z.build(spec, None).unwrap()
             }));
