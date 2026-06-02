@@ -60,6 +60,28 @@ pub(crate) trait RuntimeBackend: Send + Sync {
     /// Synchronous shutdown for atexit/Drop contexts.
     /// Default no-op (REST backend doesn't manage local processes).
     fn shutdown_sync(&self) {}
+
+    /// Sweep orphan boxes/<id>/, orphan bases/*.qcow2, and orphan
+    /// images/disk-images/*.ext4 from the on-disk cache. Default returns
+    /// `Unsupported` — only the local backend manages a `~/.boxlite/` dir.
+    fn collect_garbage(
+        &self,
+        _opts: &crate::runtime::gc::GcOptions,
+    ) -> BoxliteResult<crate::runtime::gc::GcReport> {
+        Err(BoxliteError::Unsupported(
+            "GC is only supported for local runtimes (not REST backends)".to_string(),
+        ))
+    }
+
+    /// Build a disk-usage view for `boxlite df` (host headroom + per-category
+    /// footprint + dry-run GC reclaim). Default returns `Unsupported` for the
+    /// same reason as [`Self::collect_garbage`]: the disk being described is
+    /// the host running this backend.
+    fn disk_usage(&self) -> BoxliteResult<crate::runtime::df::DiskUsageReport> {
+        Err(BoxliteError::Unsupported(
+            "`df` is only supported for local runtimes (not REST backends)".to_string(),
+        ))
+    }
 }
 
 /// Backend abstraction for individual box operations.

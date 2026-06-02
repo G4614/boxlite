@@ -68,6 +68,12 @@ pub enum Commands {
     /// Emergency: release the host disk reserve so `rm` / `gc` can run on a full host
     ReserveRelease(crate::commands::reserve::ReserveReleaseArgs),
 
+    /// Reclaim orphaned cache: boxes/<id>/, bases/*.qcow2, images/disk-images/*.ext4
+    Gc(crate::commands::gc::GcArgs),
+
+    /// Display host headroom, ~/.boxlite/ footprint, and reclaimable cache
+    Df(crate::commands::df::DfArgs),
+
     /// Start one or more stopped boxes
     Start(crate::commands::start::StartArgs),
 

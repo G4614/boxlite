@@ -1,7 +1,9 @@
 pub mod auth;
 pub mod cp;
 pub mod create;
+pub mod df;
 pub mod exec;
+pub mod gc;
 pub mod images;
 pub mod info;
 pub mod inspect;
