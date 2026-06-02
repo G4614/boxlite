@@ -1173,4 +1173,34 @@ mod tests {
             .unwrap();
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), "spaces\n");
     }
+
+    /// `unpack(path, ...)` against a nonexistent path must return
+    /// `BoxliteError::Storage` with the missing tar identified in the
+    /// message — not panic, not propagate a raw io error.
+    ///
+    /// This is the load-bearing error path for callers that don't
+    /// control the tar location (e.g. local copy_out reading a tar
+    /// staged by a peer process). Without it, a transient stage-failure
+    /// surfaces as a generic spawn_blocking traceback instead of a
+    /// named, actionable error.
+    #[tokio::test]
+    async fn unpack_nonexistent_path_returns_named_storage_error() {
+        let tmp = TempDir::new().unwrap();
+        let missing = tmp.path().join("never-staged.tar");
+        let dest = tmp.path().join("out");
+
+        let err = unpack(missing.clone(), dest, default_unpack(true))
+            .await
+            .expect_err("must fail when the tar file does not exist");
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed to open tar"),
+            "error must name the operation that failed; got {msg:?}"
+        );
+        assert!(
+            msg.contains("never-staged.tar"),
+            "error must name the missing path so the operator can act; got {msg:?}"
+        );
+    }
 }
