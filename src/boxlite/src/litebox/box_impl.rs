@@ -844,6 +844,63 @@ impl BoxImpl {
 
                     // If shim died, mark as Unhealthy and stop health check immediately
                     if shim_died {
+                        // Reap the zombie so the PID slot is freed. `is_process_alive`
+                        // returns false for `State: Z`, so the detector caught a dead
+                        // *or* a zombie — but if it's a zombie, the kernel keeps the
+                        // PID slot occupied until somebody `waitpid`s. Health check
+                        // is the natural reaper here: only background task observing
+                        // shim liveness, parent (this process) still owns the SIGCHLD
+                        // relationship, and nobody else does it — the synchronous
+                        // `stop()` / non-force `rm` paths reap via their own
+                        // `Child::wait()`; this branch covers everything else: OOM
+                        // kill, external SIGKILL/SIGTERM, internal panic.
+                        if let Some(pid) = pid {
+                            // Reap with a short retry loop. SIGKILL→zombie
+                            // transition is fast but not always synchronous
+                            // with the wait queue: WNOHANG can briefly return
+                            // 0 before the kernel posts the SIGCHLD/wait
+                            // status, even when /proc already shows State: Z.
+                            // Bounded by `REAP_DEADLINE_MS` to avoid stalling
+                            // the health check loop on a wedged shim.
+                            const REAP_DEADLINE_MS: u64 = 500;
+                            let deadline = std::time::Instant::now()
+                                + std::time::Duration::from_millis(REAP_DEADLINE_MS);
+                            loop {
+                                let mut status: i32 = 0;
+                                // SAFETY: documented C ABI; pid fits libc::pid_t.
+                                let r = unsafe {
+                                    libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG)
+                                };
+                                if r > 0 {
+                                    tracing::debug!(
+                                        box_id = %box_id, pid, raw_status = status,
+                                        "Reaped dead shim from health check"
+                                    );
+                                    break;
+                                }
+                                if r < 0 {
+                                    // ECHILD: not our child or already reaped.
+                                    tracing::debug!(
+                                        box_id = %box_id, pid,
+                                        error = %std::io::Error::last_os_error(),
+                                        "waitpid for dead shim returned error \
+                                         (likely ECHILD)"
+                                    );
+                                    break;
+                                }
+                                if std::time::Instant::now() >= deadline {
+                                    tracing::warn!(
+                                        box_id = %box_id, pid,
+                                        "Dead shim not reapable within {}ms; \
+                                         leaving for runtime drop / OS",
+                                        REAP_DEADLINE_MS
+                                    );
+                                    break;
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(10));
+                            }
+                        }
+
                         let mut state_guard = state.write();
                         state_guard.force_status(BoxStatus::Stopped);
                         state_guard.set_pid(None);

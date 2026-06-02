@@ -831,10 +831,58 @@ impl RuntimeImpl {
             let mut state = state;
             if state.status.is_active() || state.pid.is_some() {
                 if force {
-                    // Force mode: kill the process directly
+                    // Force mode: kill the process directly, then reap.
                     if let Some(pid) = state.pid {
                         tracing::info!(box_id = %id, pid = pid, "Force killing box process");
                         crate::util::kill_process(pid);
+
+                        // Reap the zombie before returning. Mirrors the
+                        // SIGTERM polling loop in
+                        // `vmm/controller/shim.rs::ShimHandler::stop` (the
+                        // canonical existing "kill+wait" pattern in this
+                        // crate). Without this, `boxlite serve` + REST
+                        // `DELETE /v1/boxes/<id>?force=true` returns
+                        // immediately and shim becomes zombie with
+                        // `PPid == daemon pid`; init can't help because
+                        // daemon is still the parent (Issue #523).
+                        const FORCE_REAP_DEADLINE_MS: u64 = 2000;
+                        let deadline = std::time::Instant::now()
+                            + std::time::Duration::from_millis(FORCE_REAP_DEADLINE_MS);
+                        loop {
+                            let mut status: i32 = 0;
+                            // SAFETY: documented C ABI; u32 fits libc::pid_t.
+                            let r = unsafe {
+                                libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG)
+                            };
+                            if r > 0 {
+                                tracing::debug!(
+                                    box_id = %id, pid, raw_status = status,
+                                    "Reaped force-killed shim"
+                                );
+                                break;
+                            }
+                            if r < 0 {
+                                // ECHILD: not our child (e.g. attached mode,
+                                // or daemon doesn't own this child) — nothing
+                                // we can reap from here.
+                                tracing::debug!(
+                                    box_id = %id, pid,
+                                    error = %std::io::Error::last_os_error(),
+                                    "waitpid for force-killed shim errored; \
+                                     nothing to reap from here"
+                                );
+                                break;
+                            }
+                            if std::time::Instant::now() >= deadline {
+                                tracing::warn!(
+                                    box_id = %id, pid,
+                                    "Force-killed shim still not reapable after {}ms",
+                                    FORCE_REAP_DEADLINE_MS
+                                );
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
                     }
                     // Update status to stopped and save
                     state.set_status(BoxStatus::Stopped);
