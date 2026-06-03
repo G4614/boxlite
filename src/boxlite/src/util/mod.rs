@@ -15,7 +15,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub use process::{
-    ProcessExit, ProcessMonitor, is_process_alive, kill_process, process_start_time,
+    ProcessExit, ProcessMonitor, ReapOutcome, is_process_alive, kill_process, process_start_time,
+    reap_pid_async, reap_pid_blocking,
 };
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
