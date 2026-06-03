@@ -5,6 +5,7 @@
 // ============================================================================
 
 use std::sync::Arc;
+use std::sync::Weak;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -29,7 +30,7 @@ use crate::metrics::{BoxMetrics, BoxMetricsStorage};
 use crate::portal::GuestSession;
 use crate::portal::interfaces::GuestInterface;
 use crate::runtime::layout::BoxFilesystemLayout;
-use crate::runtime::rt_impl::SharedRuntimeImpl;
+use crate::runtime::rt_impl::{RuntimeImpl, SharedRuntimeImpl};
 use crate::runtime::types::BoxStatus;
 use crate::vmm::controller::VmmHandler;
 use crate::{BoxID, BoxInfo, HealthCheckOptions, HealthState};
@@ -736,21 +737,33 @@ impl BoxImpl {
         // Stash (rename → exit.previous) preserves forensic data.
         crate::runtime::rt_impl::stash_exit_file(&self.layout);
 
-        // Start health check task if configured
+        // Start health check task if configured. Failing to obtain the
+        // guest interface here is non-fatal: health check is best-effort
+        // (liveness ping + zombie reap on async shim death), and
+        // propagating the error would break recovered/attached boxes
+        // whose guest session can't be re-established — `stop_impl`'s
+        // kill branch depends on `live_state()` succeeding.
         if let Some(ref health_config) = self.config.options.advanced.health_check {
-            // Get guest interface from session
-            let guest = live_state.guest_session.guest().await?;
-
-            // Spawn health check task
-            let health_task = self.spawn_health_check(
-                Arc::clone(&self.state),
-                self.config.id.clone(),
-                health_config.to_owned(),
-                guest,
-                self.shutdown_token.child_token(),
-                Arc::clone(&self.runtime),
-            );
-            *self.health_check_task.write() = Some(health_task);
+            match live_state.guest_session.guest().await {
+                Ok(guest) => {
+                    let health_task = self.spawn_health_check(
+                        Arc::clone(&self.state),
+                        self.config.id.clone(),
+                        health_config.to_owned(),
+                        guest,
+                        self.shutdown_token.child_token(),
+                        Arc::downgrade(&self.runtime),
+                    );
+                    *self.health_check_task.write() = Some(health_task);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        box_id = %self.config.id,
+                        error = %e,
+                        "Skipping health check task: guest session unavailable"
+                    );
+                }
+            }
         }
 
         tracing::info!(
@@ -762,6 +775,16 @@ impl BoxImpl {
         Ok(live_state)
     }
 
+    /// Spawns the periodic health check task.
+    ///
+    /// The task holds a `Weak<RuntimeImpl>` (not Arc) so that an
+    /// out-of-band runtime drop — e.g. the user drops their
+    /// `BoxliteRuntime` handle while a box is detached and the
+    /// box-scoped `shutdown_token` was never cancelled — does not pin
+    /// the runtime alive forever. On each persistence write the task
+    /// `upgrade()`s the Weak; if the runtime is already gone, the
+    /// write is skipped (state would have nowhere to land anyway) and
+    /// the task exits on the next iteration.
     pub fn spawn_health_check(
         &self,
         state: Arc<RwLock<BoxState>>,
@@ -769,7 +792,7 @@ impl BoxImpl {
         health_config: HealthCheckOptions,
         mut guest: GuestInterface,
         shutdown_token: CancellationToken,
-        runtime: SharedRuntimeImpl,
+        runtime: Weak<RuntimeImpl>,
     ) -> JoinHandle<()> {
         let interval = health_config.interval;
         let check_timeout = health_config.timeout;
@@ -800,6 +823,19 @@ impl BoxImpl {
                         break;
                     }
                 }
+
+                // Bail out if the runtime has been dropped. Without
+                // this check the task would keep pinging the guest
+                // forever (no Arc on the runtime to extend its life
+                // and no shutdown_token to cancel us, e.g. detached
+                // box + runtime drop without explicit stop).
+                let Some(runtime) = runtime.upgrade() else {
+                    tracing::debug!(
+                        box_id = %box_id,
+                        "Health check task exiting: runtime dropped"
+                    );
+                    break;
+                };
 
                 let elapsed = start_time.elapsed();
                 let result = if elapsed < start_period {
