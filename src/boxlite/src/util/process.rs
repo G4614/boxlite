@@ -330,12 +330,19 @@ fn reap_once(pid: u32) -> ReapOutcome {
 }
 
 /// Best-effort open a pidfd for `pid`. Returns the raw fd on success,
-/// or -1 on any failure.
+/// or -1 on any failure (including non-Linux targets where pidfd_open
+/// is not a thing — callers fall back to the WNOHANG reap_once path).
+#[cfg(target_os = "linux")]
 fn try_pidfd_open(pid: u32) -> i32 {
     // pidfd_open is Linux 5.3+; libc 0.2 doesn't always have the
     // wrapper, so go through SYS_pidfd_open directly.
     let r = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0_u32) };
     if r < 0 { -1 } else { r as i32 }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn try_pidfd_open(_pid: u32) -> i32 {
+    -1
 }
 
 /// Block until `pid` exits, then waitpid. Returns within
