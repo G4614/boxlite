@@ -15,6 +15,7 @@ import "C"
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -509,33 +510,14 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 				}
 			}()
 		} else {
-			// Linux: Handle Qemu stream connections
-			go func() {
-				logrus.WithField("id", id).Trace("Waiting for Qemu connection on UnixStream socket")
-
-				// Accept incoming connection (blocks until VM connects)
-				acceptedConn, err := listener.Accept()
-				if err != nil {
-					if ctx.Err() == nil {
-						logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("Failed to accept connection")
-						sink.Runtime("listener.Accept", err)
-					}
-					return
-				}
-
-				logrus.WithFields(logrus.Fields{"id": id, "remote": acceptedConn.RemoteAddr().String()}).Info("Qemu connection accepted")
-
-				// Close listener after first connection (one VM per gvproxy instance)
-				listener.Close()
-
-				// Handle the Qemu protocol
-				if err := vn.AcceptQemu(ctx, acceptedConn); err != nil {
-					if ctx.Err() == nil {
-						logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("AcceptQemu error")
-						sink.Runtime("vn.AcceptQemu", err)
-					}
-				}
-			}()
+			// Linux: Handle Qemu stream connections.
+			// Extracted into runQemuAcceptLoop so tests can drive the same
+			// goroutine body against a real Unix socket + cancellable ctx and
+			// observe the sink reactions, instead of having to spin up the
+			// full gvproxy_create cgo path. The test exercise in
+			// `qemu_accept_loop_test.go` closes the listener mid-Accept and
+			// asserts the listener.Accept error reaches the sink.
+			go runQemuAcceptLoop(ctx, id, listener, vn, sink)
 		}
 
 		// Wait for context cancellation
@@ -629,6 +611,58 @@ func gvproxy_poll_runtime_error(id C.longlong) *C.char {
 		return nil
 	}
 	return C.CString(re.String())
+}
+
+// gvproxy_test_create_for_polling builds a minimal GvproxyInstance that
+// has an ErrSink but NO socket, NO goroutines, NO virtual network. Used
+// exclusively by Rust integration tests that want to validate the
+// `gvproxy_poll_runtime_error` polling pattern without paying the cost
+// of standing up a real VM transport.
+//
+// Pairs with `gvproxy_test_inject_runtime_error` for the inject side.
+//
+// The returned id is real — `gvproxy_destroy` cleans it up the same as
+// a real instance (the Cancel func is set but does nothing meaningful
+// because no goroutines were ever spawned).
+//
+//export gvproxy_test_create_for_polling
+func gvproxy_test_create_for_polling() C.longlong {
+	instancesMu.Lock()
+	id := nextID
+	nextID++
+	ctx, cancel := context.WithCancel(context.Background())
+	_ = ctx // not used; goroutines aren't spawned in this fixture
+	instances[id] = &GvproxyInstance{
+		ID:      id,
+		Cancel:  cancel,
+		errSink: NewErrSink(id),
+	}
+	instancesMu.Unlock()
+	return C.longlong(id)
+}
+
+// gvproxy_test_inject_runtime_error pushes a synthetic runtime error
+// into the named instance's ErrSink. Pairs with the test-only fixture
+// above so Rust integration tests can drive the full poll path:
+//
+//	id := gvproxy_test_create_for_polling()
+//	gvproxy_test_inject_runtime_error(id, "AcceptQemu", "use of closed network connection")
+//	str := gvproxy_poll_runtime_error(id)  // -> "[ts] AcceptQemu: use of closed network connection"
+//
+// Both arg strings are caller-owned C strings (this fn copies them
+// before returning, so the caller may free immediately).
+//
+//export gvproxy_test_inject_runtime_error
+func gvproxy_test_inject_runtime_error(id C.longlong, source *C.char, message *C.char) {
+	instancesMu.RLock()
+	instance, ok := instances[int64(id)]
+	instancesMu.RUnlock()
+	if !ok || instance.errSink == nil {
+		return
+	}
+	src := C.GoString(source)
+	msg := C.GoString(message)
+	instance.errSink.Runtime(src, errors.New(msg))
 }
 
 //export gvproxy_get_stats
