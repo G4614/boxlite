@@ -2983,9 +2983,9 @@ mod tests {
         let res = local.create(opts, None).await;
         match res {
             Ok(_) => {} // happy path — wrapper correctly bypassed
-            Err(BoxliteError::Timeout(msg)) => panic!(
-                "budget=0 must NOT translate happy-path create into Timeout; got {msg}"
-            ),
+            Err(BoxliteError::Timeout(msg)) => {
+                panic!("budget=0 must NOT translate happy-path create into Timeout; got {msg}")
+            }
             Err(other) => panic!("unexpected error: {other}"),
         }
     }
