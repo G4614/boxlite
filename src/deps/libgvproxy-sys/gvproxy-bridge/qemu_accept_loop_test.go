@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"strings"
@@ -129,5 +130,68 @@ func TestRunQemuAcceptLoop_CancelDoesNotSinkRuntime(t *testing.T) {
 				"which would pollute the Rust-side error log on every gvproxy_destroy",
 			re,
 		)
+	}
+}
+
+// TestRunQemuAcceptLoop_ProtocolErrorSurfacesViaSink covers the SECOND
+// silent site on the Linux path: vn.AcceptQemu fails after Accept
+// succeeded. Pre-fix: pump returns, ctx is still alive, no signal.
+// Guest sees TCP RSTs on every packet.
+//
+// Drives the goroutine with a real listener + dialer (so Accept
+// succeeds), then a mock acceptQemu that returns a synthetic error.
+// Asserts sink got source="vn.AcceptQemu".
+//
+// Two-sided contract: remove the `sink.Runtime("vn.AcceptQemu", err)`
+// line in runQemuAcceptLoop and this test reds with
+// "expected vn.AcceptQemu runtime error in sink, got nil".
+func TestRunQemuAcceptLoop_ProtocolErrorSurfacesViaSink(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "test-proto.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+
+	sink := NewErrSink(101)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mockErr := errors.New("synthesized qemu protocol panic")
+	acceptQemu := func(_ context.Context, _ net.Conn) error {
+		return mockErr
+	}
+
+	done := make(chan struct{})
+	go func() {
+		runQemuAcceptLoop(ctx, 101, listener, acceptQemu, sink)
+		close(done)
+	}()
+
+	// Connect so Accept succeeds and the loop reaches acceptQemu.
+	clientConn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer clientConn.Close()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("runQemuAcceptLoop did not return after protocol error")
+	}
+
+	re := sink.PollRuntime()
+	if re == nil {
+		t.Fatal(
+			"expected vn.AcceptQemu runtime error in sink, got nil — " +
+				"pre-fix silent return: protocol pump errored but no signal " +
+				"reached anyone (Rust runtime, operator, ops dashboard)",
+		)
+	}
+	if re.Source != "vn.AcceptQemu" {
+		t.Errorf("source = %q, want %q", re.Source, "vn.AcceptQemu")
+	}
+	if !errors.Is(re.Err, mockErr) {
+		t.Errorf("cause should wrap mockErr; got: %v", re.Err)
 	}
 }

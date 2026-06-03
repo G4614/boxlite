@@ -457,16 +457,18 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 		// did NOT actually filter and MITM did NOT actually substitute, but
 		// gvproxy_create returned success and the box looked healthy. Now: surfaced
 		// via sink.Init so box.create aborts.
-		if len(config.AllowNet) > 0 || instance.secretMatcher != nil {
-			var tcpFilter *TCPFilter
-			if len(config.AllowNet) > 0 {
-				tcpFilter = NewTCPFilter(config.AllowNet, config.GatewayIP, config.GuestIP, config.HostIP)
-			}
-			if err := OverrideTCPHandler(vn, tapConfig, tapConfig.Ec2MetadataAccess, tcpFilter, instance.ca, instance.secretMatcher); err != nil {
-				logrus.WithError(err).Error("TCP: failed to override handler")
-				sink.Init("OverrideTCPHandler", err)
-				return
-			}
+		//
+		// Extracted into installTCPOverride for test-time failure injection. See
+		// install_tcp_override_test.go for the two-sided wiring proof.
+		installTCPHandler := func() error {
+			return OverrideTCPHandler(vn, tapConfig, tapConfig.Ec2MetadataAccess,
+				newTCPFilterFromConfig(config), instance.ca, instance.secretMatcher)
+		}
+		hasTCPFilter := len(config.AllowNet) > 0 || instance.secretMatcher != nil
+		if err := installTCPOverride(hasTCPFilter, installTCPHandler); err != nil {
+			logrus.WithError(err).Error("TCP: failed to override handler")
+			sink.Init("OverrideTCPHandler", err)
+			return
 		}
 
 		// All init-phase work done — release the cgo caller.
@@ -487,28 +489,10 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 			// VFKit requires a two-step process:
 			// 1. transport.AcceptVfkit() - Waits for incoming data and wraps listener with remote address
 			// 2. vn.AcceptVfkit() - Handles the VFKit protocol
-			go func() {
-				logrus.WithField("id", id).Trace("Waiting for VFKit connection on UnixDgram socket")
-
-				// Wait for incoming connection and get wrapped connection with remote address
-				// AcceptVfkit peeks at the first packet to get the remote address
-				wrappedConn, err := transport.AcceptVfkit(conn.(*net.UnixConn))
-				if err != nil {
-					logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("Failed to accept VFKit connection")
-					sink.Runtime("transport.AcceptVfkit", err)
-					return
-				}
-
-				logrus.WithFields(logrus.Fields{"id": id, "remote": wrappedConn.RemoteAddr().String()}).Info("VFKit connection accepted")
-
-				// Handle the VFKit protocol with the wrapped connection
-				if err := vn.AcceptVfkit(ctx, wrappedConn); err != nil {
-					if ctx.Err() == nil {
-						logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("AcceptVfkit error")
-						sink.Runtime("vn.AcceptVfkit", err)
-					}
-				}
-			}()
+			//
+			// Extracted into runVfkitAcceptLoop so tests can drive it with mock
+			// transport + protocol functions. See vfkit_accept_loop_test.go.
+			go runVfkitAcceptLoop(ctx, id, conn.(*net.UnixConn), transport.AcceptVfkit, vn.AcceptVfkit, sink)
 		} else {
 			// Linux: Handle Qemu stream connections.
 			// Extracted into runQemuAcceptLoop so tests can drive the same
@@ -517,7 +501,7 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 			// full gvproxy_create cgo path. The test exercise in
 			// `qemu_accept_loop_test.go` closes the listener mid-Accept and
 			// asserts the listener.Accept error reaches the sink.
-			go runQemuAcceptLoop(ctx, id, listener, vn, sink)
+			go runQemuAcceptLoop(ctx, id, listener, vn.AcceptQemu, sink)
 		}
 
 		// Wait for context cancellation
