@@ -93,10 +93,18 @@ pub fn resolve_user_volumes(
             )));
         }
 
-        // Structural gate: must be under one of the managed roots.
-        // The check runs AFTER canonicalize so symlinks pointing out
-        // of the managed roots are caught.
-        if !resolved_path.starts_with(&allowed_anon) && !resolved_path.starts_with(&allowed_named) {
+        // Structural gate: must be one volume directory deep under a
+        // managed root — i.e. `<home>/volumes/anonymous/<id>` or
+        // `<home>/volumes/named/<name>`. A bare `starts_with` would
+        // also accept the aggregate roots themselves and arbitrary
+        // deeper paths (`…/named/myvol/etc/`), letting SDK callers
+        // pierce the per-volume isolation contract. The check runs
+        // AFTER canonicalize so symlinks pointing out of the managed
+        // roots are caught too.
+        let parent = resolved_path.parent();
+        let is_anon_volume_dir = parent == Some(allowed_anon.as_path());
+        let is_named_volume_dir = parent == Some(allowed_named.as_path());
+        if !is_anon_volume_dir && !is_named_volume_dir {
             return Err(BoxliteError::Config(format!(
                 "Volume host path '{path}' is not a boxlite-managed volume. \
                  Host bind mounts were removed in step 2 — use a named volume \
@@ -438,6 +446,62 @@ mod tests {
         assert!(
             msg.contains("named volume") && msg.contains("anonymous"),
             "error must point at the supported alternatives; got {msg}"
+        );
+    }
+
+    /// Aggregate-root escape (coderabbitai #639 finding):
+    /// `<home>/volumes/named` itself must NOT pass the gate, because
+    /// mounting the aggregate root would let the box see every named
+    /// volume on the host. Reverting the per-volume-dir check (going
+    /// back to `starts_with`) flips this red.
+    #[test]
+    fn resolve_volume_aggregate_root_rejected() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("volumes").join("named")).unwrap();
+        std::fs::create_dir_all(home.path().join("volumes").join("anonymous")).unwrap();
+
+        for root in ["named", "anonymous"] {
+            let aggregate = home.path().join("volumes").join(root);
+            let volumes = vec![VolumeSpec {
+                host_path: aggregate.to_str().unwrap().to_string(),
+                guest_path: "/data".to_string(),
+                read_only: false,
+            }];
+            let err = match resolve_user_volumes(&volumes, home.path()) {
+                Err(e) => e,
+                Ok(_) => panic!("aggregate root {root:?} must be rejected; got Ok"),
+            };
+            assert!(
+                err.to_string().contains("not a boxlite-managed volume"),
+                "aggregate root {root:?} rejection must use the managed-volume message; got {err}"
+            );
+        }
+    }
+
+    /// Sub-volume descendant escape (same coderabbitai finding):
+    /// `<home>/volumes/named/myvol/etc/` (a path one level deeper
+    /// than a named volume directory) must NOT pass — the box would
+    /// be mounting a sub-tree of someone else's volume.
+    #[test]
+    fn resolve_volume_deep_descendant_rejected() {
+        let home = tempfile::tempdir().unwrap();
+        let vol_dir = home.path().join("volumes").join("named").join("myvol");
+        let deep = vol_dir.join("etc");
+        std::fs::create_dir_all(&deep).unwrap();
+
+        let volumes = vec![VolumeSpec {
+            host_path: deep.to_str().unwrap().to_string(),
+            guest_path: "/data".to_string(),
+            read_only: false,
+        }];
+        let result = resolve_user_volumes(&volumes, home.path());
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("deep descendant must be rejected; got Ok"),
+        };
+        assert!(
+            err.to_string().contains("not a boxlite-managed volume"),
+            "deep descendant rejection must use the managed-volume message; got {err}"
         );
     }
 

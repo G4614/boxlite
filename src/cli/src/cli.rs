@@ -635,6 +635,19 @@ fn parse_volume_spec(s: &str) -> anyhow::Result<ParsedVolumeSpec> {
                 if guest.is_empty() {
                     anyhow::bail!("volume box path must be non-empty");
                 }
+                // Anonymous box paths must be absolute. Without this
+                // check, a spec like `data:ro` would slip through —
+                // `parts[0]` is "data" (relative), `parts[1]` is "ro"
+                // (looks like options), so the 1-part absolute check
+                // isn't reached. The contract is the same as the
+                // 1-part case (`-v /data`) — only absolute guest paths
+                // are accepted.
+                if !guest.starts_with('/') {
+                    anyhow::bail!(
+                        "anonymous volume box path must be absolute (e.g. /data), got {:?}",
+                        guest
+                    );
+                }
                 (
                     ParsedVolumeSource::Anonymous,
                     guest,
@@ -1073,6 +1086,23 @@ mod tests {
     #[test]
     fn parse_volume_spec_anonymous_relative_invalid() {
         assert!(super::parse_volume_spec("data").is_err());
+    }
+
+    /// Coderabbitai #639 finding: the 2-part `<word>:<word>` shape
+    /// where the second is `ro`/`rw` is anonymous-with-options. The
+    /// 1-part case already requires an absolute guest path, but the
+    /// 2-part case used to let `data:ro` slip through. Reverting the
+    /// `if !guest.starts_with('/') { bail }` block flips this red.
+    #[test]
+    fn parse_volume_spec_anonymous_relative_with_options_invalid() {
+        let err = super::parse_volume_spec("data:ro").expect_err("relative + ro must reject");
+        assert!(
+            err.to_string().contains("must be absolute"),
+            "rejection must point at the absolute-path contract; got {err}"
+        );
+        // Same for `rw` — confirms it's not just `ro`-specific.
+        let err = super::parse_volume_spec("data:rw").expect_err("relative + rw must reject");
+        assert!(err.to_string().contains("must be absolute"));
     }
 
     #[test]
