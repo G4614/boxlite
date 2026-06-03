@@ -396,6 +396,13 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 			cancel()
 			return -1
 		}
+		// Wire the ErrSink into the CA so MITM cert-generation failures
+		// surface to the Rust polling consumer (security-shaped: a
+		// persistent cert-gen failure means MITM is silently disabled
+		// for that hostname). Per-conn TLS handshake / upstream dial
+		// errors stay log-only — those are expected failure modes, not
+		// silent regressions worth surfacing.
+		ca.SetErrSink(instance.errSink)
 		instance.ca = ca
 		instance.secretMatcher = NewSecretHostMatcher(config.Secrets)
 		logrus.WithField("num_secrets", len(config.Secrets)).Info("MITM: loaded CA from Rust config")
