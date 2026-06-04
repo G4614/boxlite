@@ -279,6 +279,29 @@ impl RuntimeImpl {
 
         tracing::debug!("initialized runtime");
 
+        // Spawn runtime-wide SIGCHLD child reaper as a safety net for
+        // shim processes that die without going through the normal
+        // `Child::wait` path: external SIGKILL, OOM-kill, panic, or a
+        // dropped `Child` handle. Health-check still reaps per-pid via
+        // `reap_pid_async`; this task handles everything health-check
+        // doesn't see.
+        //
+        // Disabled under `cfg(test)`: cargo runs all unit tests in one
+        // process with parallel threads, and `waitpid(-1)` is
+        // process-wide — a reaper spawned by a `#[tokio::test]` would
+        // race-steal dummy `Child`ren that adjacent `#[test]` cases
+        // are about to `try_wait()`. Production binaries (release +
+        // integration-test binaries) keep the auto-spawn. The reaper's
+        // own behaviour is covered by `util::child_reaper::tests`,
+        // which spawns it directly and asserts on a pid it owns.
+        //
+        // Spawn only when a tokio runtime is available — some test
+        // paths construct `RuntimeImpl` synchronously.
+        #[cfg(not(test))]
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let _reaper = crate::util::spawn_child_reaper(inner.shutdown_token.clone());
+        }
+
         // Recover boxes from database
         inner.recover_boxes()?;
 

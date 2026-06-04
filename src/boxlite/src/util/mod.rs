@@ -1,8 +1,10 @@
 mod binary_finder;
+mod child_reaper;
 mod pid_file;
 pub mod process;
 
 pub use binary_finder::{RuntimeBinaryFinder, find_binary};
+pub use child_reaper::spawn_child_reaper;
 pub use pid_file::{PidFileReader, PidFileWriter, PidRecord, ProcessIdentity};
 
 use std::path::PathBuf;
