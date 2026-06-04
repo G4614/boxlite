@@ -42,12 +42,21 @@ fn read_self_cpu_ticks() -> u64 {
 }
 
 fn cpu_ms_from_ticks(ticks: u64) -> u64 {
-    // sysconf(_SC_CLK_TCK) is usually 100 on Linux. Worth reading it
-    // for precision but the typical value lets us do "ticks * 10" to
-    // get milliseconds. Keep this approximation — the perf signal we
-    // care about (delta between health-check-on and off) is well above
-    // any rounding error.
-    ticks * 10
+    // /proc/<pid>/stat utime/stime are in clock ticks. The divisor
+    // is `sysconf(_SC_CLK_TCK)` — commonly 100 on x86_64 Linux, but
+    // the kernel may have been built with HZ=250/300/1000 (especially
+    // on ARM or low-latency profiles). Coderabbitai review on #613
+    // verified the man-page contract; previously this hardcoded
+    // `ticks * 10` (= a 100 Hz assumption), which would over- or
+    // under-report by 2.5× / 10× on those kernels.
+    //
+    // Read the real value at runtime and fall back to 100 only if
+    // sysconf returns something nonsensical (defensive — we still
+    // want a number to print in the report).
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    let hz = if hz > 0 { hz as u64 } else { 100 };
+    // ticks / hz = seconds; * 1000 = ms.
+    ticks.saturating_mul(1000) / hz
 }
 
 #[tokio::test]
@@ -103,8 +112,12 @@ async fn perf_health_check_default_on_vs_off_cpu_delta() {
 
     // Wait long enough for health check to land in Healthy before
     // measurement; otherwise the first window includes startup pings
-    // failing on a not-yet-ready guest.
+    // failing on a not-yet-ready guest. Coderabbitai review on #613:
+    // assert the box actually reached Healthy — otherwise a timed-out
+    // wait still records CPU against startup / unhealthy behaviour and
+    // prints it as steady-state overhead.
     let healthy_deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut became_healthy = false;
     while std::time::Instant::now() < healthy_deadline {
         let info = t_on
             .runtime
@@ -113,10 +126,16 @@ async fn perf_health_check_default_on_vs_off_cpu_delta() {
             .unwrap()
             .unwrap();
         if info.health_status.state == HealthState::Healthy {
+            became_healthy = true;
             break;
         }
         sleep(Duration::from_millis(200)).await;
     }
+    assert!(
+        became_healthy,
+        "health-check-on box never reached Healthy within 15s; the perf number that follows \
+         would mix in startup / unhealthy pings instead of steady-state overhead"
+    );
 
     let cpu_on_before = read_self_cpu_ticks();
     sleep(Duration::from_secs(OBSERVATION_SECS)).await;

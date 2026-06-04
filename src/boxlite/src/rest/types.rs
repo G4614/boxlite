@@ -108,6 +108,17 @@ pub(crate) struct CreateBoxRequest {
     /// behaviour without changing their POST body shape.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health_check_disabled: Option<bool>,
+    /// Non-default health-check settings (interval / timeout /
+    /// retries / start_period). Omitted when absent OR when the
+    /// settings equal `HealthCheckOptions::default()`, so old clients
+    /// and unmodified BoxOptions keep producing the same POST body.
+    /// Coderabbitai review on #613: prior to this field, the wire
+    /// carried only the disabled bit, so any custom `HealthCheckOptions`
+    /// on the caller side was silently rewritten to defaults on the
+    /// server. Carries the full settings now so local and REST runtimes
+    /// behave identically for the same `BoxOptions`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_check_settings: Option<crate::HealthCheckOptions>,
 }
 
 impl CreateBoxRequest {
@@ -134,13 +145,19 @@ impl CreateBoxRequest {
             Some(options.secrets.iter().map(CreateBoxSecret::from).collect())
         };
 
-        // Only set the wire field when the operator explicitly disabled
-        // health check. `None` on the wire = "use server default" (which
-        // is currently `Some(HealthCheckOptions::default())`).
-        let health_check_disabled = if options.advanced.health_check.is_none() {
-            Some(true)
-        } else {
-            None
+        // Health-check policy on the wire:
+        //   - `health_check_disabled = Some(true)` → operator opted out
+        //   - `health_check_settings = Some(opts)` → non-default custom
+        //     settings (carries interval / timeout / retries /
+        //     start_period so the server doesn't silently rewrite them
+        //     to defaults — coderabbitai review on #613).
+        //   - both omitted → caller is using `HealthCheckOptions::default()`,
+        //     server-side default takes over (same shape as before this
+        //     PR, so old clients keep their POST body unchanged).
+        let (health_check_disabled, health_check_settings) = match &options.advanced.health_check {
+            None => (Some(true), None),
+            Some(opts) if opts == &crate::HealthCheckOptions::default() => (None, None),
+            Some(opts) => (None, Some(opts.clone())),
         };
 
         Self {
@@ -161,6 +178,7 @@ impl CreateBoxRequest {
             detach: Some(options.detach),
             security: None, // TODO: map security preset
             health_check_disabled,
+            health_check_settings,
         }
     }
 }
@@ -498,6 +516,7 @@ mod tests {
             detach: None,
             security: None,
             health_check_disabled: None,
+            health_check_settings: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"name\":\"mybox\""));
@@ -574,6 +593,61 @@ mod tests {
         assert!(
             json.contains("\"health_check_disabled\":true"),
             "explicit disable must appear on the wire; got: {json}"
+        );
+    }
+
+    /// Coderabbitai review #613: when the caller provides custom
+    /// `HealthCheckOptions` (non-default `interval`, etc.),
+    /// `from_options` MUST carry those on the wire via
+    /// `health_check_settings` — otherwise the server silently
+    /// rewrites them to defaults. Reverting either the field on the
+    /// struct or the match arm in `from_options` flips this red.
+    #[test]
+    fn test_create_box_request_carries_custom_health_check_settings_on_the_wire() {
+        use crate::HealthCheckOptions;
+        use crate::runtime::advanced_options::AdvancedBoxOptions;
+        use crate::runtime::options::{BoxOptions, RootfsSpec};
+        let custom = HealthCheckOptions {
+            interval: std::time::Duration::from_secs(5),
+            timeout: std::time::Duration::from_secs(2),
+            retries: 1,
+            start_period: std::time::Duration::from_secs(0),
+        };
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            advanced: AdvancedBoxOptions {
+                health_check: Some(custom.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        assert_eq!(req.health_check_disabled, None);
+        assert_eq!(req.health_check_settings.as_ref(), Some(&custom));
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            json.contains("health_check_settings"),
+            "custom settings must surface on the wire; got: {json}"
+        );
+    }
+
+    /// Default settings: `from_options` must NOT emit
+    /// `health_check_settings` when the caller's options equal
+    /// `HealthCheckOptions::default()` — keeps the wire body
+    /// byte-identical with pre-PR clients.
+    #[test]
+    fn test_create_box_request_omits_health_check_settings_when_default() {
+        use crate::runtime::options::{BoxOptions, RootfsSpec};
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        assert_eq!(req.health_check_settings, None);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            !json.contains("health_check_settings"),
+            "wire form must omit settings on default health check; got: {json}"
         );
     }
 

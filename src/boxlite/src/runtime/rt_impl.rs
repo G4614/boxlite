@@ -844,10 +844,31 @@ impl RuntimeImpl {
 
                         const FORCE_REAP_DEADLINE_MS: u64 = 2000;
                         let outcome = crate::util::reap_pid_blocking(pid, FORCE_REAP_DEADLINE_MS);
-                        tracing::debug!(
-                            box_id = %id, pid, ?outcome,
-                            "rm-force sync fallback reaped shim"
-                        );
+                        // Coderabbitai review on #613: previously this
+                        // logged the outcome and proceeded with full
+                        // destructive cleanup regardless. If the reap
+                        // timed out or returned NotOurChild, the shim
+                        // may still be alive while its home directory
+                        // and disks are being torn down. Gate the
+                        // remaining cleanup on a terminal Reaped
+                        // outcome.
+                        match outcome {
+                            crate::util::ReapOutcome::Reaped => {
+                                tracing::debug!(
+                                    box_id = %id, pid, ?outcome,
+                                    "rm-force sync fallback reaped shim"
+                                );
+                            }
+                            crate::util::ReapOutcome::TimedOut
+                            | crate::util::ReapOutcome::NotOurChild => {
+                                return Err(BoxliteError::Engine(format!(
+                                    "rm --force: shim pid {pid} did not reap cleanly \
+                                     (outcome={outcome:?}). Refusing to delete box state \
+                                     while the shim may still be alive. \
+                                     Investigate the pid manually and retry."
+                                )));
+                            }
+                        }
                     }
                     // Update status to stopped and save
                     state.set_status(BoxStatus::Stopped);

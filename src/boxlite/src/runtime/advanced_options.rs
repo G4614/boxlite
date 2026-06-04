@@ -18,7 +18,7 @@ use std::time::Duration;
 /// Similar to Docker's HEALTHCHECK directive.
 ///
 /// This is an advanced option - most users should rely on the defaults.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HealthCheckOptions {
     /// Time between health checks.
     ///

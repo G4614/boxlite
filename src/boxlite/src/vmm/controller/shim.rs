@@ -190,8 +190,27 @@ impl VmmHandlerTrait for ShimHandler {
             libc::kill(self.pid as i32, libc::SIGKILL);
         }
         const REAP_DEADLINE_MS: u64 = 2000;
-        let _ = crate::util::reap_pid_blocking(self.pid, REAP_DEADLINE_MS);
-        Ok(())
+        // Coderabbitai review on #613: previously this ignored the
+        // reap outcome and returned `Ok(())` unconditionally. That let
+        // `BoxImpl::stop_impl` clear the PID + remove the pid-file +
+        // persist `Stopped` even when the shim hadn't actually died
+        // (TimedOut) or wasn't ours (NotOurChild). Propagate the
+        // non-terminal cases as `Engine` errors so the caller bails
+        // before any destructive cleanup.
+        match crate::util::reap_pid_blocking(self.pid, REAP_DEADLINE_MS) {
+            crate::util::ReapOutcome::Reaped => Ok(()),
+            crate::util::ReapOutcome::TimedOut => Err(BoxliteError::Engine(format!(
+                "force-stop reap of shim pid {} timed out after {} ms; \
+                 shim may still be alive — refusing to declare success",
+                self.pid, REAP_DEADLINE_MS
+            ))),
+            crate::util::ReapOutcome::NotOurChild => Err(BoxliteError::Engine(format!(
+                "force-stop reap of shim pid {} returned NotOurChild; \
+                 the runtime doesn't own the SIGCHLD relationship and \
+                 cannot confirm the shim exited",
+                self.pid
+            ))),
+        }
     }
 
     fn metrics(&self) -> BoxliteResult<VmmMetrics> {

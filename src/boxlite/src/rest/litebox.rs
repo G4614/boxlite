@@ -206,13 +206,25 @@ impl BoxBackend for RestBox {
     }
 
     async fn stop_force(&self) -> BoxliteResult<()> {
-        // The REST surface doesn't expose a force-stop verb today;
-        // the server side reaches the same outcome through
-        // `DELETE /v1/boxes/<id>?force=true` (which calls
-        // `RuntimeBackend::remove(force=true)` server-side). A
-        // client-driven stop_force currently falls back to graceful
-        // stop — best the wire protocol can do without a new endpoint.
-        self.stop().await
+        // Coderabbitai review on #613: previously this silently fell
+        // back to graceful `stop()` — making the public
+        // `LiteBox::stop_force()` contract backend-dependent in a
+        // dangerous way. A caller asking for SIGKILL semantics would
+        // get SIGTERM + wait + auto-fallback instead, with no signal
+        // of the downgrade.
+        //
+        // Until the REST surface gains a real force-stop verb,
+        // return `Unsupported` so the caller can route via
+        // `runtime.remove(.., force=true)` (which maps to
+        // `DELETE /v1/boxes/<id>?force=true`) or fall back to the
+        // local CLI.
+        Err(BoxliteError::Unsupported(
+            "stop_force is not exposed by the REST API; \
+             use `runtime.remove(id, force=true)` which maps to \
+             `DELETE /v1/boxes/<id>?force=true`, or run the local \
+             CLI directly. See PR #613 review for context."
+                .to_string(),
+        ))
     }
 
     async fn copy_into(

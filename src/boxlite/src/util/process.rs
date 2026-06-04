@@ -362,10 +362,25 @@ pub fn reap_pid_blocking(pid: u32, deadline_ms: u64) -> ReapOutcome {
     unsafe { libc::close(pidfd) };
     if r > 0 {
         let mut status: i32 = 0;
-        // SAFETY: pidfd was readable → child has exited; blocking
-        // waitpid returns immediately.
-        unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) };
-        ReapOutcome::Reaped
+        // SAFETY: pidfd was readable → target PID has exited; calling
+        // waitpid here is non-blocking even with `WNOHANG` cleared.
+        // Crucially, `pidfd_open` will *also* succeed for PIDs that
+        // are not our children, in which case `waitpid` returns
+        // -1/ECHILD instead of reaping — we must NOT report `Reaped`
+        // in that case, because the runtime then frees state (PID
+        // file, DB record) for a shim it never owned. Coderabbitai
+        // review on #613 flagged this; the man-page citation is in
+        // the thread for archaeology.
+        let w = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) };
+        if w > 0 {
+            ReapOutcome::Reaped
+        } else {
+            // -1 → ECHILD (not our child) or another error. Either
+            // way: we did NOT reap. NotOurChild is the safer label
+            // because the runtime then routes through the inline
+            // SIGKILL+wait fallback rather than declaring success.
+            ReapOutcome::NotOurChild
+        }
     } else if r == 0 {
         ReapOutcome::TimedOut
     } else {
@@ -397,9 +412,18 @@ pub async fn reap_pid_async(pid: u32, deadline_ms: u64) -> ReapOutcome {
     .await
     {
         Ok(Ok(_guard)) => {
+            // Same gotcha as `reap_pid_blocking`: pidfd_open succeeds
+            // for non-child PIDs, and `waitpid(non_child_pid, ..., 0)`
+            // returns -1/ECHILD instead of reaping. Report NotOurChild
+            // in that case so the caller routes through its inline
+            // fallback rather than declaring success.
             let mut status: i32 = 0;
-            unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) };
-            ReapOutcome::Reaped
+            let w = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) };
+            if w > 0 {
+                ReapOutcome::Reaped
+            } else {
+                ReapOutcome::NotOurChild
+            }
         }
         _ => ReapOutcome::TimedOut,
     }
