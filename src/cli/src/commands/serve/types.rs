@@ -39,6 +39,17 @@ pub(super) struct CreateBoxRequest {
     pub auto_remove: Option<bool>,
     #[serde(default)]
     pub detach: Option<bool>,
+    /// Preset name (`"development"` / `"standard"` / `"maximum"`).
+    /// Server resolves via `SecurityOptions::from_preset`. Absent +
+    /// `security_settings` absent = server default
+    /// (`SecurityOptions::default()`, which is the standard preset).
+    /// Ignored when `security_settings` is also present.
+    #[serde(default)]
+    pub security: Option<String>,
+    /// Custom `SecurityOptions` struct verbatim. Wins over `security`
+    /// preset when both are sent.
+    #[serde(default)]
+    pub security_settings: Option<boxlite::SecurityOptions>,
 }
 
 #[derive(Deserialize)]

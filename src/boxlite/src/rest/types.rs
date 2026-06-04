@@ -100,8 +100,20 @@ pub(crate) struct CreateBoxRequest {
     pub auto_remove: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detach: Option<bool>,
+    /// Operator-level security preset (`"development"`, `"standard"`,
+    /// `"maximum"`). Omitted = server default
+    /// (`SecurityOptions::default()`, which is itself the standard
+    /// preset since this PR). Ignored if `security_settings` is also
+    /// present — explicit settings always win.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<String>,
+    /// Full custom `SecurityOptions` on the wire. Carries the caller's
+    /// exact field set so REST and local runtimes behave identically
+    /// for the same `BoxOptions`. Omitted when absent OR when the
+    /// settings equal `SecurityOptions::default()` so pre-PR clients
+    /// keep their POST body byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security_settings: Option<crate::SecurityOptions>,
 }
 
 impl CreateBoxRequest {
@@ -128,6 +140,15 @@ impl CreateBoxRequest {
             Some(options.secrets.iter().map(CreateBoxSecret::from).collect())
         };
 
+        // Carry the caller's `SecurityOptions` on the wire only when
+        // it differs from the server's default — otherwise the wire
+        // body stays byte-identical with pre-PR clients. Preset name
+        // is left None on the client; presets are an operator-facing
+        // convenience (CLI/Go/C) and the server resolves them on
+        // arrival. SDK callers send the full struct.
+        let security_settings = (options.advanced.security != crate::SecurityOptions::default())
+            .then(|| options.advanced.security.clone());
+
         Self {
             name,
             image,
@@ -144,7 +165,8 @@ impl CreateBoxRequest {
             secrets,
             auto_remove: Some(options.auto_remove),
             detach: Some(options.detach),
-            security: None, // TODO: map security preset
+            security: None,
+            security_settings,
         }
     }
 }
@@ -481,6 +503,7 @@ mod tests {
             auto_remove: Some(true),
             detach: None,
             security: None,
+            security_settings: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"name\":\"mybox\""));
@@ -551,6 +574,53 @@ mod tests {
             Some("disabled")
         );
         assert!(req.network.as_ref().unwrap().allow_net.is_empty());
+    }
+
+    /// Default `BoxOptions` (= default `SecurityOptions`) must NOT
+    /// emit `security_settings` on the wire — keeps pre-PR clients
+    /// byte-identical with their existing POST body.
+    #[test]
+    fn test_create_box_request_omits_security_settings_when_default() {
+        use crate::runtime::options::{BoxOptions, RootfsSpec};
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        assert_eq!(req.security_settings, None);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            !json.contains("security_settings"),
+            "wire form must omit settings on default security; got: {json}"
+        );
+    }
+
+    /// A non-default `SecurityOptions` (here: `maximum` preset) MUST
+    /// surface on the wire as `security_settings` so the server
+    /// reconstructs it exactly. Reverting either the struct field or
+    /// the populate path in `from_options` flips this red.
+    #[test]
+    fn test_create_box_request_carries_custom_security_settings_on_the_wire() {
+        use crate::SecurityOptions;
+        use crate::runtime::advanced_options::AdvancedBoxOptions;
+        use crate::runtime::options::{BoxOptions, RootfsSpec};
+
+        let custom = SecurityOptions::maximum();
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("alpine:latest".into()),
+            advanced: AdvancedBoxOptions {
+                security: custom.clone(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        assert_eq!(req.security_settings.as_ref(), Some(&custom));
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            json.contains("security_settings"),
+            "custom settings must surface on the wire; got: {json}"
+        );
     }
 
     #[test]

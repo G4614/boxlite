@@ -656,6 +656,22 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         None => NetworkSpec::default(),
     };
 
+    // Security resolution, in priority order:
+    //   1. `security_settings` (full custom struct) wins outright.
+    //   2. `security` preset string resolves via
+    //      `SecurityOptions::from_preset`. Unknown name surfaces as
+    //      `InvalidArgument` back to the REST client.
+    //   3. Neither set → keep `AdvancedBoxOptions::default()`, which
+    //      since this PR is the standard preset (jailer + seccomp on
+    //      for Linux). Pre-PR clients that don't mention security
+    //      thus get sandbox-by-default, matching the local SDK path.
+    let mut advanced = boxlite::AdvancedBoxOptions::default();
+    if let Some(custom) = req.security_settings.clone() {
+        advanced.security = custom;
+    } else if let Some(name) = req.security.as_deref() {
+        advanced.security = boxlite::SecurityOptions::from_preset(name)?;
+    }
+
     Ok(BoxOptions {
         rootfs,
         cpus: req.cpus,
@@ -669,6 +685,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         user: req.user.clone(),
         auto_remove: req.auto_remove.unwrap_or(false),
         detach: req.detach.unwrap_or(true),
+        advanced,
         ..Default::default()
     })
 }
@@ -1015,6 +1032,91 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
         assert!(constant_time_eq(b"", b""));
+    }
+
+    // ============================================================
+    // REST `security` / `security_settings` wire contract
+    //
+    // The server resolves in priority order:
+    //   1. `security_settings` custom struct → win outright
+    //   2. `security` preset string → from_preset()
+    //   3. neither → SecurityOptions::default() (= standard preset)
+    // ============================================================
+
+    #[test]
+    fn build_box_options_no_security_field_keeps_default() {
+        // Pre-PR clients send no security field — server falls through
+        // to the runtime default. After the default flip, that's the
+        // standard preset (jailer on for Linux/macOS).
+        let json = r#"{"image": "alpine:latest"}"#;
+        let req: super::types::CreateBoxRequest =
+            serde_json::from_str(json).expect("legacy body must still deserialize");
+        let opts = build_box_options(&req).expect("build_box_options");
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert!(
+            opts.advanced.security.jailer_enabled,
+            "default must be sandbox-on after the flip"
+        );
+    }
+
+    #[test]
+    fn build_box_options_security_preset_string_resolves() {
+        // Explicit preset string lands as the matching SecurityOptions.
+        let json = r#"{"image": "alpine:latest", "security": "development"}"#;
+        let req: super::types::CreateBoxRequest =
+            serde_json::from_str(json).expect("must deserialize");
+        let opts = build_box_options(&req).expect("build_box_options");
+        assert!(
+            !opts.advanced.security.jailer_enabled,
+            "development preset disables jailer"
+        );
+    }
+
+    #[test]
+    fn build_box_options_security_preset_typo_surfaces_invalid_argument() {
+        // Reverting the from_preset call in build_box_options would
+        // let this slip through with silent default; we want loud reject.
+        let json = r#"{"image": "alpine:latest", "security": "ultra"}"#;
+        let req: super::types::CreateBoxRequest =
+            serde_json::from_str(json).expect("must deserialize");
+        let err = build_box_options(&req).expect_err("unknown preset must reject");
+        assert!(err.to_string().contains("ultra"), "got {err}");
+    }
+
+    #[test]
+    fn build_box_options_security_settings_wins_over_preset() {
+        // When both fields are sent, the explicit settings struct
+        // wins outright (matches the comment in build_box_options).
+        // We send `security: "development"` (which would relax) and
+        // settings with `jailer_enabled: true` (which would tighten)
+        // and assert the settings won.
+        let json = r#"{
+            "image": "alpine:latest",
+            "security": "development",
+            "security_settings": {
+                "jailer_enabled":  true,
+                "seccomp_enabled": false,
+                "uid": null,
+                "gid": null,
+                "new_pid_ns": false,
+                "new_net_ns": false,
+                "chroot_base": "/srv/boxlite",
+                "chroot_enabled": false,
+                "close_fds": false,
+                "sanitize_env": false,
+                "env_allowlist": [],
+                "resource_limits": {},
+                "sandbox_profile": null,
+                "network_enabled": true
+            }
+        }"#;
+        let req: super::types::CreateBoxRequest =
+            serde_json::from_str(json).expect("must deserialize");
+        let opts = build_box_options(&req).expect("build_box_options");
+        assert!(
+            opts.advanced.security.jailer_enabled,
+            "explicit settings.jailer_enabled=true must beat preset=development"
+        );
     }
 
     /// Build an `ActiveExecution` backed by a stub `Execution` whose

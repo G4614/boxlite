@@ -171,21 +171,22 @@ type Secret struct {
 }
 
 type boxConfig struct {
-	name       string
-	cpus       int
-	memoryMiB  int
-	diskSizeGB int
-	rootfsPath string
-	env        [][2]string
-	volumes    []volumeEntry
-	ports      []PortSpec
-	workDir    string
-	entrypoint []string
-	cmd        []string
-	autoRemove *bool
-	detach     *bool
-	network    *NetworkSpec
-	secrets    []Secret
+	name           string
+	cpus           int
+	memoryMiB      int
+	diskSizeGB     int
+	rootfsPath     string
+	env            [][2]string
+	volumes        []volumeEntry
+	ports          []PortSpec
+	workDir        string
+	entrypoint     []string
+	cmd            []string
+	autoRemove     *bool
+	detach         *bool
+	network        *NetworkSpec
+	secrets        []Secret
+	securityPreset string // empty = server default; else "development" / "standard" / "maximum"
 }
 
 type volumeEntry struct {
@@ -302,6 +303,42 @@ func WithAutoRemove(v bool) BoxOption {
 // WithDetach sets whether the box survives parent process exit.
 func WithDetach(v bool) BoxOption {
 	return func(c *boxConfig) { c.detach = &v }
+}
+
+// buildAndFreeCOptions runs buildCOptions, immediately frees the C
+// handle on success, and returns just the error. Exists for unit
+// tests in `_test.go` files, which Go forbids from using cgo
+// directly — without this helper they can't exercise buildCOptions
+// because the caller has to free `*C.CBoxliteOptions`.
+func buildAndFreeCOptions(image string, cfg *boxConfig) error {
+	opts, err := buildCOptions(image, cfg)
+	if err != nil {
+		return err
+	}
+	if opts != nil {
+		C.boxlite_options_free(opts)
+	}
+	return nil
+}
+
+// WithSecurityPreset picks a sandbox security preset by name.
+//
+// Accepts one of "development" / "standard" / "maximum" (case-
+// insensitive). Empty string (the zero value) leaves the box on the
+// server / runtime default, which is the standard preset.
+//
+// Examples:
+//
+//	box, err := runtime.Create(ctx, "alpine:latest",
+//	    boxlite.WithSecurityPreset("maximum"))
+//	box, err := runtime.Create(ctx, "alpine:latest",
+//	    boxlite.WithSecurityPreset("development")) // disable isolation for debugging
+//
+// An invalid preset name surfaces at box creation as an
+// InvalidArgument error, not silently — silent fallback would be how
+// operators end up unsandboxed by accident.
+func WithSecurityPreset(preset string) BoxOption {
+	return func(c *boxConfig) { c.securityPreset = preset }
 }
 
 func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
@@ -435,6 +472,20 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 	}
 	if cfg.detach != nil {
 		C.boxlite_options_set_detach(cOpts, boolToCInt(*cfg.detach))
+	}
+	if cfg.securityPreset != "" {
+		cPreset := toCString(cfg.securityPreset)
+		var cerrSec C.CBoxliteError
+		code := C.boxlite_options_set_security_preset(cOpts, cPreset, &cerrSec)
+		C.free(unsafe.Pointer(cPreset))
+		if code != C.Ok {
+			// Bad preset name surfaces all the way back to the caller
+			// with the offending value — silently falling through to
+			// the default is how operators end up running unsandboxed
+			// by accident.
+			C.boxlite_options_free(cOpts)
+			return nil, freeError(&cerrSec)
+		}
 	}
 	if cfg.entrypoint != nil {
 		cArgs, argc := toCStringArray(cfg.entrypoint)

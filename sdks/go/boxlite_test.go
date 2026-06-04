@@ -2,6 +2,7 @@ package boxlite
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"unsafe"
 )
@@ -475,6 +476,48 @@ func TestBuildCOptions_MissingImageAndPath(t *testing.T) {
 	_, err := buildCOptions("", cfg)
 	if err == nil {
 		t.Fatal("expected error when image is empty and WithRootfsPath is not set")
+	}
+}
+
+// ============================================================================
+// Security preset
+// ============================================================================
+//
+// `WithSecurityPreset` routes through the C FFI
+// `boxlite_options_set_security_preset`. We can't observe the resulting
+// `BoxOptions` from Go (it's owned by the C handle), but we can verify the
+// two contract bookends: a valid preset name returns no error, and an
+// invalid name surfaces back as InvalidArgument instead of silently
+// falling through to the default.
+
+func TestBuildCOptions_SecurityPresetValid(t *testing.T) {
+	for _, preset := range []string{"development", "standard", "maximum", "STANDARD", "max"} {
+		cfg := &boxConfig{}
+		WithSecurityPreset(preset)(cfg)
+		if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
+			t.Fatalf("WithSecurityPreset(%q) must apply cleanly; got error: %v", preset, err)
+		}
+	}
+}
+
+func TestBuildCOptions_SecurityPresetUnknownRejects(t *testing.T) {
+	cfg := &boxConfig{}
+	WithSecurityPreset("ultra")(cfg)
+	err := buildAndFreeCOptions("alpine:latest", cfg)
+	if err == nil {
+		t.Fatal("WithSecurityPreset(\"ultra\") must reject — silent fallthrough would let operators run unsandboxed by accident")
+	}
+	if !strings.Contains(err.Error(), "ultra") {
+		t.Fatalf("error must echo the offending preset name; got %v", err)
+	}
+}
+
+func TestBuildCOptions_SecurityPresetEmptyKeepsDefault(t *testing.T) {
+	// Empty string = WithSecurityPreset never called effectively;
+	// leaves the runtime default in place. Must not error.
+	cfg := &boxConfig{securityPreset: ""}
+	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
+		t.Fatalf("empty preset must be a no-op; got error: %v", err)
 	}
 }
 

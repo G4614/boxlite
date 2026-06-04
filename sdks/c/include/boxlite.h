@@ -537,6 +537,21 @@ void boxlite_options_set_auto_remove(CBoxliteOptions *opts, int val);
 
 void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 
+// Pick a sandbox security preset by name.
+//
+// `preset` is a C string — `"development"`, `"standard"`, or
+// `"maximum"` (case-insensitive; `"dev"` / `"default"` / `"max"` /
+// `"strict"` also accepted). On success returns
+// `BoxliteErrorCode::Ok` and writes nothing to `out_error`. On an
+// unknown / null name, returns `BoxliteErrorCode::InvalidArgument`
+// and populates `out_error` with the offending value so the caller
+// surfaces it back to the operator (don't silently fall through to
+// the default — that's how operators end up running unsandboxed by
+// accident).
+enum BoxliteErrorCode boxlite_options_set_security_preset(CBoxliteOptions *opts,
+                                                          const char *preset,
+                                                          struct FFIError *out_error);
+
 void boxlite_options_set_entrypoint(CBoxliteOptions *opts, const char *const *args, int argc);
 
 void boxlite_options_set_cmd(CBoxliteOptions *opts, const char *const *args, int argc);

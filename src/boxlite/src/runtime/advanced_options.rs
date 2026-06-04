@@ -83,7 +83,7 @@ impl Default for HealthCheckOptions {
 ///
 /// These options control how the boxlite-shim process is isolated from the host.
 /// Different presets are available for different security requirements.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SecurityOptions {
     /// Enable jailer isolation.
     ///
@@ -185,7 +185,7 @@ pub struct SecurityOptions {
 }
 
 /// Resource limits for the jailed process.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceLimits {
     /// Maximum number of open file descriptors (RLIMIT_NOFILE).
     #[serde(default)]
@@ -211,11 +211,22 @@ pub struct ResourceLimits {
 // Default value functions for SecurityOptions
 
 fn default_jailer_enabled() -> bool {
-    cfg!(target_os = "macos")
+    // Default-on across all supported sandbox targets. Previously this
+    // was `cfg!(target_os = "macos")` — Linux callers that didn't
+    // explicitly pick a preset got `jailer_enabled = false` and a
+    // shim running on the bare host. `SecurityOptions::default()` is
+    // what most operator surfaces (REST, CLI, JSON config) silently
+    // fall back to, so leaving Linux off there meant the most common
+    // deployment path was unsandboxed by accident.
+    cfg!(any(target_os = "linux", target_os = "macos"))
 }
 
 fn default_seccomp_enabled() -> bool {
-    false
+    // Linux-only — the seccomp syscall whitelist is a Linux concept.
+    // Same motivation as `default_jailer_enabled`: anyone landing on
+    // the default got no syscall filter, including REST / CLI paths
+    // that don't yet expose `SecurityOptions` at all.
+    cfg!(target_os = "linux")
 }
 
 fn default_chroot_base() -> PathBuf {
@@ -293,6 +304,24 @@ impl SecurityOptions {
             jailer_enabled: cfg!(any(target_os = "linux", target_os = "macos")),
             seccomp_enabled: cfg!(target_os = "linux"),
             ..Default::default()
+        }
+    }
+
+    /// Look up a preset by name. Accepts the same three labels the CLI
+    /// / REST / Go / C surfaces use (case-insensitive). Returns an
+    /// `InvalidArgument` error for anything else so operator surfaces
+    /// can surface the typo back to the caller verbatim.
+    pub fn from_preset(name: &str) -> boxlite_shared::errors::BoxliteResult<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "development" | "dev" => Ok(Self::development()),
+            "standard" | "default" => Ok(Self::standard()),
+            "maximum" | "max" | "strict" => Ok(Self::maximum()),
+            other => Err(boxlite_shared::errors::BoxliteError::InvalidArgument(
+                format!(
+                    "unknown security preset {other:?}; expected one of \
+                     development|standard|maximum"
+                ),
+            )),
         }
     }
 

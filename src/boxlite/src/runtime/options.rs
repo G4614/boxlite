@@ -888,11 +888,18 @@ mod tests {
     #[test]
     fn test_security_builder_new() {
         let opts = SecurityOptionsBuilder::new().build();
-        // Default enables jailer on macOS, disables on Linux and other platforms.
-        #[cfg(target_os = "macos")]
+        // Default is now the standard preset on both Linux and macOS
+        // (flipped in this PR — previously Linux defaulted off, which
+        // meant REST / CLI / JSON-config paths silently ran unsandboxed).
+        //   - jailer enabled on Linux + macOS
+        //   - seccomp enabled on Linux (no-op on macOS)
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert!(opts.jailer_enabled);
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         assert!(!opts.jailer_enabled);
+        #[cfg(target_os = "linux")]
+        assert!(opts.seccomp_enabled);
+        #[cfg(not(target_os = "linux"))]
         assert!(!opts.seccomp_enabled);
     }
 
@@ -909,6 +916,101 @@ mod tests {
         assert!(max.jailer_enabled);
         assert!(max.close_fds);
         assert!(max.sanitize_env);
+    }
+
+    // ===========================================================
+    // SecurityOptions::from_preset — operator-surface contract
+    //
+    // CLI / REST / Go / C all funnel preset *strings* through this
+    // helper. Reverting (deleting the match) flips all four red. The
+    // synonyms are part of the public contract — `from_preset("dev")`
+    // is the same as `from_preset("development")` and so on.
+    // ===========================================================
+
+    #[test]
+    fn security_from_preset_canonical_names() {
+        use crate::runtime::advanced_options::SecurityOptions;
+        assert_eq!(
+            SecurityOptions::from_preset("development").unwrap(),
+            SecurityOptions::development()
+        );
+        assert_eq!(
+            SecurityOptions::from_preset("standard").unwrap(),
+            SecurityOptions::standard()
+        );
+        assert_eq!(
+            SecurityOptions::from_preset("maximum").unwrap(),
+            SecurityOptions::maximum()
+        );
+    }
+
+    #[test]
+    fn security_from_preset_case_insensitive_and_synonyms() {
+        use crate::runtime::advanced_options::SecurityOptions;
+        // Casing.
+        assert_eq!(
+            SecurityOptions::from_preset("STANDARD").unwrap(),
+            SecurityOptions::standard()
+        );
+        // Trim whitespace.
+        assert_eq!(
+            SecurityOptions::from_preset("  maximum  ").unwrap(),
+            SecurityOptions::maximum()
+        );
+        // Documented synonyms.
+        assert_eq!(
+            SecurityOptions::from_preset("dev").unwrap(),
+            SecurityOptions::development()
+        );
+        assert_eq!(
+            SecurityOptions::from_preset("default").unwrap(),
+            SecurityOptions::standard()
+        );
+        assert_eq!(
+            SecurityOptions::from_preset("max").unwrap(),
+            SecurityOptions::maximum()
+        );
+        assert_eq!(
+            SecurityOptions::from_preset("strict").unwrap(),
+            SecurityOptions::maximum()
+        );
+    }
+
+    #[test]
+    fn security_from_preset_unknown_surfaces_invalid_argument() {
+        use crate::runtime::advanced_options::SecurityOptions;
+        let err = SecurityOptions::from_preset("ultra").expect_err("typo must reject");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("ultra"),
+            "rejection must echo the offending value; got {msg}"
+        );
+        assert!(
+            msg.contains("development") && msg.contains("standard") && msg.contains("maximum"),
+            "rejection must list the supported presets; got {msg}"
+        );
+    }
+
+    /// Default-flip contract: `SecurityOptions::default()` and
+    /// `BoxOptions::default().advanced.security` must now be the
+    /// standard preset on Linux + macOS. Reverting
+    /// `default_jailer_enabled` to `cfg!(target_os = "macos")` flips
+    /// this red on Linux.
+    #[test]
+    fn security_default_is_standard_on_supported_platforms() {
+        use crate::runtime::advanced_options::SecurityOptions;
+        let direct = SecurityOptions::default();
+        let via_box = BoxOptions::default().advanced.security;
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            assert!(direct.jailer_enabled);
+            assert!(via_box.jailer_enabled);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(direct.seccomp_enabled);
+            assert!(via_box.seccomp_enabled);
+        }
     }
 
     #[test]

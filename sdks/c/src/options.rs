@@ -147,6 +147,26 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
     options_set_detach(opts, val)
 }
 
+/// Pick a sandbox security preset by name.
+///
+/// `preset` is a C string — `"development"`, `"standard"`, or
+/// `"maximum"` (case-insensitive; `"dev"` / `"default"` / `"max"` /
+/// `"strict"` also accepted). On success returns
+/// `BoxliteErrorCode::Ok` and writes nothing to `out_error`. On an
+/// unknown / null name, returns `BoxliteErrorCode::InvalidArgument`
+/// and populates `out_error` with the offending value so the caller
+/// surfaces it back to the operator (don't silently fall through to
+/// the default — that's how operators end up running unsandboxed by
+/// accident).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_options_set_security_preset(
+    opts: *mut CBoxliteOptions,
+    preset: *const c_char,
+    out_error: *mut FFIError,
+) -> BoxliteErrorCode {
+    unsafe { options_set_security_preset(opts, preset, out_error) }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_entrypoint(
     opts: *mut CBoxliteOptions,
@@ -255,6 +275,37 @@ pub unsafe fn options_set_workdir(handle: *mut OptionsHandle, workdir: *const c_
         }
         if let Ok(s) = c_str_to_string(workdir) {
             (*handle).options.working_dir = Some(s);
+        }
+    }
+}
+
+/// Internal helper backing `boxlite_options_set_security_preset`.
+pub unsafe fn options_set_security_preset(
+    handle: *mut OptionsHandle,
+    preset: *const c_char,
+    out_error: *mut FFIError,
+) -> BoxliteErrorCode {
+    unsafe {
+        if handle.is_null() {
+            write_error(out_error, null_pointer_error("opts"));
+            return BoxliteErrorCode::InvalidArgument;
+        }
+        let preset_str = match c_str_to_string(preset) {
+            Ok(s) => s,
+            Err(e) => {
+                write_error(out_error, e);
+                return BoxliteErrorCode::InvalidArgument;
+            }
+        };
+        match boxlite::SecurityOptions::from_preset(&preset_str) {
+            Ok(sec) => {
+                (*handle).options.advanced.security = sec;
+                BoxliteErrorCode::Ok
+            }
+            Err(e) => {
+                write_error(out_error, e);
+                BoxliteErrorCode::InvalidArgument
+            }
         }
     }
 }
