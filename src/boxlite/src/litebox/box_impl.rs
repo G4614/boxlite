@@ -911,32 +911,13 @@ impl BoxImpl {
                         false
                     };
 
-                    // If shim died, mark as Unhealthy and stop health check immediately
+                    // If shim died, mark as Unhealthy and stop health check immediately.
+                    // Zombie cleanup is not health-check's job — the runtime-wide
+                    // SIGCHLD reaper (`util::child_reaper::spawn_child_reaper`,
+                    // wired in `RuntimeImpl::new`) drains every zombie via
+                    // `waitpid(-1, ..., WNOHANG)` the moment the kernel posts
+                    // SIGCHLD, regardless of whether health-check has noticed.
                     if shim_died {
-                        // Reap the zombie so the PID slot is freed. `is_process_alive`
-                        // returns false for `State: Z`, so the detector caught a dead
-                        // *or* a zombie — but if it's a zombie, the kernel keeps the
-                        // PID slot occupied until somebody `waitpid`s. Health check
-                        // is the natural reaper here: only background task observing
-                        // shim liveness, parent (this process) still owns the SIGCHLD
-                        // relationship, and nobody else does it — the synchronous
-                        // `stop()` / non-force `rm` paths reap via their own
-                        // `Child::wait()`; this branch covers everything else: OOM
-                        // kill, external SIGKILL/SIGTERM, internal panic.
-                        if let Some(pid) = pid {
-                            // Bounded reap via pidfd (no sleep loop). See
-                            // `util::process::reap_pid_async` — pidfd wakes
-                            // the moment the kernel posts SIGCHLD; tokio
-                            // timeout caps the wait at REAP_DEADLINE_MS on
-                            // a wedged shim. No spawn_blocking thread leak.
-                            const REAP_DEADLINE_MS: u64 = 500;
-                            let outcome = crate::util::reap_pid_async(pid, REAP_DEADLINE_MS).await;
-                            tracing::debug!(
-                                box_id = %box_id, pid, ?outcome,
-                                "health check reaped dead shim"
-                            );
-                        }
-
                         let mut state_guard = state.write();
                         state_guard.force_status(BoxStatus::Stopped);
                         state_guard.set_pid(None);
