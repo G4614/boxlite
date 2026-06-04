@@ -2,7 +2,6 @@ package boxlite
 
 import (
 	"errors"
-	"strings"
 	"testing"
 	"unsafe"
 )
@@ -483,12 +482,16 @@ func TestBuildCOptions_MissingImageAndPath(t *testing.T) {
 // Security preset
 // ============================================================================
 //
-// `WithSecurityPreset` routes through the C FFI
-// `boxlite_options_set_security_preset`. We can't observe the resulting
-// `BoxOptions` from Go (it's owned by the C handle), but we can verify the
-// two contract bookends: a valid preset name returns no error, and an
-// invalid name surfaces back as InvalidArgument instead of silently
-// falling through to the default.
+// `WithSecurityPreset` stashes the name on the boxConfig; `buildCOptions`
+// forwards it to the C SDK, which resolves it at Create time. So
+// `buildCOptions` itself can't see a bad preset — the rejection path
+// lives at Create. We pin what buildCOptions CAN observe here:
+// valid presets round-trip without error, and empty is a no-op.
+//
+// The "unknown preset → InvalidArgument" policy is covered by
+// `security_from_preset_unknown_surfaces_invalid_argument` (Rust
+// boxlite::runtime::options) and `create_box_rejects_unknown_security_preset`
+// (C SDK integration).
 
 func TestBuildCOptions_SecurityPresetValid(t *testing.T) {
 	for _, preset := range []string{"development", "standard", "maximum", "STANDARD", "max"} {
@@ -497,18 +500,6 @@ func TestBuildCOptions_SecurityPresetValid(t *testing.T) {
 		if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
 			t.Fatalf("WithSecurityPreset(%q) must apply cleanly; got error: %v", preset, err)
 		}
-	}
-}
-
-func TestBuildCOptions_SecurityPresetUnknownRejects(t *testing.T) {
-	cfg := &boxConfig{}
-	WithSecurityPreset("ultra")(cfg)
-	err := buildAndFreeCOptions("alpine:latest", cfg)
-	if err == nil {
-		t.Fatal("WithSecurityPreset(\"ultra\") must reject — silent fallthrough would let operators run unsandboxed by accident")
-	}
-	if !strings.Contains(err.Error(), "ultra") {
-		t.Fatalf("error must echo the offending preset name; got %v", err)
 	}
 }
 

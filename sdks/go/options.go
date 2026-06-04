@@ -474,18 +474,13 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 		C.boxlite_options_set_detach(cOpts, boolToCInt(*cfg.detach))
 	}
 	if cfg.securityPreset != "" {
+		// Preset name is validated at Create, not here — a typo
+		// surfaces as InvalidArgument from Runtime.Create with the
+		// offending value in the error. Silent fallthrough to default
+		// is never acceptable.
 		cPreset := toCString(cfg.securityPreset)
-		var cerrSec C.CBoxliteError
-		code := C.boxlite_options_set_security_preset(cOpts, cPreset, &cerrSec)
+		C.boxlite_options_set_security_preset(cOpts, cPreset)
 		C.free(unsafe.Pointer(cPreset))
-		if code != C.Ok {
-			// Bad preset name surfaces all the way back to the caller
-			// with the offending value — silently falling through to
-			// the default is how operators end up running unsandboxed
-			// by accident.
-			C.boxlite_options_free(cOpts)
-			return nil, freeError(&cerrSec)
-		}
 	}
 	if cfg.entrypoint != nil {
 		cArgs, argc := toCStringArray(cfg.entrypoint)

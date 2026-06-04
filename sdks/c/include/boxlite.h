@@ -541,16 +541,16 @@ void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 //
 // `preset` is a C string — `"development"`, `"standard"`, or
 // `"maximum"` (case-insensitive; `"dev"` / `"default"` / `"max"` /
-// `"strict"` also accepted). On success returns
-// `BoxliteErrorCode::Ok` and writes nothing to `out_error`. On an
-// unknown / null name, returns `BoxliteErrorCode::InvalidArgument`
-// and populates `out_error` with the offending value so the caller
-// surfaces it back to the operator (don't silently fall through to
-// the default — that's how operators end up running unsandboxed by
-// accident).
-enum BoxliteErrorCode boxlite_options_set_security_preset(CBoxliteOptions *opts,
-                                                          const char *preset,
-                                                          struct FFIError *out_error);
+// `"strict"` also accepted). NULL clears any previously-set preset.
+//
+// The preset name is validated at `boxlite_create_box` time, not
+// here — an unknown name surfaces from create as
+// `BoxliteErrorCode::InvalidArgument` with the offending value in
+// `out_error`. Silent fallback to the default is never acceptable.
+//
+// Signature matches sibling `boxlite_options_set_*` setters so the
+// C SDK stays uniform; the error path lives at create.
+void boxlite_options_set_security_preset(CBoxliteOptions *opts, const char *preset);
 
 void boxlite_options_set_entrypoint(CBoxliteOptions *opts, const char *const *args, int argc);
 

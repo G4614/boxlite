@@ -11,6 +11,11 @@ use crate::{CBoxliteError, CBoxliteOptions};
 pub struct OptionsHandle {
     pub options: BoxOptions,
     pub name: Option<String>,
+    /// Security preset name (e.g. "maximum") stashed by
+    /// `boxlite_options_set_security_preset`. Resolved in
+    /// `boxlite_create_box`; unknown names surface as
+    /// `InvalidArgument` from there, not from the setter.
+    pub pending_security_preset: Option<String>,
 }
 
 #[unsafe(no_mangle)]
@@ -151,20 +156,21 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
 ///
 /// `preset` is a C string — `"development"`, `"standard"`, or
 /// `"maximum"` (case-insensitive; `"dev"` / `"default"` / `"max"` /
-/// `"strict"` also accepted). On success returns
-/// `BoxliteErrorCode::Ok` and writes nothing to `out_error`. On an
-/// unknown / null name, returns `BoxliteErrorCode::InvalidArgument`
-/// and populates `out_error` with the offending value so the caller
-/// surfaces it back to the operator (don't silently fall through to
-/// the default — that's how operators end up running unsandboxed by
-/// accident).
+/// `"strict"` also accepted). NULL clears any previously-set preset.
+///
+/// The preset name is validated at `boxlite_create_box` time, not
+/// here — an unknown name surfaces from create as
+/// `BoxliteErrorCode::InvalidArgument` with the offending value in
+/// `out_error`. Silent fallback to the default is never acceptable.
+///
+/// Signature matches sibling `boxlite_options_set_*` setters so the
+/// C SDK stays uniform; the error path lives at create.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_security_preset(
     opts: *mut CBoxliteOptions,
     preset: *const c_char,
-    out_error: *mut FFIError,
-) -> BoxliteErrorCode {
-    unsafe { options_set_security_preset(opts, preset, out_error) }
+) {
+    unsafe { options_set_security_preset(opts, preset) }
 }
 
 #[unsafe(no_mangle)]
@@ -215,6 +221,7 @@ pub unsafe fn options_new(
                 ..Default::default()
             },
             name: None,
+            pending_security_preset: None,
         });
 
         *out_opts = Box::into_raw(handle);
@@ -280,32 +287,21 @@ pub unsafe fn options_set_workdir(handle: *mut OptionsHandle, workdir: *const c_
 }
 
 /// Internal helper backing `boxlite_options_set_security_preset`.
-pub unsafe fn options_set_security_preset(
-    handle: *mut OptionsHandle,
-    preset: *const c_char,
-    out_error: *mut FFIError,
-) -> BoxliteErrorCode {
+///
+/// Stashes the name; `boxlite_create_box` calls
+/// `SecurityOptions::from_preset` to validate + apply. NULL preset
+/// clears any previously-stashed name.
+pub unsafe fn options_set_security_preset(handle: *mut OptionsHandle, preset: *const c_char) {
     unsafe {
         if handle.is_null() {
-            write_error(out_error, null_pointer_error("opts"));
-            return BoxliteErrorCode::InvalidArgument;
+            return;
         }
-        let preset_str = match c_str_to_string(preset) {
-            Ok(s) => s,
-            Err(e) => {
-                write_error(out_error, e);
-                return BoxliteErrorCode::InvalidArgument;
-            }
-        };
-        match boxlite::SecurityOptions::from_preset(&preset_str) {
-            Ok(sec) => {
-                (*handle).options.advanced.security = sec;
-                BoxliteErrorCode::Ok
-            }
-            Err(e) => {
-                write_error(out_error, e);
-                BoxliteErrorCode::InvalidArgument
-            }
+        if preset.is_null() {
+            (*handle).pending_security_preset = None;
+            return;
+        }
+        if let Ok(s) = c_str_to_string(preset) {
+            (*handle).pending_security_preset = Some(s);
         }
     }
 }

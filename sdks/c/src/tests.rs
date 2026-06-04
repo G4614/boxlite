@@ -376,6 +376,63 @@ fn create_box_rejects_null_callback() {
     let _ = std::fs::remove_dir_all(home_dir);
 }
 
+// Pins the second half of the deferred-validation contract for
+// security presets: `boxlite_options_set_security_preset` accepts any
+// C string without complaint, but `boxlite_create_box` synchronously
+// rejects an unknown preset with InvalidArgument + offending value in
+// the error — so the typo can never silently fall through to the
+// default. Companion to `security_from_preset_unknown_surfaces_invalid_argument`
+// in boxlite::runtime::options (which pins the underlying parser).
+extern "C" fn create_cb_must_not_fire(
+    _box_handle: *mut crate::CBoxHandle,
+    _error: *mut crate::CBoxliteError,
+    _user_data: *mut c_void,
+) {
+    panic!("callback must not fire when preset is rejected synchronously");
+}
+
+#[test]
+fn create_box_rejects_unknown_security_preset() {
+    let (runtime, home_dir) = unsafe { new_test_runtime_handle("bad-preset-create") };
+
+    let image = CString::new("alpine:latest").expect("image cstring");
+    let mut opts: *mut CBoxliteOptions = ptr::null_mut();
+    let mut error = FFIError::default();
+    let opts_code =
+        unsafe { boxlite_options_new(image.as_ptr(), &mut opts as *mut _, &mut error as *mut _) };
+    assert_eq!(opts_code, BoxliteErrorCode::Ok);
+
+    let preset = CString::new("ultra").expect("preset cstring");
+    unsafe { boxlite_options_set_security_preset(opts, preset.as_ptr()) };
+
+    let code = unsafe {
+        boxlite_create_box(
+            runtime,
+            opts,
+            Some(create_cb_must_not_fire),
+            ptr::null_mut(),
+            &mut error as *mut _,
+        )
+    };
+    assert_eq!(code, BoxliteErrorCode::InvalidArgument);
+    assert!(!error.message.is_null());
+    let msg = unsafe { CStr::from_ptr(error.message) }
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        msg.contains("ultra"),
+        "error should echo the offending preset: {msg}"
+    );
+
+    // Sync failure: opts not consumed; caller still owns + frees.
+    unsafe {
+        boxlite_error_free(&mut error as *mut _);
+        boxlite_options_free(opts);
+        boxlite_runtime_free(runtime);
+    }
+    let _ = std::fs::remove_dir_all(home_dir);
+}
+
 #[test]
 fn runtime_metrics_rejects_null_callback() {
     let (runtime, home_dir) = unsafe { new_test_runtime_handle("null-cb-rtmet") };
