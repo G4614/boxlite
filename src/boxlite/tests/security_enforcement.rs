@@ -101,7 +101,7 @@ async fn virtiofs_readonly_and_capabilities() {
     readonly_volume_blocks_remount(&bx).await;
     rw_volume_allows_write(&bx).await;
     capabilities_exclude_sys_admin(&bx).await;
-    capabilities_match_docker_defaults(&bx).await;
+    capabilities_default_baseline_is_empty(&bx).await;
 
     bx.stop().await.expect("stop box");
     let _ = runtime.shutdown(Some(common::TEST_SHUTDOWN_TIMEOUT)).await;
@@ -191,39 +191,31 @@ async fn capabilities_exclude_sys_admin(bx: &LiteBox) {
     );
 }
 
-/// Verify the capability set matches Docker defaults (14 capabilities).
-async fn capabilities_match_docker_defaults(bx: &LiteBox) {
+/// Verify the default capability set is empty (CapEff = 0).
+///
+/// boxlite's default-empty baseline: a box created without any `--cap` /
+/// `cap_overrides` starts with NO Linux capabilities. The VM is the trust
+/// boundary, so callers opt into each cap via `--cap NAME=1` / `--cap ALL=1`
+/// rather than starting from the docker 14-cap default.
+async fn capabilities_default_baseline_is_empty(bx: &LiteBox) {
     let status = exec_stdout(
         bx,
         BoxCommand::new("sh").args(["-c", "grep '^CapEff:' /proc/1/status"]),
     )
     .await;
 
-    let hex_str = status.trim().strip_prefix("CapEff:\t").unwrap_or("");
-    let cap_bits = u64::from_str_radix(hex_str.trim(), 16).unwrap_or(0);
-
-    let expected_docker_caps: u64 = (1 << 0)  // CAP_CHOWN
-        | (1 << 1)  // CAP_DAC_OVERRIDE
-        | (1 << 3)  // CAP_FOWNER
-        | (1 << 4)  // CAP_FSETID
-        | (1 << 5)  // CAP_KILL
-        | (1 << 6)  // CAP_SETGID
-        | (1 << 7)  // CAP_SETUID
-        | (1 << 8)  // CAP_SETPCAP
-        | (1 << 10) // CAP_NET_BIND_SERVICE
-        | (1 << 13) // CAP_NET_RAW
-        | (1 << 18) // CAP_SYS_CHROOT
-        | (1 << 27) // CAP_MKNOD
-        | (1 << 29) // CAP_AUDIT_WRITE
-        | (1 << 31); // CAP_SETFCAP
+    // Parse strictly: a missing/malformed CapEff line must fail the test
+    // rather than silently reading as 0 (which would make the empty-set
+    // assertion below tautological).
+    let hex_str = status
+        .trim()
+        .strip_prefix("CapEff:\t")
+        .expect("CapEff line present in /proc/1/status");
+    let cap_bits = u64::from_str_radix(hex_str.trim(), 16).expect("CapEff is valid hex");
 
     assert_eq!(
-        cap_bits,
-        expected_docker_caps,
-        "CapEff should match Docker defaults.\n  got:    0x{:016x}\n  expect: 0x{:016x}\n  diff:   0x{:016x}",
-        cap_bits,
-        expected_docker_caps,
-        cap_bits ^ expected_docker_caps,
+        cap_bits, 0,
+        "default baseline CapEff must be empty (0); got 0x{cap_bits:016x}",
     );
 }
 
