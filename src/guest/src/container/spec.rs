@@ -282,7 +282,11 @@ pub(crate) fn resolve_cap_set(
     use oci_spec::runtime::Capability;
     use std::str::FromStr;
 
-    let mut caps = all_capabilities();
+    // Default: empty cap set (CapEff = 0). Container starts with NO
+    // privileges; operators add what they need via `--cap NAME=1` or
+    // `--cap ALL=1`. Inverts the earlier "default all open" model —
+    // the trust boundary is now the container, not just the VM.
+    let mut caps = std::collections::HashSet::new();
 
     for override_entry in cap_overrides {
         let raw = override_entry.name.as_str();
@@ -1032,14 +1036,22 @@ mod tests {
     }
 
     #[test]
-    fn build_capabilities_default_baseline_is_all_caps() {
-        // boxlite's default-ALL baseline: an empty override list yields
-        // every Linux capability in the effective set. Pins the inverted
-        // model — pre-refactor the empty list yielded the docker 14-cap
-        // default, which silently neutered `boxlite exec` for privileged
-        // workloads.
+    fn build_capabilities_default_baseline_is_empty() {
+        // boxlite's default-empty baseline: an empty override list yields
+        // ZERO Linux capabilities. The trust boundary is the container, not
+        // the VM, so the operator MUST explicitly opt in with `--cap NAME=1`
+        // for each privilege they actually need. CapEff = 0.
         let caps = build_capabilities(&[]).unwrap();
         let eff = caps.effective().as_ref().expect("effective set present");
+        assert!(
+            eff.is_empty(),
+            "default baseline must be empty (CapEff = 0); got {} caps: {:?}",
+            eff.len(),
+            eff
+        );
+        // Sanity: each high-impact cap MUST be absent by default — pre-fix
+        // model had them all on, which let alpine sh do `mount`, `chroot`,
+        // raw sockets, etc. without anyone asking.
         for cap in [
             oci_spec::runtime::Capability::SysAdmin,
             oci_spec::runtime::Capability::NetAdmin,
@@ -1047,20 +1059,78 @@ mod tests {
             oci_spec::runtime::Capability::SysModule,
         ] {
             assert!(
-                eff.contains(&cap),
-                "default-ALL baseline must include {:?}",
+                !eff.contains(&cap),
+                "default-empty baseline must NOT include {:?}",
                 cap
             );
         }
     }
 
     #[test]
-    fn build_capabilities_drop_removes_only_named_cap() {
-        let drop_sys_admin = vec![CapOverride {
+    fn build_capabilities_opt_in_via_cap_name_eq_1() {
+        // Operator opts in: `--cap SYS_ADMIN=1` adds that cap, nothing more.
+        // Pins the additive semantic that replaces the old "all-on, drop
+        // via =0" model.
+        let add_sys_admin = vec![CapOverride {
             name: "SYS_ADMIN".to_string(),
-            enabled: false,
+            enabled: true,
         }];
-        let caps = build_capabilities(&drop_sys_admin).unwrap();
+        let caps = build_capabilities(&add_sys_admin).unwrap();
+        let eff = caps.effective().as_ref().unwrap();
+        assert!(
+            eff.contains(&oci_spec::runtime::Capability::SysAdmin),
+            "SYS_ADMIN=1 must add SysAdmin to effective set"
+        );
+        assert_eq!(
+            eff.len(),
+            1,
+            "single opt-in must yield exactly 1 cap; got {} = {:?}",
+            eff.len(),
+            eff
+        );
+    }
+
+    #[test]
+    fn build_capabilities_all_eq_1_yields_full_set() {
+        // `--cap ALL=1` is the escape hatch — opt in to every Linux cap
+        // in one shot, equivalent to the pre-revert default.
+        let caps = build_capabilities(&[CapOverride {
+            name: "ALL".to_string(),
+            enabled: true,
+        }])
+        .unwrap();
+        let eff = caps.effective().as_ref().unwrap();
+        for cap in [
+            oci_spec::runtime::Capability::SysAdmin,
+            oci_spec::runtime::Capability::NetAdmin,
+            oci_spec::runtime::Capability::SysPtrace,
+            oci_spec::runtime::Capability::SysModule,
+        ] {
+            assert!(eff.contains(&cap), "ALL=1 must include {:?}", cap);
+        }
+    }
+
+    #[test]
+    fn build_capabilities_drop_after_opt_in_removes_only_named_cap() {
+        // Under default-empty model: opt in to a few caps, then drop one —
+        // the dropped one goes, the others stay. Pins the surgical "remove
+        // only the named cap" semantic so a future change that resets the
+        // whole set on NAME=0 gets caught.
+        let overrides = vec![
+            CapOverride {
+                name: "SYS_ADMIN".to_string(),
+                enabled: true,
+            },
+            CapOverride {
+                name: "NET_ADMIN".to_string(),
+                enabled: true,
+            },
+            CapOverride {
+                name: "SYS_ADMIN".to_string(),
+                enabled: false,
+            },
+        ];
+        let caps = build_capabilities(&overrides).unwrap();
         let eff = caps.effective().as_ref().unwrap();
         assert!(
             !eff.contains(&oci_spec::runtime::Capability::SysAdmin),
