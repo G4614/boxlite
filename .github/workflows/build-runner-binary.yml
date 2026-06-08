@@ -18,6 +18,19 @@ on:
     workflows: ["Build C SDK"]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      libboxlite_source:
+        description: |
+          Where to get libboxlite.a:
+          - dev: build inline from the current ref (slow, always ABI-correct)
+          - prebuilt: fetch the v${Cargo.toml.version} release asset
+            (fast; only ABI-correct when the current ref equals that
+            release tag's commit — Frankenstein link otherwise)
+        type: choice
+        options:
+          - dev
+          - prebuilt
+        default: dev
 
 permissions:
   contents: read
@@ -56,16 +69,56 @@ jobs:
           VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download prebuilt libboxlite.a
+      # The v${VERSION} release prebuilt is only ABI-correct when the
+      # checked-out ref equals that release tag's commit. Dispatching on
+      # a ref ahead of the latest release (where sdks/go references FFI
+      # symbols added since) silently links wrong — `undefined reference
+      # to boxlite_*`. Default to building inline on dispatch; let the
+      # operator opt back into prebuilt when they want to test the
+      # release asset against the current Go bindings on purpose
+      # (e.g. ABI-regression detection).
+      #
+      # workflow_run path is always release-aligned by construction:
+      # it fires after Build C SDK after `release: published`, where the
+      # tag, Cargo.toml version, and the asset all came from the same
+      # commit. Default to prebuilt there for speed.
+      - name: Set up Rust (inline build only)
+        if: github.event_name == 'workflow_dispatch' && inputs.libboxlite_source == 'dev'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ needs.config.outputs.rust-toolchain }}
+
+      # vendor submodules (bubblewrap, e2fsprogs, ...) are needed for the
+      # Rust build but skipped by default `actions/checkout`. Prebuilt path
+      # doesn't need them.
+      - name: Init submodules (inline build only)
+        if: github.event_name == 'workflow_dispatch' && inputs.libboxlite_source == 'dev'
+        run: git submodule update --init --recursive
+
+      # Rust C SDK build needs meson/ninja/musl-tools/etc. — installed by
+      # the project's setup script. Prebuilt path doesn't need them.
+      - name: Install Rust build deps (inline build only)
+        if: github.event_name == 'workflow_dispatch' && inputs.libboxlite_source == 'dev'
+        run: make setup:build
+
+      - name: Get libboxlite.a
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GH_REPO: ${{ github.repository }}
+          # dispatch: honor input; everything else (workflow_run): prebuilt
+          SOURCE: ${{ github.event_name == 'workflow_dispatch' && inputs.libboxlite_source || 'prebuilt' }}
         run: |
-          ARCHIVE="boxlite-c-v${VERSION}-linux-x64-gnu.tar.gz"
-          URL="https://github.com/${GH_REPO}/releases/download/v${VERSION}/${ARCHIVE}"
-          echo "Downloading $URL"
-          curl -fsSL "${URL}" | tar xz -C /tmp/
-          cp "/tmp/boxlite-c-v${VERSION}-linux-x64-gnu/lib/libboxlite.a" sdks/go/libboxlite.a
+          if [[ "$SOURCE" == "dev" ]]; then
+            echo "==> Building libboxlite.a inline from current ref"
+            make dist:c
+            cp sdks/c/dist/lib/libboxlite.a sdks/go/libboxlite.a
+          else
+            ARCHIVE="boxlite-c-v${VERSION}-linux-x64-gnu.tar.gz"
+            URL="https://github.com/${GH_REPO}/releases/download/v${VERSION}/${ARCHIVE}"
+            echo "==> Fetching prebuilt libboxlite.a from $URL"
+            curl -fsSL "${URL}" | tar xz -C /tmp/
+            cp "/tmp/boxlite-c-v${VERSION}-linux-x64-gnu/lib/libboxlite.a" sdks/go/libboxlite.a
+          fi
 
       - name: Rewrite go.work for minimal modules
         run: |
