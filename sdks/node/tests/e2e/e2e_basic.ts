@@ -9,7 +9,11 @@
 // the napi-rs binding's URL/credential/options marshalling end to end.
 // Exec stdout streaming is covered by the Python / Go / CLI smokes.
 
-import { JsBoxlite, BoxliteRestOptions, ApiKeyCredential } from "../..";
+import {
+  JsBoxlite,
+  BoxliteRestOptions,
+  ApiKeyCredential,
+} from "../../lib/index.ts";
 
 function env(k: string, def: string): string {
   const v = process.env[k];
