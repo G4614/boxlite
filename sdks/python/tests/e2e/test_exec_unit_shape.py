@@ -6,6 +6,7 @@ breaking REST → dataclass mapping change shows up: an actual exec
 must return an object with `exit_code`, `stdout`, `stderr` fields
 populated.
 """
+
 from __future__ import annotations
 
 import asyncio
