@@ -14,10 +14,10 @@ export const THROTTLER_SCOPE_KEY = 'throttler:scope'
  * The 'authenticated' throttler always applies to authenticated routes.
  *
  * @example
- * // Apply sandbox-create throttler
+ * // Apply box-create throttler
  * @ThrottlerScope('sandbox-create')
  * @Post()
- * createSandbox() {}
+ * createBox() {}
  *
  * @example
  * // Apply multiple throttlers

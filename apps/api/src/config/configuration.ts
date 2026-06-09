@@ -159,7 +159,7 @@ const configuration = {
     publicKey: process.env.SSH_GATEWAY_PUBLIC_KEY,
     url: process.env.SSH_GATEWAY_URL,
   },
-  organizationSandboxDefaultLimitedNetworkEgress:
+  organizationBoxDefaultLimitedNetworkEgress:
     process.env.ORGANIZATION_SANDBOX_DEFAULT_LIMITED_NETWORK_EGRESS === 'true',
   pylonAppId: process.env.PYLON_APP_ID,
   billingApiUrl: process.env.BILLING_API_URL,
@@ -188,7 +188,7 @@ const configuration = {
       allocatedCpu: parseFloat(process.env.RUNNER_ALLOCATED_CPU_WEIGHT || '0.03'),
       allocatedMemory: parseFloat(process.env.RUNNER_ALLOCATED_MEMORY_WEIGHT || '0.03'),
       allocatedDisk: parseFloat(process.env.RUNNER_ALLOCATED_DISK_WEIGHT || '0.03'),
-      startedSandboxes: parseFloat(process.env.RUNNER_STARTED_SANDBOXES_WEIGHT || '0.1'),
+      startedBoxes: parseFloat(process.env.RUNNER_STARTED_SANDBOXES_WEIGHT || '0.1'),
     },
     penalty: {
       exponents: {
@@ -213,7 +213,7 @@ const configuration = {
         allocCpu: parseInt(process.env.RUNNER_OPTIMAL_ALLOC_CPU || '100', 10),
         allocMem: parseInt(process.env.RUNNER_OPTIMAL_ALLOC_MEM || '100', 10),
         allocDisk: parseInt(process.env.RUNNER_OPTIMAL_ALLOC_DISK || '100', 10),
-        startedSandboxes: parseInt(process.env.RUNNER_OPTIMAL_STARTED_SANDBOXES || '0', 10),
+        startedBoxes: parseInt(process.env.RUNNER_OPTIMAL_STARTED_SANDBOXES || '0', 10),
       },
       critical: {
         cpu: parseInt(process.env.RUNNER_CRITICAL_CPU || '100', 10),
@@ -222,7 +222,7 @@ const configuration = {
         allocCpu: parseInt(process.env.RUNNER_CRITICAL_ALLOC_CPU || '500', 10),
         allocMem: parseInt(process.env.RUNNER_CRITICAL_ALLOC_MEM || '500', 10),
         allocDisk: parseInt(process.env.RUNNER_CRITICAL_ALLOC_DISK || '500', 10),
-        startedSandboxes: parseInt(process.env.RUNNER_CRITICAL_STARTED_SANDBOXES || '100', 10),
+        startedBoxes: parseInt(process.env.RUNNER_CRITICAL_STARTED_SANDBOXES || '100', 10),
       },
     },
   },
@@ -245,7 +245,7 @@ const configuration = {
         ? parseInt(process.env.RATE_LIMIT_AUTHENTICATED_LIMIT, 10)
         : undefined,
     },
-    sandboxCreate: {
+    boxCreate: {
       ttl: process.env.RATE_LIMIT_SANDBOX_CREATE_TTL
         ? parseInt(process.env.RATE_LIMIT_SANDBOX_CREATE_TTL, 10)
         : undefined,
@@ -253,7 +253,7 @@ const configuration = {
         ? parseInt(process.env.RATE_LIMIT_SANDBOX_CREATE_LIMIT, 10)
         : undefined,
     },
-    sandboxLifecycle: {
+    boxLifecycle: {
       ttl: process.env.RATE_LIMIT_SANDBOX_LIFECYCLE_TTL
         ? parseInt(process.env.RATE_LIMIT_SANDBOX_LIFECYCLE_TTL, 10)
         : undefined,
@@ -275,9 +275,9 @@ const configuration = {
     totalCpuQuota: parseInt(process.env.DEFAULT_ORG_QUOTA_TOTAL_CPU_QUOTA || '10', 10),
     totalMemoryQuota: parseInt(process.env.DEFAULT_ORG_QUOTA_TOTAL_MEMORY_QUOTA || '10', 10),
     totalDiskQuota: parseInt(process.env.DEFAULT_ORG_QUOTA_TOTAL_DISK_QUOTA || '30', 10),
-    maxCpuPerSandbox: parseInt(process.env.DEFAULT_ORG_QUOTA_MAX_CPU_PER_SANDBOX || '4', 10),
-    maxMemoryPerSandbox: parseInt(process.env.DEFAULT_ORG_QUOTA_MAX_MEMORY_PER_SANDBOX || '8', 10),
-    maxDiskPerSandbox: parseInt(process.env.DEFAULT_ORG_QUOTA_MAX_DISK_PER_SANDBOX || '10', 10),
+    maxCpuPerBox: parseInt(process.env.DEFAULT_ORG_QUOTA_MAX_CPU_PER_SANDBOX || '4', 10),
+    maxMemoryPerBox: parseInt(process.env.DEFAULT_ORG_QUOTA_MAX_MEMORY_PER_SANDBOX || '8', 10),
+    maxDiskPerBox: parseInt(process.env.DEFAULT_ORG_QUOTA_MAX_DISK_PER_SANDBOX || '10', 10),
     snapshotQuota: parseInt(process.env.DEFAULT_ORG_QUOTA_SNAPSHOT_QUOTA || '100', 10),
     maxSnapshotSize: parseInt(process.env.DEFAULT_ORG_QUOTA_MAX_SNAPSHOT_SIZE || '20', 10),
     volumeQuota: parseInt(process.env.DEFAULT_ORG_QUOTA_VOLUME_QUOTA || '100', 10),
@@ -292,9 +292,9 @@ const configuration = {
     totalCpuQuota: parseInt(process.env.ADMIN_TOTAL_CPU_QUOTA || '0', 10),
     totalMemoryQuota: parseInt(process.env.ADMIN_TOTAL_MEMORY_QUOTA || '0', 10),
     totalDiskQuota: parseInt(process.env.ADMIN_TOTAL_DISK_QUOTA || '0', 10),
-    maxCpuPerSandbox: parseInt(process.env.ADMIN_MAX_CPU_PER_SANDBOX || '0', 10),
-    maxMemoryPerSandbox: parseInt(process.env.ADMIN_MAX_MEMORY_PER_SANDBOX || '0', 10),
-    maxDiskPerSandbox: parseInt(process.env.ADMIN_MAX_DISK_PER_SANDBOX || '0', 10),
+    maxCpuPerBox: parseInt(process.env.ADMIN_MAX_CPU_PER_SANDBOX || '0', 10),
+    maxMemoryPerBox: parseInt(process.env.ADMIN_MAX_MEMORY_PER_SANDBOX || '0', 10),
+    maxDiskPerBox: parseInt(process.env.ADMIN_MAX_DISK_PER_SANDBOX || '0', 10),
     snapshotQuota: parseInt(process.env.ADMIN_SNAPSHOT_QUOTA || '100', 10),
     maxSnapshotSize: parseInt(process.env.ADMIN_MAX_SNAPSHOT_SIZE || '100', 10),
     volumeQuota: parseInt(process.env.ADMIN_VOLUME_QUOTA || '0', 10),
@@ -309,7 +309,7 @@ const configuration = {
   warmPool: {
     candidateLimit: parseInt(process.env.WARM_POOL_CANDIDATE_LIMIT || '300', 10),
   },
-  sandboxOtel: {
+  boxOtel: {
     endpointUrl: process.env.SANDBOX_OTEL_ENDPOINT_URL,
   },
   otelCollector: {
@@ -323,7 +323,7 @@ const configuration = {
     password: process.env.CLICKHOUSE_PASSWORD,
     protocol: process.env.CLICKHOUSE_PROTOCOL || 'https',
   },
-  sandboxActivity: {
+  boxActivity: {
     throttleTtlSeconds: parseInt(process.env.SANDBOX_ACTIVITY_THROTTLE_TTL_SECONDS || '5', 10),
     flushBatchSize: parseInt(process.env.SANDBOX_ACTIVITY_FLUSH_BATCH_SIZE || '1000', 10),
   },

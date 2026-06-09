@@ -20,7 +20,7 @@ export class SendWebhookDto {
 
   @ApiProperty({
     description: 'The payload data to send',
-    example: { id: 'sandbox-123', name: 'My Sandbox' },
+    example: { id: 'sandbox-123', name: 'My Box' },
   })
   @IsObject()
   payload: Record<string, any>
