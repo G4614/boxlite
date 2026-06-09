@@ -86,10 +86,15 @@ async def test_pull_unreachable_registry_is_typed_error(rt):
     error (not a 5xx). This is the same contract `test_errors.py`
     enforces for box creation — repeated here to keep image pull
     independently regression-protected."""
-    bogus = "does-not-exist.invalid.boxlite-e2e.local:5000/nope:0.0.0"
+    # Avoid `:5000` in the URL — the substring guard below would false-
+    # positive on the port number.
+    bogus = "does-not-exist.invalid.boxlite-e2e.local/nope:0.0.0"
     with pytest.raises(Exception) as exc_info:
         await rt.images.pull(bogus)
     msg = str(exc_info.value)
-    assert "500" not in msg and "Internal" not in msg, (
+    # Strip the echoed URL before checking — the message embeds the
+    # caller's reference and any digit run there would false-positive.
+    msg_for_check = msg.replace(bogus, "<bogus>")
+    assert "500" not in msg_for_check and "Internal" not in msg_for_check, (
         f"unreachable registry leaked a 5xx: {msg!r}"
     )
