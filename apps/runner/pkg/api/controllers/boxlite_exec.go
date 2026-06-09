@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	sdkboxlite "github.com/boxlite-ai/boxlite/sdks/go"
@@ -236,10 +237,7 @@ func classifyExecError(err error) int {
 
 	// Inspect typed boxlite SDK errors that don't have sentinel variants
 	// in the runner SDK wrapper. `ErrInvalidArgument` is the C-FFI shape
-	// for spawn-time validation failures the caller can fix — most
-	// commonly `boxlite.exec(user="...")` where the user is missing from
-	// the guest's /etc/passwd. Without this branch those leak as 5xx,
-	// which violates the typed-error contract surfaced to SDK clients.
+	// for spawn-time validation failures the caller can fix.
 	var bxErr *sdkboxlite.Error
 	if errors.As(err, &bxErr) {
 		switch bxErr.Code {
@@ -254,6 +252,17 @@ func classifyExecError(err error) int {
 		case sdkboxlite.ErrResourceExhausted:
 			return http.StatusTooManyRequests
 		}
+	}
+
+	// Fallback for caller-fixable spawn-time errors that libboxlite
+	// surfaces as `ErrInternal` instead of `ErrInvalidArgument` (most
+	// notably `box.exec(user="x")` where `x` is missing from the guest's
+	// /etc/passwd). Without this string match those keep leaking as 5xx
+	// because the typed code is wrong upstream. Tracking the upstream
+	// fix is preferable; meanwhile clients see the right shape.
+	msg := err.Error()
+	if strings.Contains(msg, "not found in") && strings.Contains(msg, "/etc/passwd") {
+		return http.StatusBadRequest
 	}
 
 	return http.StatusInternalServerError
