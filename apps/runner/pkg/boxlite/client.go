@@ -377,6 +377,30 @@ func (c *Client) SnapshotRestore(ctx context.Context, sandboxId string, name str
 	return bx.SnapshotRestore(ctx, name)
 }
 
+// CloneBox clones a sandbox's disk state into a new (anonymous-runner-side) box.
+// Returns the cloned box's id.
+func (c *Client) CloneBox(ctx context.Context, sandboxId string, name string) (*boxlite.Box, error) {
+	bx, err := c.getOrFetchBox(ctx, sandboxId)
+	if err != nil {
+		return nil, err
+	}
+	return bx.CloneBox(ctx, name)
+}
+
+// ExportBox writes a sandbox's disks to a portable `.boxlite` archive at `dest`.
+func (c *Client) ExportBox(ctx context.Context, sandboxId string, dest string) error {
+	bx, err := c.getOrFetchBox(ctx, sandboxId)
+	if err != nil {
+		return err
+	}
+	return bx.Export(ctx, dest)
+}
+
+// ImportBox reads a `.boxlite` archive and creates a new box from it.
+func (c *Client) ImportBox(ctx context.Context, archivePath, name string) (*boxlite.Box, error) {
+	return c.runtime.ImportBox(ctx, archivePath, name)
+}
+
 // CopyInto copies a file from host into a sandbox.
 func (c *Client) CopyInto(ctx context.Context, sandboxId string, hostSrc, guestDst string) error {
 	bx, err := c.getOrFetchBox(ctx, sandboxId)

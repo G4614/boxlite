@@ -8,6 +8,7 @@
 #![allow(clippy::too_many_arguments)]
 
 mod box_handle;
+mod clone_export;
 mod copy;
 mod error;
 mod event_queue;

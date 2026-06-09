@@ -39,4 +39,7 @@ extern CBoxSnapshotListCb cbSnapshotList(void);
 extern CBoxSnapshotRemoveCb cbSnapshotRemove(void);
 extern CBoxSnapshotRestoreCb cbSnapshotRestore(void);
 
+extern CBoxCloneCb cbCloneBox(void);
+extern CBoxExportCb cbExportBox(void);
+
 #endif // BOXLITE_GO_BRIDGE_H

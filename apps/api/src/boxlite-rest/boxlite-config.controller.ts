@@ -15,9 +15,9 @@ export class BoxliteConfigController {
     return {
       capabilities: {
         snapshots_enabled: true,
-        clone_enabled: false,
-        export_enabled: false,
-        import_enabled: false,
+        clone_enabled: true,
+        export_enabled: true,
+        import_enabled: true,
       },
     }
   }

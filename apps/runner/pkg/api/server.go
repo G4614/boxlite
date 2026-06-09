@@ -179,6 +179,11 @@ func (a *ApiServer) Start(ctx context.Context) error {
 		boxliteApi.GET("/:boxId/snapshots/:name", controllers.BoxliteSnapshotGet)
 		boxliteApi.DELETE("/:boxId/snapshots/:name", controllers.BoxliteSnapshotRemove)
 		boxliteApi.POST("/:boxId/snapshots/:name/restore", controllers.BoxliteSnapshotRestore)
+
+		// Box clone + export + runtime import.
+		boxliteApi.POST("/:boxId/clone", controllers.BoxliteCloneBox)
+		boxliteApi.POST("/:boxId/export", controllers.BoxliteExportBox)
+		boxliteApi.POST("/import", controllers.BoxliteImportBox)
 	}
 
 	a.httpServer = &http.Server{

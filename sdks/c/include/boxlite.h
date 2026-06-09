@@ -134,6 +134,12 @@ typedef void (*CBoxRemoveBoxCb)(CBoxliteError*, void*);
 // Box start completion.
 typedef void (*CBoxStartBoxCb)(CBoxliteError*, void*);
 
+// Box clone completion. Returns a fresh `CBoxHandle` for the cloned box.
+typedef void (*CBoxCloneCb)(CBoxHandle*, CBoxliteError*, void*);
+
+// Box export completion (unit + error — caller already knows dest path).
+typedef void (*CBoxExportCb)(CBoxliteError*, void*);
+
 // Copy (into / out of) completion.
 typedef void (*CBoxCopyCb)(CBoxliteError*, void*);
 
@@ -360,6 +366,25 @@ enum BoxliteErrorCode boxlite_start_box(CBoxHandle *handle,
 char *boxlite_box_id(CBoxHandle *handle);
 
 void boxlite_box_free(CBoxHandle *handle);
+
+enum BoxliteErrorCode boxlite_box_clone_box(CBoxHandle *handle,
+                                            const char *name,
+                                            CBoxCloneCb cb,
+                                            void *user_data,
+                                            CBoxliteError *out_error);
+
+enum BoxliteErrorCode boxlite_box_export(CBoxHandle *handle,
+                                         const char *dest,
+                                         CBoxExportCb cb,
+                                         void *user_data,
+                                         CBoxliteError *out_error);
+
+enum BoxliteErrorCode boxlite_runtime_import_box(CBoxliteRuntime *runtime,
+                                                 const char *archive_path,
+                                                 const char *name,
+                                                 CBoxCreateBoxCb cb,
+                                                 void *user_data,
+                                                 CBoxliteError *out_error);
 
 enum BoxliteErrorCode boxlite_copy_into(CBoxHandle *handle,
                                         const char *host_src,

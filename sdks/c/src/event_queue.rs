@@ -187,6 +187,16 @@ pub(crate) type CBoxSnapshotRemoveFn = extern "C" fn(*mut crate::CBoxliteError, 
 pub type CBoxSnapshotRestoreCb = Option<extern "C" fn(*mut crate::CBoxliteError, *mut c_void)>;
 pub(crate) type CBoxSnapshotRestoreFn = extern "C" fn(*mut crate::CBoxliteError, *mut c_void);
 
+/// Box clone completion. Returns a fresh `CBoxHandle` for the cloned box.
+pub type CBoxCloneCb =
+    Option<extern "C" fn(*mut crate::CBoxHandle, *mut crate::CBoxliteError, *mut c_void)>;
+pub(crate) type CBoxCloneFn =
+    extern "C" fn(*mut crate::CBoxHandle, *mut crate::CBoxliteError, *mut c_void);
+
+/// Box export completion (unit + error — caller already knows dest path).
+pub type CBoxExportCb = Option<extern "C" fn(*mut crate::CBoxliteError, *mut c_void)>;
+pub(crate) type CBoxExportFn = extern "C" fn(*mut crate::CBoxliteError, *mut c_void);
+
 // ─── Owned FFI payload ─────────────────────────────────────────────────────
 //
 // Wraps a `Box::into_raw`'d FFI struct that will eventually be transferred
@@ -403,6 +413,18 @@ pub enum RuntimeEvent {
     },
     SnapshotRestore {
         cb: CBoxSnapshotRestoreFn,
+        user_data: usize,
+        result: Result<(), BoxliteError>,
+    },
+
+    /* Clone / export */
+    CloneBox {
+        cb: CBoxCloneFn,
+        user_data: usize,
+        result: Result<OwnedFfiPtr<crate::CBoxHandle>, BoxliteError>,
+    },
+    ExportBox {
+        cb: CBoxExportFn,
         user_data: usize,
         result: Result<(), BoxliteError>,
     },

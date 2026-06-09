@@ -176,6 +176,94 @@ export class BoxliteProxyController {
     )
   }
 
+  @All(':boxId/clone')
+  async proxyClone(
+    @AuthContext() authContext: OrganizationAuthContext,
+    @Param('boxId') boxId: string,
+    @Req() req: Request,
+    @Res() res: Response,
+    @Next() next: NextFunction,
+  ) {
+    return this.proxyToRunner(authContext, boxId, `/v1/boxes/${boxId}/clone`, req, res, next)
+  }
+
+  @All(':boxId/export')
+  async proxyExport(
+    @AuthContext() authContext: OrganizationAuthContext,
+    @Param('boxId') boxId: string,
+    @Req() req: Request,
+    @Res() res: Response,
+    @Next() next: NextFunction,
+  ) {
+    return this.proxyToRunner(authContext, boxId, `/v1/boxes/${boxId}/export`, req, res, next)
+  }
+
+  // Import is a runtime-level op (no boxId). The SDK posts archive bytes
+  // to `/boxes/import?name=...`; we route to a runner that this org
+  // already has at least one sandbox on (fallback: first runner with
+  // capacity). When the org has no boxes anywhere yet, we 503 — the SDK
+  // is expected to create at least one box (or have any sandbox record)
+  // before import so we can pick a target.
+  @All('import')
+  async proxyImport(
+    @AuthContext() authContext: OrganizationAuthContext,
+    @Req() req: Request,
+    @Res() res: Response,
+    @Next() next: NextFunction,
+  ) {
+    const target = await this.pickRunnerForImport(authContext)
+    if (!target) {
+      throw new NotFoundException(
+        'Cannot route import: organization has no existing sandbox to anchor a runner choice. ' +
+          'Create one sandbox via POST /boxes first.',
+      )
+    }
+    const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''
+    return this.proxyToRunnerById(target.runnerId, `/v1/boxes/import${query}`, req, res, next)
+  }
+
+  private async pickRunnerForImport(authContext: OrganizationAuthContext): Promise<{ runnerId: string } | null> {
+    const sandboxes = await this.sandboxService.findAllDeprecated(authContext.organizationId, undefined, false)
+    if (sandboxes.length === 0) {
+      return null
+    }
+    return { runnerId: sandboxes[0].runnerId }
+  }
+
+  private async proxyToRunnerById(
+    runnerId: string,
+    targetPath: string,
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    opts?: { ws?: boolean },
+  ) {
+    const runner = await this.runnerService.findOne(runnerId)
+    if (!runner) {
+      throw new NotFoundException(`Runner ${runnerId} not found`)
+    }
+    const targetUrl = runner.apiUrl || runner.proxyUrl
+    if (!targetUrl) {
+      throw new NotFoundException(`Runner endpoint for ${runnerId} not found`)
+    }
+    const proxyOptions: Options = {
+      target: targetUrl,
+      secure: false,
+      changeOrigin: true,
+      autoRewrite: true,
+      ws: opts?.ws ?? false,
+      pathRewrite: () => targetPath,
+      on: {
+        proxyReq: (proxyReq: any, originalReq: any) => {
+          proxyReq.setHeader('Authorization', `Bearer ${runner.apiKey}`)
+          fixRequestBody(proxyReq, originalReq)
+        },
+      },
+      proxyTimeout: 5 * 60 * 1000,
+    }
+    return createProxyMiddleware(proxyOptions)(req, res, next)
+  }
+
   private async proxyToRunner(
     authContext: OrganizationAuthContext,
     boxId: string,

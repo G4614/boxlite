@@ -40,6 +40,9 @@ extern void goBoxliteOnSnapshotList(CSnapshotInfoList *list, CBoxliteError *err,
 extern void goBoxliteOnSnapshotRemove(CBoxliteError *err, void *ud);
 extern void goBoxliteOnSnapshotRestore(CBoxliteError *err, void *ud);
 
+extern void goBoxliteOnCloneBox(CBoxHandle *box, CBoxliteError *err, void *ud);
+extern void goBoxliteOnExportBox(CBoxliteError *err, void *ud);
+
 CBoxStdoutCb cbStdout(void) { return (CBoxStdoutCb)goBoxliteOnStdout; }
 CBoxStderrCb cbStderr(void) { return (CBoxStderrCb)goBoxliteOnStderr; }
 CBoxExitCb cbExit(void) { return (CBoxExitCb)goBoxliteOnExit; }
@@ -71,3 +74,6 @@ CBoxSnapshotCreateCb cbSnapshotCreate(void) { return (CBoxSnapshotCreateCb)goBox
 CBoxSnapshotListCb cbSnapshotList(void) { return (CBoxSnapshotListCb)goBoxliteOnSnapshotList; }
 CBoxSnapshotRemoveCb cbSnapshotRemove(void) { return (CBoxSnapshotRemoveCb)goBoxliteOnSnapshotRemove; }
 CBoxSnapshotRestoreCb cbSnapshotRestore(void) { return (CBoxSnapshotRestoreCb)goBoxliteOnSnapshotRestore; }
+
+CBoxCloneCb cbCloneBox(void) { return (CBoxCloneCb)goBoxliteOnCloneBox; }
+CBoxExportCb cbExportBox(void) { return (CBoxExportCb)goBoxliteOnExportBox; }
