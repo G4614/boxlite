@@ -46,7 +46,18 @@ export function createBoxToCreateSandbox(dto: CreateBoxDto, target?: string): Cr
       createDto.networkBlockAll = false
     }
     if (dto.network.allow_net && dto.network.allow_net.length > 0) {
-      createDto.networkAllowList = dto.network.allow_net.join(',')
+      // The lower-layer `networkAllowList` is validated as
+      // CSV-of-CIDR by `validateNetworkAllowList` (apps/api/src/
+      // sandbox/utils/network-validation.util.ts). BoxOptions.allow_net
+      // accepts hostnames too — those have no path through the
+      // sandbox model today, so forward only the CIDR entries and
+      // drop hostnames silently. Without this filter the entire
+      // create call 400s when any hostname is present, breaking
+      // callers who previously got "no filter at all".
+      const cidrs = dto.network.allow_net.filter((entry) => /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/.test(entry))
+      if (cidrs.length > 0) {
+        createDto.networkAllowList = cidrs.join(',')
+      }
     }
   }
 
