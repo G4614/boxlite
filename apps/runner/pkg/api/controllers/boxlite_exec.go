@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	sdkboxlite "github.com/boxlite-ai/boxlite/sdks/go"
 	"github.com/boxlite-ai/runner/pkg/boxlite"
 	"github.com/boxlite-ai/runner/pkg/runner"
 	"github.com/gin-gonic/gin"
@@ -74,7 +75,7 @@ func BoxliteExec(ctx *gin.Context) {
 
 	execId, err := execManager.Start(ctx.Request.Context(), bx, boxId, startOpts)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("exec failed: %s", err)})
+		ctx.JSON(classifyExecError(err), gin.H{"error": fmt.Sprintf("exec failed: %s", err)})
 		return
 	}
 
@@ -231,7 +232,29 @@ func classifyExecError(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, boxlite.ErrExecNotTTY):
 		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
 	}
+
+	// Inspect typed boxlite SDK errors that don't have sentinel variants
+	// in the runner SDK wrapper. `ErrInvalidArgument` is the C-FFI shape
+	// for spawn-time validation failures the caller can fix — most
+	// commonly `boxlite.exec(user="...")` where the user is missing from
+	// the guest's /etc/passwd. Without this branch those leak as 5xx,
+	// which violates the typed-error contract surfaced to SDK clients.
+	var bxErr *sdkboxlite.Error
+	if errors.As(err, &bxErr) {
+		switch bxErr.Code {
+		case sdkboxlite.ErrInvalidArgument, sdkboxlite.ErrInvalidState:
+			return http.StatusBadRequest
+		case sdkboxlite.ErrNotFound:
+			return http.StatusNotFound
+		case sdkboxlite.ErrAlreadyExists:
+			return http.StatusConflict
+		case sdkboxlite.ErrUnsupported, sdkboxlite.ErrUnsupportedEngine:
+			return http.StatusNotImplemented
+		case sdkboxlite.ErrResourceExhausted:
+			return http.StatusTooManyRequests
+		}
+	}
+
+	return http.StatusInternalServerError
 }
