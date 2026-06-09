@@ -184,8 +184,21 @@ async def test_remove_unknown_box_id_returns_404(rt):
 
 
 @pytest.mark.asyncio
-async def test_image_pull_failed_returns_422(rt):
-    """POST /boxes with an unregistered image should surface ImageError → 422."""
+async def test_unregistered_image_returns_404_no_implicit_pull(rt):
+    """POST /boxes with a name that's not a pre-registered snapshot MUST
+    return 404 NotFound — NOT attempt an implicit pull from a public
+    registry.
+
+    Cloud deployment policy: the REST API never pulls on-demand. All
+    images must be explicitly registered as snapshots ahead of time. A
+    422 ImageError ("pull failed at runner") on this path would mean the
+    server tried to pull behind the user's back — a policy violation
+    even if the pull happened to succeed. Self-hosted deployments may
+    differ, but cloud must not.
+
+    The body must reference "snapshot" / "not found" / "not registered"
+    (or similar) so the caller knows to register first, NOT "pull
+    failed" (which implies an attempted pull)."""
     p = _profile()
     bogus_image = "this-image-was-never-registered:0.0.0"
     status, body = _api_call(
@@ -193,16 +206,22 @@ async def test_image_pull_failed_returns_422(rt):
         f"/v1/{p['path_prefix']}/boxes",
         {"image": bogus_image, "cpus": 1, "memory_mib": 256, "disk_size_gb": 4},
     )
-    # Some implementations return 404 (snapshot lookup miss) instead of 422
-    # (image pull failed at runner). Both are 4xx and "image" or "not found"
-    # in the body; 500 would be a leak.
     body_str = json.dumps(body) if body else ""
-    assert 400 <= status < 500, (
-        f"bogus image leaked a 5xx: HTTP {status}, body={body_str}"
+    assert status == 404, (
+        f"unregistered image must return 404 (no implicit pull); "
+        f"got HTTP {status}, body={body_str}"
     )
+    body_lower = body_str.lower()
     assert any(
-        kw in body_str.lower() for kw in ("image", "snapshot", "not found", "pull")
-    ), f"422 body does not explain the cause: {body_str}"
+        kw in body_lower for kw in ("snapshot", "not found", "not registered", "no such")
+    ), (
+        f"404 body should point at 'snapshot not registered', got: {body_str}"
+    )
+    # Explicit guard: if the body talks about a pull attempt, the server
+    # tried to pull — that's the policy violation we're pinning.
+    assert "pull" not in body_lower, (
+        f"server attempted implicit pull (forbidden in cloud policy): {body_str}"
+    )
 
 
 @pytest.mark.xfail(
