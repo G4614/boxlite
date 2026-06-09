@@ -537,19 +537,6 @@ void boxlite_options_set_auto_remove(CBoxliteOptions *opts, int val);
 
 void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 
-// Pick a sandbox security preset by name.
-//
-// `preset` is a C string — `"development"`, `"standard"`, or
-// `"maximum"` (case-insensitive; `"dev"` / `"default"` / `"max"` /
-// `"strict"` also accepted). NULL clears any previously-set preset.
-//
-// The preset name is validated at `boxlite_create_box` time, not
-// here — an unknown name surfaces from create as
-// `BoxliteErrorCode::InvalidArgument` with the offending value in
-// `out_error`. Silent fallback to the default is never acceptable.
-//
-// Signature matches sibling `boxlite_options_set_*` setters so the
-// C SDK stays uniform; the error path lives at create.
 void boxlite_options_set_security_preset(CBoxliteOptions *opts, const char *preset);
 
 void boxlite_options_set_entrypoint(CBoxliteOptions *opts, const char *const *args, int argc);

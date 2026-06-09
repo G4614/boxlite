@@ -152,19 +152,10 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
     options_set_detach(opts, val)
 }
 
-/// Pick a sandbox security preset by name.
-///
-/// `preset` is a C string — `"development"`, `"standard"`, or
-/// `"maximum"` (case-insensitive; `"dev"` / `"default"` / `"max"` /
-/// `"strict"` also accepted). NULL clears any previously-set preset.
-///
-/// The preset name is validated at `boxlite_create_box` time, not
-/// here — an unknown name surfaces from create as
-/// `BoxliteErrorCode::InvalidArgument` with the offending value in
-/// `out_error`. Silent fallback to the default is never acceptable.
-///
-/// Signature matches sibling `boxlite_options_set_*` setters so the
-/// C SDK stays uniform; the error path lives at create.
+// Stays bare to match sibling `boxlite_options_set_*` setters in
+// the generated header (none of which carry inline doc blocks; the
+// full preset description lives in the Rust source on the internal
+// `options_set_security_preset` helper and in the API reference).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_security_preset(
     opts: *mut CBoxliteOptions,
