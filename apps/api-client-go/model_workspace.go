@@ -35,7 +35,7 @@ type Workspace struct {
 	Env map[string]string `json:"env"`
 	// Labels for the sandbox
 	Labels map[string]string `json:"labels"`
-	// Whether the sandbox http preview is public
+	// Whether the box http preview is public
 	Public bool `json:"public"`
 	// Whether to block all network access for the sandbox
 	NetworkBlockAll bool `json:"networkBlockAll"`
@@ -52,12 +52,12 @@ type Workspace struct {
 	// The disk quota for the sandbox
 	Disk float32 `json:"disk"`
 	// The state of the sandbox
-	State *SandboxState `json:"state,omitempty"`
+	State *BoxState `json:"state,omitempty"`
 	// The desired state of the sandbox
-	DesiredState *SandboxDesiredState `json:"desiredState,omitempty"`
+	DesiredState *BoxDesiredState `json:"desiredState,omitempty"`
 	// The error reason of the sandbox
 	ErrorReason *string `json:"errorReason,omitempty"`
-	// Whether the sandbox error is recoverable.
+	// Whether the box error is recoverable.
 	Recoverable *bool `json:"recoverable,omitempty"`
 	// The state of the backup
 	BackupState *string `json:"backupState,omitempty"`
@@ -70,7 +70,7 @@ type Workspace struct {
 	// Auto-delete interval in minutes (negative value means disabled, 0 means delete immediately upon stopping)
 	AutoDeleteInterval *float32 `json:"autoDeleteInterval,omitempty"`
 	// Array of volumes attached to the sandbox
-	Volumes []SandboxVolume `json:"volumes,omitempty"`
+	Volumes []BoxVolume `json:"volumes,omitempty"`
 	// Build information for the sandbox
 	BuildInfo *BuildInfo `json:"buildInfo,omitempty"`
 	// The creation timestamp of the sandbox
@@ -93,7 +93,7 @@ type Workspace struct {
 	// The creation timestamp of the last snapshot
 	SnapshotCreatedAt *string `json:"snapshotCreatedAt,omitempty"`
 	// Additional information about the sandbox
-	Info *SandboxInfo `json:"info,omitempty"`
+	Info *BoxInfo `json:"info,omitempty"`
 	AdditionalProperties map[string]interface{}
 }
 
@@ -507,9 +507,9 @@ func (o *Workspace) SetDisk(v float32) {
 }
 
 // GetState returns the State field value if set, zero value otherwise.
-func (o *Workspace) GetState() SandboxState {
+func (o *Workspace) GetState() BoxState {
 	if o == nil || IsNil(o.State) {
-		var ret SandboxState
+		var ret BoxState
 		return ret
 	}
 	return *o.State
@@ -517,7 +517,7 @@ func (o *Workspace) GetState() SandboxState {
 
 // GetStateOk returns a tuple with the State field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Workspace) GetStateOk() (*SandboxState, bool) {
+func (o *Workspace) GetStateOk() (*BoxState, bool) {
 	if o == nil || IsNil(o.State) {
 		return nil, false
 	}
@@ -533,15 +533,15 @@ func (o *Workspace) HasState() bool {
 	return false
 }
 
-// SetState gets a reference to the given SandboxState and assigns it to the State field.
-func (o *Workspace) SetState(v SandboxState) {
+// SetState gets a reference to the given BoxState and assigns it to the State field.
+func (o *Workspace) SetState(v BoxState) {
 	o.State = &v
 }
 
 // GetDesiredState returns the DesiredState field value if set, zero value otherwise.
-func (o *Workspace) GetDesiredState() SandboxDesiredState {
+func (o *Workspace) GetDesiredState() BoxDesiredState {
 	if o == nil || IsNil(o.DesiredState) {
-		var ret SandboxDesiredState
+		var ret BoxDesiredState
 		return ret
 	}
 	return *o.DesiredState
@@ -549,7 +549,7 @@ func (o *Workspace) GetDesiredState() SandboxDesiredState {
 
 // GetDesiredStateOk returns a tuple with the DesiredState field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Workspace) GetDesiredStateOk() (*SandboxDesiredState, bool) {
+func (o *Workspace) GetDesiredStateOk() (*BoxDesiredState, bool) {
 	if o == nil || IsNil(o.DesiredState) {
 		return nil, false
 	}
@@ -565,8 +565,8 @@ func (o *Workspace) HasDesiredState() bool {
 	return false
 }
 
-// SetDesiredState gets a reference to the given SandboxDesiredState and assigns it to the DesiredState field.
-func (o *Workspace) SetDesiredState(v SandboxDesiredState) {
+// SetDesiredState gets a reference to the given BoxDesiredState and assigns it to the DesiredState field.
+func (o *Workspace) SetDesiredState(v BoxDesiredState) {
 	o.DesiredState = &v
 }
 
@@ -795,9 +795,9 @@ func (o *Workspace) SetAutoDeleteInterval(v float32) {
 }
 
 // GetVolumes returns the Volumes field value if set, zero value otherwise.
-func (o *Workspace) GetVolumes() []SandboxVolume {
+func (o *Workspace) GetVolumes() []BoxVolume {
 	if o == nil || IsNil(o.Volumes) {
-		var ret []SandboxVolume
+		var ret []BoxVolume
 		return ret
 	}
 	return o.Volumes
@@ -805,7 +805,7 @@ func (o *Workspace) GetVolumes() []SandboxVolume {
 
 // GetVolumesOk returns a tuple with the Volumes field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Workspace) GetVolumesOk() ([]SandboxVolume, bool) {
+func (o *Workspace) GetVolumesOk() ([]BoxVolume, bool) {
 	if o == nil || IsNil(o.Volumes) {
 		return nil, false
 	}
@@ -821,8 +821,8 @@ func (o *Workspace) HasVolumes() bool {
 	return false
 }
 
-// SetVolumes gets a reference to the given []SandboxVolume and assigns it to the Volumes field.
-func (o *Workspace) SetVolumes(v []SandboxVolume) {
+// SetVolumes gets a reference to the given []BoxVolume and assigns it to the Volumes field.
+func (o *Workspace) SetVolumes(v []BoxVolume) {
 	o.Volumes = v
 }
 
@@ -1142,9 +1142,9 @@ func (o *Workspace) SetSnapshotCreatedAt(v string) {
 }
 
 // GetInfo returns the Info field value if set, zero value otherwise.
-func (o *Workspace) GetInfo() SandboxInfo {
+func (o *Workspace) GetInfo() BoxInfo {
 	if o == nil || IsNil(o.Info) {
-		var ret SandboxInfo
+		var ret BoxInfo
 		return ret
 	}
 	return *o.Info
@@ -1152,7 +1152,7 @@ func (o *Workspace) GetInfo() SandboxInfo {
 
 // GetInfoOk returns a tuple with the Info field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Workspace) GetInfoOk() (*SandboxInfo, bool) {
+func (o *Workspace) GetInfoOk() (*BoxInfo, bool) {
 	if o == nil || IsNil(o.Info) {
 		return nil, false
 	}
@@ -1168,8 +1168,8 @@ func (o *Workspace) HasInfo() bool {
 	return false
 }
 
-// SetInfo gets a reference to the given SandboxInfo and assigns it to the Info field.
-func (o *Workspace) SetInfo(v SandboxInfo) {
+// SetInfo gets a reference to the given BoxInfo and assigns it to the Info field.
+func (o *Workspace) SetInfo(v BoxInfo) {
 	o.Info = &v
 }
 
@@ -1396,3 +1396,5 @@ func (v *NullableWorkspace) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

@@ -6,7 +6,7 @@
 
 import { BoxState } from '../../box/enums/box-state.enum'
 
-export const SANDBOX_STATES_CONSUMING_COMPUTE: BoxState[] = [
+export const BOX_STATES_CONSUMING_COMPUTE: BoxState[] = [
   BoxState.CREATING,
   BoxState.RESTORING,
   BoxState.STARTED,

@@ -33,9 +33,9 @@ type CreateSnapshot struct {
 	Cpu *int32 `json:"cpu,omitempty"`
 	// GPU units allocated to the resulting sandbox
 	Gpu *int32 `json:"gpu,omitempty"`
-	// Memory allocated to the resulting sandbox in GB
+	// Memory allocated to the resulting box in GB
 	Memory *int32 `json:"memory,omitempty"`
-	// Disk space allocated to the sandbox in GB
+	// Disk space allocated to the box in GB
 	Disk *int32 `json:"disk,omitempty"`
 	// Build information for the snapshot
 	BuildInfo *CreateBuildInfo `json:"buildInfo,omitempty"`
@@ -508,3 +508,5 @@ func (v *NullableCreateSnapshot) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

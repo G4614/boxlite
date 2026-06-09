@@ -9,7 +9,7 @@ import (
 
 	"github.com/boxlite-ai/boxlite/cli/apiclient"
 	"github.com/boxlite-ai/boxlite/cli/cmd/common"
-	"github.com/boxlite-ai/boxlite/cli/views/sandbox"
+	"github.com/boxlite-ai/boxlite/cli/views/box"
 	"github.com/spf13/cobra"
 )
 

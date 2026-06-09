@@ -23,85 +23,171 @@ import (
 )
 
 
-type SandboxAPI interface {
+type BoxAPI interface {
 
 	/*
-	ArchiveSandbox Archive sandbox
+	ArchiveBox Archive sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName
-	@return SandboxAPIArchiveSandboxRequest
+	@return BoxAPIArchiveBoxRequest
 	*/
-	ArchiveSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIArchiveSandboxRequest
+	ArchiveBox(ctx context.Context, sandboxIdOrName string) BoxAPIArchiveBoxRequest
 
-	// ArchiveSandboxExecute executes the request
-	//  @return Sandbox
-	ArchiveSandboxExecute(r SandboxAPIArchiveSandboxRequest) (*Sandbox, *http.Response, error)
+	// ArchiveBoxExecute executes the request
+	//  @return Box
+	ArchiveBoxExecute(r BoxAPIArchiveBoxRequest) (*Box, *http.Response, error)
 
 	/*
-	CreateBackup Create sandbox backup
+	CreateBackup Create box backup
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPICreateBackupRequest
+	@return BoxAPICreateBackupRequest
 	*/
-	CreateBackup(ctx context.Context, sandboxIdOrName string) SandboxAPICreateBackupRequest
+	CreateBackup(ctx context.Context, sandboxIdOrName string) BoxAPICreateBackupRequest
 
 	// CreateBackupExecute executes the request
-	//  @return Sandbox
-	CreateBackupExecute(r SandboxAPICreateBackupRequest) (*Sandbox, *http.Response, error)
+	//  @return Box
+	CreateBackupExecute(r BoxAPICreateBackupRequest) (*Box, *http.Response, error)
 
 	/*
-	CreateSandbox Create a new sandbox
+	CreateBox Create a new sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return SandboxAPICreateSandboxRequest
+	@return BoxAPICreateBoxRequest
 	*/
-	CreateSandbox(ctx context.Context) SandboxAPICreateSandboxRequest
+	CreateBox(ctx context.Context) BoxAPICreateBoxRequest
 
-	// CreateSandboxExecute executes the request
-	//  @return Sandbox
-	CreateSandboxExecute(r SandboxAPICreateSandboxRequest) (*Sandbox, *http.Response, error)
+	// CreateBoxExecute executes the request
+	//  @return Box
+	CreateBoxExecute(r BoxAPICreateBoxRequest) (*Box, *http.Response, error)
 
 	/*
 	CreateSshAccess Create SSH access for sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPICreateSshAccessRequest
+	@return BoxAPICreateSshAccessRequest
 	*/
-	CreateSshAccess(ctx context.Context, sandboxIdOrName string) SandboxAPICreateSshAccessRequest
+	CreateSshAccess(ctx context.Context, sandboxIdOrName string) BoxAPICreateSshAccessRequest
 
 	// CreateSshAccessExecute executes the request
 	//  @return SshAccessDto
-	CreateSshAccessExecute(r SandboxAPICreateSshAccessRequest) (*SshAccessDto, *http.Response, error)
+	CreateSshAccessExecute(r BoxAPICreateSshAccessRequest) (*SshAccessDto, *http.Response, error)
 
 	/*
-	DeleteSandbox Delete sandbox
+	DeleteBox Delete sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIDeleteSandboxRequest
+	@return BoxAPIDeleteBoxRequest
 	*/
-	DeleteSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIDeleteSandboxRequest
+	DeleteBox(ctx context.Context, sandboxIdOrName string) BoxAPIDeleteBoxRequest
 
-	// DeleteSandboxExecute executes the request
-	//  @return Sandbox
-	DeleteSandboxExecute(r SandboxAPIDeleteSandboxRequest) (*Sandbox, *http.Response, error)
+	// DeleteBoxExecute executes the request
+	//  @return Box
+	DeleteBoxExecute(r BoxAPIDeleteBoxRequest) (*Box, *http.Response, error)
 
 	/*
-	ExpireSignedPortPreviewUrl Expire signed preview URL for a sandbox port
+	ExpireSignedPortPreviewUrl Expire signed preview URL for a box port
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
 	@param port Port number to expire signed preview URL for
 	@param token Token to expire signed preview URL for
-	@return SandboxAPIExpireSignedPortPreviewUrlRequest
+	@return BoxAPIExpireSignedPortPreviewUrlRequest
 	*/
-	ExpireSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32, token string) SandboxAPIExpireSignedPortPreviewUrlRequest
+	ExpireSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32, token string) BoxAPIExpireSignedPortPreviewUrlRequest
 
 	// ExpireSignedPortPreviewUrlExecute executes the request
-	ExpireSignedPortPreviewUrlExecute(r SandboxAPIExpireSignedPortPreviewUrlRequest) (*http.Response, error)
+	ExpireSignedPortPreviewUrlExecute(r BoxAPIExpireSignedPortPreviewUrlRequest) (*http.Response, error)
+
+	/*
+	GetBox Get box details
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param sandboxIdOrName ID or name of the sandbox
+	@return BoxAPIGetBoxRequest
+	*/
+	GetBox(ctx context.Context, sandboxIdOrName string) BoxAPIGetBoxRequest
+
+	// GetBoxExecute executes the request
+	//  @return Box
+	GetBoxExecute(r BoxAPIGetBoxRequest) (*Box, *http.Response, error)
+
+	/*
+	GetBoxLogs Get box logs
+
+	Retrieve OTEL logs for a box within a time range
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param boxId ID of the sandbox
+	@return BoxAPIGetBoxLogsRequest
+	*/
+	GetBoxLogs(ctx context.Context, boxId string) BoxAPIGetBoxLogsRequest
+
+	// GetBoxLogsExecute executes the request
+	//  @return PaginatedLogs
+	GetBoxLogsExecute(r BoxAPIGetBoxLogsRequest) (*PaginatedLogs, *http.Response, error)
+
+	/*
+	GetBoxMetrics Get box metrics
+
+	Retrieve OTEL metrics for a box within a time range
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param boxId ID of the sandbox
+	@return BoxAPIGetBoxMetricsRequest
+	*/
+	GetBoxMetrics(ctx context.Context, boxId string) BoxAPIGetBoxMetricsRequest
+
+	// GetBoxMetricsExecute executes the request
+	//  @return MetricsResponse
+	GetBoxMetricsExecute(r BoxAPIGetBoxMetricsRequest) (*MetricsResponse, *http.Response, error)
+
+	/*
+	GetBoxTraceSpans Get trace spans
+
+	Retrieve all spans for a specific trace
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param boxId ID of the sandbox
+	@param traceId ID of the trace
+	@return BoxAPIGetBoxTraceSpansRequest
+	*/
+	GetBoxTraceSpans(ctx context.Context, boxId string, traceId string) BoxAPIGetBoxTraceSpansRequest
+
+	// GetBoxTraceSpansExecute executes the request
+	//  @return []TraceSpan
+	GetBoxTraceSpansExecute(r BoxAPIGetBoxTraceSpansRequest) ([]TraceSpan, *http.Response, error)
+
+	/*
+	GetBoxTraces Get box traces
+
+	Retrieve OTEL traces for a box within a time range
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param boxId ID of the sandbox
+	@return BoxAPIGetBoxTracesRequest
+	*/
+	GetBoxTraces(ctx context.Context, boxId string) BoxAPIGetBoxTracesRequest
+
+	// GetBoxTracesExecute executes the request
+	//  @return PaginatedTraces
+	GetBoxTracesExecute(r BoxAPIGetBoxTracesRequest) (*PaginatedTraces, *http.Response, error)
+
+	/*
+	GetBoxesForRunner Get boxes for the authenticated runner
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@return BoxAPIGetBoxesForRunnerRequest
+	*/
+	GetBoxesForRunner(ctx context.Context) BoxAPIGetBoxesForRunnerRequest
+
+	// GetBoxesForRunnerExecute executes the request
+	//  @return []Box
+	GetBoxesForRunnerExecute(r BoxAPIGetBoxesForRunnerRequest) ([]Box, *http.Response, error)
 
 	/*
 	GetBuildLogs Get build logs
@@ -110,311 +196,237 @@ type SandboxAPI interface {
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIGetBuildLogsRequest
+	@return BoxAPIGetBuildLogsRequest
 
 	Deprecated
 	*/
-	GetBuildLogs(ctx context.Context, sandboxIdOrName string) SandboxAPIGetBuildLogsRequest
+	GetBuildLogs(ctx context.Context, sandboxIdOrName string) BoxAPIGetBuildLogsRequest
 
 	// GetBuildLogsExecute executes the request
 	// Deprecated
-	GetBuildLogsExecute(r SandboxAPIGetBuildLogsRequest) (*http.Response, error)
+	GetBuildLogsExecute(r BoxAPIGetBuildLogsRequest) (*http.Response, error)
 
 	/*
 	GetBuildLogsUrl Get build logs URL
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIGetBuildLogsUrlRequest
+	@return BoxAPIGetBuildLogsUrlRequest
 	*/
-	GetBuildLogsUrl(ctx context.Context, sandboxIdOrName string) SandboxAPIGetBuildLogsUrlRequest
+	GetBuildLogsUrl(ctx context.Context, sandboxIdOrName string) BoxAPIGetBuildLogsUrlRequest
 
 	// GetBuildLogsUrlExecute executes the request
 	//  @return Url
-	GetBuildLogsUrlExecute(r SandboxAPIGetBuildLogsUrlRequest) (*Url, *http.Response, error)
+	GetBuildLogsUrlExecute(r BoxAPIGetBuildLogsUrlRequest) (*Url, *http.Response, error)
 
 	/*
-	GetPortPreviewUrl Get preview URL for a sandbox port
+	GetPortPreviewUrl Get preview URL for a box port
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
 	@param port Port number to get preview URL for
-	@return SandboxAPIGetPortPreviewUrlRequest
+	@return BoxAPIGetPortPreviewUrlRequest
 	*/
-	GetPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port float32) SandboxAPIGetPortPreviewUrlRequest
+	GetPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port float32) BoxAPIGetPortPreviewUrlRequest
 
 	// GetPortPreviewUrlExecute executes the request
 	//  @return PortPreviewUrl
-	GetPortPreviewUrlExecute(r SandboxAPIGetPortPreviewUrlRequest) (*PortPreviewUrl, *http.Response, error)
+	GetPortPreviewUrlExecute(r BoxAPIGetPortPreviewUrlRequest) (*PortPreviewUrl, *http.Response, error)
 
 	/*
-	GetSandbox Get sandbox details
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIGetSandboxRequest
-	*/
-	GetSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIGetSandboxRequest
-
-	// GetSandboxExecute executes the request
-	//  @return Sandbox
-	GetSandboxExecute(r SandboxAPIGetSandboxRequest) (*Sandbox, *http.Response, error)
-
-	/*
-	GetSandboxLogs Get sandbox logs
-
-	Retrieve OTEL logs for a sandbox within a time range
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxId ID of the sandbox
-	@return SandboxAPIGetSandboxLogsRequest
-	*/
-	GetSandboxLogs(ctx context.Context, sandboxId string) SandboxAPIGetSandboxLogsRequest
-
-	// GetSandboxLogsExecute executes the request
-	//  @return PaginatedLogs
-	GetSandboxLogsExecute(r SandboxAPIGetSandboxLogsRequest) (*PaginatedLogs, *http.Response, error)
-
-	/*
-	GetSandboxMetrics Get sandbox metrics
-
-	Retrieve OTEL metrics for a sandbox within a time range
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxId ID of the sandbox
-	@return SandboxAPIGetSandboxMetricsRequest
-	*/
-	GetSandboxMetrics(ctx context.Context, sandboxId string) SandboxAPIGetSandboxMetricsRequest
-
-	// GetSandboxMetricsExecute executes the request
-	//  @return MetricsResponse
-	GetSandboxMetricsExecute(r SandboxAPIGetSandboxMetricsRequest) (*MetricsResponse, *http.Response, error)
-
-	/*
-	GetSandboxTraceSpans Get trace spans
-
-	Retrieve all spans for a specific trace
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxId ID of the sandbox
-	@param traceId ID of the trace
-	@return SandboxAPIGetSandboxTraceSpansRequest
-	*/
-	GetSandboxTraceSpans(ctx context.Context, sandboxId string, traceId string) SandboxAPIGetSandboxTraceSpansRequest
-
-	// GetSandboxTraceSpansExecute executes the request
-	//  @return []TraceSpan
-	GetSandboxTraceSpansExecute(r SandboxAPIGetSandboxTraceSpansRequest) ([]TraceSpan, *http.Response, error)
-
-	/*
-	GetSandboxTraces Get sandbox traces
-
-	Retrieve OTEL traces for a sandbox within a time range
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxId ID of the sandbox
-	@return SandboxAPIGetSandboxTracesRequest
-	*/
-	GetSandboxTraces(ctx context.Context, sandboxId string) SandboxAPIGetSandboxTracesRequest
-
-	// GetSandboxTracesExecute executes the request
-	//  @return PaginatedTraces
-	GetSandboxTracesExecute(r SandboxAPIGetSandboxTracesRequest) (*PaginatedTraces, *http.Response, error)
-
-	/*
-	GetSandboxesForRunner Get sandboxes for the authenticated runner
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return SandboxAPIGetSandboxesForRunnerRequest
-	*/
-	GetSandboxesForRunner(ctx context.Context) SandboxAPIGetSandboxesForRunnerRequest
-
-	// GetSandboxesForRunnerExecute executes the request
-	//  @return []Sandbox
-	GetSandboxesForRunnerExecute(r SandboxAPIGetSandboxesForRunnerRequest) ([]Sandbox, *http.Response, error)
-
-	/*
-	GetSignedPortPreviewUrl Get signed preview URL for a sandbox port
+	GetSignedPortPreviewUrl Get signed preview URL for a box port
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
 	@param port Port number to get signed preview URL for
-	@return SandboxAPIGetSignedPortPreviewUrlRequest
+	@return BoxAPIGetSignedPortPreviewUrlRequest
 	*/
-	GetSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32) SandboxAPIGetSignedPortPreviewUrlRequest
+	GetSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32) BoxAPIGetSignedPortPreviewUrlRequest
 
 	// GetSignedPortPreviewUrlExecute executes the request
 	//  @return SignedPortPreviewUrl
-	GetSignedPortPreviewUrlExecute(r SandboxAPIGetSignedPortPreviewUrlRequest) (*SignedPortPreviewUrl, *http.Response, error)
+	GetSignedPortPreviewUrlExecute(r BoxAPIGetSignedPortPreviewUrlRequest) (*SignedPortPreviewUrl, *http.Response, error)
 
 	/*
 	GetToolboxProxyUrl Get toolbox proxy URL for a sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxId ID of the sandbox
-	@return SandboxAPIGetToolboxProxyUrlRequest
+	@param boxId ID of the sandbox
+	@return BoxAPIGetToolboxProxyUrlRequest
 	*/
-	GetToolboxProxyUrl(ctx context.Context, sandboxId string) SandboxAPIGetToolboxProxyUrlRequest
+	GetToolboxProxyUrl(ctx context.Context, boxId string) BoxAPIGetToolboxProxyUrlRequest
 
 	// GetToolboxProxyUrlExecute executes the request
 	//  @return ToolboxProxyUrl
-	GetToolboxProxyUrlExecute(r SandboxAPIGetToolboxProxyUrlRequest) (*ToolboxProxyUrl, *http.Response, error)
+	GetToolboxProxyUrlExecute(r BoxAPIGetToolboxProxyUrlRequest) (*ToolboxProxyUrl, *http.Response, error)
 
 	/*
-	ListSandboxes List all sandboxes
+	ListBoxes List all boxes
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return SandboxAPIListSandboxesRequest
+	@return BoxAPIListBoxesRequest
 	*/
-	ListSandboxes(ctx context.Context) SandboxAPIListSandboxesRequest
+	ListBoxes(ctx context.Context) BoxAPIListBoxesRequest
 
-	// ListSandboxesExecute executes the request
-	//  @return []Sandbox
-	ListSandboxesExecute(r SandboxAPIListSandboxesRequest) ([]Sandbox, *http.Response, error)
+	// ListBoxesExecute executes the request
+	//  @return []Box
+	ListBoxesExecute(r BoxAPIListBoxesRequest) ([]Box, *http.Response, error)
 
 	/*
-	ListSandboxesPaginated List all sandboxes paginated
+	ListBoxesPaginated List all boxes paginated
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return SandboxAPIListSandboxesPaginatedRequest
+	@return BoxAPIListBoxesPaginatedRequest
 	*/
-	ListSandboxesPaginated(ctx context.Context) SandboxAPIListSandboxesPaginatedRequest
+	ListBoxesPaginated(ctx context.Context) BoxAPIListBoxesPaginatedRequest
 
-	// ListSandboxesPaginatedExecute executes the request
-	//  @return PaginatedSandboxes
-	ListSandboxesPaginatedExecute(r SandboxAPIListSandboxesPaginatedRequest) (*PaginatedSandboxes, *http.Response, error)
+	// ListBoxesPaginatedExecute executes the request
+	//  @return PaginatedBoxes
+	ListBoxesPaginatedExecute(r BoxAPIListBoxesPaginatedRequest) (*PaginatedBoxes, *http.Response, error)
 
 	/*
-	RecoverSandbox Recover sandbox from error state
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIRecoverSandboxRequest
-	*/
-	RecoverSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIRecoverSandboxRequest
-
-	// RecoverSandboxExecute executes the request
-	//  @return Sandbox
-	RecoverSandboxExecute(r SandboxAPIRecoverSandboxRequest) (*Sandbox, *http.Response, error)
-
-	/*
-	ReplaceLabels Replace sandbox labels
+	RecoverBox Recover box from error state
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIReplaceLabelsRequest
+	@return BoxAPIRecoverBoxRequest
 	*/
-	ReplaceLabels(ctx context.Context, sandboxIdOrName string) SandboxAPIReplaceLabelsRequest
+	RecoverBox(ctx context.Context, sandboxIdOrName string) BoxAPIRecoverBoxRequest
+
+	// RecoverBoxExecute executes the request
+	//  @return Box
+	RecoverBoxExecute(r BoxAPIRecoverBoxRequest) (*Box, *http.Response, error)
+
+	/*
+	ReplaceLabels Replace box labels
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param sandboxIdOrName ID or name of the sandbox
+	@return BoxAPIReplaceLabelsRequest
+	*/
+	ReplaceLabels(ctx context.Context, sandboxIdOrName string) BoxAPIReplaceLabelsRequest
 
 	// ReplaceLabelsExecute executes the request
-	//  @return SandboxLabels
-	ReplaceLabelsExecute(r SandboxAPIReplaceLabelsRequest) (*SandboxLabels, *http.Response, error)
+	//  @return BoxLabels
+	ReplaceLabelsExecute(r BoxAPIReplaceLabelsRequest) (*BoxLabels, *http.Response, error)
 
 	/*
-	ResizeSandbox Resize sandbox resources
+	ResizeBox Resize box resources
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIResizeSandboxRequest
+	@return BoxAPIResizeBoxRequest
 	*/
-	ResizeSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIResizeSandboxRequest
+	ResizeBox(ctx context.Context, sandboxIdOrName string) BoxAPIResizeBoxRequest
 
-	// ResizeSandboxExecute executes the request
-	//  @return Sandbox
-	ResizeSandboxExecute(r SandboxAPIResizeSandboxRequest) (*Sandbox, *http.Response, error)
+	// ResizeBoxExecute executes the request
+	//  @return Box
+	ResizeBoxExecute(r BoxAPIResizeBoxRequest) (*Box, *http.Response, error)
 
 	/*
 	RevokeSshAccess Revoke SSH access for sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIRevokeSshAccessRequest
+	@return BoxAPIRevokeSshAccessRequest
 	*/
-	RevokeSshAccess(ctx context.Context, sandboxIdOrName string) SandboxAPIRevokeSshAccessRequest
+	RevokeSshAccess(ctx context.Context, sandboxIdOrName string) BoxAPIRevokeSshAccessRequest
 
 	// RevokeSshAccessExecute executes the request
-	//  @return Sandbox
-	RevokeSshAccessExecute(r SandboxAPIRevokeSshAccessRequest) (*Sandbox, *http.Response, error)
+	//  @return Box
+	RevokeSshAccessExecute(r BoxAPIRevokeSshAccessRequest) (*Box, *http.Response, error)
 
 	/*
-	SetAutoArchiveInterval Set sandbox auto-archive interval
+	SetAutoArchiveInterval Set box auto-archive interval
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
 	@param interval Auto-archive interval in minutes (0 means the maximum interval will be used)
-	@return SandboxAPISetAutoArchiveIntervalRequest
+	@return BoxAPISetAutoArchiveIntervalRequest
 	*/
-	SetAutoArchiveInterval(ctx context.Context, sandboxIdOrName string, interval float32) SandboxAPISetAutoArchiveIntervalRequest
+	SetAutoArchiveInterval(ctx context.Context, sandboxIdOrName string, interval float32) BoxAPISetAutoArchiveIntervalRequest
 
 	// SetAutoArchiveIntervalExecute executes the request
-	//  @return Sandbox
-	SetAutoArchiveIntervalExecute(r SandboxAPISetAutoArchiveIntervalRequest) (*Sandbox, *http.Response, error)
+	//  @return Box
+	SetAutoArchiveIntervalExecute(r BoxAPISetAutoArchiveIntervalRequest) (*Box, *http.Response, error)
 
 	/*
-	SetAutoDeleteInterval Set sandbox auto-delete interval
+	SetAutoDeleteInterval Set box auto-delete interval
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
 	@param interval Auto-delete interval in minutes (negative value means disabled, 0 means delete immediately upon stopping)
-	@return SandboxAPISetAutoDeleteIntervalRequest
+	@return BoxAPISetAutoDeleteIntervalRequest
 	*/
-	SetAutoDeleteInterval(ctx context.Context, sandboxIdOrName string, interval float32) SandboxAPISetAutoDeleteIntervalRequest
+	SetAutoDeleteInterval(ctx context.Context, sandboxIdOrName string, interval float32) BoxAPISetAutoDeleteIntervalRequest
 
 	// SetAutoDeleteIntervalExecute executes the request
-	//  @return Sandbox
-	SetAutoDeleteIntervalExecute(r SandboxAPISetAutoDeleteIntervalRequest) (*Sandbox, *http.Response, error)
+	//  @return Box
+	SetAutoDeleteIntervalExecute(r BoxAPISetAutoDeleteIntervalRequest) (*Box, *http.Response, error)
 
 	/*
-	SetAutostopInterval Set sandbox auto-stop interval
+	SetAutostopInterval Set box auto-stop interval
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
 	@param interval Auto-stop interval in minutes (0 to disable)
-	@return SandboxAPISetAutostopIntervalRequest
+	@return BoxAPISetAutostopIntervalRequest
 	*/
-	SetAutostopInterval(ctx context.Context, sandboxIdOrName string, interval float32) SandboxAPISetAutostopIntervalRequest
+	SetAutostopInterval(ctx context.Context, sandboxIdOrName string, interval float32) BoxAPISetAutostopIntervalRequest
 
 	// SetAutostopIntervalExecute executes the request
-	//  @return Sandbox
-	SetAutostopIntervalExecute(r SandboxAPISetAutostopIntervalRequest) (*Sandbox, *http.Response, error)
+	//  @return Box
+	SetAutostopIntervalExecute(r BoxAPISetAutostopIntervalRequest) (*Box, *http.Response, error)
 
 	/*
-	StartSandbox Start sandbox
+	StartBox Start sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIStartSandboxRequest
+	@return BoxAPIStartBoxRequest
 	*/
-	StartSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIStartSandboxRequest
+	StartBox(ctx context.Context, sandboxIdOrName string) BoxAPIStartBoxRequest
 
-	// StartSandboxExecute executes the request
-	//  @return Sandbox
-	StartSandboxExecute(r SandboxAPIStartSandboxRequest) (*Sandbox, *http.Response, error)
+	// StartBoxExecute executes the request
+	//  @return Box
+	StartBoxExecute(r BoxAPIStartBoxRequest) (*Box, *http.Response, error)
 
 	/*
-	StopSandbox Stop sandbox
+	StopBox Stop sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
-	@return SandboxAPIStopSandboxRequest
+	@return BoxAPIStopBoxRequest
 	*/
-	StopSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIStopSandboxRequest
+	StopBox(ctx context.Context, sandboxIdOrName string) BoxAPIStopBoxRequest
 
-	// StopSandboxExecute executes the request
-	//  @return Sandbox
-	StopSandboxExecute(r SandboxAPIStopSandboxRequest) (*Sandbox, *http.Response, error)
+	// StopBoxExecute executes the request
+	//  @return Box
+	StopBoxExecute(r BoxAPIStopBoxRequest) (*Box, *http.Response, error)
 
 	/*
-	UpdateLastActivity Update sandbox last activity
+	UpdateBoxState Update box state
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxId ID of the sandbox
-	@return SandboxAPIUpdateLastActivityRequest
+	@param boxId ID of the sandbox
+	@return BoxAPIUpdateBoxStateRequest
 	*/
-	UpdateLastActivity(ctx context.Context, sandboxId string) SandboxAPIUpdateLastActivityRequest
+	UpdateBoxState(ctx context.Context, boxId string) BoxAPIUpdateBoxStateRequest
+
+	// UpdateBoxStateExecute executes the request
+	UpdateBoxStateExecute(r BoxAPIUpdateBoxStateRequest) (*http.Response, error)
+
+	/*
+	UpdateLastActivity Update box last activity
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param boxId ID of the sandbox
+	@return BoxAPIUpdateLastActivityRequest
+	*/
+	UpdateLastActivity(ctx context.Context, boxId string) BoxAPIUpdateLastActivityRequest
 
 	// UpdateLastActivityExecute executes the request
-	UpdateLastActivityExecute(r SandboxAPIUpdateLastActivityRequest) (*http.Response, error)
+	UpdateLastActivityExecute(r BoxAPIUpdateLastActivityRequest) (*http.Response, error)
 
 	/*
 	UpdatePublicStatus Update public status
@@ -422,68 +434,56 @@ type SandboxAPI interface {
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param sandboxIdOrName ID or name of the sandbox
 	@param isPublic Public status to set
-	@return SandboxAPIUpdatePublicStatusRequest
+	@return BoxAPIUpdatePublicStatusRequest
 	*/
-	UpdatePublicStatus(ctx context.Context, sandboxIdOrName string, isPublic bool) SandboxAPIUpdatePublicStatusRequest
+	UpdatePublicStatus(ctx context.Context, sandboxIdOrName string, isPublic bool) BoxAPIUpdatePublicStatusRequest
 
 	// UpdatePublicStatusExecute executes the request
-	//  @return Sandbox
-	UpdatePublicStatusExecute(r SandboxAPIUpdatePublicStatusRequest) (*Sandbox, *http.Response, error)
-
-	/*
-	UpdateSandboxState Update sandbox state
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param sandboxId ID of the sandbox
-	@return SandboxAPIUpdateSandboxStateRequest
-	*/
-	UpdateSandboxState(ctx context.Context, sandboxId string) SandboxAPIUpdateSandboxStateRequest
-
-	// UpdateSandboxStateExecute executes the request
-	UpdateSandboxStateExecute(r SandboxAPIUpdateSandboxStateRequest) (*http.Response, error)
+	//  @return Box
+	UpdatePublicStatusExecute(r BoxAPIUpdatePublicStatusRequest) (*Box, *http.Response, error)
 
 	/*
 	ValidateSshAccess Validate SSH access for sandbox
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return SandboxAPIValidateSshAccessRequest
+	@return BoxAPIValidateSshAccessRequest
 	*/
-	ValidateSshAccess(ctx context.Context) SandboxAPIValidateSshAccessRequest
+	ValidateSshAccess(ctx context.Context) BoxAPIValidateSshAccessRequest
 
 	// ValidateSshAccessExecute executes the request
 	//  @return SshAccessValidationDto
-	ValidateSshAccessExecute(r SandboxAPIValidateSshAccessRequest) (*SshAccessValidationDto, *http.Response, error)
+	ValidateSshAccessExecute(r BoxAPIValidateSshAccessRequest) (*SshAccessValidationDto, *http.Response, error)
 }
 
-// SandboxAPIService SandboxAPI service
-type SandboxAPIService service
+// BoxAPIService BoxAPI service
+type BoxAPIService service
 
-type SandboxAPIArchiveSandboxRequest struct {
+type BoxAPIArchiveBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIArchiveSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIArchiveSandboxRequest {
+func (r BoxAPIArchiveBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIArchiveBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIArchiveSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.ArchiveSandboxExecute(r)
+func (r BoxAPIArchiveBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.ArchiveBoxExecute(r)
 }
 
 /*
-ArchiveSandbox Archive sandbox
+ArchiveBox Archive sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName
- @return SandboxAPIArchiveSandboxRequest
+ @return BoxAPIArchiveBoxRequest
 */
-func (a *SandboxAPIService) ArchiveSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIArchiveSandboxRequest {
-	return SandboxAPIArchiveSandboxRequest{
+func (a *BoxAPIService) ArchiveBox(ctx context.Context, sandboxIdOrName string) BoxAPIArchiveBoxRequest {
+	return BoxAPIArchiveBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -491,21 +491,21 @@ func (a *SandboxAPIService) ArchiveSandbox(ctx context.Context, sandboxIdOrName 
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) ArchiveSandboxExecute(r SandboxAPIArchiveSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) ArchiveBoxExecute(r BoxAPIArchiveBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.ArchiveSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.ArchiveBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/archive"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/archive"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -569,32 +569,32 @@ func (a *SandboxAPIService) ArchiveSandboxExecute(r SandboxAPIArchiveSandboxRequ
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPICreateBackupRequest struct {
+type BoxAPICreateBackupRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPICreateBackupRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPICreateBackupRequest {
+func (r BoxAPICreateBackupRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPICreateBackupRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPICreateBackupRequest) Execute() (*Sandbox, *http.Response, error) {
+func (r BoxAPICreateBackupRequest) Execute() (*Box, *http.Response, error) {
 	return r.ApiService.CreateBackupExecute(r)
 }
 
 /*
-CreateBackup Create sandbox backup
+CreateBackup Create box backup
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPICreateBackupRequest
+ @return BoxAPICreateBackupRequest
 */
-func (a *SandboxAPIService) CreateBackup(ctx context.Context, sandboxIdOrName string) SandboxAPICreateBackupRequest {
-	return SandboxAPICreateBackupRequest{
+func (a *BoxAPIService) CreateBackup(ctx context.Context, sandboxIdOrName string) BoxAPICreateBackupRequest {
+	return BoxAPICreateBackupRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -602,21 +602,21 @@ func (a *SandboxAPIService) CreateBackup(ctx context.Context, sandboxIdOrName st
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) CreateBackupExecute(r SandboxAPICreateBackupRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) CreateBackupExecute(r BoxAPICreateBackupRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.CreateBackup")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.CreateBackup")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/backup"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/backup"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -680,63 +680,63 @@ func (a *SandboxAPIService) CreateBackupExecute(r SandboxAPICreateBackupRequest)
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPICreateSandboxRequest struct {
+type BoxAPICreateBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	createSandbox *CreateSandbox
+	ApiService BoxAPI
+	createBox *CreateBox
 	xBoxLiteOrganizationID *string
 }
 
-func (r SandboxAPICreateSandboxRequest) CreateSandbox(createSandbox CreateSandbox) SandboxAPICreateSandboxRequest {
-	r.createSandbox = &createSandbox
+func (r BoxAPICreateBoxRequest) CreateBox(createBox CreateBox) BoxAPICreateBoxRequest {
+	r.createBox = &createBox
 	return r
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPICreateSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPICreateSandboxRequest {
+func (r BoxAPICreateBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPICreateBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPICreateSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.CreateSandboxExecute(r)
+func (r BoxAPICreateBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.CreateBoxExecute(r)
 }
 
 /*
-CreateSandbox Create a new sandbox
+CreateBox Create a new sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @return SandboxAPICreateSandboxRequest
+ @return BoxAPICreateBoxRequest
 */
-func (a *SandboxAPIService) CreateSandbox(ctx context.Context) SandboxAPICreateSandboxRequest {
-	return SandboxAPICreateSandboxRequest{
+func (a *BoxAPIService) CreateBox(ctx context.Context) BoxAPICreateBoxRequest {
+	return BoxAPICreateBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 	}
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) CreateSandboxExecute(r SandboxAPICreateSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) CreateBoxExecute(r BoxAPICreateBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.CreateSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.CreateBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox"
+	localVarPath := localBasePath + "/box"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.createSandbox == nil {
-		return localVarReturnValue, nil, reportError("createSandbox is required and must be specified")
+	if r.createBox == nil {
+		return localVarReturnValue, nil, reportError("createBox is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -760,7 +760,7 @@ func (a *SandboxAPIService) CreateSandboxExecute(r SandboxAPICreateSandboxReques
 		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
 	}
 	// body params
-	localVarPostBody = r.createSandbox
+	localVarPostBody = r.createBox
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -798,27 +798,27 @@ func (a *SandboxAPIService) CreateSandboxExecute(r SandboxAPICreateSandboxReques
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPICreateSshAccessRequest struct {
+type BoxAPICreateSshAccessRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 	expiresInMinutes *float32
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPICreateSshAccessRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPICreateSshAccessRequest {
+func (r BoxAPICreateSshAccessRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPICreateSshAccessRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Expiration time in minutes (default: 60)
-func (r SandboxAPICreateSshAccessRequest) ExpiresInMinutes(expiresInMinutes float32) SandboxAPICreateSshAccessRequest {
+func (r BoxAPICreateSshAccessRequest) ExpiresInMinutes(expiresInMinutes float32) BoxAPICreateSshAccessRequest {
 	r.expiresInMinutes = &expiresInMinutes
 	return r
 }
 
-func (r SandboxAPICreateSshAccessRequest) Execute() (*SshAccessDto, *http.Response, error) {
+func (r BoxAPICreateSshAccessRequest) Execute() (*SshAccessDto, *http.Response, error) {
 	return r.ApiService.CreateSshAccessExecute(r)
 }
 
@@ -827,10 +827,10 @@ CreateSshAccess Create SSH access for sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPICreateSshAccessRequest
+ @return BoxAPICreateSshAccessRequest
 */
-func (a *SandboxAPIService) CreateSshAccess(ctx context.Context, sandboxIdOrName string) SandboxAPICreateSshAccessRequest {
-	return SandboxAPICreateSshAccessRequest{
+func (a *BoxAPIService) CreateSshAccess(ctx context.Context, sandboxIdOrName string) BoxAPICreateSshAccessRequest {
+	return BoxAPICreateSshAccessRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -839,7 +839,7 @@ func (a *SandboxAPIService) CreateSshAccess(ctx context.Context, sandboxIdOrName
 
 // Execute executes the request
 //  @return SshAccessDto
-func (a *SandboxAPIService) CreateSshAccessExecute(r SandboxAPICreateSshAccessRequest) (*SshAccessDto, *http.Response, error) {
+func (a *BoxAPIService) CreateSshAccessExecute(r BoxAPICreateSshAccessRequest) (*SshAccessDto, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
@@ -847,12 +847,12 @@ func (a *SandboxAPIService) CreateSshAccessExecute(r SandboxAPICreateSshAccessRe
 		localVarReturnValue  *SshAccessDto
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.CreateSshAccess")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.CreateSshAccess")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/ssh-access"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/ssh-access"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -919,32 +919,32 @@ func (a *SandboxAPIService) CreateSshAccessExecute(r SandboxAPICreateSshAccessRe
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIDeleteSandboxRequest struct {
+type BoxAPIDeleteBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIDeleteSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIDeleteSandboxRequest {
+func (r BoxAPIDeleteBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIDeleteBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIDeleteSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.DeleteSandboxExecute(r)
+func (r BoxAPIDeleteBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.DeleteBoxExecute(r)
 }
 
 /*
-DeleteSandbox Delete sandbox
+DeleteBox Delete sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIDeleteSandboxRequest
+ @return BoxAPIDeleteBoxRequest
 */
-func (a *SandboxAPIService) DeleteSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIDeleteSandboxRequest {
-	return SandboxAPIDeleteSandboxRequest{
+func (a *BoxAPIService) DeleteBox(ctx context.Context, sandboxIdOrName string) BoxAPIDeleteBoxRequest {
+	return BoxAPIDeleteBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -952,21 +952,21 @@ func (a *SandboxAPIService) DeleteSandbox(ctx context.Context, sandboxIdOrName s
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) DeleteSandboxExecute(r SandboxAPIDeleteSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) DeleteBoxExecute(r BoxAPIDeleteBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodDelete
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.DeleteSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.DeleteBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}"
+	localVarPath := localBasePath + "/box/{boxIdOrName}"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -1030,9 +1030,9 @@ func (a *SandboxAPIService) DeleteSandboxExecute(r SandboxAPIDeleteSandboxReques
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIExpireSignedPortPreviewUrlRequest struct {
+type BoxAPIExpireSignedPortPreviewUrlRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	port int32
 	token string
@@ -1040,26 +1040,26 @@ type SandboxAPIExpireSignedPortPreviewUrlRequest struct {
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIExpireSignedPortPreviewUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIExpireSignedPortPreviewUrlRequest {
+func (r BoxAPIExpireSignedPortPreviewUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIExpireSignedPortPreviewUrlRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIExpireSignedPortPreviewUrlRequest) Execute() (*http.Response, error) {
+func (r BoxAPIExpireSignedPortPreviewUrlRequest) Execute() (*http.Response, error) {
 	return r.ApiService.ExpireSignedPortPreviewUrlExecute(r)
 }
 
 /*
-ExpireSignedPortPreviewUrl Expire signed preview URL for a sandbox port
+ExpireSignedPortPreviewUrl Expire signed preview URL for a box port
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
  @param port Port number to expire signed preview URL for
  @param token Token to expire signed preview URL for
- @return SandboxAPIExpireSignedPortPreviewUrlRequest
+ @return BoxAPIExpireSignedPortPreviewUrlRequest
 */
-func (a *SandboxAPIService) ExpireSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32, token string) SandboxAPIExpireSignedPortPreviewUrlRequest {
-	return SandboxAPIExpireSignedPortPreviewUrlRequest{
+func (a *BoxAPIService) ExpireSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32, token string) BoxAPIExpireSignedPortPreviewUrlRequest {
+	return BoxAPIExpireSignedPortPreviewUrlRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -1069,19 +1069,19 @@ func (a *SandboxAPIService) ExpireSignedPortPreviewUrl(ctx context.Context, sand
 }
 
 // Execute executes the request
-func (a *SandboxAPIService) ExpireSignedPortPreviewUrlExecute(r SandboxAPIExpireSignedPortPreviewUrlRequest) (*http.Response, error) {
+func (a *BoxAPIService) ExpireSignedPortPreviewUrlExecute(r BoxAPIExpireSignedPortPreviewUrlRequest) (*http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.ExpireSignedPortPreviewUrl")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.ExpireSignedPortPreviewUrl")
 	if err != nil {
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/ports/{port}/signed-preview-url/{token}/expire"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/ports/{port}/signed-preview-url/{token}/expire"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"port"+"}", url.PathEscape(parameterValueToString(r.port, "port")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"token"+"}", url.PathEscape(parameterValueToString(r.token, "token")), -1)
@@ -1138,380 +1138,39 @@ func (a *SandboxAPIService) ExpireSignedPortPreviewUrlExecute(r SandboxAPIExpire
 	return localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetBuildLogsRequest struct {
+type BoxAPIGetBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxIdOrName string
-	xBoxLiteOrganizationID *string
-	follow *bool
-}
-
-// Use with JWT to specify the organization ID
-func (r SandboxAPIGetBuildLogsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetBuildLogsRequest {
-	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
-	return r
-}
-
-// Whether to follow the logs stream
-func (r SandboxAPIGetBuildLogsRequest) Follow(follow bool) SandboxAPIGetBuildLogsRequest {
-	r.follow = &follow
-	return r
-}
-
-func (r SandboxAPIGetBuildLogsRequest) Execute() (*http.Response, error) {
-	return r.ApiService.GetBuildLogsExecute(r)
-}
-
-/*
-GetBuildLogs Get build logs
-
-This endpoint is deprecated. Use `getBuildLogsUrl` instead.
-
- @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIGetBuildLogsRequest
-
-Deprecated
-*/
-func (a *SandboxAPIService) GetBuildLogs(ctx context.Context, sandboxIdOrName string) SandboxAPIGetBuildLogsRequest {
-	return SandboxAPIGetBuildLogsRequest{
-		ApiService: a,
-		ctx: ctx,
-		sandboxIdOrName: sandboxIdOrName,
-	}
-}
-
-// Execute executes the request
-// Deprecated
-func (a *SandboxAPIService) GetBuildLogsExecute(r SandboxAPIGetBuildLogsRequest) (*http.Response, error) {
-	var (
-		localVarHTTPMethod   = http.MethodGet
-		localVarPostBody     interface{}
-		formFiles            []formFile
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetBuildLogs")
-	if err != nil {
-		return nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/build-logs"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-
-	if r.follow != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "follow", r.follow, "form", "")
-	}
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	if r.xBoxLiteOrganizationID != nil {
-		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
-	}
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-		return localVarHTTPResponse, newErr
-	}
-
-	return localVarHTTPResponse, nil
-}
-
-type SandboxAPIGetBuildLogsUrlRequest struct {
-	ctx context.Context
-	ApiService SandboxAPI
-	sandboxIdOrName string
-	xBoxLiteOrganizationID *string
-}
-
-// Use with JWT to specify the organization ID
-func (r SandboxAPIGetBuildLogsUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetBuildLogsUrlRequest {
-	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
-	return r
-}
-
-func (r SandboxAPIGetBuildLogsUrlRequest) Execute() (*Url, *http.Response, error) {
-	return r.ApiService.GetBuildLogsUrlExecute(r)
-}
-
-/*
-GetBuildLogsUrl Get build logs URL
-
- @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIGetBuildLogsUrlRequest
-*/
-func (a *SandboxAPIService) GetBuildLogsUrl(ctx context.Context, sandboxIdOrName string) SandboxAPIGetBuildLogsUrlRequest {
-	return SandboxAPIGetBuildLogsUrlRequest{
-		ApiService: a,
-		ctx: ctx,
-		sandboxIdOrName: sandboxIdOrName,
-	}
-}
-
-// Execute executes the request
-//  @return Url
-func (a *SandboxAPIService) GetBuildLogsUrlExecute(r SandboxAPIGetBuildLogsUrlRequest) (*Url, *http.Response, error) {
-	var (
-		localVarHTTPMethod   = http.MethodGet
-		localVarPostBody     interface{}
-		formFiles            []formFile
-		localVarReturnValue  *Url
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetBuildLogsUrl")
-	if err != nil {
-		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/build-logs-url"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	if r.xBoxLiteOrganizationID != nil {
-		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
-	}
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: err.Error(),
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHTTPResponse, nil
-}
-
-type SandboxAPIGetPortPreviewUrlRequest struct {
-	ctx context.Context
-	ApiService SandboxAPI
-	sandboxIdOrName string
-	port float32
-	xBoxLiteOrganizationID *string
-}
-
-// Use with JWT to specify the organization ID
-func (r SandboxAPIGetPortPreviewUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetPortPreviewUrlRequest {
-	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
-	return r
-}
-
-func (r SandboxAPIGetPortPreviewUrlRequest) Execute() (*PortPreviewUrl, *http.Response, error) {
-	return r.ApiService.GetPortPreviewUrlExecute(r)
-}
-
-/*
-GetPortPreviewUrl Get preview URL for a sandbox port
-
- @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxIdOrName ID or name of the sandbox
- @param port Port number to get preview URL for
- @return SandboxAPIGetPortPreviewUrlRequest
-*/
-func (a *SandboxAPIService) GetPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port float32) SandboxAPIGetPortPreviewUrlRequest {
-	return SandboxAPIGetPortPreviewUrlRequest{
-		ApiService: a,
-		ctx: ctx,
-		sandboxIdOrName: sandboxIdOrName,
-		port: port,
-	}
-}
-
-// Execute executes the request
-//  @return PortPreviewUrl
-func (a *SandboxAPIService) GetPortPreviewUrlExecute(r SandboxAPIGetPortPreviewUrlRequest) (*PortPreviewUrl, *http.Response, error) {
-	var (
-		localVarHTTPMethod   = http.MethodGet
-		localVarPostBody     interface{}
-		formFiles            []formFile
-		localVarReturnValue  *PortPreviewUrl
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetPortPreviewUrl")
-	if err != nil {
-		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/ports/{port}/preview-url"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"port"+"}", url.PathEscape(parameterValueToString(r.port, "port")), -1)
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	if r.xBoxLiteOrganizationID != nil {
-		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
-	}
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: err.Error(),
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHTTPResponse, nil
-}
-
-type SandboxAPIGetSandboxRequest struct {
-	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 	verbose *bool
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetSandboxRequest {
+func (r BoxAPIGetBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Include verbose output
-func (r SandboxAPIGetSandboxRequest) Verbose(verbose bool) SandboxAPIGetSandboxRequest {
+func (r BoxAPIGetBoxRequest) Verbose(verbose bool) BoxAPIGetBoxRequest {
 	r.verbose = &verbose
 	return r
 }
 
-func (r SandboxAPIGetSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.GetSandboxExecute(r)
+func (r BoxAPIGetBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.GetBoxExecute(r)
 }
 
 /*
-GetSandbox Get sandbox details
+GetBox Get box details
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIGetSandboxRequest
+ @return BoxAPIGetBoxRequest
 */
-func (a *SandboxAPIService) GetSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIGetSandboxRequest {
-	return SandboxAPIGetSandboxRequest{
+func (a *BoxAPIService) GetBox(ctx context.Context, sandboxIdOrName string) BoxAPIGetBoxRequest {
+	return BoxAPIGetBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -1519,21 +1178,21 @@ func (a *SandboxAPIService) GetSandbox(ctx context.Context, sandboxIdOrName stri
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) GetSandboxExecute(r SandboxAPIGetSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) GetBoxExecute(r BoxAPIGetBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}"
+	localVarPath := localBasePath + "/box/{boxIdOrName}"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -1600,10 +1259,10 @@ func (a *SandboxAPIService) GetSandboxExecute(r SandboxAPIGetSandboxRequest) (*S
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetSandboxLogsRequest struct {
+type BoxAPIGetBoxLogsRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxId string
+	ApiService BoxAPI
+	boxId string
 	from *time.Time
 	to *time.Time
 	xBoxLiteOrganizationID *string
@@ -1614,71 +1273,71 @@ type SandboxAPIGetSandboxLogsRequest struct {
 }
 
 // Start of time range (ISO 8601)
-func (r SandboxAPIGetSandboxLogsRequest) From(from time.Time) SandboxAPIGetSandboxLogsRequest {
+func (r BoxAPIGetBoxLogsRequest) From(from time.Time) BoxAPIGetBoxLogsRequest {
 	r.from = &from
 	return r
 }
 
 // End of time range (ISO 8601)
-func (r SandboxAPIGetSandboxLogsRequest) To(to time.Time) SandboxAPIGetSandboxLogsRequest {
+func (r BoxAPIGetBoxLogsRequest) To(to time.Time) BoxAPIGetBoxLogsRequest {
 	r.to = &to
 	return r
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetSandboxLogsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetSandboxLogsRequest {
+func (r BoxAPIGetBoxLogsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBoxLogsRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Page number (1-indexed)
-func (r SandboxAPIGetSandboxLogsRequest) Page(page float32) SandboxAPIGetSandboxLogsRequest {
+func (r BoxAPIGetBoxLogsRequest) Page(page float32) BoxAPIGetBoxLogsRequest {
 	r.page = &page
 	return r
 }
 
 // Number of items per page
-func (r SandboxAPIGetSandboxLogsRequest) Limit(limit float32) SandboxAPIGetSandboxLogsRequest {
+func (r BoxAPIGetBoxLogsRequest) Limit(limit float32) BoxAPIGetBoxLogsRequest {
 	r.limit = &limit
 	return r
 }
 
 // Filter by severity levels (DEBUG, INFO, WARN, ERROR)
-func (r SandboxAPIGetSandboxLogsRequest) Severities(severities []string) SandboxAPIGetSandboxLogsRequest {
+func (r BoxAPIGetBoxLogsRequest) Severities(severities []string) BoxAPIGetBoxLogsRequest {
 	r.severities = &severities
 	return r
 }
 
 // Search in log body
-func (r SandboxAPIGetSandboxLogsRequest) Search(search string) SandboxAPIGetSandboxLogsRequest {
+func (r BoxAPIGetBoxLogsRequest) Search(search string) BoxAPIGetBoxLogsRequest {
 	r.search = &search
 	return r
 }
 
-func (r SandboxAPIGetSandboxLogsRequest) Execute() (*PaginatedLogs, *http.Response, error) {
-	return r.ApiService.GetSandboxLogsExecute(r)
+func (r BoxAPIGetBoxLogsRequest) Execute() (*PaginatedLogs, *http.Response, error) {
+	return r.ApiService.GetBoxLogsExecute(r)
 }
 
 /*
-GetSandboxLogs Get sandbox logs
+GetBoxLogs Get box logs
 
-Retrieve OTEL logs for a sandbox within a time range
+Retrieve OTEL logs for a box within a time range
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxId ID of the sandbox
- @return SandboxAPIGetSandboxLogsRequest
+ @param boxId ID of the sandbox
+ @return BoxAPIGetBoxLogsRequest
 */
-func (a *SandboxAPIService) GetSandboxLogs(ctx context.Context, sandboxId string) SandboxAPIGetSandboxLogsRequest {
-	return SandboxAPIGetSandboxLogsRequest{
+func (a *BoxAPIService) GetBoxLogs(ctx context.Context, boxId string) BoxAPIGetBoxLogsRequest {
+	return BoxAPIGetBoxLogsRequest{
 		ApiService: a,
 		ctx: ctx,
-		sandboxId: sandboxId,
+		boxId: boxId,
 	}
 }
 
 // Execute executes the request
 //  @return PaginatedLogs
-func (a *SandboxAPIService) GetSandboxLogsExecute(r SandboxAPIGetSandboxLogsRequest) (*PaginatedLogs, *http.Response, error) {
+func (a *BoxAPIService) GetBoxLogsExecute(r BoxAPIGetBoxLogsRequest) (*PaginatedLogs, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -1686,13 +1345,13 @@ func (a *SandboxAPIService) GetSandboxLogsExecute(r SandboxAPIGetSandboxLogsRequ
 		localVarReturnValue  *PaginatedLogs
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetSandboxLogs")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBoxLogs")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxId}/telemetry/logs"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxId"+"}", url.PathEscape(parameterValueToString(r.sandboxId, "sandboxId")), -1)
+	localVarPath := localBasePath + "/box/{boxId}/telemetry/logs"
+	localVarPath = strings.Replace(localVarPath, "{"+"boxId"+"}", url.PathEscape(parameterValueToString(r.boxId, "boxId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1710,12 +1369,14 @@ func (a *SandboxAPIService) GetSandboxLogsExecute(r SandboxAPIGetSandboxLogsRequ
 		parameterAddToHeaderOrQuery(localVarQueryParams, "page", r.page, "form", "")
 	} else {
 		var defaultValue float32 = 1
+		parameterAddToHeaderOrQuery(localVarQueryParams, "page", defaultValue, "form", "")
 		r.page = &defaultValue
 	}
 	if r.limit != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", r.limit, "form", "")
 	} else {
 		var defaultValue float32 = 100
+		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", defaultValue, "form", "")
 		r.limit = &defaultValue
 	}
 	if r.severities != nil {
@@ -1789,10 +1450,10 @@ func (a *SandboxAPIService) GetSandboxLogsExecute(r SandboxAPIGetSandboxLogsRequ
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetSandboxMetricsRequest struct {
+type BoxAPIGetBoxMetricsRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxId string
+	ApiService BoxAPI
+	boxId string
 	from *time.Time
 	to *time.Time
 	xBoxLiteOrganizationID *string
@@ -1800,53 +1461,53 @@ type SandboxAPIGetSandboxMetricsRequest struct {
 }
 
 // Start of time range (ISO 8601)
-func (r SandboxAPIGetSandboxMetricsRequest) From(from time.Time) SandboxAPIGetSandboxMetricsRequest {
+func (r BoxAPIGetBoxMetricsRequest) From(from time.Time) BoxAPIGetBoxMetricsRequest {
 	r.from = &from
 	return r
 }
 
 // End of time range (ISO 8601)
-func (r SandboxAPIGetSandboxMetricsRequest) To(to time.Time) SandboxAPIGetSandboxMetricsRequest {
+func (r BoxAPIGetBoxMetricsRequest) To(to time.Time) BoxAPIGetBoxMetricsRequest {
 	r.to = &to
 	return r
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetSandboxMetricsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetSandboxMetricsRequest {
+func (r BoxAPIGetBoxMetricsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBoxMetricsRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Filter by metric names
-func (r SandboxAPIGetSandboxMetricsRequest) MetricNames(metricNames []string) SandboxAPIGetSandboxMetricsRequest {
+func (r BoxAPIGetBoxMetricsRequest) MetricNames(metricNames []string) BoxAPIGetBoxMetricsRequest {
 	r.metricNames = &metricNames
 	return r
 }
 
-func (r SandboxAPIGetSandboxMetricsRequest) Execute() (*MetricsResponse, *http.Response, error) {
-	return r.ApiService.GetSandboxMetricsExecute(r)
+func (r BoxAPIGetBoxMetricsRequest) Execute() (*MetricsResponse, *http.Response, error) {
+	return r.ApiService.GetBoxMetricsExecute(r)
 }
 
 /*
-GetSandboxMetrics Get sandbox metrics
+GetBoxMetrics Get box metrics
 
-Retrieve OTEL metrics for a sandbox within a time range
+Retrieve OTEL metrics for a box within a time range
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxId ID of the sandbox
- @return SandboxAPIGetSandboxMetricsRequest
+ @param boxId ID of the sandbox
+ @return BoxAPIGetBoxMetricsRequest
 */
-func (a *SandboxAPIService) GetSandboxMetrics(ctx context.Context, sandboxId string) SandboxAPIGetSandboxMetricsRequest {
-	return SandboxAPIGetSandboxMetricsRequest{
+func (a *BoxAPIService) GetBoxMetrics(ctx context.Context, boxId string) BoxAPIGetBoxMetricsRequest {
+	return BoxAPIGetBoxMetricsRequest{
 		ApiService: a,
 		ctx: ctx,
-		sandboxId: sandboxId,
+		boxId: boxId,
 	}
 }
 
 // Execute executes the request
 //  @return MetricsResponse
-func (a *SandboxAPIService) GetSandboxMetricsExecute(r SandboxAPIGetSandboxMetricsRequest) (*MetricsResponse, *http.Response, error) {
+func (a *BoxAPIService) GetBoxMetricsExecute(r BoxAPIGetBoxMetricsRequest) (*MetricsResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -1854,13 +1515,13 @@ func (a *SandboxAPIService) GetSandboxMetricsExecute(r SandboxAPIGetSandboxMetri
 		localVarReturnValue  *MetricsResponse
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetSandboxMetrics")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBoxMetrics")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxId}/telemetry/metrics"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxId"+"}", url.PathEscape(parameterValueToString(r.sandboxId, "sandboxId")), -1)
+	localVarPath := localBasePath + "/box/{boxId}/telemetry/metrics"
+	localVarPath = strings.Replace(localVarPath, "{"+"boxId"+"}", url.PathEscape(parameterValueToString(r.boxId, "boxId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1942,46 +1603,46 @@ func (a *SandboxAPIService) GetSandboxMetricsExecute(r SandboxAPIGetSandboxMetri
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetSandboxTraceSpansRequest struct {
+type BoxAPIGetBoxTraceSpansRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxId string
+	ApiService BoxAPI
+	boxId string
 	traceId string
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetSandboxTraceSpansRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetSandboxTraceSpansRequest {
+func (r BoxAPIGetBoxTraceSpansRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBoxTraceSpansRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIGetSandboxTraceSpansRequest) Execute() ([]TraceSpan, *http.Response, error) {
-	return r.ApiService.GetSandboxTraceSpansExecute(r)
+func (r BoxAPIGetBoxTraceSpansRequest) Execute() ([]TraceSpan, *http.Response, error) {
+	return r.ApiService.GetBoxTraceSpansExecute(r)
 }
 
 /*
-GetSandboxTraceSpans Get trace spans
+GetBoxTraceSpans Get trace spans
 
 Retrieve all spans for a specific trace
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxId ID of the sandbox
+ @param boxId ID of the sandbox
  @param traceId ID of the trace
- @return SandboxAPIGetSandboxTraceSpansRequest
+ @return BoxAPIGetBoxTraceSpansRequest
 */
-func (a *SandboxAPIService) GetSandboxTraceSpans(ctx context.Context, sandboxId string, traceId string) SandboxAPIGetSandboxTraceSpansRequest {
-	return SandboxAPIGetSandboxTraceSpansRequest{
+func (a *BoxAPIService) GetBoxTraceSpans(ctx context.Context, boxId string, traceId string) BoxAPIGetBoxTraceSpansRequest {
+	return BoxAPIGetBoxTraceSpansRequest{
 		ApiService: a,
 		ctx: ctx,
-		sandboxId: sandboxId,
+		boxId: boxId,
 		traceId: traceId,
 	}
 }
 
 // Execute executes the request
 //  @return []TraceSpan
-func (a *SandboxAPIService) GetSandboxTraceSpansExecute(r SandboxAPIGetSandboxTraceSpansRequest) ([]TraceSpan, *http.Response, error) {
+func (a *BoxAPIService) GetBoxTraceSpansExecute(r BoxAPIGetBoxTraceSpansRequest) ([]TraceSpan, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -1989,13 +1650,13 @@ func (a *SandboxAPIService) GetSandboxTraceSpansExecute(r SandboxAPIGetSandboxTr
 		localVarReturnValue  []TraceSpan
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetSandboxTraceSpans")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBoxTraceSpans")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxId}/telemetry/traces/{traceId}"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxId"+"}", url.PathEscape(parameterValueToString(r.sandboxId, "sandboxId")), -1)
+	localVarPath := localBasePath + "/box/{boxId}/telemetry/traces/{traceId}"
+	localVarPath = strings.Replace(localVarPath, "{"+"boxId"+"}", url.PathEscape(parameterValueToString(r.boxId, "boxId")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"traceId"+"}", url.PathEscape(parameterValueToString(r.traceId, "traceId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -2059,10 +1720,10 @@ func (a *SandboxAPIService) GetSandboxTraceSpansExecute(r SandboxAPIGetSandboxTr
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetSandboxTracesRequest struct {
+type BoxAPIGetBoxTracesRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxId string
+	ApiService BoxAPI
+	boxId string
 	from *time.Time
 	to *time.Time
 	xBoxLiteOrganizationID *string
@@ -2071,59 +1732,59 @@ type SandboxAPIGetSandboxTracesRequest struct {
 }
 
 // Start of time range (ISO 8601)
-func (r SandboxAPIGetSandboxTracesRequest) From(from time.Time) SandboxAPIGetSandboxTracesRequest {
+func (r BoxAPIGetBoxTracesRequest) From(from time.Time) BoxAPIGetBoxTracesRequest {
 	r.from = &from
 	return r
 }
 
 // End of time range (ISO 8601)
-func (r SandboxAPIGetSandboxTracesRequest) To(to time.Time) SandboxAPIGetSandboxTracesRequest {
+func (r BoxAPIGetBoxTracesRequest) To(to time.Time) BoxAPIGetBoxTracesRequest {
 	r.to = &to
 	return r
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetSandboxTracesRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetSandboxTracesRequest {
+func (r BoxAPIGetBoxTracesRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBoxTracesRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Page number (1-indexed)
-func (r SandboxAPIGetSandboxTracesRequest) Page(page float32) SandboxAPIGetSandboxTracesRequest {
+func (r BoxAPIGetBoxTracesRequest) Page(page float32) BoxAPIGetBoxTracesRequest {
 	r.page = &page
 	return r
 }
 
 // Number of items per page
-func (r SandboxAPIGetSandboxTracesRequest) Limit(limit float32) SandboxAPIGetSandboxTracesRequest {
+func (r BoxAPIGetBoxTracesRequest) Limit(limit float32) BoxAPIGetBoxTracesRequest {
 	r.limit = &limit
 	return r
 }
 
-func (r SandboxAPIGetSandboxTracesRequest) Execute() (*PaginatedTraces, *http.Response, error) {
-	return r.ApiService.GetSandboxTracesExecute(r)
+func (r BoxAPIGetBoxTracesRequest) Execute() (*PaginatedTraces, *http.Response, error) {
+	return r.ApiService.GetBoxTracesExecute(r)
 }
 
 /*
-GetSandboxTraces Get sandbox traces
+GetBoxTraces Get box traces
 
-Retrieve OTEL traces for a sandbox within a time range
+Retrieve OTEL traces for a box within a time range
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxId ID of the sandbox
- @return SandboxAPIGetSandboxTracesRequest
+ @param boxId ID of the sandbox
+ @return BoxAPIGetBoxTracesRequest
 */
-func (a *SandboxAPIService) GetSandboxTraces(ctx context.Context, sandboxId string) SandboxAPIGetSandboxTracesRequest {
-	return SandboxAPIGetSandboxTracesRequest{
+func (a *BoxAPIService) GetBoxTraces(ctx context.Context, boxId string) BoxAPIGetBoxTracesRequest {
+	return BoxAPIGetBoxTracesRequest{
 		ApiService: a,
 		ctx: ctx,
-		sandboxId: sandboxId,
+		boxId: boxId,
 	}
 }
 
 // Execute executes the request
 //  @return PaginatedTraces
-func (a *SandboxAPIService) GetSandboxTracesExecute(r SandboxAPIGetSandboxTracesRequest) (*PaginatedTraces, *http.Response, error) {
+func (a *BoxAPIService) GetBoxTracesExecute(r BoxAPIGetBoxTracesRequest) (*PaginatedTraces, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -2131,13 +1792,13 @@ func (a *SandboxAPIService) GetSandboxTracesExecute(r SandboxAPIGetSandboxTraces
 		localVarReturnValue  *PaginatedTraces
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetSandboxTraces")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBoxTraces")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxId}/telemetry/traces"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxId"+"}", url.PathEscape(parameterValueToString(r.sandboxId, "sandboxId")), -1)
+	localVarPath := localBasePath + "/box/{boxId}/telemetry/traces"
+	localVarPath = strings.Replace(localVarPath, "{"+"boxId"+"}", url.PathEscape(parameterValueToString(r.boxId, "boxId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -2155,12 +1816,14 @@ func (a *SandboxAPIService) GetSandboxTracesExecute(r SandboxAPIGetSandboxTraces
 		parameterAddToHeaderOrQuery(localVarQueryParams, "page", r.page, "form", "")
 	} else {
 		var defaultValue float32 = 1
+		parameterAddToHeaderOrQuery(localVarQueryParams, "page", defaultValue, "form", "")
 		r.page = &defaultValue
 	}
 	if r.limit != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", r.limit, "form", "")
 	} else {
 		var defaultValue float32 = 100
+		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", defaultValue, "form", "")
 		r.limit = &defaultValue
 	}
 	// to determine the Content-Type header
@@ -2220,65 +1883,65 @@ func (a *SandboxAPIService) GetSandboxTracesExecute(r SandboxAPIGetSandboxTraces
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetSandboxesForRunnerRequest struct {
+type BoxAPIGetBoxesForRunnerRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	xBoxLiteOrganizationID *string
 	states *string
-	skipReconcilingSandboxes *bool
+	skipReconcilingBoxes *bool
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetSandboxesForRunnerRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetSandboxesForRunnerRequest {
+func (r BoxAPIGetBoxesForRunnerRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBoxesForRunnerRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-// Comma-separated list of sandbox states to filter by
-func (r SandboxAPIGetSandboxesForRunnerRequest) States(states string) SandboxAPIGetSandboxesForRunnerRequest {
+// Comma-separated list of box states to filter by
+func (r BoxAPIGetBoxesForRunnerRequest) States(states string) BoxAPIGetBoxesForRunnerRequest {
 	r.states = &states
 	return r
 }
 
-// Skip sandboxes where state differs from desired state
-func (r SandboxAPIGetSandboxesForRunnerRequest) SkipReconcilingSandboxes(skipReconcilingSandboxes bool) SandboxAPIGetSandboxesForRunnerRequest {
-	r.skipReconcilingSandboxes = &skipReconcilingSandboxes
+// Skip boxes where state differs from desired state
+func (r BoxAPIGetBoxesForRunnerRequest) SkipReconcilingBoxes(skipReconcilingBoxes bool) BoxAPIGetBoxesForRunnerRequest {
+	r.skipReconcilingBoxes = &skipReconcilingBoxes
 	return r
 }
 
-func (r SandboxAPIGetSandboxesForRunnerRequest) Execute() ([]Sandbox, *http.Response, error) {
-	return r.ApiService.GetSandboxesForRunnerExecute(r)
+func (r BoxAPIGetBoxesForRunnerRequest) Execute() ([]Box, *http.Response, error) {
+	return r.ApiService.GetBoxesForRunnerExecute(r)
 }
 
 /*
-GetSandboxesForRunner Get sandboxes for the authenticated runner
+GetBoxesForRunner Get boxes for the authenticated runner
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @return SandboxAPIGetSandboxesForRunnerRequest
+ @return BoxAPIGetBoxesForRunnerRequest
 */
-func (a *SandboxAPIService) GetSandboxesForRunner(ctx context.Context) SandboxAPIGetSandboxesForRunnerRequest {
-	return SandboxAPIGetSandboxesForRunnerRequest{
+func (a *BoxAPIService) GetBoxesForRunner(ctx context.Context) BoxAPIGetBoxesForRunnerRequest {
+	return BoxAPIGetBoxesForRunnerRequest{
 		ApiService: a,
 		ctx: ctx,
 	}
 }
 
 // Execute executes the request
-//  @return []Sandbox
-func (a *SandboxAPIService) GetSandboxesForRunnerExecute(r SandboxAPIGetSandboxesForRunnerRequest) ([]Sandbox, *http.Response, error) {
+//  @return []Box
+func (a *BoxAPIService) GetBoxesForRunnerExecute(r BoxAPIGetBoxesForRunnerRequest) ([]Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  []Sandbox
+		localVarReturnValue  []Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetSandboxesForRunner")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBoxesForRunner")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/for-runner"
+	localVarPath := localBasePath + "/box/for-runner"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -2287,8 +1950,8 @@ func (a *SandboxAPIService) GetSandboxesForRunnerExecute(r SandboxAPIGetSandboxe
 	if r.states != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "states", r.states, "form", "")
 	}
-	if r.skipReconcilingSandboxes != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "skipReconcilingSandboxes", r.skipReconcilingSandboxes, "form", "")
+	if r.skipReconcilingBoxes != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "skipReconcilingBoxes", r.skipReconcilingBoxes, "form", "")
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
@@ -2347,9 +2010,350 @@ func (a *SandboxAPIService) GetSandboxesForRunnerExecute(r SandboxAPIGetSandboxe
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetSignedPortPreviewUrlRequest struct {
+type BoxAPIGetBuildLogsRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
+	sandboxIdOrName string
+	xBoxLiteOrganizationID *string
+	follow *bool
+}
+
+// Use with JWT to specify the organization ID
+func (r BoxAPIGetBuildLogsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBuildLogsRequest {
+	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
+	return r
+}
+
+// Whether to follow the logs stream
+func (r BoxAPIGetBuildLogsRequest) Follow(follow bool) BoxAPIGetBuildLogsRequest {
+	r.follow = &follow
+	return r
+}
+
+func (r BoxAPIGetBuildLogsRequest) Execute() (*http.Response, error) {
+	return r.ApiService.GetBuildLogsExecute(r)
+}
+
+/*
+GetBuildLogs Get build logs
+
+This endpoint is deprecated. Use `getBuildLogsUrl` instead.
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param sandboxIdOrName ID or name of the sandbox
+ @return BoxAPIGetBuildLogsRequest
+
+Deprecated
+*/
+func (a *BoxAPIService) GetBuildLogs(ctx context.Context, sandboxIdOrName string) BoxAPIGetBuildLogsRequest {
+	return BoxAPIGetBuildLogsRequest{
+		ApiService: a,
+		ctx: ctx,
+		sandboxIdOrName: sandboxIdOrName,
+	}
+}
+
+// Execute executes the request
+// Deprecated
+func (a *BoxAPIService) GetBuildLogsExecute(r BoxAPIGetBuildLogsRequest) (*http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBuildLogs")
+	if err != nil {
+		return nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/box/{boxIdOrName}/build-logs"
+	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	if r.follow != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "follow", r.follow, "form", "")
+	}
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xBoxLiteOrganizationID != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		return localVarHTTPResponse, newErr
+	}
+
+	return localVarHTTPResponse, nil
+}
+
+type BoxAPIGetBuildLogsUrlRequest struct {
+	ctx context.Context
+	ApiService BoxAPI
+	sandboxIdOrName string
+	xBoxLiteOrganizationID *string
+}
+
+// Use with JWT to specify the organization ID
+func (r BoxAPIGetBuildLogsUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetBuildLogsUrlRequest {
+	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
+	return r
+}
+
+func (r BoxAPIGetBuildLogsUrlRequest) Execute() (*Url, *http.Response, error) {
+	return r.ApiService.GetBuildLogsUrlExecute(r)
+}
+
+/*
+GetBuildLogsUrl Get build logs URL
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param sandboxIdOrName ID or name of the sandbox
+ @return BoxAPIGetBuildLogsUrlRequest
+*/
+func (a *BoxAPIService) GetBuildLogsUrl(ctx context.Context, sandboxIdOrName string) BoxAPIGetBuildLogsUrlRequest {
+	return BoxAPIGetBuildLogsUrlRequest{
+		ApiService: a,
+		ctx: ctx,
+		sandboxIdOrName: sandboxIdOrName,
+	}
+}
+
+// Execute executes the request
+//  @return Url
+func (a *BoxAPIService) GetBuildLogsUrlExecute(r BoxAPIGetBuildLogsUrlRequest) (*Url, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *Url
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetBuildLogsUrl")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/box/{boxIdOrName}/build-logs-url"
+	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xBoxLiteOrganizationID != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type BoxAPIGetPortPreviewUrlRequest struct {
+	ctx context.Context
+	ApiService BoxAPI
+	sandboxIdOrName string
+	port float32
+	xBoxLiteOrganizationID *string
+}
+
+// Use with JWT to specify the organization ID
+func (r BoxAPIGetPortPreviewUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetPortPreviewUrlRequest {
+	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
+	return r
+}
+
+func (r BoxAPIGetPortPreviewUrlRequest) Execute() (*PortPreviewUrl, *http.Response, error) {
+	return r.ApiService.GetPortPreviewUrlExecute(r)
+}
+
+/*
+GetPortPreviewUrl Get preview URL for a box port
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param sandboxIdOrName ID or name of the sandbox
+ @param port Port number to get preview URL for
+ @return BoxAPIGetPortPreviewUrlRequest
+*/
+func (a *BoxAPIService) GetPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port float32) BoxAPIGetPortPreviewUrlRequest {
+	return BoxAPIGetPortPreviewUrlRequest{
+		ApiService: a,
+		ctx: ctx,
+		sandboxIdOrName: sandboxIdOrName,
+		port: port,
+	}
+}
+
+// Execute executes the request
+//  @return PortPreviewUrl
+func (a *BoxAPIService) GetPortPreviewUrlExecute(r BoxAPIGetPortPreviewUrlRequest) (*PortPreviewUrl, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *PortPreviewUrl
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetPortPreviewUrl")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/box/{boxIdOrName}/ports/{port}/preview-url"
+	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"port"+"}", url.PathEscape(parameterValueToString(r.port, "port")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xBoxLiteOrganizationID != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type BoxAPIGetSignedPortPreviewUrlRequest struct {
+	ctx context.Context
+	ApiService BoxAPI
 	sandboxIdOrName string
 	port int32
 	xBoxLiteOrganizationID *string
@@ -2357,31 +2361,31 @@ type SandboxAPIGetSignedPortPreviewUrlRequest struct {
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetSignedPortPreviewUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetSignedPortPreviewUrlRequest {
+func (r BoxAPIGetSignedPortPreviewUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetSignedPortPreviewUrlRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Expiration time in seconds (default: 60 seconds)
-func (r SandboxAPIGetSignedPortPreviewUrlRequest) ExpiresInSeconds(expiresInSeconds int32) SandboxAPIGetSignedPortPreviewUrlRequest {
+func (r BoxAPIGetSignedPortPreviewUrlRequest) ExpiresInSeconds(expiresInSeconds int32) BoxAPIGetSignedPortPreviewUrlRequest {
 	r.expiresInSeconds = &expiresInSeconds
 	return r
 }
 
-func (r SandboxAPIGetSignedPortPreviewUrlRequest) Execute() (*SignedPortPreviewUrl, *http.Response, error) {
+func (r BoxAPIGetSignedPortPreviewUrlRequest) Execute() (*SignedPortPreviewUrl, *http.Response, error) {
 	return r.ApiService.GetSignedPortPreviewUrlExecute(r)
 }
 
 /*
-GetSignedPortPreviewUrl Get signed preview URL for a sandbox port
+GetSignedPortPreviewUrl Get signed preview URL for a box port
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
  @param port Port number to get signed preview URL for
- @return SandboxAPIGetSignedPortPreviewUrlRequest
+ @return BoxAPIGetSignedPortPreviewUrlRequest
 */
-func (a *SandboxAPIService) GetSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32) SandboxAPIGetSignedPortPreviewUrlRequest {
-	return SandboxAPIGetSignedPortPreviewUrlRequest{
+func (a *BoxAPIService) GetSignedPortPreviewUrl(ctx context.Context, sandboxIdOrName string, port int32) BoxAPIGetSignedPortPreviewUrlRequest {
+	return BoxAPIGetSignedPortPreviewUrlRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -2391,7 +2395,7 @@ func (a *SandboxAPIService) GetSignedPortPreviewUrl(ctx context.Context, sandbox
 
 // Execute executes the request
 //  @return SignedPortPreviewUrl
-func (a *SandboxAPIService) GetSignedPortPreviewUrlExecute(r SandboxAPIGetSignedPortPreviewUrlRequest) (*SignedPortPreviewUrl, *http.Response, error) {
+func (a *BoxAPIService) GetSignedPortPreviewUrlExecute(r BoxAPIGetSignedPortPreviewUrlRequest) (*SignedPortPreviewUrl, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -2399,12 +2403,12 @@ func (a *SandboxAPIService) GetSignedPortPreviewUrlExecute(r SandboxAPIGetSigned
 		localVarReturnValue  *SignedPortPreviewUrl
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetSignedPortPreviewUrl")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetSignedPortPreviewUrl")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/ports/{port}/signed-preview-url"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/ports/{port}/signed-preview-url"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"port"+"}", url.PathEscape(parameterValueToString(r.port, "port")), -1)
 
@@ -2472,20 +2476,20 @@ func (a *SandboxAPIService) GetSignedPortPreviewUrlExecute(r SandboxAPIGetSigned
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIGetToolboxProxyUrlRequest struct {
+type BoxAPIGetToolboxProxyUrlRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxId string
+	ApiService BoxAPI
+	boxId string
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIGetToolboxProxyUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIGetToolboxProxyUrlRequest {
+func (r BoxAPIGetToolboxProxyUrlRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIGetToolboxProxyUrlRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIGetToolboxProxyUrlRequest) Execute() (*ToolboxProxyUrl, *http.Response, error) {
+func (r BoxAPIGetToolboxProxyUrlRequest) Execute() (*ToolboxProxyUrl, *http.Response, error) {
 	return r.ApiService.GetToolboxProxyUrlExecute(r)
 }
 
@@ -2493,20 +2497,20 @@ func (r SandboxAPIGetToolboxProxyUrlRequest) Execute() (*ToolboxProxyUrl, *http.
 GetToolboxProxyUrl Get toolbox proxy URL for a sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxId ID of the sandbox
- @return SandboxAPIGetToolboxProxyUrlRequest
+ @param boxId ID of the sandbox
+ @return BoxAPIGetToolboxProxyUrlRequest
 */
-func (a *SandboxAPIService) GetToolboxProxyUrl(ctx context.Context, sandboxId string) SandboxAPIGetToolboxProxyUrlRequest {
-	return SandboxAPIGetToolboxProxyUrlRequest{
+func (a *BoxAPIService) GetToolboxProxyUrl(ctx context.Context, boxId string) BoxAPIGetToolboxProxyUrlRequest {
+	return BoxAPIGetToolboxProxyUrlRequest{
 		ApiService: a,
 		ctx: ctx,
-		sandboxId: sandboxId,
+		boxId: boxId,
 	}
 }
 
 // Execute executes the request
 //  @return ToolboxProxyUrl
-func (a *SandboxAPIService) GetToolboxProxyUrlExecute(r SandboxAPIGetToolboxProxyUrlRequest) (*ToolboxProxyUrl, *http.Response, error) {
+func (a *BoxAPIService) GetToolboxProxyUrlExecute(r BoxAPIGetToolboxProxyUrlRequest) (*ToolboxProxyUrl, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -2514,13 +2518,13 @@ func (a *SandboxAPIService) GetToolboxProxyUrlExecute(r SandboxAPIGetToolboxProx
 		localVarReturnValue  *ToolboxProxyUrl
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.GetToolboxProxyUrl")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.GetToolboxProxyUrl")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxId}/toolbox-proxy-url"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxId"+"}", url.PathEscape(parameterValueToString(r.sandboxId, "sandboxId")), -1)
+	localVarPath := localBasePath + "/box/{boxId}/toolbox-proxy-url"
+	localVarPath = strings.Replace(localVarPath, "{"+"boxId"+"}", url.PathEscape(parameterValueToString(r.boxId, "boxId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -2583,9 +2587,9 @@ func (a *SandboxAPIService) GetToolboxProxyUrlExecute(r SandboxAPIGetToolboxProx
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIListSandboxesRequest struct {
+type BoxAPIListBoxesRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	xBoxLiteOrganizationID *string
 	verbose *bool
 	labels *string
@@ -2593,62 +2597,62 @@ type SandboxAPIListSandboxesRequest struct {
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIListSandboxesRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIListSandboxesRequest {
+func (r BoxAPIListBoxesRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIListBoxesRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Include verbose output
-func (r SandboxAPIListSandboxesRequest) Verbose(verbose bool) SandboxAPIListSandboxesRequest {
+func (r BoxAPIListBoxesRequest) Verbose(verbose bool) BoxAPIListBoxesRequest {
 	r.verbose = &verbose
 	return r
 }
 
 // JSON encoded labels to filter by
-func (r SandboxAPIListSandboxesRequest) Labels(labels string) SandboxAPIListSandboxesRequest {
+func (r BoxAPIListBoxesRequest) Labels(labels string) BoxAPIListBoxesRequest {
 	r.labels = &labels
 	return r
 }
 
-// Include errored and deleted sandboxes
-func (r SandboxAPIListSandboxesRequest) IncludeErroredDeleted(includeErroredDeleted bool) SandboxAPIListSandboxesRequest {
+// Include errored and deleted boxes
+func (r BoxAPIListBoxesRequest) IncludeErroredDeleted(includeErroredDeleted bool) BoxAPIListBoxesRequest {
 	r.includeErroredDeleted = &includeErroredDeleted
 	return r
 }
 
-func (r SandboxAPIListSandboxesRequest) Execute() ([]Sandbox, *http.Response, error) {
-	return r.ApiService.ListSandboxesExecute(r)
+func (r BoxAPIListBoxesRequest) Execute() ([]Box, *http.Response, error) {
+	return r.ApiService.ListBoxesExecute(r)
 }
 
 /*
-ListSandboxes List all sandboxes
+ListBoxes List all boxes
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @return SandboxAPIListSandboxesRequest
+ @return BoxAPIListBoxesRequest
 */
-func (a *SandboxAPIService) ListSandboxes(ctx context.Context) SandboxAPIListSandboxesRequest {
-	return SandboxAPIListSandboxesRequest{
+func (a *BoxAPIService) ListBoxes(ctx context.Context) BoxAPIListBoxesRequest {
+	return BoxAPIListBoxesRequest{
 		ApiService: a,
 		ctx: ctx,
 	}
 }
 
 // Execute executes the request
-//  @return []Sandbox
-func (a *SandboxAPIService) ListSandboxesExecute(r SandboxAPIListSandboxesRequest) ([]Sandbox, *http.Response, error) {
+//  @return []Box
+func (a *BoxAPIService) ListBoxesExecute(r BoxAPIListBoxesRequest) ([]Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  []Sandbox
+		localVarReturnValue  []Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.ListSandboxes")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.ListBoxes")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox"
+	localVarPath := localBasePath + "/box"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -2720,9 +2724,9 @@ func (a *SandboxAPIService) ListSandboxesExecute(r SandboxAPIListSandboxesReques
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIListSandboxesPaginatedRequest struct {
+type BoxAPIListBoxesPaginatedRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	xBoxLiteOrganizationID *string
 	page *float32
 	limit *float32
@@ -2746,158 +2750,158 @@ type SandboxAPIListSandboxesPaginatedRequest struct {
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIListSandboxesPaginatedRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIListBoxesPaginatedRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
 // Page number of the results
-func (r SandboxAPIListSandboxesPaginatedRequest) Page(page float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Page(page float32) BoxAPIListBoxesPaginatedRequest {
 	r.page = &page
 	return r
 }
 
 // Number of results per page
-func (r SandboxAPIListSandboxesPaginatedRequest) Limit(limit float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Limit(limit float32) BoxAPIListBoxesPaginatedRequest {
 	r.limit = &limit
 	return r
 }
 
 // Filter by partial ID match
-func (r SandboxAPIListSandboxesPaginatedRequest) Id(id string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Id(id string) BoxAPIListBoxesPaginatedRequest {
 	r.id = &id
 	return r
 }
 
 // Filter by partial name match
-func (r SandboxAPIListSandboxesPaginatedRequest) Name(name string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Name(name string) BoxAPIListBoxesPaginatedRequest {
 	r.name = &name
 	return r
 }
 
 // JSON encoded labels to filter by
-func (r SandboxAPIListSandboxesPaginatedRequest) Labels(labels string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Labels(labels string) BoxAPIListBoxesPaginatedRequest {
 	r.labels = &labels
 	return r
 }
 
 // Include results with errored state and deleted desired state
-func (r SandboxAPIListSandboxesPaginatedRequest) IncludeErroredDeleted(includeErroredDeleted bool) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) IncludeErroredDeleted(includeErroredDeleted bool) BoxAPIListBoxesPaginatedRequest {
 	r.includeErroredDeleted = &includeErroredDeleted
 	return r
 }
 
 // List of states to filter by
-func (r SandboxAPIListSandboxesPaginatedRequest) States(states []string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) States(states []string) BoxAPIListBoxesPaginatedRequest {
 	r.states = &states
 	return r
 }
 
 // List of snapshot names to filter by
-func (r SandboxAPIListSandboxesPaginatedRequest) Snapshots(snapshots []string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Snapshots(snapshots []string) BoxAPIListBoxesPaginatedRequest {
 	r.snapshots = &snapshots
 	return r
 }
 
 // List of regions to filter by
-func (r SandboxAPIListSandboxesPaginatedRequest) Regions(regions []string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Regions(regions []string) BoxAPIListBoxesPaginatedRequest {
 	r.regions = &regions
 	return r
 }
 
 // Minimum CPU
-func (r SandboxAPIListSandboxesPaginatedRequest) MinCpu(minCpu float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) MinCpu(minCpu float32) BoxAPIListBoxesPaginatedRequest {
 	r.minCpu = &minCpu
 	return r
 }
 
 // Maximum CPU
-func (r SandboxAPIListSandboxesPaginatedRequest) MaxCpu(maxCpu float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) MaxCpu(maxCpu float32) BoxAPIListBoxesPaginatedRequest {
 	r.maxCpu = &maxCpu
 	return r
 }
 
 // Minimum memory in GiB
-func (r SandboxAPIListSandboxesPaginatedRequest) MinMemoryGiB(minMemoryGiB float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) MinMemoryGiB(minMemoryGiB float32) BoxAPIListBoxesPaginatedRequest {
 	r.minMemoryGiB = &minMemoryGiB
 	return r
 }
 
 // Maximum memory in GiB
-func (r SandboxAPIListSandboxesPaginatedRequest) MaxMemoryGiB(maxMemoryGiB float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) MaxMemoryGiB(maxMemoryGiB float32) BoxAPIListBoxesPaginatedRequest {
 	r.maxMemoryGiB = &maxMemoryGiB
 	return r
 }
 
 // Minimum disk space in GiB
-func (r SandboxAPIListSandboxesPaginatedRequest) MinDiskGiB(minDiskGiB float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) MinDiskGiB(minDiskGiB float32) BoxAPIListBoxesPaginatedRequest {
 	r.minDiskGiB = &minDiskGiB
 	return r
 }
 
 // Maximum disk space in GiB
-func (r SandboxAPIListSandboxesPaginatedRequest) MaxDiskGiB(maxDiskGiB float32) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) MaxDiskGiB(maxDiskGiB float32) BoxAPIListBoxesPaginatedRequest {
 	r.maxDiskGiB = &maxDiskGiB
 	return r
 }
 
 // Include items with last event after this timestamp
-func (r SandboxAPIListSandboxesPaginatedRequest) LastEventAfter(lastEventAfter time.Time) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) LastEventAfter(lastEventAfter time.Time) BoxAPIListBoxesPaginatedRequest {
 	r.lastEventAfter = &lastEventAfter
 	return r
 }
 
 // Include items with last event before this timestamp
-func (r SandboxAPIListSandboxesPaginatedRequest) LastEventBefore(lastEventBefore time.Time) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) LastEventBefore(lastEventBefore time.Time) BoxAPIListBoxesPaginatedRequest {
 	r.lastEventBefore = &lastEventBefore
 	return r
 }
 
 // Field to sort by
-func (r SandboxAPIListSandboxesPaginatedRequest) Sort(sort string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Sort(sort string) BoxAPIListBoxesPaginatedRequest {
 	r.sort = &sort
 	return r
 }
 
 // Direction to sort by
-func (r SandboxAPIListSandboxesPaginatedRequest) Order(order string) SandboxAPIListSandboxesPaginatedRequest {
+func (r BoxAPIListBoxesPaginatedRequest) Order(order string) BoxAPIListBoxesPaginatedRequest {
 	r.order = &order
 	return r
 }
 
-func (r SandboxAPIListSandboxesPaginatedRequest) Execute() (*PaginatedSandboxes, *http.Response, error) {
-	return r.ApiService.ListSandboxesPaginatedExecute(r)
+func (r BoxAPIListBoxesPaginatedRequest) Execute() (*PaginatedBoxes, *http.Response, error) {
+	return r.ApiService.ListBoxesPaginatedExecute(r)
 }
 
 /*
-ListSandboxesPaginated List all sandboxes paginated
+ListBoxesPaginated List all boxes paginated
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @return SandboxAPIListSandboxesPaginatedRequest
+ @return BoxAPIListBoxesPaginatedRequest
 */
-func (a *SandboxAPIService) ListSandboxesPaginated(ctx context.Context) SandboxAPIListSandboxesPaginatedRequest {
-	return SandboxAPIListSandboxesPaginatedRequest{
+func (a *BoxAPIService) ListBoxesPaginated(ctx context.Context) BoxAPIListBoxesPaginatedRequest {
+	return BoxAPIListBoxesPaginatedRequest{
 		ApiService: a,
 		ctx: ctx,
 	}
 }
 
 // Execute executes the request
-//  @return PaginatedSandboxes
-func (a *SandboxAPIService) ListSandboxesPaginatedExecute(r SandboxAPIListSandboxesPaginatedRequest) (*PaginatedSandboxes, *http.Response, error) {
+//  @return PaginatedBoxes
+func (a *BoxAPIService) ListBoxesPaginatedExecute(r BoxAPIListBoxesPaginatedRequest) (*PaginatedBoxes, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *PaginatedSandboxes
+		localVarReturnValue  *PaginatedBoxes
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.ListSandboxesPaginated")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.ListBoxesPaginated")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/paginated"
+	localVarPath := localBasePath + "/box/paginated"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -2907,12 +2911,14 @@ func (a *SandboxAPIService) ListSandboxesPaginatedExecute(r SandboxAPIListSandbo
 		parameterAddToHeaderOrQuery(localVarQueryParams, "page", r.page, "form", "")
 	} else {
 		var defaultValue float32 = 1
+		parameterAddToHeaderOrQuery(localVarQueryParams, "page", defaultValue, "form", "")
 		r.page = &defaultValue
 	}
 	if r.limit != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", r.limit, "form", "")
 	} else {
 		var defaultValue float32 = 100
+		parameterAddToHeaderOrQuery(localVarQueryParams, "limit", defaultValue, "form", "")
 		r.limit = &defaultValue
 	}
 	if r.id != nil {
@@ -2928,6 +2934,7 @@ func (a *SandboxAPIService) ListSandboxesPaginatedExecute(r SandboxAPIListSandbo
 		parameterAddToHeaderOrQuery(localVarQueryParams, "includeErroredDeleted", r.includeErroredDeleted, "form", "")
 	} else {
 		var defaultValue bool = false
+		parameterAddToHeaderOrQuery(localVarQueryParams, "includeErroredDeleted", defaultValue, "form", "")
 		r.includeErroredDeleted = &defaultValue
 	}
 	if r.states != nil {
@@ -2991,12 +2998,14 @@ func (a *SandboxAPIService) ListSandboxesPaginatedExecute(r SandboxAPIListSandbo
 		parameterAddToHeaderOrQuery(localVarQueryParams, "sort", r.sort, "form", "")
 	} else {
 		var defaultValue string = "createdAt"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "sort", defaultValue, "form", "")
 		r.sort = &defaultValue
 	}
 	if r.order != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "order", r.order, "form", "")
 	} else {
 		var defaultValue string = "desc"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "order", defaultValue, "form", "")
 		r.order = &defaultValue
 	}
 	// to determine the Content-Type header
@@ -3056,32 +3065,32 @@ func (a *SandboxAPIService) ListSandboxesPaginatedExecute(r SandboxAPIListSandbo
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIRecoverSandboxRequest struct {
+type BoxAPIRecoverBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIRecoverSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIRecoverSandboxRequest {
+func (r BoxAPIRecoverBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIRecoverBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIRecoverSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.RecoverSandboxExecute(r)
+func (r BoxAPIRecoverBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.RecoverBoxExecute(r)
 }
 
 /*
-RecoverSandbox Recover sandbox from error state
+RecoverBox Recover box from error state
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIRecoverSandboxRequest
+ @return BoxAPIRecoverBoxRequest
 */
-func (a *SandboxAPIService) RecoverSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIRecoverSandboxRequest {
-	return SandboxAPIRecoverSandboxRequest{
+func (a *BoxAPIService) RecoverBox(ctx context.Context, sandboxIdOrName string) BoxAPIRecoverBoxRequest {
+	return BoxAPIRecoverBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3089,21 +3098,21 @@ func (a *SandboxAPIService) RecoverSandbox(ctx context.Context, sandboxIdOrName 
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) RecoverSandboxExecute(r SandboxAPIRecoverSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) RecoverBoxExecute(r BoxAPIRecoverBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.RecoverSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.RecoverBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/recover"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/recover"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -3167,38 +3176,38 @@ func (a *SandboxAPIService) RecoverSandboxExecute(r SandboxAPIRecoverSandboxRequ
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIReplaceLabelsRequest struct {
+type BoxAPIReplaceLabelsRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
-	sandboxLabels *SandboxLabels
+	boxLabels *BoxLabels
 	xBoxLiteOrganizationID *string
 }
 
-func (r SandboxAPIReplaceLabelsRequest) SandboxLabels(sandboxLabels SandboxLabels) SandboxAPIReplaceLabelsRequest {
-	r.sandboxLabels = &sandboxLabels
+func (r BoxAPIReplaceLabelsRequest) BoxLabels(boxLabels BoxLabels) BoxAPIReplaceLabelsRequest {
+	r.boxLabels = &boxLabels
 	return r
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIReplaceLabelsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIReplaceLabelsRequest {
+func (r BoxAPIReplaceLabelsRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIReplaceLabelsRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIReplaceLabelsRequest) Execute() (*SandboxLabels, *http.Response, error) {
+func (r BoxAPIReplaceLabelsRequest) Execute() (*BoxLabels, *http.Response, error) {
 	return r.ApiService.ReplaceLabelsExecute(r)
 }
 
 /*
-ReplaceLabels Replace sandbox labels
+ReplaceLabels Replace box labels
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIReplaceLabelsRequest
+ @return BoxAPIReplaceLabelsRequest
 */
-func (a *SandboxAPIService) ReplaceLabels(ctx context.Context, sandboxIdOrName string) SandboxAPIReplaceLabelsRequest {
-	return SandboxAPIReplaceLabelsRequest{
+func (a *BoxAPIService) ReplaceLabels(ctx context.Context, sandboxIdOrName string) BoxAPIReplaceLabelsRequest {
+	return BoxAPIReplaceLabelsRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3206,28 +3215,28 @@ func (a *SandboxAPIService) ReplaceLabels(ctx context.Context, sandboxIdOrName s
 }
 
 // Execute executes the request
-//  @return SandboxLabels
-func (a *SandboxAPIService) ReplaceLabelsExecute(r SandboxAPIReplaceLabelsRequest) (*SandboxLabels, *http.Response, error) {
+//  @return BoxLabels
+func (a *BoxAPIService) ReplaceLabelsExecute(r BoxAPIReplaceLabelsRequest) (*BoxLabels, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPut
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *SandboxLabels
+		localVarReturnValue  *BoxLabels
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.ReplaceLabels")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.ReplaceLabels")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/labels"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/labels"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.sandboxLabels == nil {
-		return localVarReturnValue, nil, reportError("sandboxLabels is required and must be specified")
+	if r.boxLabels == nil {
+		return localVarReturnValue, nil, reportError("boxLabels is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -3251,7 +3260,7 @@ func (a *SandboxAPIService) ReplaceLabelsExecute(r SandboxAPIReplaceLabelsReques
 		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
 	}
 	// body params
-	localVarPostBody = r.sandboxLabels
+	localVarPostBody = r.boxLabels
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -3289,38 +3298,38 @@ func (a *SandboxAPIService) ReplaceLabelsExecute(r SandboxAPIReplaceLabelsReques
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIResizeSandboxRequest struct {
+type BoxAPIResizeBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
-	resizeSandbox *ResizeSandbox
+	resizeBox *ResizeBox
 	xBoxLiteOrganizationID *string
 }
 
-func (r SandboxAPIResizeSandboxRequest) ResizeSandbox(resizeSandbox ResizeSandbox) SandboxAPIResizeSandboxRequest {
-	r.resizeSandbox = &resizeSandbox
+func (r BoxAPIResizeBoxRequest) ResizeBox(resizeBox ResizeBox) BoxAPIResizeBoxRequest {
+	r.resizeBox = &resizeBox
 	return r
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIResizeSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIResizeSandboxRequest {
+func (r BoxAPIResizeBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIResizeBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIResizeSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.ResizeSandboxExecute(r)
+func (r BoxAPIResizeBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.ResizeBoxExecute(r)
 }
 
 /*
-ResizeSandbox Resize sandbox resources
+ResizeBox Resize box resources
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIResizeSandboxRequest
+ @return BoxAPIResizeBoxRequest
 */
-func (a *SandboxAPIService) ResizeSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIResizeSandboxRequest {
-	return SandboxAPIResizeSandboxRequest{
+func (a *BoxAPIService) ResizeBox(ctx context.Context, sandboxIdOrName string) BoxAPIResizeBoxRequest {
+	return BoxAPIResizeBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3328,28 +3337,28 @@ func (a *SandboxAPIService) ResizeSandbox(ctx context.Context, sandboxIdOrName s
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) ResizeSandboxExecute(r SandboxAPIResizeSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) ResizeBoxExecute(r BoxAPIResizeBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.ResizeSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.ResizeBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/resize"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/resize"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.resizeSandbox == nil {
-		return localVarReturnValue, nil, reportError("resizeSandbox is required and must be specified")
+	if r.resizeBox == nil {
+		return localVarReturnValue, nil, reportError("resizeBox is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -3373,7 +3382,7 @@ func (a *SandboxAPIService) ResizeSandboxExecute(r SandboxAPIResizeSandboxReques
 		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
 	}
 	// body params
-	localVarPostBody = r.resizeSandbox
+	localVarPostBody = r.resizeBox
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -3411,27 +3420,27 @@ func (a *SandboxAPIService) ResizeSandboxExecute(r SandboxAPIResizeSandboxReques
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIRevokeSshAccessRequest struct {
+type BoxAPIRevokeSshAccessRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 	token *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIRevokeSshAccessRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIRevokeSshAccessRequest {
+func (r BoxAPIRevokeSshAccessRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIRevokeSshAccessRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-// SSH access token to revoke. If not provided, all SSH access for the sandbox will be revoked.
-func (r SandboxAPIRevokeSshAccessRequest) Token(token string) SandboxAPIRevokeSshAccessRequest {
+// SSH access token to revoke. If not provided, all SSH access for the box will be revoked.
+func (r BoxAPIRevokeSshAccessRequest) Token(token string) BoxAPIRevokeSshAccessRequest {
 	r.token = &token
 	return r
 }
 
-func (r SandboxAPIRevokeSshAccessRequest) Execute() (*Sandbox, *http.Response, error) {
+func (r BoxAPIRevokeSshAccessRequest) Execute() (*Box, *http.Response, error) {
 	return r.ApiService.RevokeSshAccessExecute(r)
 }
 
@@ -3440,10 +3449,10 @@ RevokeSshAccess Revoke SSH access for sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIRevokeSshAccessRequest
+ @return BoxAPIRevokeSshAccessRequest
 */
-func (a *SandboxAPIService) RevokeSshAccess(ctx context.Context, sandboxIdOrName string) SandboxAPIRevokeSshAccessRequest {
-	return SandboxAPIRevokeSshAccessRequest{
+func (a *BoxAPIService) RevokeSshAccess(ctx context.Context, sandboxIdOrName string) BoxAPIRevokeSshAccessRequest {
+	return BoxAPIRevokeSshAccessRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3451,21 +3460,21 @@ func (a *SandboxAPIService) RevokeSshAccess(ctx context.Context, sandboxIdOrName
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) RevokeSshAccessExecute(r SandboxAPIRevokeSshAccessRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) RevokeSshAccessExecute(r BoxAPIRevokeSshAccessRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodDelete
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.RevokeSshAccess")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.RevokeSshAccess")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/ssh-access"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/ssh-access"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -3532,34 +3541,34 @@ func (a *SandboxAPIService) RevokeSshAccessExecute(r SandboxAPIRevokeSshAccessRe
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPISetAutoArchiveIntervalRequest struct {
+type BoxAPISetAutoArchiveIntervalRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	interval float32
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPISetAutoArchiveIntervalRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPISetAutoArchiveIntervalRequest {
+func (r BoxAPISetAutoArchiveIntervalRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPISetAutoArchiveIntervalRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPISetAutoArchiveIntervalRequest) Execute() (*Sandbox, *http.Response, error) {
+func (r BoxAPISetAutoArchiveIntervalRequest) Execute() (*Box, *http.Response, error) {
 	return r.ApiService.SetAutoArchiveIntervalExecute(r)
 }
 
 /*
-SetAutoArchiveInterval Set sandbox auto-archive interval
+SetAutoArchiveInterval Set box auto-archive interval
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
  @param interval Auto-archive interval in minutes (0 means the maximum interval will be used)
- @return SandboxAPISetAutoArchiveIntervalRequest
+ @return BoxAPISetAutoArchiveIntervalRequest
 */
-func (a *SandboxAPIService) SetAutoArchiveInterval(ctx context.Context, sandboxIdOrName string, interval float32) SandboxAPISetAutoArchiveIntervalRequest {
-	return SandboxAPISetAutoArchiveIntervalRequest{
+func (a *BoxAPIService) SetAutoArchiveInterval(ctx context.Context, sandboxIdOrName string, interval float32) BoxAPISetAutoArchiveIntervalRequest {
+	return BoxAPISetAutoArchiveIntervalRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3568,21 +3577,21 @@ func (a *SandboxAPIService) SetAutoArchiveInterval(ctx context.Context, sandboxI
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) SetAutoArchiveIntervalExecute(r SandboxAPISetAutoArchiveIntervalRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) SetAutoArchiveIntervalExecute(r BoxAPISetAutoArchiveIntervalRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.SetAutoArchiveInterval")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.SetAutoArchiveInterval")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/autoarchive/{interval}"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/autoarchive/{interval}"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"interval"+"}", url.PathEscape(parameterValueToString(r.interval, "interval")), -1)
 
@@ -3647,34 +3656,34 @@ func (a *SandboxAPIService) SetAutoArchiveIntervalExecute(r SandboxAPISetAutoArc
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPISetAutoDeleteIntervalRequest struct {
+type BoxAPISetAutoDeleteIntervalRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	interval float32
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPISetAutoDeleteIntervalRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPISetAutoDeleteIntervalRequest {
+func (r BoxAPISetAutoDeleteIntervalRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPISetAutoDeleteIntervalRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPISetAutoDeleteIntervalRequest) Execute() (*Sandbox, *http.Response, error) {
+func (r BoxAPISetAutoDeleteIntervalRequest) Execute() (*Box, *http.Response, error) {
 	return r.ApiService.SetAutoDeleteIntervalExecute(r)
 }
 
 /*
-SetAutoDeleteInterval Set sandbox auto-delete interval
+SetAutoDeleteInterval Set box auto-delete interval
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
  @param interval Auto-delete interval in minutes (negative value means disabled, 0 means delete immediately upon stopping)
- @return SandboxAPISetAutoDeleteIntervalRequest
+ @return BoxAPISetAutoDeleteIntervalRequest
 */
-func (a *SandboxAPIService) SetAutoDeleteInterval(ctx context.Context, sandboxIdOrName string, interval float32) SandboxAPISetAutoDeleteIntervalRequest {
-	return SandboxAPISetAutoDeleteIntervalRequest{
+func (a *BoxAPIService) SetAutoDeleteInterval(ctx context.Context, sandboxIdOrName string, interval float32) BoxAPISetAutoDeleteIntervalRequest {
+	return BoxAPISetAutoDeleteIntervalRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3683,21 +3692,21 @@ func (a *SandboxAPIService) SetAutoDeleteInterval(ctx context.Context, sandboxId
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) SetAutoDeleteIntervalExecute(r SandboxAPISetAutoDeleteIntervalRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) SetAutoDeleteIntervalExecute(r BoxAPISetAutoDeleteIntervalRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.SetAutoDeleteInterval")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.SetAutoDeleteInterval")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/autodelete/{interval}"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/autodelete/{interval}"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"interval"+"}", url.PathEscape(parameterValueToString(r.interval, "interval")), -1)
 
@@ -3762,34 +3771,34 @@ func (a *SandboxAPIService) SetAutoDeleteIntervalExecute(r SandboxAPISetAutoDele
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPISetAutostopIntervalRequest struct {
+type BoxAPISetAutostopIntervalRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	interval float32
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPISetAutostopIntervalRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPISetAutostopIntervalRequest {
+func (r BoxAPISetAutostopIntervalRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPISetAutostopIntervalRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPISetAutostopIntervalRequest) Execute() (*Sandbox, *http.Response, error) {
+func (r BoxAPISetAutostopIntervalRequest) Execute() (*Box, *http.Response, error) {
 	return r.ApiService.SetAutostopIntervalExecute(r)
 }
 
 /*
-SetAutostopInterval Set sandbox auto-stop interval
+SetAutostopInterval Set box auto-stop interval
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
  @param interval Auto-stop interval in minutes (0 to disable)
- @return SandboxAPISetAutostopIntervalRequest
+ @return BoxAPISetAutostopIntervalRequest
 */
-func (a *SandboxAPIService) SetAutostopInterval(ctx context.Context, sandboxIdOrName string, interval float32) SandboxAPISetAutostopIntervalRequest {
-	return SandboxAPISetAutostopIntervalRequest{
+func (a *BoxAPIService) SetAutostopInterval(ctx context.Context, sandboxIdOrName string, interval float32) BoxAPISetAutostopIntervalRequest {
+	return BoxAPISetAutostopIntervalRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3798,21 +3807,21 @@ func (a *SandboxAPIService) SetAutostopInterval(ctx context.Context, sandboxIdOr
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) SetAutostopIntervalExecute(r SandboxAPISetAutostopIntervalRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) SetAutostopIntervalExecute(r BoxAPISetAutostopIntervalRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.SetAutostopInterval")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.SetAutostopInterval")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/autostop/{interval}"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/autostop/{interval}"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"interval"+"}", url.PathEscape(parameterValueToString(r.interval, "interval")), -1)
 
@@ -3877,32 +3886,32 @@ func (a *SandboxAPIService) SetAutostopIntervalExecute(r SandboxAPISetAutostopIn
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIStartSandboxRequest struct {
+type BoxAPIStartBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIStartSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIStartSandboxRequest {
+func (r BoxAPIStartBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIStartBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIStartSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.StartSandboxExecute(r)
+func (r BoxAPIStartBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.StartBoxExecute(r)
 }
 
 /*
-StartSandbox Start sandbox
+StartBox Start sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIStartSandboxRequest
+ @return BoxAPIStartBoxRequest
 */
-func (a *SandboxAPIService) StartSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIStartSandboxRequest {
-	return SandboxAPIStartSandboxRequest{
+func (a *BoxAPIService) StartBox(ctx context.Context, sandboxIdOrName string) BoxAPIStartBoxRequest {
+	return BoxAPIStartBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -3910,21 +3919,21 @@ func (a *SandboxAPIService) StartSandbox(ctx context.Context, sandboxIdOrName st
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) StartSandboxExecute(r SandboxAPIStartSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) StartBoxExecute(r BoxAPIStartBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.StartSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.StartBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/start"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/start"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -3988,39 +3997,39 @@ func (a *SandboxAPIService) StartSandboxExecute(r SandboxAPIStartSandboxRequest)
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIStopSandboxRequest struct {
+type BoxAPIStopBoxRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	xBoxLiteOrganizationID *string
 	force *bool
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIStopSandboxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIStopSandboxRequest {
+func (r BoxAPIStopBoxRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIStopBoxRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-// Force stop the sandbox using SIGKILL instead of SIGTERM
-func (r SandboxAPIStopSandboxRequest) Force(force bool) SandboxAPIStopSandboxRequest {
+// Force stop the box using SIGKILL instead of SIGTERM
+func (r BoxAPIStopBoxRequest) Force(force bool) BoxAPIStopBoxRequest {
 	r.force = &force
 	return r
 }
 
-func (r SandboxAPIStopSandboxRequest) Execute() (*Sandbox, *http.Response, error) {
-	return r.ApiService.StopSandboxExecute(r)
+func (r BoxAPIStopBoxRequest) Execute() (*Box, *http.Response, error) {
+	return r.ApiService.StopBoxExecute(r)
 }
 
 /*
-StopSandbox Stop sandbox
+StopBox Stop sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
- @return SandboxAPIStopSandboxRequest
+ @return BoxAPIStopBoxRequest
 */
-func (a *SandboxAPIService) StopSandbox(ctx context.Context, sandboxIdOrName string) SandboxAPIStopSandboxRequest {
-	return SandboxAPIStopSandboxRequest{
+func (a *BoxAPIService) StopBox(ctx context.Context, sandboxIdOrName string) BoxAPIStopBoxRequest {
+	return BoxAPIStopBoxRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -4028,21 +4037,21 @@ func (a *SandboxAPIService) StopSandbox(ctx context.Context, sandboxIdOrName str
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) StopSandboxExecute(r SandboxAPIStopSandboxRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) StopBoxExecute(r BoxAPIStopBoxRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.StopSandbox")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.StopBox")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/stop"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/stop"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -4109,53 +4118,164 @@ func (a *SandboxAPIService) StopSandboxExecute(r SandboxAPIStopSandboxRequest) (
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIUpdateLastActivityRequest struct {
+type BoxAPIUpdateBoxStateRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxId string
+	ApiService BoxAPI
+	boxId string
+	updateBoxStateDto *UpdateBoxStateDto
 	xBoxLiteOrganizationID *string
 }
 
+func (r BoxAPIUpdateBoxStateRequest) UpdateBoxStateDto(updateBoxStateDto UpdateBoxStateDto) BoxAPIUpdateBoxStateRequest {
+	r.updateBoxStateDto = &updateBoxStateDto
+	return r
+}
+
 // Use with JWT to specify the organization ID
-func (r SandboxAPIUpdateLastActivityRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIUpdateLastActivityRequest {
+func (r BoxAPIUpdateBoxStateRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIUpdateBoxStateRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIUpdateLastActivityRequest) Execute() (*http.Response, error) {
-	return r.ApiService.UpdateLastActivityExecute(r)
+func (r BoxAPIUpdateBoxStateRequest) Execute() (*http.Response, error) {
+	return r.ApiService.UpdateBoxStateExecute(r)
 }
 
 /*
-UpdateLastActivity Update sandbox last activity
+UpdateBoxState Update box state
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxId ID of the sandbox
- @return SandboxAPIUpdateLastActivityRequest
+ @param boxId ID of the sandbox
+ @return BoxAPIUpdateBoxStateRequest
 */
-func (a *SandboxAPIService) UpdateLastActivity(ctx context.Context, sandboxId string) SandboxAPIUpdateLastActivityRequest {
-	return SandboxAPIUpdateLastActivityRequest{
+func (a *BoxAPIService) UpdateBoxState(ctx context.Context, boxId string) BoxAPIUpdateBoxStateRequest {
+	return BoxAPIUpdateBoxStateRequest{
 		ApiService: a,
 		ctx: ctx,
-		sandboxId: sandboxId,
+		boxId: boxId,
 	}
 }
 
 // Execute executes the request
-func (a *SandboxAPIService) UpdateLastActivityExecute(r SandboxAPIUpdateLastActivityRequest) (*http.Response, error) {
+func (a *BoxAPIService) UpdateBoxStateExecute(r BoxAPIUpdateBoxStateRequest) (*http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPut
+		localVarPostBody     interface{}
+		formFiles            []formFile
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.UpdateBoxState")
+	if err != nil {
+		return nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/box/{boxId}/state"
+	localVarPath = strings.Replace(localVarPath, "{"+"boxId"+"}", url.PathEscape(parameterValueToString(r.boxId, "boxId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.updateBoxStateDto == nil {
+		return nil, reportError("updateBoxStateDto is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	if r.xBoxLiteOrganizationID != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
+	}
+	// body params
+	localVarPostBody = r.updateBoxStateDto
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		return localVarHTTPResponse, newErr
+	}
+
+	return localVarHTTPResponse, nil
+}
+
+type BoxAPIUpdateLastActivityRequest struct {
+	ctx context.Context
+	ApiService BoxAPI
+	boxId string
+	xBoxLiteOrganizationID *string
+}
+
+// Use with JWT to specify the organization ID
+func (r BoxAPIUpdateLastActivityRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIUpdateLastActivityRequest {
+	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
+	return r
+}
+
+func (r BoxAPIUpdateLastActivityRequest) Execute() (*http.Response, error) {
+	return r.ApiService.UpdateLastActivityExecute(r)
+}
+
+/*
+UpdateLastActivity Update box last activity
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param boxId ID of the sandbox
+ @return BoxAPIUpdateLastActivityRequest
+*/
+func (a *BoxAPIService) UpdateLastActivity(ctx context.Context, boxId string) BoxAPIUpdateLastActivityRequest {
+	return BoxAPIUpdateLastActivityRequest{
+		ApiService: a,
+		ctx: ctx,
+		boxId: boxId,
+	}
+}
+
+// Execute executes the request
+func (a *BoxAPIService) UpdateLastActivityExecute(r BoxAPIUpdateLastActivityRequest) (*http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.UpdateLastActivity")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.UpdateLastActivity")
 	if err != nil {
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxId}/last-activity"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxId"+"}", url.PathEscape(parameterValueToString(r.sandboxId, "sandboxId")), -1)
+	localVarPath := localBasePath + "/box/{boxId}/last-activity"
+	localVarPath = strings.Replace(localVarPath, "{"+"boxId"+"}", url.PathEscape(parameterValueToString(r.boxId, "boxId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -4209,21 +4329,21 @@ func (a *SandboxAPIService) UpdateLastActivityExecute(r SandboxAPIUpdateLastActi
 	return localVarHTTPResponse, nil
 }
 
-type SandboxAPIUpdatePublicStatusRequest struct {
+type BoxAPIUpdatePublicStatusRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	sandboxIdOrName string
 	isPublic bool
 	xBoxLiteOrganizationID *string
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIUpdatePublicStatusRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIUpdatePublicStatusRequest {
+func (r BoxAPIUpdatePublicStatusRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIUpdatePublicStatusRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIUpdatePublicStatusRequest) Execute() (*Sandbox, *http.Response, error) {
+func (r BoxAPIUpdatePublicStatusRequest) Execute() (*Box, *http.Response, error) {
 	return r.ApiService.UpdatePublicStatusExecute(r)
 }
 
@@ -4233,10 +4353,10 @@ UpdatePublicStatus Update public status
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
  @param sandboxIdOrName ID or name of the sandbox
  @param isPublic Public status to set
- @return SandboxAPIUpdatePublicStatusRequest
+ @return BoxAPIUpdatePublicStatusRequest
 */
-func (a *SandboxAPIService) UpdatePublicStatus(ctx context.Context, sandboxIdOrName string, isPublic bool) SandboxAPIUpdatePublicStatusRequest {
-	return SandboxAPIUpdatePublicStatusRequest{
+func (a *BoxAPIService) UpdatePublicStatus(ctx context.Context, sandboxIdOrName string, isPublic bool) BoxAPIUpdatePublicStatusRequest {
+	return BoxAPIUpdatePublicStatusRequest{
 		ApiService: a,
 		ctx: ctx,
 		sandboxIdOrName: sandboxIdOrName,
@@ -4245,21 +4365,21 @@ func (a *SandboxAPIService) UpdatePublicStatus(ctx context.Context, sandboxIdOrN
 }
 
 // Execute executes the request
-//  @return Sandbox
-func (a *SandboxAPIService) UpdatePublicStatusExecute(r SandboxAPIUpdatePublicStatusRequest) (*Sandbox, *http.Response, error) {
+//  @return Box
+func (a *BoxAPIService) UpdatePublicStatusExecute(r BoxAPIUpdatePublicStatusRequest) (*Box, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		formFiles            []formFile
-		localVarReturnValue  *Sandbox
+		localVarReturnValue  *Box
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.UpdatePublicStatus")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.UpdatePublicStatus")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/{sandboxIdOrName}/public/{isPublic}"
+	localVarPath := localBasePath + "/box/{boxIdOrName}/public/{isPublic}"
 	localVarPath = strings.Replace(localVarPath, "{"+"sandboxIdOrName"+"}", url.PathEscape(parameterValueToString(r.sandboxIdOrName, "sandboxIdOrName")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"isPublic"+"}", url.PathEscape(parameterValueToString(r.isPublic, "isPublic")), -1)
 
@@ -4324,137 +4444,26 @@ func (a *SandboxAPIService) UpdatePublicStatusExecute(r SandboxAPIUpdatePublicSt
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type SandboxAPIUpdateSandboxStateRequest struct {
+type BoxAPIValidateSshAccessRequest struct {
 	ctx context.Context
-	ApiService SandboxAPI
-	sandboxId string
-	updateSandboxStateDto *UpdateSandboxStateDto
-	xBoxLiteOrganizationID *string
-}
-
-func (r SandboxAPIUpdateSandboxStateRequest) UpdateSandboxStateDto(updateSandboxStateDto UpdateSandboxStateDto) SandboxAPIUpdateSandboxStateRequest {
-	r.updateSandboxStateDto = &updateSandboxStateDto
-	return r
-}
-
-// Use with JWT to specify the organization ID
-func (r SandboxAPIUpdateSandboxStateRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIUpdateSandboxStateRequest {
-	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
-	return r
-}
-
-func (r SandboxAPIUpdateSandboxStateRequest) Execute() (*http.Response, error) {
-	return r.ApiService.UpdateSandboxStateExecute(r)
-}
-
-/*
-UpdateSandboxState Update sandbox state
-
- @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @param sandboxId ID of the sandbox
- @return SandboxAPIUpdateSandboxStateRequest
-*/
-func (a *SandboxAPIService) UpdateSandboxState(ctx context.Context, sandboxId string) SandboxAPIUpdateSandboxStateRequest {
-	return SandboxAPIUpdateSandboxStateRequest{
-		ApiService: a,
-		ctx: ctx,
-		sandboxId: sandboxId,
-	}
-}
-
-// Execute executes the request
-func (a *SandboxAPIService) UpdateSandboxStateExecute(r SandboxAPIUpdateSandboxStateRequest) (*http.Response, error) {
-	var (
-		localVarHTTPMethod   = http.MethodPut
-		localVarPostBody     interface{}
-		formFiles            []formFile
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.UpdateSandboxState")
-	if err != nil {
-		return nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/sandbox/{sandboxId}/state"
-	localVarPath = strings.Replace(localVarPath, "{"+"sandboxId"+"}", url.PathEscape(parameterValueToString(r.sandboxId, "sandboxId")), -1)
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-	if r.updateSandboxStateDto == nil {
-		return nil, reportError("updateSandboxStateDto is required and must be specified")
-	}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{"application/json"}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	if r.xBoxLiteOrganizationID != nil {
-		parameterAddToHeaderOrQuery(localVarHeaderParams, "X-BoxLite-Organization-ID", r.xBoxLiteOrganizationID, "simple", "")
-	}
-	// body params
-	localVarPostBody = r.updateSandboxStateDto
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-		return localVarHTTPResponse, newErr
-	}
-
-	return localVarHTTPResponse, nil
-}
-
-type SandboxAPIValidateSshAccessRequest struct {
-	ctx context.Context
-	ApiService SandboxAPI
+	ApiService BoxAPI
 	token *string
 	xBoxLiteOrganizationID *string
 }
 
 // SSH access token to validate
-func (r SandboxAPIValidateSshAccessRequest) Token(token string) SandboxAPIValidateSshAccessRequest {
+func (r BoxAPIValidateSshAccessRequest) Token(token string) BoxAPIValidateSshAccessRequest {
 	r.token = &token
 	return r
 }
 
 // Use with JWT to specify the organization ID
-func (r SandboxAPIValidateSshAccessRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) SandboxAPIValidateSshAccessRequest {
+func (r BoxAPIValidateSshAccessRequest) XBoxLiteOrganizationID(xBoxLiteOrganizationID string) BoxAPIValidateSshAccessRequest {
 	r.xBoxLiteOrganizationID = &xBoxLiteOrganizationID
 	return r
 }
 
-func (r SandboxAPIValidateSshAccessRequest) Execute() (*SshAccessValidationDto, *http.Response, error) {
+func (r BoxAPIValidateSshAccessRequest) Execute() (*SshAccessValidationDto, *http.Response, error) {
 	return r.ApiService.ValidateSshAccessExecute(r)
 }
 
@@ -4462,10 +4471,10 @@ func (r SandboxAPIValidateSshAccessRequest) Execute() (*SshAccessValidationDto, 
 ValidateSshAccess Validate SSH access for sandbox
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- @return SandboxAPIValidateSshAccessRequest
+ @return BoxAPIValidateSshAccessRequest
 */
-func (a *SandboxAPIService) ValidateSshAccess(ctx context.Context) SandboxAPIValidateSshAccessRequest {
-	return SandboxAPIValidateSshAccessRequest{
+func (a *BoxAPIService) ValidateSshAccess(ctx context.Context) BoxAPIValidateSshAccessRequest {
+	return BoxAPIValidateSshAccessRequest{
 		ApiService: a,
 		ctx: ctx,
 	}
@@ -4473,7 +4482,7 @@ func (a *SandboxAPIService) ValidateSshAccess(ctx context.Context) SandboxAPIVal
 
 // Execute executes the request
 //  @return SshAccessValidationDto
-func (a *SandboxAPIService) ValidateSshAccessExecute(r SandboxAPIValidateSshAccessRequest) (*SshAccessValidationDto, *http.Response, error) {
+func (a *BoxAPIService) ValidateSshAccessExecute(r BoxAPIValidateSshAccessRequest) (*SshAccessValidationDto, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -4481,12 +4490,12 @@ func (a *SandboxAPIService) ValidateSshAccessExecute(r SandboxAPIValidateSshAcce
 		localVarReturnValue  *SshAccessValidationDto
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SandboxAPIService.ValidateSshAccess")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BoxAPIService.ValidateSshAccess")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/sandbox/ssh-access/validate"
+	localVarPath := localBasePath + "/box/ssh-access/validate"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}

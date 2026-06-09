@@ -42,7 +42,7 @@ export function addWebhookDocumentation(document: OpenAPIObject): OpenAPIObjectW
   return {
     ...document,
     webhooks: {
-      [WebhookEvent.SANDBOX_CREATED]: {
+      [WebhookEvent.BOX_CREATED]: {
         post: {
           requestBody: {
             description: 'Box created event',
@@ -59,7 +59,7 @@ export function addWebhookDocumentation(document: OpenAPIObject): OpenAPIObjectW
           },
         },
       },
-      [WebhookEvent.SANDBOX_STATE_UPDATED]: {
+      [WebhookEvent.BOX_STATE_UPDATED]: {
         post: {
           requestBody: {
             description: 'Box state updated event',

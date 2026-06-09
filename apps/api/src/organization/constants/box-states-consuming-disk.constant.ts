@@ -5,10 +5,10 @@
  */
 
 import { BoxState } from '../../box/enums/box-state.enum'
-import { SANDBOX_STATES_CONSUMING_COMPUTE } from './box-states-consuming-compute.constant'
+import { BOX_STATES_CONSUMING_COMPUTE } from './box-states-consuming-compute.constant'
 
-export const SANDBOX_STATES_CONSUMING_DISK: BoxState[] = [
-  ...SANDBOX_STATES_CONSUMING_COMPUTE,
+export const BOX_STATES_CONSUMING_DISK: BoxState[] = [
+  ...BOX_STATES_CONSUMING_COMPUTE,
   BoxState.STOPPED,
   BoxState.ARCHIVING,
   BoxState.RESIZING,

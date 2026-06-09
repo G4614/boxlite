@@ -15,41 +15,41 @@ import (
 	"encoding/json"
 )
 
-// checks if the ResizeSandbox type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &ResizeSandbox{}
+// checks if the ResizeBox type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &ResizeBox{}
 
-// ResizeSandbox struct for ResizeSandbox
-type ResizeSandbox struct {
-	// CPU cores to allocate to the sandbox (minimum: 1)
+// ResizeBox struct for ResizeBox
+type ResizeBox struct {
+	// CPU cores to allocate to the box (minimum: 1)
 	Cpu *int32 `json:"cpu,omitempty"`
-	// Memory in GB to allocate to the sandbox (minimum: 1)
+	// Memory in GB to allocate to the box (minimum: 1)
 	Memory *int32 `json:"memory,omitempty"`
-	// Disk space in GB to allocate to the sandbox (can only be increased)
+	// Disk space in GB to allocate to the box (can only be increased)
 	Disk *int32 `json:"disk,omitempty"`
 	AdditionalProperties map[string]interface{}
 }
 
-type _ResizeSandbox ResizeSandbox
+type _ResizeBox ResizeBox
 
-// NewResizeSandbox instantiates a new ResizeSandbox object
+// NewResizeBox instantiates a new ResizeBox object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewResizeSandbox() *ResizeSandbox {
-	this := ResizeSandbox{}
+func NewResizeBox() *ResizeBox {
+	this := ResizeBox{}
 	return &this
 }
 
-// NewResizeSandboxWithDefaults instantiates a new ResizeSandbox object
+// NewResizeBoxWithDefaults instantiates a new ResizeBox object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewResizeSandboxWithDefaults() *ResizeSandbox {
-	this := ResizeSandbox{}
+func NewResizeBoxWithDefaults() *ResizeBox {
+	this := ResizeBox{}
 	return &this
 }
 
 // GetCpu returns the Cpu field value if set, zero value otherwise.
-func (o *ResizeSandbox) GetCpu() int32 {
+func (o *ResizeBox) GetCpu() int32 {
 	if o == nil || IsNil(o.Cpu) {
 		var ret int32
 		return ret
@@ -59,7 +59,7 @@ func (o *ResizeSandbox) GetCpu() int32 {
 
 // GetCpuOk returns a tuple with the Cpu field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *ResizeSandbox) GetCpuOk() (*int32, bool) {
+func (o *ResizeBox) GetCpuOk() (*int32, bool) {
 	if o == nil || IsNil(o.Cpu) {
 		return nil, false
 	}
@@ -67,7 +67,7 @@ func (o *ResizeSandbox) GetCpuOk() (*int32, bool) {
 }
 
 // HasCpu returns a boolean if a field has been set.
-func (o *ResizeSandbox) HasCpu() bool {
+func (o *ResizeBox) HasCpu() bool {
 	if o != nil && !IsNil(o.Cpu) {
 		return true
 	}
@@ -76,12 +76,12 @@ func (o *ResizeSandbox) HasCpu() bool {
 }
 
 // SetCpu gets a reference to the given int32 and assigns it to the Cpu field.
-func (o *ResizeSandbox) SetCpu(v int32) {
+func (o *ResizeBox) SetCpu(v int32) {
 	o.Cpu = &v
 }
 
 // GetMemory returns the Memory field value if set, zero value otherwise.
-func (o *ResizeSandbox) GetMemory() int32 {
+func (o *ResizeBox) GetMemory() int32 {
 	if o == nil || IsNil(o.Memory) {
 		var ret int32
 		return ret
@@ -91,7 +91,7 @@ func (o *ResizeSandbox) GetMemory() int32 {
 
 // GetMemoryOk returns a tuple with the Memory field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *ResizeSandbox) GetMemoryOk() (*int32, bool) {
+func (o *ResizeBox) GetMemoryOk() (*int32, bool) {
 	if o == nil || IsNil(o.Memory) {
 		return nil, false
 	}
@@ -99,7 +99,7 @@ func (o *ResizeSandbox) GetMemoryOk() (*int32, bool) {
 }
 
 // HasMemory returns a boolean if a field has been set.
-func (o *ResizeSandbox) HasMemory() bool {
+func (o *ResizeBox) HasMemory() bool {
 	if o != nil && !IsNil(o.Memory) {
 		return true
 	}
@@ -108,12 +108,12 @@ func (o *ResizeSandbox) HasMemory() bool {
 }
 
 // SetMemory gets a reference to the given int32 and assigns it to the Memory field.
-func (o *ResizeSandbox) SetMemory(v int32) {
+func (o *ResizeBox) SetMemory(v int32) {
 	o.Memory = &v
 }
 
 // GetDisk returns the Disk field value if set, zero value otherwise.
-func (o *ResizeSandbox) GetDisk() int32 {
+func (o *ResizeBox) GetDisk() int32 {
 	if o == nil || IsNil(o.Disk) {
 		var ret int32
 		return ret
@@ -123,7 +123,7 @@ func (o *ResizeSandbox) GetDisk() int32 {
 
 // GetDiskOk returns a tuple with the Disk field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *ResizeSandbox) GetDiskOk() (*int32, bool) {
+func (o *ResizeBox) GetDiskOk() (*int32, bool) {
 	if o == nil || IsNil(o.Disk) {
 		return nil, false
 	}
@@ -131,7 +131,7 @@ func (o *ResizeSandbox) GetDiskOk() (*int32, bool) {
 }
 
 // HasDisk returns a boolean if a field has been set.
-func (o *ResizeSandbox) HasDisk() bool {
+func (o *ResizeBox) HasDisk() bool {
 	if o != nil && !IsNil(o.Disk) {
 		return true
 	}
@@ -140,11 +140,11 @@ func (o *ResizeSandbox) HasDisk() bool {
 }
 
 // SetDisk gets a reference to the given int32 and assigns it to the Disk field.
-func (o *ResizeSandbox) SetDisk(v int32) {
+func (o *ResizeBox) SetDisk(v int32) {
 	o.Disk = &v
 }
 
-func (o ResizeSandbox) MarshalJSON() ([]byte, error) {
+func (o ResizeBox) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -152,7 +152,7 @@ func (o ResizeSandbox) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o ResizeSandbox) ToMap() (map[string]interface{}, error) {
+func (o ResizeBox) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Cpu) {
 		toSerialize["cpu"] = o.Cpu
@@ -171,16 +171,16 @@ func (o ResizeSandbox) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *ResizeSandbox) UnmarshalJSON(data []byte) (err error) {
-	varResizeSandbox := _ResizeSandbox{}
+func (o *ResizeBox) UnmarshalJSON(data []byte) (err error) {
+	varResizeBox := _ResizeBox{}
 
-	err = json.Unmarshal(data, &varResizeSandbox)
+	err = json.Unmarshal(data, &varResizeBox)
 
 	if err != nil {
 		return err
 	}
 
-	*o = ResizeSandbox(varResizeSandbox)
+	*o = ResizeBox(varResizeBox)
 
 	additionalProperties := make(map[string]interface{})
 
@@ -194,38 +194,40 @@ func (o *ResizeSandbox) UnmarshalJSON(data []byte) (err error) {
 	return err
 }
 
-type NullableResizeSandbox struct {
-	value *ResizeSandbox
+type NullableResizeBox struct {
+	value *ResizeBox
 	isSet bool
 }
 
-func (v NullableResizeSandbox) Get() *ResizeSandbox {
+func (v NullableResizeBox) Get() *ResizeBox {
 	return v.value
 }
 
-func (v *NullableResizeSandbox) Set(val *ResizeSandbox) {
+func (v *NullableResizeBox) Set(val *ResizeBox) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableResizeSandbox) IsSet() bool {
+func (v NullableResizeBox) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableResizeSandbox) Unset() {
+func (v *NullableResizeBox) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableResizeSandbox(val *ResizeSandbox) *NullableResizeSandbox {
-	return &NullableResizeSandbox{value: val, isSet: true}
+func NewNullableResizeBox(val *ResizeBox) *NullableResizeBox {
+	return &NullableResizeBox{value: val, isSet: true}
 }
 
-func (v NullableResizeSandbox) MarshalJSON() ([]byte, error) {
+func (v NullableResizeBox) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableResizeSandbox) UnmarshalJSON(src []byte) error {
+func (v *NullableResizeBox) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

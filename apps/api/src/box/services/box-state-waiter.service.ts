@@ -8,7 +8,7 @@ import { InjectRedis } from '@nestjs-modules/ioredis'
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common'
 import Redis from 'ioredis'
 import { BadRequestError } from '../../exceptions/bad-request.exception'
-import { SANDBOX_EVENT_CHANNEL } from '../../common/constants/constants'
+import { BOX_EVENT_CHANNEL } from '../../common/constants/constants'
 import { BoxDto } from '../dto/box.dto'
 import { BoxState } from '../enums/box-state.enum'
 import { BoxStateUpdatedEvent } from '../events/box-state-updated.event'
@@ -25,9 +25,9 @@ export class BoxStateWaiterService implements OnModuleDestroy {
     @InjectRedis() private readonly redis: Redis,
   ) {
     this.redisSubscriber = this.redis.duplicate()
-    this.redisSubscriber.subscribe(SANDBOX_EVENT_CHANNEL)
+    this.redisSubscriber.subscribe(BOX_EVENT_CHANNEL)
     this.redisSubscriber.on('message', (channel, message) => {
-      if (channel !== SANDBOX_EVENT_CHANNEL) {
+      if (channel !== BOX_EVENT_CHANNEL) {
         return
       }
 

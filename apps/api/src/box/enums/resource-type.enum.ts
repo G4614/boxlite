@@ -5,7 +5,7 @@
  */
 
 export enum ResourceType {
-  SANDBOX = 'SANDBOX',
+  BOX = 'BOX',
   SNAPSHOT = 'SNAPSHOT',
   BACKUP = 'BACKUP',
 }

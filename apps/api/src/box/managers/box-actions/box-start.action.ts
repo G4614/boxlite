@@ -10,7 +10,7 @@ import { RECOVERY_ERROR_SUBSTRINGS } from '../../constants/errors-for-recovery'
 import { Box } from '../../entities/box.entity'
 import { BoxState } from '../../enums/box-state.enum'
 import { DONT_SYNC_AGAIN, BoxAction, SYNC_AGAIN, SyncState } from './box.action'
-import { SANDBOX_BUILD_INFO_CACHE_TTL_MS } from '../../utils/box-lookup-cache.util'
+import { BOX_BUILD_INFO_CACHE_TTL_MS } from '../../utils/box-lookup-cache.util'
 import { SnapshotRunnerState } from '../../enums/snapshot-runner-state.enum'
 import { BackupState } from '../../enums/backup-state.enum'
 import { RunnerState } from '../../enums/runner-state.enum'
@@ -109,7 +109,7 @@ export class BoxStartAction extends BoxAction {
       .createQueryBuilder('sandbox')
       .leftJoinAndSelect('sandbox.buildInfo', 'buildInfo')
       .where('sandbox.id = :id', { id: box.id })
-      .cache(`sandbox:buildInfo:${box.id}`, SANDBOX_BUILD_INFO_CACHE_TTL_MS)
+      .cache(`sandbox:buildInfo:${box.id}`, BOX_BUILD_INFO_CACHE_TTL_MS)
       .getMany()
     box.buildInfo = result?.buildInfo ?? null
   }

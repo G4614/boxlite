@@ -21,17 +21,17 @@ import { SnapshotStateError } from '../errors/snapshot-state-error'
 import { Runner } from '../entities/runner.entity'
 import {
   Configuration,
-  SandboxApi,
-  EnumsSandboxState,
+  BoxApi,
+  EnumsBoxState,
   SnapshotsApi,
   EnumsBackupState,
   DefaultApi,
-  CreateSandboxDTO,
+  CreateBoxDTO,
   BuildSnapshotRequestDTO,
   CreateBackupDTO,
   PullSnapshotRequestDTO,
   UpdateNetworkSettingsDTO,
-  RecoverSandboxDTO,
+  RecoverBoxDTO,
 } from '@boxlite-ai/runner-api-client'
 import { Box } from '../entities/box.entity'
 import { BuildInfo } from '../entities/build-info.entity'
@@ -48,31 +48,31 @@ const RETRYABLE_NETWORK_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT']
 @Injectable()
 export class RunnerAdapterV0 implements RunnerAdapter {
   private readonly logger = new Logger(RunnerAdapterV0.name)
-  private boxApiClient: SandboxApi
+  private boxApiClient: BoxApi
   private snapshotApiClient: SnapshotsApi
   private runnerApiClient: DefaultApi
 
-  private convertBoxState(state: EnumsSandboxState): BoxState {
+  private convertBoxState(state: EnumsBoxState): BoxState {
     switch (state) {
-      case EnumsSandboxState.SandboxStateCreating:
+      case EnumsBoxState.BoxStateCreating:
         return BoxState.CREATING
-      case EnumsSandboxState.SandboxStateRestoring:
+      case EnumsBoxState.BoxStateRestoring:
         return BoxState.RESTORING
-      case EnumsSandboxState.SandboxStateDestroyed:
+      case EnumsBoxState.BoxStateDestroyed:
         return BoxState.DESTROYED
-      case EnumsSandboxState.SandboxStateDestroying:
+      case EnumsBoxState.BoxStateDestroying:
         return BoxState.DESTROYING
-      case EnumsSandboxState.SandboxStateStarted:
+      case EnumsBoxState.BoxStateStarted:
         return BoxState.STARTED
-      case EnumsSandboxState.SandboxStateStopped:
+      case EnumsBoxState.BoxStateStopped:
         return BoxState.STOPPED
-      case EnumsSandboxState.SandboxStateStarting:
+      case EnumsBoxState.BoxStateStarting:
         return BoxState.STARTING
-      case EnumsSandboxState.SandboxStateStopping:
+      case EnumsBoxState.BoxStateStopping:
         return BoxState.STOPPING
-      case EnumsSandboxState.SandboxStateError:
+      case EnumsBoxState.BoxStateError:
         return BoxState.ERROR
-      case EnumsSandboxState.SandboxStatePullingSnapshot:
+      case EnumsBoxState.BoxStatePullingSnapshot:
         return BoxState.PULLING_SNAPSHOT
       default:
         return BoxState.UNKNOWN
@@ -151,7 +151,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
       axiosDebug.addLogger(axiosInstance)
     }
 
-    this.boxApiClient = new SandboxApi(new Configuration(), '', axiosInstance)
+    this.boxApiClient = new BoxApi(new Configuration(), '', axiosInstance)
     this.snapshotApiClient = new SnapshotsApi(new Configuration(), '', axiosInstance)
     this.runnerApiClient = new DefaultApi(new Configuration(), '', axiosInstance)
   }
@@ -192,7 +192,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
     otelEndpoint?: string,
     skipStart?: boolean,
   ): Promise<StartBoxResponse | undefined> {
-    const createBoxDto: CreateSandboxDTO = {
+    const createBoxDto: CreateBoxDTO = {
       id: box.id,
       userId: box.organizationId,
       snapshot: snapshotRef,
@@ -415,7 +415,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
   }
 
   async recoverBox(box: Box): Promise<void> {
-    const recoverBoxDTO: RecoverSandboxDTO = {
+    const recoverBoxDTO: RecoverBoxDTO = {
       userId: box.organizationId,
       snapshot: box.snapshot,
       osUser: box.osUser,

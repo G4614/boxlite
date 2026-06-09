@@ -57,19 +57,19 @@ export class JobStateHandlerService {
     }
 
     switch (job.type) {
-      case JobType.CREATE_SANDBOX:
+      case JobType.CREATE_BOX:
         await this.handleCreateBoxJobCompletion(job)
         break
-      case JobType.START_SANDBOX:
+      case JobType.START_BOX:
         await this.handleStartBoxJobCompletion(job)
         break
-      case JobType.STOP_SANDBOX:
+      case JobType.STOP_BOX:
         await this.handleStopBoxJobCompletion(job)
         break
-      case JobType.DESTROY_SANDBOX:
+      case JobType.DESTROY_BOX:
         await this.handleDestroyBoxJobCompletion(job)
         break
-      case JobType.RESIZE_SANDBOX:
+      case JobType.RESIZE_BOX:
         await this.handleResizeBoxJobCompletion(job)
         break
       case JobType.PULL_SNAPSHOT:
@@ -84,7 +84,7 @@ export class JobStateHandlerService {
       case JobType.CREATE_BACKUP:
         await this.handleCreateBackupJobCompletion(job)
         break
-      case JobType.RECOVER_SANDBOX:
+      case JobType.RECOVER_BOX:
         await this.handleRecoverBoxJobCompletion(job)
         break
       default:
@@ -92,7 +92,7 @@ export class JobStateHandlerService {
     }
 
     switch (job.resourceType) {
-      case ResourceType.SANDBOX: {
+      case ResourceType.BOX: {
         const lockKey = getStateChangeLockKey(job.resourceId)
         this.redisLockProvider
           .unlock(lockKey)
@@ -111,13 +111,13 @@ export class JobStateHandlerService {
     try {
       const box = await this.boxRepository.findOne({ where: { id: boxId } })
       if (!box) {
-        this.logger.warn(`Box ${boxId} not found for CREATE_SANDBOX job ${job.id}`)
+        this.logger.warn(`Box ${boxId} not found for CREATE_BOX job ${job.id}`)
         return
       }
 
       if (box.desiredState !== BoxDesiredState.STARTED) {
         this.logger.error(
-          `Box ${boxId} is not in desired state STARTED for CREATE_SANDBOX job ${job.id}. Desired state: ${box.desiredState}`,
+          `Box ${boxId} is not in desired state STARTED for CREATE_BOX job ${job.id}. Desired state: ${box.desiredState}`,
         )
         return
       }
@@ -125,7 +125,7 @@ export class JobStateHandlerService {
       const updateData: Partial<Box> = {}
 
       if (job.status === JobStatus.COMPLETED) {
-        this.logger.debug(`CREATE_SANDBOX job ${job.id} completed successfully, marking box ${boxId} as STARTED`)
+        this.logger.debug(`CREATE_BOX job ${job.id} completed successfully, marking box ${boxId} as STARTED`)
         updateData.state = BoxState.STARTED
         updateData.errorReason = null
         const metadata = job.getResultMetadata()
@@ -133,7 +133,7 @@ export class JobStateHandlerService {
           updateData.daemonVersion = metadata.daemonVersion
         }
       } else if (job.status === JobStatus.FAILED) {
-        this.logger.error(`CREATE_SANDBOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
+        this.logger.error(`CREATE_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
         updateData.state = BoxState.ERROR
         const { recoverable, errorReason } = sanitizeBoxError(job.errorMessage)
         updateData.errorReason = errorReason || 'Failed to create sandbox'
@@ -142,7 +142,7 @@ export class JobStateHandlerService {
 
       await this.boxRepository.update(boxId, { updateData, entity: box })
     } catch (error) {
-      this.logger.error(`Error handling CREATE_SANDBOX job completion for box ${boxId}:`, error)
+      this.logger.error(`Error handling CREATE_BOX job completion for box ${boxId}:`, error)
     }
   }
 
@@ -153,13 +153,13 @@ export class JobStateHandlerService {
     try {
       const box = await this.boxRepository.findOne({ where: { id: boxId } })
       if (!box) {
-        this.logger.warn(`Box ${boxId} not found for START_SANDBOX job ${job.id}`)
+        this.logger.warn(`Box ${boxId} not found for START_BOX job ${job.id}`)
         return
       }
 
       if (box.desiredState !== BoxDesiredState.STARTED) {
         this.logger.error(
-          `Box ${boxId} is not in desired state STARTED for START_SANDBOX job ${job.id}. Desired state: ${box.desiredState}`,
+          `Box ${boxId} is not in desired state STARTED for START_BOX job ${job.id}. Desired state: ${box.desiredState}`,
         )
         return
       }
@@ -167,7 +167,7 @@ export class JobStateHandlerService {
       const updateData: Partial<Box> = {}
 
       if (job.status === JobStatus.COMPLETED) {
-        this.logger.debug(`START_SANDBOX job ${job.id} completed successfully, marking box ${boxId} as STARTED`)
+        this.logger.debug(`START_BOX job ${job.id} completed successfully, marking box ${boxId} as STARTED`)
         updateData.state = BoxState.STARTED
         updateData.errorReason = null
         const metadata = job.getResultMetadata()
@@ -175,7 +175,7 @@ export class JobStateHandlerService {
           updateData.daemonVersion = metadata.daemonVersion
         }
       } else if (job.status === JobStatus.FAILED) {
-        this.logger.error(`START_SANDBOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
+        this.logger.error(`START_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
         updateData.state = BoxState.ERROR
         const { recoverable, errorReason } = sanitizeBoxError(job.errorMessage)
         updateData.errorReason = errorReason || 'Failed to start sandbox'
@@ -184,7 +184,7 @@ export class JobStateHandlerService {
 
       await this.boxRepository.update(boxId, { updateData, entity: box })
     } catch (error) {
-      this.logger.error(`Error handling START_SANDBOX job completion for box ${boxId}:`, error)
+      this.logger.error(`Error handling START_BOX job completion for box ${boxId}:`, error)
     }
   }
 
@@ -195,13 +195,13 @@ export class JobStateHandlerService {
     try {
       const box = await this.boxRepository.findOne({ where: { id: boxId } })
       if (!box) {
-        this.logger.warn(`Box ${boxId} not found for STOP_SANDBOX job ${job.id}`)
+        this.logger.warn(`Box ${boxId} not found for STOP_BOX job ${job.id}`)
         return
       }
 
       if (box.desiredState !== BoxDesiredState.STOPPED) {
         this.logger.error(
-          `Box ${boxId} is not in desired state STOPPED for STOP_SANDBOX job ${job.id}. Desired state: ${box.desiredState}`,
+          `Box ${boxId} is not in desired state STOPPED for STOP_BOX job ${job.id}. Desired state: ${box.desiredState}`,
         )
         return
       }
@@ -209,12 +209,12 @@ export class JobStateHandlerService {
       const updateData: Partial<Box> = {}
 
       if (job.status === JobStatus.COMPLETED) {
-        this.logger.debug(`STOP_SANDBOX job ${job.id} completed successfully, marking box ${boxId} as STOPPED`)
+        this.logger.debug(`STOP_BOX job ${job.id} completed successfully, marking box ${boxId} as STOPPED`)
         updateData.state = BoxState.STOPPED
         updateData.errorReason = null
         Object.assign(updateData, Box.getBackupStateUpdate(box, BackupState.NONE))
       } else if (job.status === JobStatus.FAILED) {
-        this.logger.error(`STOP_SANDBOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
+        this.logger.error(`STOP_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
         updateData.state = BoxState.ERROR
         const { recoverable, errorReason } = sanitizeBoxError(job.errorMessage)
         updateData.errorReason = errorReason || 'Failed to stop sandbox'
@@ -223,7 +223,7 @@ export class JobStateHandlerService {
 
       await this.boxRepository.update(boxId, { updateData, entity: box })
     } catch (error) {
-      this.logger.error(`Error handling STOP_SANDBOX job completion for box ${boxId}:`, error)
+      this.logger.error(`Error handling STOP_BOX job completion for box ${boxId}:`, error)
     }
   }
 
@@ -234,18 +234,18 @@ export class JobStateHandlerService {
     try {
       const box = await this.boxRepository.findOne({ where: { id: boxId } })
       if (!box) {
-        this.logger.warn(`Box ${boxId} not found for DESTROY_SANDBOX job ${job.id}`)
+        this.logger.warn(`Box ${boxId} not found for DESTROY_BOX job ${job.id}`)
         return
       }
       const updateData: Partial<Box> = {}
 
       if (box.desiredState === BoxDesiredState.DESTROYED) {
         if (job.status === JobStatus.COMPLETED) {
-          this.logger.debug(`DESTROY_SANDBOX job ${job.id} completed successfully, marking box ${boxId} as DESTROYED`)
+          this.logger.debug(`DESTROY_BOX job ${job.id} completed successfully, marking box ${boxId} as DESTROYED`)
           updateData.state = BoxState.DESTROYED
           updateData.errorReason = null
         } else if (job.status === JobStatus.FAILED) {
-          this.logger.error(`DESTROY_SANDBOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
+          this.logger.error(`DESTROY_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
           updateData.state = BoxState.ERROR
           const { recoverable, errorReason } = sanitizeBoxError(job.errorMessage)
           updateData.errorReason = errorReason || 'Failed to destroy sandbox'
@@ -253,12 +253,10 @@ export class JobStateHandlerService {
         }
       } else if (box.desiredState === BoxDesiredState.ARCHIVED && box.backupState === BackupState.COMPLETED) {
         if (job.status === JobStatus.COMPLETED) {
-          this.logger.debug(
-            `DESTROY_SANDBOX job ${job.id} completed during archiving, marking box ${boxId} as ARCHIVED`,
-          )
+          this.logger.debug(`DESTROY_BOX job ${job.id} completed during archiving, marking box ${boxId} as ARCHIVED`)
         } else if (job.status === JobStatus.FAILED) {
           this.logger.warn(
-            `DESTROY_SANDBOX job ${job.id} failed during archiving for box ${boxId}: ${job.errorMessage}. Marking as ARCHIVED since backup is complete.`,
+            `DESTROY_BOX job ${job.id} failed during archiving for box ${boxId}: ${job.errorMessage}. Marking as ARCHIVED since backup is complete.`,
           )
         }
         updateData.state = BoxState.ARCHIVED
@@ -269,7 +267,7 @@ export class JobStateHandlerService {
 
       await this.boxRepository.update(boxId, { updateData, entity: box })
     } catch (error) {
-      this.logger.error(`Error handling DESTROY_SANDBOX job completion for box ${boxId}:`, error)
+      this.logger.error(`Error handling DESTROY_BOX job completion for box ${boxId}:`, error)
     }
   }
 
@@ -463,13 +461,13 @@ export class JobStateHandlerService {
     try {
       const box = await this.boxRepository.findOne({ where: { id: boxId } })
       if (!box) {
-        this.logger.warn(`Box ${boxId} not found for RECOVER_SANDBOX job ${job.id}`)
+        this.logger.warn(`Box ${boxId} not found for RECOVER_BOX job ${job.id}`)
         return
       }
 
       if (box.desiredState !== BoxDesiredState.STARTED) {
         this.logger.error(
-          `Box ${boxId} is not in desired state STARTED for RECOVER_SANDBOX job ${job.id}. Desired state: ${box.desiredState}`,
+          `Box ${boxId} is not in desired state STARTED for RECOVER_BOX job ${job.id}. Desired state: ${box.desiredState}`,
         )
         return
       }
@@ -477,18 +475,18 @@ export class JobStateHandlerService {
       const updateData: Partial<Box> = {}
 
       if (job.status === JobStatus.COMPLETED) {
-        this.logger.debug(`RECOVER_SANDBOX job ${job.id} completed successfully, marking box ${boxId} as STARTED`)
+        this.logger.debug(`RECOVER_BOX job ${job.id} completed successfully, marking box ${boxId} as STARTED`)
         updateData.state = BoxState.STARTED
         updateData.errorReason = null
       } else if (job.status === JobStatus.FAILED) {
-        this.logger.error(`RECOVER_SANDBOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
+        this.logger.error(`RECOVER_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
         updateData.state = BoxState.ERROR
         updateData.errorReason = job.errorMessage || 'Failed to recover sandbox'
       }
 
       await this.boxRepository.update(boxId, { updateData, entity: box })
     } catch (error) {
-      this.logger.error(`Error handling RECOVER_SANDBOX job completion for box ${boxId}:`, error)
+      this.logger.error(`Error handling RECOVER_BOX job completion for box ${boxId}:`, error)
     }
   }
 
@@ -499,12 +497,12 @@ export class JobStateHandlerService {
     try {
       const box = await this.boxRepository.findOne({ where: { id: boxId } })
       if (!box) {
-        this.logger.warn(`Box ${boxId} not found for RESIZE_SANDBOX job ${job.id}`)
+        this.logger.warn(`Box ${boxId} not found for RESIZE_BOX job ${job.id}`)
         return
       }
 
       if (box.state !== BoxState.RESIZING) {
-        this.logger.warn(`Box ${boxId} is not in RESIZING state for RESIZE_SANDBOX job ${job.id}. State: ${box.state}`)
+        this.logger.warn(`Box ${boxId} is not in RESIZING state for RESIZE_BOX job ${job.id}. State: ${box.state}`)
         return
       }
 
@@ -517,9 +515,7 @@ export class JobStateHandlerService {
             : null
 
       if (!previousState) {
-        this.logger.error(
-          `Box ${boxId} has unexpected desiredState ${box.desiredState} for RESIZE_SANDBOX job ${job.id}`,
-        )
+        this.logger.error(`Box ${boxId} has unexpected desiredState ${box.desiredState} for RESIZE_BOX job ${job.id}`)
         return
       }
 
@@ -535,7 +531,7 @@ export class JobStateHandlerService {
       const updateData: Partial<Box> = {}
 
       if (job.status === JobStatus.COMPLETED) {
-        this.logger.debug(`RESIZE_SANDBOX job ${job.id} completed successfully for box ${boxId}`)
+        this.logger.debug(`RESIZE_BOX job ${job.id} completed successfully for box ${boxId}`)
 
         // Update box resources
         updateData.cpu = payload.cpu ?? box.cpu
@@ -553,7 +549,7 @@ export class JobStateHandlerService {
         )
         return
       } else if (job.status === JobStatus.FAILED) {
-        this.logger.error(`RESIZE_SANDBOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
+        this.logger.error(`RESIZE_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
 
         // Rollback pending usage (all deltas were tracked, including negative)
         await this.organizationUsageService.decrementPendingBoxUsage(
@@ -569,7 +565,7 @@ export class JobStateHandlerService {
 
       await this.boxRepository.update(boxId, { updateData, entity: box })
     } catch (error) {
-      this.logger.error(`Error handling RESIZE_SANDBOX job completion for box ${boxId}:`, error)
+      this.logger.error(`Error handling RESIZE_BOX job completion for box ${boxId}:`, error)
     }
   }
 }

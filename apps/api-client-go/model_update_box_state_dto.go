@@ -16,42 +16,42 @@ import (
 	"fmt"
 )
 
-// checks if the UpdateSandboxStateDto type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &UpdateSandboxStateDto{}
+// checks if the UpdateBoxStateDto type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &UpdateBoxStateDto{}
 
-// UpdateSandboxStateDto struct for UpdateSandboxStateDto
-type UpdateSandboxStateDto struct {
+// UpdateBoxStateDto struct for UpdateBoxStateDto
+type UpdateBoxStateDto struct {
 	// The new state for the sandbox
 	State string `json:"state"`
 	// Optional error message when reporting an error state
 	ErrorReason *string `json:"errorReason,omitempty"`
-	// Whether the sandbox is recoverable
+	// Whether the box is recoverable
 	Recoverable *bool `json:"recoverable,omitempty"`
 	AdditionalProperties map[string]interface{}
 }
 
-type _UpdateSandboxStateDto UpdateSandboxStateDto
+type _UpdateBoxStateDto UpdateBoxStateDto
 
-// NewUpdateSandboxStateDto instantiates a new UpdateSandboxStateDto object
+// NewUpdateBoxStateDto instantiates a new UpdateBoxStateDto object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewUpdateSandboxStateDto(state string) *UpdateSandboxStateDto {
-	this := UpdateSandboxStateDto{}
+func NewUpdateBoxStateDto(state string) *UpdateBoxStateDto {
+	this := UpdateBoxStateDto{}
 	this.State = state
 	return &this
 }
 
-// NewUpdateSandboxStateDtoWithDefaults instantiates a new UpdateSandboxStateDto object
+// NewUpdateBoxStateDtoWithDefaults instantiates a new UpdateBoxStateDto object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewUpdateSandboxStateDtoWithDefaults() *UpdateSandboxStateDto {
-	this := UpdateSandboxStateDto{}
+func NewUpdateBoxStateDtoWithDefaults() *UpdateBoxStateDto {
+	this := UpdateBoxStateDto{}
 	return &this
 }
 
 // GetState returns the State field value
-func (o *UpdateSandboxStateDto) GetState() string {
+func (o *UpdateBoxStateDto) GetState() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -62,7 +62,7 @@ func (o *UpdateSandboxStateDto) GetState() string {
 
 // GetStateOk returns a tuple with the State field value
 // and a boolean to check if the value has been set.
-func (o *UpdateSandboxStateDto) GetStateOk() (*string, bool) {
+func (o *UpdateBoxStateDto) GetStateOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -70,12 +70,12 @@ func (o *UpdateSandboxStateDto) GetStateOk() (*string, bool) {
 }
 
 // SetState sets field value
-func (o *UpdateSandboxStateDto) SetState(v string) {
+func (o *UpdateBoxStateDto) SetState(v string) {
 	o.State = v
 }
 
 // GetErrorReason returns the ErrorReason field value if set, zero value otherwise.
-func (o *UpdateSandboxStateDto) GetErrorReason() string {
+func (o *UpdateBoxStateDto) GetErrorReason() string {
 	if o == nil || IsNil(o.ErrorReason) {
 		var ret string
 		return ret
@@ -85,7 +85,7 @@ func (o *UpdateSandboxStateDto) GetErrorReason() string {
 
 // GetErrorReasonOk returns a tuple with the ErrorReason field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *UpdateSandboxStateDto) GetErrorReasonOk() (*string, bool) {
+func (o *UpdateBoxStateDto) GetErrorReasonOk() (*string, bool) {
 	if o == nil || IsNil(o.ErrorReason) {
 		return nil, false
 	}
@@ -93,7 +93,7 @@ func (o *UpdateSandboxStateDto) GetErrorReasonOk() (*string, bool) {
 }
 
 // HasErrorReason returns a boolean if a field has been set.
-func (o *UpdateSandboxStateDto) HasErrorReason() bool {
+func (o *UpdateBoxStateDto) HasErrorReason() bool {
 	if o != nil && !IsNil(o.ErrorReason) {
 		return true
 	}
@@ -102,12 +102,12 @@ func (o *UpdateSandboxStateDto) HasErrorReason() bool {
 }
 
 // SetErrorReason gets a reference to the given string and assigns it to the ErrorReason field.
-func (o *UpdateSandboxStateDto) SetErrorReason(v string) {
+func (o *UpdateBoxStateDto) SetErrorReason(v string) {
 	o.ErrorReason = &v
 }
 
 // GetRecoverable returns the Recoverable field value if set, zero value otherwise.
-func (o *UpdateSandboxStateDto) GetRecoverable() bool {
+func (o *UpdateBoxStateDto) GetRecoverable() bool {
 	if o == nil || IsNil(o.Recoverable) {
 		var ret bool
 		return ret
@@ -117,7 +117,7 @@ func (o *UpdateSandboxStateDto) GetRecoverable() bool {
 
 // GetRecoverableOk returns a tuple with the Recoverable field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *UpdateSandboxStateDto) GetRecoverableOk() (*bool, bool) {
+func (o *UpdateBoxStateDto) GetRecoverableOk() (*bool, bool) {
 	if o == nil || IsNil(o.Recoverable) {
 		return nil, false
 	}
@@ -125,7 +125,7 @@ func (o *UpdateSandboxStateDto) GetRecoverableOk() (*bool, bool) {
 }
 
 // HasRecoverable returns a boolean if a field has been set.
-func (o *UpdateSandboxStateDto) HasRecoverable() bool {
+func (o *UpdateBoxStateDto) HasRecoverable() bool {
 	if o != nil && !IsNil(o.Recoverable) {
 		return true
 	}
@@ -134,11 +134,11 @@ func (o *UpdateSandboxStateDto) HasRecoverable() bool {
 }
 
 // SetRecoverable gets a reference to the given bool and assigns it to the Recoverable field.
-func (o *UpdateSandboxStateDto) SetRecoverable(v bool) {
+func (o *UpdateBoxStateDto) SetRecoverable(v bool) {
 	o.Recoverable = &v
 }
 
-func (o UpdateSandboxStateDto) MarshalJSON() ([]byte, error) {
+func (o UpdateBoxStateDto) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -146,7 +146,7 @@ func (o UpdateSandboxStateDto) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o UpdateSandboxStateDto) ToMap() (map[string]interface{}, error) {
+func (o UpdateBoxStateDto) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["state"] = o.State
 	if !IsNil(o.ErrorReason) {
@@ -163,7 +163,7 @@ func (o UpdateSandboxStateDto) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *UpdateSandboxStateDto) UnmarshalJSON(data []byte) (err error) {
+func (o *UpdateBoxStateDto) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -185,15 +185,15 @@ func (o *UpdateSandboxStateDto) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varUpdateSandboxStateDto := _UpdateSandboxStateDto{}
+	varUpdateBoxStateDto := _UpdateBoxStateDto{}
 
-	err = json.Unmarshal(data, &varUpdateSandboxStateDto)
+	err = json.Unmarshal(data, &varUpdateBoxStateDto)
 
 	if err != nil {
 		return err
 	}
 
-	*o = UpdateSandboxStateDto(varUpdateSandboxStateDto)
+	*o = UpdateBoxStateDto(varUpdateBoxStateDto)
 
 	additionalProperties := make(map[string]interface{})
 
@@ -207,38 +207,40 @@ func (o *UpdateSandboxStateDto) UnmarshalJSON(data []byte) (err error) {
 	return err
 }
 
-type NullableUpdateSandboxStateDto struct {
-	value *UpdateSandboxStateDto
+type NullableUpdateBoxStateDto struct {
+	value *UpdateBoxStateDto
 	isSet bool
 }
 
-func (v NullableUpdateSandboxStateDto) Get() *UpdateSandboxStateDto {
+func (v NullableUpdateBoxStateDto) Get() *UpdateBoxStateDto {
 	return v.value
 }
 
-func (v *NullableUpdateSandboxStateDto) Set(val *UpdateSandboxStateDto) {
+func (v *NullableUpdateBoxStateDto) Set(val *UpdateBoxStateDto) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableUpdateSandboxStateDto) IsSet() bool {
+func (v NullableUpdateBoxStateDto) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableUpdateSandboxStateDto) Unset() {
+func (v *NullableUpdateBoxStateDto) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableUpdateSandboxStateDto(val *UpdateSandboxStateDto) *NullableUpdateSandboxStateDto {
-	return &NullableUpdateSandboxStateDto{value: val, isSet: true}
+func NewNullableUpdateBoxStateDto(val *UpdateBoxStateDto) *NullableUpdateBoxStateDto {
+	return &NullableUpdateBoxStateDto{value: val, isSet: true}
 }
 
-func (v NullableUpdateSandboxStateDto) MarshalJSON() ([]byte, error) {
+func (v NullableUpdateBoxStateDto) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableUpdateSandboxStateDto) UnmarshalJSON(src []byte) error {
+func (v *NullableUpdateBoxStateDto) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

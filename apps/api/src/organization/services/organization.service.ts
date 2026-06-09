@@ -624,7 +624,7 @@ export class OrganizationService implements OnModuleInit, TrackableJobExecutions
 
     boxes.map((box) =>
       this.eventEmitter.emitAsync(
-        OrganizationEvents.SUSPENDED_SANDBOX_STOPPED,
+        OrganizationEvents.SUSPENDED_BOX_STOPPED,
         new OrganizationSuspendedBoxStoppedEvent(box.id),
       ),
     )

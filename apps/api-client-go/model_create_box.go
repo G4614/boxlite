@@ -15,12 +15,12 @@ import (
 	"encoding/json"
 )
 
-// checks if the CreateSandbox type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &CreateSandbox{}
+// checks if the CreateBox type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &CreateBox{}
 
-// CreateSandbox struct for CreateSandbox
-type CreateSandbox struct {
-	// The name of the sandbox. If not provided, the sandbox ID will be used as the name
+// CreateBox struct for CreateBox
+type CreateBox struct {
+	// The name of the box. If not provided, the box ID will be used as the name
 	Name *string `json:"name,omitempty"`
 	// The ID or name of the snapshot used for the sandbox
 	Snapshot *string `json:"snapshot,omitempty"`
@@ -30,23 +30,23 @@ type CreateSandbox struct {
 	Env *map[string]string `json:"env,omitempty"`
 	// Labels for the sandbox
 	Labels *map[string]string `json:"labels,omitempty"`
-	// Whether the sandbox http preview is publicly accessible
+	// Whether the box http preview is publicly accessible
 	Public *bool `json:"public,omitempty"`
 	// Whether to block all network access for the sandbox
 	NetworkBlockAll *bool `json:"networkBlockAll,omitempty"`
 	// Comma-separated list of allowed CIDR network addresses for the sandbox
 	NetworkAllowList *string `json:"networkAllowList,omitempty"`
-	// The sandbox class type
+	// The box class type
 	Class *string `json:"class,omitempty"`
-	// The target (region) where the sandbox will be created
+	// The target (region) where the box will be created
 	Target *string `json:"target,omitempty"`
 	// CPU cores allocated to the sandbox
 	Cpu *int32 `json:"cpu,omitempty"`
 	// GPU units allocated to the sandbox
 	Gpu *int32 `json:"gpu,omitempty"`
-	// Memory allocated to the sandbox in GB
+	// Memory allocated to the box in GB
 	Memory *int32 `json:"memory,omitempty"`
-	// Disk space allocated to the sandbox in GB
+	// Disk space allocated to the box in GB
 	Disk *int32 `json:"disk,omitempty"`
 	// Auto-stop interval in minutes (0 means disabled)
 	AutoStopInterval *int32 `json:"autoStopInterval,omitempty"`
@@ -55,33 +55,33 @@ type CreateSandbox struct {
 	// Auto-delete interval in minutes (negative value means disabled, 0 means delete immediately upon stopping)
 	AutoDeleteInterval *int32 `json:"autoDeleteInterval,omitempty"`
 	// Array of volumes to attach to the sandbox
-	Volumes []SandboxVolume `json:"volumes,omitempty"`
+	Volumes []BoxVolume `json:"volumes,omitempty"`
 	// Build information for the sandbox
 	BuildInfo *CreateBuildInfo `json:"buildInfo,omitempty"`
 	AdditionalProperties map[string]interface{}
 }
 
-type _CreateSandbox CreateSandbox
+type _CreateBox CreateBox
 
-// NewCreateSandbox instantiates a new CreateSandbox object
+// NewCreateBox instantiates a new CreateBox object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewCreateSandbox() *CreateSandbox {
-	this := CreateSandbox{}
+func NewCreateBox() *CreateBox {
+	this := CreateBox{}
 	return &this
 }
 
-// NewCreateSandboxWithDefaults instantiates a new CreateSandbox object
+// NewCreateBoxWithDefaults instantiates a new CreateBox object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewCreateSandboxWithDefaults() *CreateSandbox {
-	this := CreateSandbox{}
+func NewCreateBoxWithDefaults() *CreateBox {
+	this := CreateBox{}
 	return &this
 }
 
 // GetName returns the Name field value if set, zero value otherwise.
-func (o *CreateSandbox) GetName() string {
+func (o *CreateBox) GetName() string {
 	if o == nil || IsNil(o.Name) {
 		var ret string
 		return ret
@@ -91,7 +91,7 @@ func (o *CreateSandbox) GetName() string {
 
 // GetNameOk returns a tuple with the Name field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetNameOk() (*string, bool) {
+func (o *CreateBox) GetNameOk() (*string, bool) {
 	if o == nil || IsNil(o.Name) {
 		return nil, false
 	}
@@ -99,7 +99,7 @@ func (o *CreateSandbox) GetNameOk() (*string, bool) {
 }
 
 // HasName returns a boolean if a field has been set.
-func (o *CreateSandbox) HasName() bool {
+func (o *CreateBox) HasName() bool {
 	if o != nil && !IsNil(o.Name) {
 		return true
 	}
@@ -108,12 +108,12 @@ func (o *CreateSandbox) HasName() bool {
 }
 
 // SetName gets a reference to the given string and assigns it to the Name field.
-func (o *CreateSandbox) SetName(v string) {
+func (o *CreateBox) SetName(v string) {
 	o.Name = &v
 }
 
 // GetSnapshot returns the Snapshot field value if set, zero value otherwise.
-func (o *CreateSandbox) GetSnapshot() string {
+func (o *CreateBox) GetSnapshot() string {
 	if o == nil || IsNil(o.Snapshot) {
 		var ret string
 		return ret
@@ -123,7 +123,7 @@ func (o *CreateSandbox) GetSnapshot() string {
 
 // GetSnapshotOk returns a tuple with the Snapshot field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetSnapshotOk() (*string, bool) {
+func (o *CreateBox) GetSnapshotOk() (*string, bool) {
 	if o == nil || IsNil(o.Snapshot) {
 		return nil, false
 	}
@@ -131,7 +131,7 @@ func (o *CreateSandbox) GetSnapshotOk() (*string, bool) {
 }
 
 // HasSnapshot returns a boolean if a field has been set.
-func (o *CreateSandbox) HasSnapshot() bool {
+func (o *CreateBox) HasSnapshot() bool {
 	if o != nil && !IsNil(o.Snapshot) {
 		return true
 	}
@@ -140,12 +140,12 @@ func (o *CreateSandbox) HasSnapshot() bool {
 }
 
 // SetSnapshot gets a reference to the given string and assigns it to the Snapshot field.
-func (o *CreateSandbox) SetSnapshot(v string) {
+func (o *CreateBox) SetSnapshot(v string) {
 	o.Snapshot = &v
 }
 
 // GetUser returns the User field value if set, zero value otherwise.
-func (o *CreateSandbox) GetUser() string {
+func (o *CreateBox) GetUser() string {
 	if o == nil || IsNil(o.User) {
 		var ret string
 		return ret
@@ -155,7 +155,7 @@ func (o *CreateSandbox) GetUser() string {
 
 // GetUserOk returns a tuple with the User field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetUserOk() (*string, bool) {
+func (o *CreateBox) GetUserOk() (*string, bool) {
 	if o == nil || IsNil(o.User) {
 		return nil, false
 	}
@@ -163,7 +163,7 @@ func (o *CreateSandbox) GetUserOk() (*string, bool) {
 }
 
 // HasUser returns a boolean if a field has been set.
-func (o *CreateSandbox) HasUser() bool {
+func (o *CreateBox) HasUser() bool {
 	if o != nil && !IsNil(o.User) {
 		return true
 	}
@@ -172,12 +172,12 @@ func (o *CreateSandbox) HasUser() bool {
 }
 
 // SetUser gets a reference to the given string and assigns it to the User field.
-func (o *CreateSandbox) SetUser(v string) {
+func (o *CreateBox) SetUser(v string) {
 	o.User = &v
 }
 
 // GetEnv returns the Env field value if set, zero value otherwise.
-func (o *CreateSandbox) GetEnv() map[string]string {
+func (o *CreateBox) GetEnv() map[string]string {
 	if o == nil || IsNil(o.Env) {
 		var ret map[string]string
 		return ret
@@ -187,7 +187,7 @@ func (o *CreateSandbox) GetEnv() map[string]string {
 
 // GetEnvOk returns a tuple with the Env field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetEnvOk() (*map[string]string, bool) {
+func (o *CreateBox) GetEnvOk() (*map[string]string, bool) {
 	if o == nil || IsNil(o.Env) {
 		return nil, false
 	}
@@ -195,7 +195,7 @@ func (o *CreateSandbox) GetEnvOk() (*map[string]string, bool) {
 }
 
 // HasEnv returns a boolean if a field has been set.
-func (o *CreateSandbox) HasEnv() bool {
+func (o *CreateBox) HasEnv() bool {
 	if o != nil && !IsNil(o.Env) {
 		return true
 	}
@@ -204,12 +204,12 @@ func (o *CreateSandbox) HasEnv() bool {
 }
 
 // SetEnv gets a reference to the given map[string]string and assigns it to the Env field.
-func (o *CreateSandbox) SetEnv(v map[string]string) {
+func (o *CreateBox) SetEnv(v map[string]string) {
 	o.Env = &v
 }
 
 // GetLabels returns the Labels field value if set, zero value otherwise.
-func (o *CreateSandbox) GetLabels() map[string]string {
+func (o *CreateBox) GetLabels() map[string]string {
 	if o == nil || IsNil(o.Labels) {
 		var ret map[string]string
 		return ret
@@ -219,7 +219,7 @@ func (o *CreateSandbox) GetLabels() map[string]string {
 
 // GetLabelsOk returns a tuple with the Labels field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetLabelsOk() (*map[string]string, bool) {
+func (o *CreateBox) GetLabelsOk() (*map[string]string, bool) {
 	if o == nil || IsNil(o.Labels) {
 		return nil, false
 	}
@@ -227,7 +227,7 @@ func (o *CreateSandbox) GetLabelsOk() (*map[string]string, bool) {
 }
 
 // HasLabels returns a boolean if a field has been set.
-func (o *CreateSandbox) HasLabels() bool {
+func (o *CreateBox) HasLabels() bool {
 	if o != nil && !IsNil(o.Labels) {
 		return true
 	}
@@ -236,12 +236,12 @@ func (o *CreateSandbox) HasLabels() bool {
 }
 
 // SetLabels gets a reference to the given map[string]string and assigns it to the Labels field.
-func (o *CreateSandbox) SetLabels(v map[string]string) {
+func (o *CreateBox) SetLabels(v map[string]string) {
 	o.Labels = &v
 }
 
 // GetPublic returns the Public field value if set, zero value otherwise.
-func (o *CreateSandbox) GetPublic() bool {
+func (o *CreateBox) GetPublic() bool {
 	if o == nil || IsNil(o.Public) {
 		var ret bool
 		return ret
@@ -251,7 +251,7 @@ func (o *CreateSandbox) GetPublic() bool {
 
 // GetPublicOk returns a tuple with the Public field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetPublicOk() (*bool, bool) {
+func (o *CreateBox) GetPublicOk() (*bool, bool) {
 	if o == nil || IsNil(o.Public) {
 		return nil, false
 	}
@@ -259,7 +259,7 @@ func (o *CreateSandbox) GetPublicOk() (*bool, bool) {
 }
 
 // HasPublic returns a boolean if a field has been set.
-func (o *CreateSandbox) HasPublic() bool {
+func (o *CreateBox) HasPublic() bool {
 	if o != nil && !IsNil(o.Public) {
 		return true
 	}
@@ -268,12 +268,12 @@ func (o *CreateSandbox) HasPublic() bool {
 }
 
 // SetPublic gets a reference to the given bool and assigns it to the Public field.
-func (o *CreateSandbox) SetPublic(v bool) {
+func (o *CreateBox) SetPublic(v bool) {
 	o.Public = &v
 }
 
 // GetNetworkBlockAll returns the NetworkBlockAll field value if set, zero value otherwise.
-func (o *CreateSandbox) GetNetworkBlockAll() bool {
+func (o *CreateBox) GetNetworkBlockAll() bool {
 	if o == nil || IsNil(o.NetworkBlockAll) {
 		var ret bool
 		return ret
@@ -283,7 +283,7 @@ func (o *CreateSandbox) GetNetworkBlockAll() bool {
 
 // GetNetworkBlockAllOk returns a tuple with the NetworkBlockAll field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetNetworkBlockAllOk() (*bool, bool) {
+func (o *CreateBox) GetNetworkBlockAllOk() (*bool, bool) {
 	if o == nil || IsNil(o.NetworkBlockAll) {
 		return nil, false
 	}
@@ -291,7 +291,7 @@ func (o *CreateSandbox) GetNetworkBlockAllOk() (*bool, bool) {
 }
 
 // HasNetworkBlockAll returns a boolean if a field has been set.
-func (o *CreateSandbox) HasNetworkBlockAll() bool {
+func (o *CreateBox) HasNetworkBlockAll() bool {
 	if o != nil && !IsNil(o.NetworkBlockAll) {
 		return true
 	}
@@ -300,12 +300,12 @@ func (o *CreateSandbox) HasNetworkBlockAll() bool {
 }
 
 // SetNetworkBlockAll gets a reference to the given bool and assigns it to the NetworkBlockAll field.
-func (o *CreateSandbox) SetNetworkBlockAll(v bool) {
+func (o *CreateBox) SetNetworkBlockAll(v bool) {
 	o.NetworkBlockAll = &v
 }
 
 // GetNetworkAllowList returns the NetworkAllowList field value if set, zero value otherwise.
-func (o *CreateSandbox) GetNetworkAllowList() string {
+func (o *CreateBox) GetNetworkAllowList() string {
 	if o == nil || IsNil(o.NetworkAllowList) {
 		var ret string
 		return ret
@@ -315,7 +315,7 @@ func (o *CreateSandbox) GetNetworkAllowList() string {
 
 // GetNetworkAllowListOk returns a tuple with the NetworkAllowList field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetNetworkAllowListOk() (*string, bool) {
+func (o *CreateBox) GetNetworkAllowListOk() (*string, bool) {
 	if o == nil || IsNil(o.NetworkAllowList) {
 		return nil, false
 	}
@@ -323,7 +323,7 @@ func (o *CreateSandbox) GetNetworkAllowListOk() (*string, bool) {
 }
 
 // HasNetworkAllowList returns a boolean if a field has been set.
-func (o *CreateSandbox) HasNetworkAllowList() bool {
+func (o *CreateBox) HasNetworkAllowList() bool {
 	if o != nil && !IsNil(o.NetworkAllowList) {
 		return true
 	}
@@ -332,12 +332,12 @@ func (o *CreateSandbox) HasNetworkAllowList() bool {
 }
 
 // SetNetworkAllowList gets a reference to the given string and assigns it to the NetworkAllowList field.
-func (o *CreateSandbox) SetNetworkAllowList(v string) {
+func (o *CreateBox) SetNetworkAllowList(v string) {
 	o.NetworkAllowList = &v
 }
 
 // GetClass returns the Class field value if set, zero value otherwise.
-func (o *CreateSandbox) GetClass() string {
+func (o *CreateBox) GetClass() string {
 	if o == nil || IsNil(o.Class) {
 		var ret string
 		return ret
@@ -347,7 +347,7 @@ func (o *CreateSandbox) GetClass() string {
 
 // GetClassOk returns a tuple with the Class field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetClassOk() (*string, bool) {
+func (o *CreateBox) GetClassOk() (*string, bool) {
 	if o == nil || IsNil(o.Class) {
 		return nil, false
 	}
@@ -355,7 +355,7 @@ func (o *CreateSandbox) GetClassOk() (*string, bool) {
 }
 
 // HasClass returns a boolean if a field has been set.
-func (o *CreateSandbox) HasClass() bool {
+func (o *CreateBox) HasClass() bool {
 	if o != nil && !IsNil(o.Class) {
 		return true
 	}
@@ -364,12 +364,12 @@ func (o *CreateSandbox) HasClass() bool {
 }
 
 // SetClass gets a reference to the given string and assigns it to the Class field.
-func (o *CreateSandbox) SetClass(v string) {
+func (o *CreateBox) SetClass(v string) {
 	o.Class = &v
 }
 
 // GetTarget returns the Target field value if set, zero value otherwise.
-func (o *CreateSandbox) GetTarget() string {
+func (o *CreateBox) GetTarget() string {
 	if o == nil || IsNil(o.Target) {
 		var ret string
 		return ret
@@ -379,7 +379,7 @@ func (o *CreateSandbox) GetTarget() string {
 
 // GetTargetOk returns a tuple with the Target field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetTargetOk() (*string, bool) {
+func (o *CreateBox) GetTargetOk() (*string, bool) {
 	if o == nil || IsNil(o.Target) {
 		return nil, false
 	}
@@ -387,7 +387,7 @@ func (o *CreateSandbox) GetTargetOk() (*string, bool) {
 }
 
 // HasTarget returns a boolean if a field has been set.
-func (o *CreateSandbox) HasTarget() bool {
+func (o *CreateBox) HasTarget() bool {
 	if o != nil && !IsNil(o.Target) {
 		return true
 	}
@@ -396,12 +396,12 @@ func (o *CreateSandbox) HasTarget() bool {
 }
 
 // SetTarget gets a reference to the given string and assigns it to the Target field.
-func (o *CreateSandbox) SetTarget(v string) {
+func (o *CreateBox) SetTarget(v string) {
 	o.Target = &v
 }
 
 // GetCpu returns the Cpu field value if set, zero value otherwise.
-func (o *CreateSandbox) GetCpu() int32 {
+func (o *CreateBox) GetCpu() int32 {
 	if o == nil || IsNil(o.Cpu) {
 		var ret int32
 		return ret
@@ -411,7 +411,7 @@ func (o *CreateSandbox) GetCpu() int32 {
 
 // GetCpuOk returns a tuple with the Cpu field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetCpuOk() (*int32, bool) {
+func (o *CreateBox) GetCpuOk() (*int32, bool) {
 	if o == nil || IsNil(o.Cpu) {
 		return nil, false
 	}
@@ -419,7 +419,7 @@ func (o *CreateSandbox) GetCpuOk() (*int32, bool) {
 }
 
 // HasCpu returns a boolean if a field has been set.
-func (o *CreateSandbox) HasCpu() bool {
+func (o *CreateBox) HasCpu() bool {
 	if o != nil && !IsNil(o.Cpu) {
 		return true
 	}
@@ -428,12 +428,12 @@ func (o *CreateSandbox) HasCpu() bool {
 }
 
 // SetCpu gets a reference to the given int32 and assigns it to the Cpu field.
-func (o *CreateSandbox) SetCpu(v int32) {
+func (o *CreateBox) SetCpu(v int32) {
 	o.Cpu = &v
 }
 
 // GetGpu returns the Gpu field value if set, zero value otherwise.
-func (o *CreateSandbox) GetGpu() int32 {
+func (o *CreateBox) GetGpu() int32 {
 	if o == nil || IsNil(o.Gpu) {
 		var ret int32
 		return ret
@@ -443,7 +443,7 @@ func (o *CreateSandbox) GetGpu() int32 {
 
 // GetGpuOk returns a tuple with the Gpu field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetGpuOk() (*int32, bool) {
+func (o *CreateBox) GetGpuOk() (*int32, bool) {
 	if o == nil || IsNil(o.Gpu) {
 		return nil, false
 	}
@@ -451,7 +451,7 @@ func (o *CreateSandbox) GetGpuOk() (*int32, bool) {
 }
 
 // HasGpu returns a boolean if a field has been set.
-func (o *CreateSandbox) HasGpu() bool {
+func (o *CreateBox) HasGpu() bool {
 	if o != nil && !IsNil(o.Gpu) {
 		return true
 	}
@@ -460,12 +460,12 @@ func (o *CreateSandbox) HasGpu() bool {
 }
 
 // SetGpu gets a reference to the given int32 and assigns it to the Gpu field.
-func (o *CreateSandbox) SetGpu(v int32) {
+func (o *CreateBox) SetGpu(v int32) {
 	o.Gpu = &v
 }
 
 // GetMemory returns the Memory field value if set, zero value otherwise.
-func (o *CreateSandbox) GetMemory() int32 {
+func (o *CreateBox) GetMemory() int32 {
 	if o == nil || IsNil(o.Memory) {
 		var ret int32
 		return ret
@@ -475,7 +475,7 @@ func (o *CreateSandbox) GetMemory() int32 {
 
 // GetMemoryOk returns a tuple with the Memory field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetMemoryOk() (*int32, bool) {
+func (o *CreateBox) GetMemoryOk() (*int32, bool) {
 	if o == nil || IsNil(o.Memory) {
 		return nil, false
 	}
@@ -483,7 +483,7 @@ func (o *CreateSandbox) GetMemoryOk() (*int32, bool) {
 }
 
 // HasMemory returns a boolean if a field has been set.
-func (o *CreateSandbox) HasMemory() bool {
+func (o *CreateBox) HasMemory() bool {
 	if o != nil && !IsNil(o.Memory) {
 		return true
 	}
@@ -492,12 +492,12 @@ func (o *CreateSandbox) HasMemory() bool {
 }
 
 // SetMemory gets a reference to the given int32 and assigns it to the Memory field.
-func (o *CreateSandbox) SetMemory(v int32) {
+func (o *CreateBox) SetMemory(v int32) {
 	o.Memory = &v
 }
 
 // GetDisk returns the Disk field value if set, zero value otherwise.
-func (o *CreateSandbox) GetDisk() int32 {
+func (o *CreateBox) GetDisk() int32 {
 	if o == nil || IsNil(o.Disk) {
 		var ret int32
 		return ret
@@ -507,7 +507,7 @@ func (o *CreateSandbox) GetDisk() int32 {
 
 // GetDiskOk returns a tuple with the Disk field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetDiskOk() (*int32, bool) {
+func (o *CreateBox) GetDiskOk() (*int32, bool) {
 	if o == nil || IsNil(o.Disk) {
 		return nil, false
 	}
@@ -515,7 +515,7 @@ func (o *CreateSandbox) GetDiskOk() (*int32, bool) {
 }
 
 // HasDisk returns a boolean if a field has been set.
-func (o *CreateSandbox) HasDisk() bool {
+func (o *CreateBox) HasDisk() bool {
 	if o != nil && !IsNil(o.Disk) {
 		return true
 	}
@@ -524,12 +524,12 @@ func (o *CreateSandbox) HasDisk() bool {
 }
 
 // SetDisk gets a reference to the given int32 and assigns it to the Disk field.
-func (o *CreateSandbox) SetDisk(v int32) {
+func (o *CreateBox) SetDisk(v int32) {
 	o.Disk = &v
 }
 
 // GetAutoStopInterval returns the AutoStopInterval field value if set, zero value otherwise.
-func (o *CreateSandbox) GetAutoStopInterval() int32 {
+func (o *CreateBox) GetAutoStopInterval() int32 {
 	if o == nil || IsNil(o.AutoStopInterval) {
 		var ret int32
 		return ret
@@ -539,7 +539,7 @@ func (o *CreateSandbox) GetAutoStopInterval() int32 {
 
 // GetAutoStopIntervalOk returns a tuple with the AutoStopInterval field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetAutoStopIntervalOk() (*int32, bool) {
+func (o *CreateBox) GetAutoStopIntervalOk() (*int32, bool) {
 	if o == nil || IsNil(o.AutoStopInterval) {
 		return nil, false
 	}
@@ -547,7 +547,7 @@ func (o *CreateSandbox) GetAutoStopIntervalOk() (*int32, bool) {
 }
 
 // HasAutoStopInterval returns a boolean if a field has been set.
-func (o *CreateSandbox) HasAutoStopInterval() bool {
+func (o *CreateBox) HasAutoStopInterval() bool {
 	if o != nil && !IsNil(o.AutoStopInterval) {
 		return true
 	}
@@ -556,12 +556,12 @@ func (o *CreateSandbox) HasAutoStopInterval() bool {
 }
 
 // SetAutoStopInterval gets a reference to the given int32 and assigns it to the AutoStopInterval field.
-func (o *CreateSandbox) SetAutoStopInterval(v int32) {
+func (o *CreateBox) SetAutoStopInterval(v int32) {
 	o.AutoStopInterval = &v
 }
 
 // GetAutoArchiveInterval returns the AutoArchiveInterval field value if set, zero value otherwise.
-func (o *CreateSandbox) GetAutoArchiveInterval() int32 {
+func (o *CreateBox) GetAutoArchiveInterval() int32 {
 	if o == nil || IsNil(o.AutoArchiveInterval) {
 		var ret int32
 		return ret
@@ -571,7 +571,7 @@ func (o *CreateSandbox) GetAutoArchiveInterval() int32 {
 
 // GetAutoArchiveIntervalOk returns a tuple with the AutoArchiveInterval field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetAutoArchiveIntervalOk() (*int32, bool) {
+func (o *CreateBox) GetAutoArchiveIntervalOk() (*int32, bool) {
 	if o == nil || IsNil(o.AutoArchiveInterval) {
 		return nil, false
 	}
@@ -579,7 +579,7 @@ func (o *CreateSandbox) GetAutoArchiveIntervalOk() (*int32, bool) {
 }
 
 // HasAutoArchiveInterval returns a boolean if a field has been set.
-func (o *CreateSandbox) HasAutoArchiveInterval() bool {
+func (o *CreateBox) HasAutoArchiveInterval() bool {
 	if o != nil && !IsNil(o.AutoArchiveInterval) {
 		return true
 	}
@@ -588,12 +588,12 @@ func (o *CreateSandbox) HasAutoArchiveInterval() bool {
 }
 
 // SetAutoArchiveInterval gets a reference to the given int32 and assigns it to the AutoArchiveInterval field.
-func (o *CreateSandbox) SetAutoArchiveInterval(v int32) {
+func (o *CreateBox) SetAutoArchiveInterval(v int32) {
 	o.AutoArchiveInterval = &v
 }
 
 // GetAutoDeleteInterval returns the AutoDeleteInterval field value if set, zero value otherwise.
-func (o *CreateSandbox) GetAutoDeleteInterval() int32 {
+func (o *CreateBox) GetAutoDeleteInterval() int32 {
 	if o == nil || IsNil(o.AutoDeleteInterval) {
 		var ret int32
 		return ret
@@ -603,7 +603,7 @@ func (o *CreateSandbox) GetAutoDeleteInterval() int32 {
 
 // GetAutoDeleteIntervalOk returns a tuple with the AutoDeleteInterval field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetAutoDeleteIntervalOk() (*int32, bool) {
+func (o *CreateBox) GetAutoDeleteIntervalOk() (*int32, bool) {
 	if o == nil || IsNil(o.AutoDeleteInterval) {
 		return nil, false
 	}
@@ -611,7 +611,7 @@ func (o *CreateSandbox) GetAutoDeleteIntervalOk() (*int32, bool) {
 }
 
 // HasAutoDeleteInterval returns a boolean if a field has been set.
-func (o *CreateSandbox) HasAutoDeleteInterval() bool {
+func (o *CreateBox) HasAutoDeleteInterval() bool {
 	if o != nil && !IsNil(o.AutoDeleteInterval) {
 		return true
 	}
@@ -620,14 +620,14 @@ func (o *CreateSandbox) HasAutoDeleteInterval() bool {
 }
 
 // SetAutoDeleteInterval gets a reference to the given int32 and assigns it to the AutoDeleteInterval field.
-func (o *CreateSandbox) SetAutoDeleteInterval(v int32) {
+func (o *CreateBox) SetAutoDeleteInterval(v int32) {
 	o.AutoDeleteInterval = &v
 }
 
 // GetVolumes returns the Volumes field value if set, zero value otherwise.
-func (o *CreateSandbox) GetVolumes() []SandboxVolume {
+func (o *CreateBox) GetVolumes() []BoxVolume {
 	if o == nil || IsNil(o.Volumes) {
-		var ret []SandboxVolume
+		var ret []BoxVolume
 		return ret
 	}
 	return o.Volumes
@@ -635,7 +635,7 @@ func (o *CreateSandbox) GetVolumes() []SandboxVolume {
 
 // GetVolumesOk returns a tuple with the Volumes field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetVolumesOk() ([]SandboxVolume, bool) {
+func (o *CreateBox) GetVolumesOk() ([]BoxVolume, bool) {
 	if o == nil || IsNil(o.Volumes) {
 		return nil, false
 	}
@@ -643,7 +643,7 @@ func (o *CreateSandbox) GetVolumesOk() ([]SandboxVolume, bool) {
 }
 
 // HasVolumes returns a boolean if a field has been set.
-func (o *CreateSandbox) HasVolumes() bool {
+func (o *CreateBox) HasVolumes() bool {
 	if o != nil && !IsNil(o.Volumes) {
 		return true
 	}
@@ -651,13 +651,13 @@ func (o *CreateSandbox) HasVolumes() bool {
 	return false
 }
 
-// SetVolumes gets a reference to the given []SandboxVolume and assigns it to the Volumes field.
-func (o *CreateSandbox) SetVolumes(v []SandboxVolume) {
+// SetVolumes gets a reference to the given []BoxVolume and assigns it to the Volumes field.
+func (o *CreateBox) SetVolumes(v []BoxVolume) {
 	o.Volumes = v
 }
 
 // GetBuildInfo returns the BuildInfo field value if set, zero value otherwise.
-func (o *CreateSandbox) GetBuildInfo() CreateBuildInfo {
+func (o *CreateBox) GetBuildInfo() CreateBuildInfo {
 	if o == nil || IsNil(o.BuildInfo) {
 		var ret CreateBuildInfo
 		return ret
@@ -667,7 +667,7 @@ func (o *CreateSandbox) GetBuildInfo() CreateBuildInfo {
 
 // GetBuildInfoOk returns a tuple with the BuildInfo field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateSandbox) GetBuildInfoOk() (*CreateBuildInfo, bool) {
+func (o *CreateBox) GetBuildInfoOk() (*CreateBuildInfo, bool) {
 	if o == nil || IsNil(o.BuildInfo) {
 		return nil, false
 	}
@@ -675,7 +675,7 @@ func (o *CreateSandbox) GetBuildInfoOk() (*CreateBuildInfo, bool) {
 }
 
 // HasBuildInfo returns a boolean if a field has been set.
-func (o *CreateSandbox) HasBuildInfo() bool {
+func (o *CreateBox) HasBuildInfo() bool {
 	if o != nil && !IsNil(o.BuildInfo) {
 		return true
 	}
@@ -684,11 +684,11 @@ func (o *CreateSandbox) HasBuildInfo() bool {
 }
 
 // SetBuildInfo gets a reference to the given CreateBuildInfo and assigns it to the BuildInfo field.
-func (o *CreateSandbox) SetBuildInfo(v CreateBuildInfo) {
+func (o *CreateBox) SetBuildInfo(v CreateBuildInfo) {
 	o.BuildInfo = &v
 }
 
-func (o CreateSandbox) MarshalJSON() ([]byte, error) {
+func (o CreateBox) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -696,7 +696,7 @@ func (o CreateSandbox) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o CreateSandbox) ToMap() (map[string]interface{}, error) {
+func (o CreateBox) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Name) {
 		toSerialize["name"] = o.Name
@@ -763,16 +763,16 @@ func (o CreateSandbox) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *CreateSandbox) UnmarshalJSON(data []byte) (err error) {
-	varCreateSandbox := _CreateSandbox{}
+func (o *CreateBox) UnmarshalJSON(data []byte) (err error) {
+	varCreateBox := _CreateBox{}
 
-	err = json.Unmarshal(data, &varCreateSandbox)
+	err = json.Unmarshal(data, &varCreateBox)
 
 	if err != nil {
 		return err
 	}
 
-	*o = CreateSandbox(varCreateSandbox)
+	*o = CreateBox(varCreateBox)
 
 	additionalProperties := make(map[string]interface{})
 
@@ -802,38 +802,40 @@ func (o *CreateSandbox) UnmarshalJSON(data []byte) (err error) {
 	return err
 }
 
-type NullableCreateSandbox struct {
-	value *CreateSandbox
+type NullableCreateBox struct {
+	value *CreateBox
 	isSet bool
 }
 
-func (v NullableCreateSandbox) Get() *CreateSandbox {
+func (v NullableCreateBox) Get() *CreateBox {
 	return v.value
 }
 
-func (v *NullableCreateSandbox) Set(val *CreateSandbox) {
+func (v *NullableCreateBox) Set(val *CreateBox) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableCreateSandbox) IsSet() bool {
+func (v NullableCreateBox) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableCreateSandbox) Unset() {
+func (v *NullableCreateBox) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableCreateSandbox(val *CreateSandbox) *NullableCreateSandbox {
-	return &NullableCreateSandbox{value: val, isSet: true}
+func NewNullableCreateBox(val *CreateBox) *NullableCreateBox {
+	return &NullableCreateBox{value: val, isSet: true}
 }
 
-func (v NullableCreateSandbox) MarshalJSON() ([]byte, error) {
+func (v NullableCreateBox) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableCreateSandbox) UnmarshalJSON(src []byte) error {
+func (v *NullableCreateBox) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

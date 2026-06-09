@@ -356,7 +356,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_DELETE_FILE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       query: (req) => ({
@@ -391,7 +391,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_DOWNLOAD_FILE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       query: (req) => ({
@@ -475,7 +475,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_CREATE_FOLDER,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       query: (req) => ({
@@ -532,7 +532,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_MOVE_FILE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       query: (req) => ({
@@ -569,7 +569,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_SET_FILE_PERMISSIONS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       query: (req) => ({
@@ -608,7 +608,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_REPLACE_IN_FILES,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<ReplaceRequestDto>) => ({
@@ -677,7 +677,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_UPLOAD_FILE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       query: (req) => ({
@@ -710,7 +710,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_BULK_UPLOAD_FILES,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
   })
   async uploadFiles(
@@ -741,7 +741,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_ADD_FILES,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitAddRequestDto>) => ({
@@ -799,7 +799,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_CREATE_BRANCH,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitBranchRequestDto>) => ({
@@ -835,7 +835,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_DELETE_BRANCH,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitDeleteBranchRequestDto>) => ({
@@ -871,7 +871,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_CLONE_REPOSITORY,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitCloneRequestDto>) => ({
@@ -912,7 +912,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_COMMIT_CHANGES,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitCommitRequestDto>) => ({
@@ -973,7 +973,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_PULL_CHANGES,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitRepoRequestDto>) => ({
@@ -1010,7 +1010,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_PUSH_CHANGES,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitRepoRequestDto>) => ({
@@ -1047,7 +1047,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_GIT_CHECKOUT_BRANCH,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<GitCheckoutRequestDto>) => ({
@@ -1102,7 +1102,7 @@ export class ToolboxController {
   })
   @Audit({
     action: AuditAction.TOOLBOX_EXECUTE_COMMAND,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<ExecuteRequestDto>) => ({
@@ -1192,7 +1192,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_CREATE_SESSION,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       body: (req: TypedRequest<CreateSessionRequestDto>) => ({
@@ -1234,7 +1234,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_SESSION_EXECUTE_COMMAND,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       params: (req) => ({
@@ -1270,7 +1270,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_DELETE_SESSION,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       params: (req) => ({
@@ -1654,7 +1654,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_COMPUTER_USE_START,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
   })
   async startComputerUse(
@@ -1682,7 +1682,7 @@ export class ToolboxController {
   @ApiParam({ name: 'boxId', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_COMPUTER_USE_STOP,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
   })
   async stopComputerUse(
@@ -1754,7 +1754,7 @@ export class ToolboxController {
   @ApiParam({ name: 'processName', type: String, required: true })
   @Audit({
     action: AuditAction.TOOLBOX_COMPUTER_USE_RESTART_PROCESS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     requestMetadata: {
       params: (req) => ({

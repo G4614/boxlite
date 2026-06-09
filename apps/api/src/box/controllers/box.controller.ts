@@ -77,7 +77,7 @@ import { ToolboxProxyUrlDto } from '../dto/toolbox-proxy-url.dto'
 import { UrlDto } from '../../common/dto/url.dto'
 import { InjectRedis } from '@nestjs-modules/ioredis'
 import { Redis } from 'ioredis'
-import { SANDBOX_EVENT_CHANNEL } from '../../common/constants/constants'
+import { BOX_EVENT_CHANNEL } from '../../common/constants/constants'
 import { RequireFlagsEnabled } from '@openfeature/nestjs-sdk'
 import { FeatureFlags } from '../../common/constants/feature-flags'
 import { RegionBoxAccessGuard } from '../guards/region-box-access.guard'
@@ -98,9 +98,9 @@ export class BoxController {
     @InjectRedis() private readonly redis: Redis,
   ) {
     this.redisSubscriber = this.redis.duplicate()
-    this.redisSubscriber.subscribe(SANDBOX_EVENT_CHANNEL)
+    this.redisSubscriber.subscribe(BOX_EVENT_CHANNEL)
     this.redisSubscriber.on('message', (channel, message) => {
-      if (channel !== SANDBOX_EVENT_CHANNEL) {
+      if (channel !== BOX_EVENT_CHANNEL) {
         return
       }
 
@@ -243,7 +243,7 @@ export class BoxController {
   @RequiredOrganizationResourcePermissions([OrganizationResourcePermission.WRITE_SANDBOXES])
   @Audit({
     action: AuditAction.CREATE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
       body: (req: TypedRequest<CreateBoxDto>) => ({
@@ -395,7 +395,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.DELETE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
   })
@@ -429,7 +429,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.RECOVER,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
   })
@@ -469,7 +469,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.START,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
   })
@@ -515,7 +515,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.STOP,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
@@ -554,10 +554,10 @@ export class BoxController {
   })
   @RequiredOrganizationResourcePermissions([OrganizationResourcePermission.WRITE_SANDBOXES])
   @UseGuards(BoxAccessGuard)
-  @RequireFlagsEnabled({ flags: [{ flagKey: FeatureFlags.SANDBOX_RESIZE, defaultValue: false }] })
+  @RequireFlagsEnabled({ flags: [{ flagKey: FeatureFlags.BOX_RESIZE, defaultValue: false }] })
   @Audit({
     action: AuditAction.RESIZE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
@@ -597,7 +597,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.REPLACE_LABELS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
@@ -660,7 +660,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.CREATE_BACKUP,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
   })
@@ -696,7 +696,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.UPDATE_PUBLIC_STATUS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
@@ -757,7 +757,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.SET_AUTO_STOP_INTERVAL,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
@@ -799,7 +799,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.SET_AUTO_ARCHIVE_INTERVAL,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
@@ -842,7 +842,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.SET_AUTO_DELETE_INTERVAL,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {
@@ -880,7 +880,7 @@ export class BoxController {
   // @UseGuards(BoxAccessGuard)
   // @Audit({
   //   action: AuditAction.UPDATE_NETWORK_SETTINGS,
-  //   targetType: AuditTarget.SANDBOX,
+  //   targetType: AuditTarget.BOX,
   //   targetIdFromRequest: (req) => req.params.boxIdOrName,
   //   targetIdFromResult: (result: BoxDto) => result?.id,
   //   requestMetadata: {
@@ -921,7 +921,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.ARCHIVE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
   })
@@ -1141,7 +1141,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.CREATE_SSH_ACCESS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: SshAccessDto) => result?.boxId,
     requestMetadata: {
@@ -1184,7 +1184,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   @Audit({
     action: AuditAction.REVOKE_SSH_ACCESS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxIdOrName,
     targetIdFromResult: (result: BoxDto) => result?.id,
     requestMetadata: {

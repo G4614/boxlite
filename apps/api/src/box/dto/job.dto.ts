@@ -28,7 +28,7 @@ export class JobDto {
     description: 'The type of the job',
     enum: JobType,
     enumName: 'JobType',
-    example: JobType.CREATE_SANDBOX,
+    example: JobType.CREATE_BOX,
   })
   @IsEnum(JobType)
   type: JobType
@@ -45,7 +45,7 @@ export class JobDto {
   @ApiProperty({
     description: 'The type of resource this job operates on',
     enum: ResourceType,
-    example: ResourceType.SANDBOX,
+    example: ResourceType.BOX,
   })
   @IsEnum(ResourceType)
   resourceType: ResourceType

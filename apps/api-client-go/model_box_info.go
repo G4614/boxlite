@@ -16,11 +16,11 @@ import (
 	"fmt"
 )
 
-// checks if the SandboxInfo type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &SandboxInfo{}
+// checks if the BoxInfo type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &BoxInfo{}
 
-// SandboxInfo struct for SandboxInfo
-type SandboxInfo struct {
+// BoxInfo struct for BoxInfo
+type BoxInfo struct {
 	// The creation timestamp of the project
 	Created string `json:"created"`
 	// Deprecated: The name of the sandbox
@@ -31,31 +31,31 @@ type SandboxInfo struct {
 	AdditionalProperties map[string]interface{}
 }
 
-type _SandboxInfo SandboxInfo
+type _BoxInfo BoxInfo
 
-// NewSandboxInfo instantiates a new SandboxInfo object
+// NewBoxInfo instantiates a new BoxInfo object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSandboxInfo(created string, name string) *SandboxInfo {
-	this := SandboxInfo{}
+func NewBoxInfo(created string, name string) *BoxInfo {
+	this := BoxInfo{}
 	this.Created = created
 	this.Name = name
 	return &this
 }
 
-// NewSandboxInfoWithDefaults instantiates a new SandboxInfo object
+// NewBoxInfoWithDefaults instantiates a new BoxInfo object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewSandboxInfoWithDefaults() *SandboxInfo {
-	this := SandboxInfo{}
+func NewBoxInfoWithDefaults() *BoxInfo {
+	this := BoxInfo{}
 	var name string = ""
 	this.Name = name
 	return &this
 }
 
 // GetCreated returns the Created field value
-func (o *SandboxInfo) GetCreated() string {
+func (o *BoxInfo) GetCreated() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -66,7 +66,7 @@ func (o *SandboxInfo) GetCreated() string {
 
 // GetCreatedOk returns a tuple with the Created field value
 // and a boolean to check if the value has been set.
-func (o *SandboxInfo) GetCreatedOk() (*string, bool) {
+func (o *BoxInfo) GetCreatedOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -74,13 +74,13 @@ func (o *SandboxInfo) GetCreatedOk() (*string, bool) {
 }
 
 // SetCreated sets field value
-func (o *SandboxInfo) SetCreated(v string) {
+func (o *BoxInfo) SetCreated(v string) {
 	o.Created = v
 }
 
 // GetName returns the Name field value
 // Deprecated
-func (o *SandboxInfo) GetName() string {
+func (o *BoxInfo) GetName() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -92,7 +92,7 @@ func (o *SandboxInfo) GetName() string {
 // GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
 // Deprecated
-func (o *SandboxInfo) GetNameOk() (*string, bool) {
+func (o *BoxInfo) GetNameOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -101,12 +101,12 @@ func (o *SandboxInfo) GetNameOk() (*string, bool) {
 
 // SetName sets field value
 // Deprecated
-func (o *SandboxInfo) SetName(v string) {
+func (o *BoxInfo) SetName(v string) {
 	o.Name = v
 }
 
 // GetProviderMetadata returns the ProviderMetadata field value if set, zero value otherwise.
-func (o *SandboxInfo) GetProviderMetadata() string {
+func (o *BoxInfo) GetProviderMetadata() string {
 	if o == nil || IsNil(o.ProviderMetadata) {
 		var ret string
 		return ret
@@ -116,7 +116,7 @@ func (o *SandboxInfo) GetProviderMetadata() string {
 
 // GetProviderMetadataOk returns a tuple with the ProviderMetadata field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SandboxInfo) GetProviderMetadataOk() (*string, bool) {
+func (o *BoxInfo) GetProviderMetadataOk() (*string, bool) {
 	if o == nil || IsNil(o.ProviderMetadata) {
 		return nil, false
 	}
@@ -124,7 +124,7 @@ func (o *SandboxInfo) GetProviderMetadataOk() (*string, bool) {
 }
 
 // HasProviderMetadata returns a boolean if a field has been set.
-func (o *SandboxInfo) HasProviderMetadata() bool {
+func (o *BoxInfo) HasProviderMetadata() bool {
 	if o != nil && !IsNil(o.ProviderMetadata) {
 		return true
 	}
@@ -133,11 +133,11 @@ func (o *SandboxInfo) HasProviderMetadata() bool {
 }
 
 // SetProviderMetadata gets a reference to the given string and assigns it to the ProviderMetadata field.
-func (o *SandboxInfo) SetProviderMetadata(v string) {
+func (o *BoxInfo) SetProviderMetadata(v string) {
 	o.ProviderMetadata = &v
 }
 
-func (o SandboxInfo) MarshalJSON() ([]byte, error) {
+func (o BoxInfo) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -145,7 +145,7 @@ func (o SandboxInfo) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o SandboxInfo) ToMap() (map[string]interface{}, error) {
+func (o BoxInfo) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["created"] = o.Created
 	toSerialize["name"] = o.Name
@@ -160,7 +160,7 @@ func (o SandboxInfo) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *SandboxInfo) UnmarshalJSON(data []byte) (err error) {
+func (o *BoxInfo) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -183,15 +183,15 @@ func (o *SandboxInfo) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varSandboxInfo := _SandboxInfo{}
+	varBoxInfo := _BoxInfo{}
 
-	err = json.Unmarshal(data, &varSandboxInfo)
+	err = json.Unmarshal(data, &varBoxInfo)
 
 	if err != nil {
 		return err
 	}
 
-	*o = SandboxInfo(varSandboxInfo)
+	*o = BoxInfo(varBoxInfo)
 
 	additionalProperties := make(map[string]interface{})
 
@@ -205,38 +205,40 @@ func (o *SandboxInfo) UnmarshalJSON(data []byte) (err error) {
 	return err
 }
 
-type NullableSandboxInfo struct {
-	value *SandboxInfo
+type NullableBoxInfo struct {
+	value *BoxInfo
 	isSet bool
 }
 
-func (v NullableSandboxInfo) Get() *SandboxInfo {
+func (v NullableBoxInfo) Get() *BoxInfo {
 	return v.value
 }
 
-func (v *NullableSandboxInfo) Set(val *SandboxInfo) {
+func (v *NullableBoxInfo) Set(val *BoxInfo) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableSandboxInfo) IsSet() bool {
+func (v NullableBoxInfo) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableSandboxInfo) Unset() {
+func (v *NullableBoxInfo) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableSandboxInfo(val *SandboxInfo) *NullableSandboxInfo {
-	return &NullableSandboxInfo{value: val, isSet: true}
+func NewNullableBoxInfo(val *BoxInfo) *NullableBoxInfo {
+	return &NullableBoxInfo{value: val, isSet: true}
 }
 
-func (v NullableSandboxInfo) MarshalJSON() ([]byte, error) {
+func (v NullableBoxInfo) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableSandboxInfo) UnmarshalJSON(src []byte) error {
+func (v *NullableBoxInfo) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

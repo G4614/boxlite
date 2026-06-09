@@ -16,11 +16,11 @@ import (
 	"fmt"
 )
 
-// checks if the SandboxVolume type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &SandboxVolume{}
+// checks if the BoxVolume type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &BoxVolume{}
 
-// SandboxVolume struct for SandboxVolume
-type SandboxVolume struct {
+// BoxVolume struct for BoxVolume
+type BoxVolume struct {
 	// The ID of the volume
 	VolumeId string `json:"volumeId"`
 	// The mount path for the volume
@@ -30,29 +30,29 @@ type SandboxVolume struct {
 	AdditionalProperties map[string]interface{}
 }
 
-type _SandboxVolume SandboxVolume
+type _BoxVolume BoxVolume
 
-// NewSandboxVolume instantiates a new SandboxVolume object
+// NewBoxVolume instantiates a new BoxVolume object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSandboxVolume(volumeId string, mountPath string) *SandboxVolume {
-	this := SandboxVolume{}
+func NewBoxVolume(volumeId string, mountPath string) *BoxVolume {
+	this := BoxVolume{}
 	this.VolumeId = volumeId
 	this.MountPath = mountPath
 	return &this
 }
 
-// NewSandboxVolumeWithDefaults instantiates a new SandboxVolume object
+// NewBoxVolumeWithDefaults instantiates a new BoxVolume object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewSandboxVolumeWithDefaults() *SandboxVolume {
-	this := SandboxVolume{}
+func NewBoxVolumeWithDefaults() *BoxVolume {
+	this := BoxVolume{}
 	return &this
 }
 
 // GetVolumeId returns the VolumeId field value
-func (o *SandboxVolume) GetVolumeId() string {
+func (o *BoxVolume) GetVolumeId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -63,7 +63,7 @@ func (o *SandboxVolume) GetVolumeId() string {
 
 // GetVolumeIdOk returns a tuple with the VolumeId field value
 // and a boolean to check if the value has been set.
-func (o *SandboxVolume) GetVolumeIdOk() (*string, bool) {
+func (o *BoxVolume) GetVolumeIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -71,12 +71,12 @@ func (o *SandboxVolume) GetVolumeIdOk() (*string, bool) {
 }
 
 // SetVolumeId sets field value
-func (o *SandboxVolume) SetVolumeId(v string) {
+func (o *BoxVolume) SetVolumeId(v string) {
 	o.VolumeId = v
 }
 
 // GetMountPath returns the MountPath field value
-func (o *SandboxVolume) GetMountPath() string {
+func (o *BoxVolume) GetMountPath() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -87,7 +87,7 @@ func (o *SandboxVolume) GetMountPath() string {
 
 // GetMountPathOk returns a tuple with the MountPath field value
 // and a boolean to check if the value has been set.
-func (o *SandboxVolume) GetMountPathOk() (*string, bool) {
+func (o *BoxVolume) GetMountPathOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -95,12 +95,12 @@ func (o *SandboxVolume) GetMountPathOk() (*string, bool) {
 }
 
 // SetMountPath sets field value
-func (o *SandboxVolume) SetMountPath(v string) {
+func (o *BoxVolume) SetMountPath(v string) {
 	o.MountPath = v
 }
 
 // GetSubpath returns the Subpath field value if set, zero value otherwise.
-func (o *SandboxVolume) GetSubpath() string {
+func (o *BoxVolume) GetSubpath() string {
 	if o == nil || IsNil(o.Subpath) {
 		var ret string
 		return ret
@@ -110,7 +110,7 @@ func (o *SandboxVolume) GetSubpath() string {
 
 // GetSubpathOk returns a tuple with the Subpath field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SandboxVolume) GetSubpathOk() (*string, bool) {
+func (o *BoxVolume) GetSubpathOk() (*string, bool) {
 	if o == nil || IsNil(o.Subpath) {
 		return nil, false
 	}
@@ -118,7 +118,7 @@ func (o *SandboxVolume) GetSubpathOk() (*string, bool) {
 }
 
 // HasSubpath returns a boolean if a field has been set.
-func (o *SandboxVolume) HasSubpath() bool {
+func (o *BoxVolume) HasSubpath() bool {
 	if o != nil && !IsNil(o.Subpath) {
 		return true
 	}
@@ -127,11 +127,11 @@ func (o *SandboxVolume) HasSubpath() bool {
 }
 
 // SetSubpath gets a reference to the given string and assigns it to the Subpath field.
-func (o *SandboxVolume) SetSubpath(v string) {
+func (o *BoxVolume) SetSubpath(v string) {
 	o.Subpath = &v
 }
 
-func (o SandboxVolume) MarshalJSON() ([]byte, error) {
+func (o BoxVolume) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -139,7 +139,7 @@ func (o SandboxVolume) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o SandboxVolume) ToMap() (map[string]interface{}, error) {
+func (o BoxVolume) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["volumeId"] = o.VolumeId
 	toSerialize["mountPath"] = o.MountPath
@@ -154,7 +154,7 @@ func (o SandboxVolume) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *SandboxVolume) UnmarshalJSON(data []byte) (err error) {
+func (o *BoxVolume) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -177,15 +177,15 @@ func (o *SandboxVolume) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varSandboxVolume := _SandboxVolume{}
+	varBoxVolume := _BoxVolume{}
 
-	err = json.Unmarshal(data, &varSandboxVolume)
+	err = json.Unmarshal(data, &varBoxVolume)
 
 	if err != nil {
 		return err
 	}
 
-	*o = SandboxVolume(varSandboxVolume)
+	*o = BoxVolume(varBoxVolume)
 
 	additionalProperties := make(map[string]interface{})
 
@@ -199,38 +199,40 @@ func (o *SandboxVolume) UnmarshalJSON(data []byte) (err error) {
 	return err
 }
 
-type NullableSandboxVolume struct {
-	value *SandboxVolume
+type NullableBoxVolume struct {
+	value *BoxVolume
 	isSet bool
 }
 
-func (v NullableSandboxVolume) Get() *SandboxVolume {
+func (v NullableBoxVolume) Get() *BoxVolume {
 	return v.value
 }
 
-func (v *NullableSandboxVolume) Set(val *SandboxVolume) {
+func (v *NullableBoxVolume) Set(val *BoxVolume) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableSandboxVolume) IsSet() bool {
+func (v NullableBoxVolume) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableSandboxVolume) Unset() {
+func (v *NullableBoxVolume) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableSandboxVolume(val *SandboxVolume) *NullableSandboxVolume {
-	return &NullableSandboxVolume{value: val, isSet: true}
+func NewNullableBoxVolume(val *BoxVolume) *NullableBoxVolume {
+	return &NullableBoxVolume{value: val, isSet: true}
 }
 
-func (v NullableSandboxVolume) MarshalJSON() ([]byte, error) {
+func (v NullableBoxVolume) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableSandboxVolume) UnmarshalJSON(src []byte) error {
+func (v *NullableBoxVolume) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

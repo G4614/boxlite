@@ -133,7 +133,7 @@ export class WorkspaceController {
   @RequiredOrganizationResourcePermissions([OrganizationResourcePermission.WRITE_SANDBOXES])
   @Audit({
     action: AuditAction.CREATE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromResult: (result: WorkspaceDto) => result?.id,
     requestMetadata: {
       body: (req: TypedRequest<CreateWorkspaceDto>) => ({
@@ -241,7 +241,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.DELETE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
   })
   async removeWorkspace(
@@ -272,7 +272,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.START,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
   })
   async startWorkspace(
@@ -302,7 +302,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.STOP,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
   })
   async stopWorkspace(@Param('workspaceId') workspaceId: string): Promise<void> {
@@ -330,7 +330,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.REPLACE_LABELS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
     requestMetadata: {
       body: (req: TypedRequest<WorkspaceLabelsDto>) => ({
@@ -366,7 +366,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.CREATE_BACKUP,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
   })
   async createBackup(@Param('workspaceId') workspaceId: string): Promise<void> {
@@ -393,7 +393,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.UPDATE_PUBLIC_STATUS,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
     requestMetadata: {
       params: (req) => ({
@@ -432,7 +432,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.SET_AUTO_STOP_INTERVAL,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
     requestMetadata: {
       params: (req) => ({
@@ -471,7 +471,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.SET_AUTO_ARCHIVE_INTERVAL,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
     requestMetadata: {
       params: (req) => ({
@@ -501,7 +501,7 @@ export class WorkspaceController {
   @UseGuards(WorkspaceAccessGuard)
   @Audit({
     action: AuditAction.ARCHIVE,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.workspaceId,
   })
   async archiveWorkspace(@Param('workspaceId') workspaceId: string): Promise<void> {

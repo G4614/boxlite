@@ -16,7 +16,7 @@ import { DockerRegistryService } from '../../docker-registry/services/docker-reg
 import { BackupState } from '../enums/backup-state.enum'
 import { InjectRedis } from '@nestjs-modules/ioredis'
 import { Redis } from 'ioredis'
-import { SANDBOX_WARM_POOL_UNASSIGNED_ORGANIZATION } from '../constants/box.constants'
+import { BOX_WARM_POOL_UNASSIGNED_ORGANIZATION } from '../constants/box.constants'
 import { fromAxiosError } from '../../common/utils/from-axios-error'
 import { RedisLockProvider } from '../common/redis-lock.provider'
 import { OnEvent } from '@nestjs/event-emitter'
@@ -88,7 +88,7 @@ export class BackupManager implements TrackableJobExecutions, OnApplicationShutd
           const boxes = await this.boxRepository.find({
             where: {
               runnerId: runner.id,
-              organizationId: Not(SANDBOX_WARM_POOL_UNASSIGNED_ORGANIZATION),
+              organizationId: Not(BOX_WARM_POOL_UNASSIGNED_ORGANIZATION),
               state: BoxState.STARTED,
               backupState: In([BackupState.NONE, BackupState.COMPLETED]),
               lastBackupAt: Or(IsNull(), LessThan(new Date(Date.now() - 1 * 60 * 60 * 1000))),

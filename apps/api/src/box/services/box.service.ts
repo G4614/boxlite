@@ -20,7 +20,7 @@ import { Cron, CronExpression } from '@nestjs/schedule'
 import { BackupState } from '../enums/backup-state.enum'
 import { Snapshot } from '../entities/snapshot.entity'
 import { SnapshotState } from '../enums/snapshot-state.enum'
-import { SANDBOX_WARM_POOL_UNASSIGNED_ORGANIZATION } from '../constants/box.constants'
+import { BOX_WARM_POOL_UNASSIGNED_ORGANIZATION } from '../constants/box.constants'
 import { BoxWarmPoolService } from './box-warm-pool.service'
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter'
 import { WarmPoolEvents } from '../constants/warmpool-events.constants'
@@ -53,15 +53,15 @@ import { PaginatedList } from '../../common/interfaces/paginated-list.interface'
 import {
   BoxSortField,
   BoxSortDirection,
-  DEFAULT_SANDBOX_SORT_FIELD,
-  DEFAULT_SANDBOX_SORT_DIRECTION,
+  DEFAULT_BOX_SORT_FIELD,
+  DEFAULT_BOX_SORT_DIRECTION,
 } from '../dto/list-boxes-query.dto'
 import { createRangeFilter } from '../../common/utils/range-filter'
 import { LogExecution } from '../../common/decorators/log-execution.decorator'
 import {
   UPGRADE_TIER_MESSAGE,
-  ARCHIVE_SANDBOXES_MESSAGE,
-  PER_SANDBOX_LIMIT_MESSAGE,
+  ARCHIVE_BOXES_MESSAGE,
+  PER_BOX_LIMIT_MESSAGE,
 } from '../../common/constants/error-messages'
 import { RedisLockProvider } from '../common/redis-lock.provider'
 import { customAlphabet as customNanoid, nanoid, urlAlphabet } from 'nanoid'
@@ -77,8 +77,8 @@ import { BoxCreatedEvent } from '../events/box-create.event'
 import { InjectRedis } from '@nestjs-modules/ioredis'
 import { Redis } from 'ioredis'
 import {
-  SANDBOX_LOOKUP_CACHE_TTL_MS,
-  SANDBOX_ORG_ID_CACHE_TTL_MS,
+  BOX_LOOKUP_CACHE_TTL_MS,
+  BOX_ORG_ID_CACHE_TTL_MS,
   TOOLBOX_PROXY_URL_CACHE_TTL_S,
   boxLookupCacheKeyById,
   boxLookupCacheKeyByName,
@@ -150,17 +150,17 @@ export class BoxService {
     // validate per-box quotas
     if (cpu > organization.maxCpuPerBox) {
       throw new ForbiddenException(
-        `CPU request ${cpu} exceeds maximum allowed per box (${organization.maxCpuPerBox}).\n${PER_SANDBOX_LIMIT_MESSAGE}`,
+        `CPU request ${cpu} exceeds maximum allowed per box (${organization.maxCpuPerBox}).\n${PER_BOX_LIMIT_MESSAGE}`,
       )
     }
     if (memory > organization.maxMemoryPerBox) {
       throw new ForbiddenException(
-        `Memory request ${memory}GB exceeds maximum allowed per box (${organization.maxMemoryPerBox}GB).\n${PER_SANDBOX_LIMIT_MESSAGE}`,
+        `Memory request ${memory}GB exceeds maximum allowed per box (${organization.maxMemoryPerBox}GB).\n${PER_BOX_LIMIT_MESSAGE}`,
       )
     }
     if (disk > organization.maxDiskPerBox) {
       throw new ForbiddenException(
-        `Disk request ${disk}GB exceeds maximum allowed per box (${organization.maxDiskPerBox}GB).\n${PER_SANDBOX_LIMIT_MESSAGE}`,
+        `Disk request ${disk}GB exceeds maximum allowed per box (${organization.maxDiskPerBox}GB).\n${PER_BOX_LIMIT_MESSAGE}`,
       )
     }
 
@@ -222,7 +222,7 @@ export class BoxService {
 
       if (usageOverview.currentDiskUsage + usageOverview.pendingDiskUsage > regionQuota.totalDiskQuota) {
         throw new ForbiddenException(
-          `Total disk limit exceeded. Maximum allowed: ${regionQuota.totalDiskQuota}GiB.\n${ARCHIVE_SANDBOXES_MESSAGE}\n${upgradeTierMessage}`,
+          `Total disk limit exceeded. Maximum allowed: ${regionQuota.totalDiskQuota}GiB.\n${ARCHIVE_BOXES_MESSAGE}\n${upgradeTierMessage}`,
         )
       }
     } catch (error) {
@@ -305,7 +305,7 @@ export class BoxService {
   async createForWarmPool(warmPoolItem: WarmPool): Promise<Box> {
     const box = new Box(warmPoolItem.target)
 
-    box.organizationId = SANDBOX_WARM_POOL_UNASSIGNED_ORGANIZATION
+    box.organizationId = BOX_WARM_POOL_UNASSIGNED_ORGANIZATION
 
     box.class = warmPoolItem.class
     box.snapshot = warmPoolItem.snapshot
@@ -606,7 +606,7 @@ export class BoxService {
       boxId: warmPoolBox.id,
       organizationId: organization.id,
       name: warmPoolBox.name,
-      previousOrganizationId: SANDBOX_WARM_POOL_UNASSIGNED_ORGANIZATION,
+      previousOrganizationId: BOX_WARM_POOL_UNASSIGNED_ORGANIZATION,
     })
 
     // Treat this as a newly started box
@@ -848,7 +848,7 @@ export class BoxService {
       lastEventBefore,
     } = filters || {}
 
-    const { field: sortField = DEFAULT_SANDBOX_SORT_FIELD, direction: sortDirection = DEFAULT_SANDBOX_SORT_DIRECTION } =
+    const { field: sortField = DEFAULT_BOX_SORT_FIELD, direction: sortDirection = DEFAULT_BOX_SORT_DIRECTION } =
       sort || {}
 
     const baseFindOptions: FindOptionsWhere<Box> = {
@@ -966,7 +966,7 @@ export class BoxService {
       relations,
       cache: {
         id: boxLookupCacheKeyById({ organizationId, returnDestroyed, boxId: boxIdOrName }),
-        milliseconds: SANDBOX_LOOKUP_CACHE_TTL_MS,
+        milliseconds: BOX_LOOKUP_CACHE_TTL_MS,
       },
     })
 
@@ -981,7 +981,7 @@ export class BoxService {
         relations,
         cache: {
           id: boxLookupCacheKeyByName({ organizationId, returnDestroyed, boxName: boxIdOrName }),
-          milliseconds: SANDBOX_LOOKUP_CACHE_TTL_MS,
+          milliseconds: BOX_LOOKUP_CACHE_TTL_MS,
         },
       })
     }
@@ -1027,7 +1027,7 @@ export class BoxService {
       select: ['organizationId'],
       cache: {
         id: boxOrgIdCacheKeyById({ organizationId, boxId: boxIdOrName }),
-        milliseconds: SANDBOX_ORG_ID_CACHE_TTL_MS,
+        milliseconds: BOX_ORG_ID_CACHE_TTL_MS,
       },
     })
 
@@ -1040,7 +1040,7 @@ export class BoxService {
         select: ['organizationId'],
         cache: {
           id: boxOrgIdCacheKeyByName({ organizationId, boxName: boxIdOrName }),
-          milliseconds: SANDBOX_ORG_ID_CACHE_TTL_MS,
+          milliseconds: BOX_ORG_ID_CACHE_TTL_MS,
         },
       })
     }
@@ -1486,17 +1486,17 @@ export class BoxService {
       // Validate per-box quotas with total new values
       if (newCpu > organization.maxCpuPerBox) {
         throw new ForbiddenException(
-          `CPU request ${newCpu} exceeds maximum allowed per box (${organization.maxCpuPerBox}).\n${PER_SANDBOX_LIMIT_MESSAGE}`,
+          `CPU request ${newCpu} exceeds maximum allowed per box (${organization.maxCpuPerBox}).\n${PER_BOX_LIMIT_MESSAGE}`,
         )
       }
       if (newMem > organization.maxMemoryPerBox) {
         throw new ForbiddenException(
-          `Memory request ${newMem}GB exceeds maximum allowed per box (${organization.maxMemoryPerBox}GB).\n${PER_SANDBOX_LIMIT_MESSAGE}`,
+          `Memory request ${newMem}GB exceeds maximum allowed per box (${organization.maxMemoryPerBox}GB).\n${PER_BOX_LIMIT_MESSAGE}`,
         )
       }
       if (newDisk > organization.maxDiskPerBox) {
         throw new ForbiddenException(
-          `Disk request ${newDisk}GB exceeds maximum allowed per box (${organization.maxDiskPerBox}GB).\n${PER_SANDBOX_LIMIT_MESSAGE}`,
+          `Disk request ${newDisk}GB exceeds maximum allowed per box (${organization.maxDiskPerBox}GB).\n${PER_BOX_LIMIT_MESSAGE}`,
         )
       }
 
@@ -2020,7 +2020,7 @@ export class BoxService {
     return box.public
   }
 
-  @OnEvent(OrganizationEvents.SUSPENDED_SANDBOX_STOPPED)
+  @OnEvent(OrganizationEvents.SUSPENDED_BOX_STOPPED)
   async handleSuspendedBoxStopped(event: OrganizationSuspendedBoxStoppedEvent) {
     await this.stop(event.boxId).catch((error) => {
       //  log the error for now, but don't throw it as it will be retried

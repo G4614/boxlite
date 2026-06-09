@@ -15,7 +15,7 @@ import {
   filterStartable,
   filterStoppable,
   getBulkActionCounts,
-} from '@/lib/utils/sandbox'
+} from '@/lib/utils/box'
 import { OrganizationRolePermissionsEnum, Box, BoxState } from '@boxlite-ai/api-client'
 import { flexRender } from '@tanstack/react-table'
 import { Container } from 'lucide-react'

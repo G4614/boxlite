@@ -27,8 +27,8 @@ export enum BoxSortDirection {
   DESC = 'desc',
 }
 
-export const DEFAULT_SANDBOX_SORT_FIELD = BoxSortField.CREATED_AT
-export const DEFAULT_SANDBOX_SORT_DIRECTION = BoxSortDirection.DESC
+export const DEFAULT_BOX_SORT_FIELD = BoxSortField.CREATED_AT
+export const DEFAULT_BOX_SORT_DIRECTION = BoxSortDirection.DESC
 
 const VALID_QUERY_STATES = Object.values(BoxState).filter((state) => state !== BoxState.DESTROYED)
 
@@ -234,20 +234,20 @@ export class ListBoxesQueryDto {
     description: 'Field to sort by',
     required: false,
     enum: BoxSortField,
-    default: DEFAULT_SANDBOX_SORT_FIELD,
+    default: DEFAULT_BOX_SORT_FIELD,
   })
   @IsOptional()
   @IsEnum(BoxSortField)
-  sort = DEFAULT_SANDBOX_SORT_FIELD
+  sort = DEFAULT_BOX_SORT_FIELD
 
   @ApiProperty({
     name: 'order',
     description: 'Direction to sort by',
     required: false,
     enum: BoxSortDirection,
-    default: DEFAULT_SANDBOX_SORT_DIRECTION,
+    default: DEFAULT_BOX_SORT_DIRECTION,
   })
   @IsOptional()
   @IsEnum(BoxSortDirection)
-  order = DEFAULT_SANDBOX_SORT_DIRECTION
+  order = DEFAULT_BOX_SORT_DIRECTION
 }

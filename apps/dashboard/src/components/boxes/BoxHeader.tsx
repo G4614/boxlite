@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { isArchivable, isRecoverable, isStartable, isStoppable } from '@/lib/utils/sandbox'
+import { isArchivable, isRecoverable, isStartable, isStoppable } from '@/lib/utils/box'
 import { Box } from '@boxlite-ai/api-client'
 import { ArrowLeft, MoreHorizontal, Play, RefreshCw, Square, Wrench } from 'lucide-react'
 

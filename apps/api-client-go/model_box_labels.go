@@ -16,38 +16,38 @@ import (
 	"fmt"
 )
 
-// checks if the SandboxLabels type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &SandboxLabels{}
+// checks if the BoxLabels type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &BoxLabels{}
 
-// SandboxLabels struct for SandboxLabels
-type SandboxLabels struct {
+// BoxLabels struct for BoxLabels
+type BoxLabels struct {
 	// Key-value pairs of labels
 	Labels map[string]string `json:"labels"`
 	AdditionalProperties map[string]interface{}
 }
 
-type _SandboxLabels SandboxLabels
+type _BoxLabels BoxLabels
 
-// NewSandboxLabels instantiates a new SandboxLabels object
+// NewBoxLabels instantiates a new BoxLabels object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSandboxLabels(labels map[string]string) *SandboxLabels {
-	this := SandboxLabels{}
+func NewBoxLabels(labels map[string]string) *BoxLabels {
+	this := BoxLabels{}
 	this.Labels = labels
 	return &this
 }
 
-// NewSandboxLabelsWithDefaults instantiates a new SandboxLabels object
+// NewBoxLabelsWithDefaults instantiates a new BoxLabels object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewSandboxLabelsWithDefaults() *SandboxLabels {
-	this := SandboxLabels{}
+func NewBoxLabelsWithDefaults() *BoxLabels {
+	this := BoxLabels{}
 	return &this
 }
 
 // GetLabels returns the Labels field value
-func (o *SandboxLabels) GetLabels() map[string]string {
+func (o *BoxLabels) GetLabels() map[string]string {
 	if o == nil {
 		var ret map[string]string
 		return ret
@@ -58,7 +58,7 @@ func (o *SandboxLabels) GetLabels() map[string]string {
 
 // GetLabelsOk returns a tuple with the Labels field value
 // and a boolean to check if the value has been set.
-func (o *SandboxLabels) GetLabelsOk() (*map[string]string, bool) {
+func (o *BoxLabels) GetLabelsOk() (*map[string]string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -66,11 +66,11 @@ func (o *SandboxLabels) GetLabelsOk() (*map[string]string, bool) {
 }
 
 // SetLabels sets field value
-func (o *SandboxLabels) SetLabels(v map[string]string) {
+func (o *BoxLabels) SetLabels(v map[string]string) {
 	o.Labels = v
 }
 
-func (o SandboxLabels) MarshalJSON() ([]byte, error) {
+func (o BoxLabels) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -78,7 +78,7 @@ func (o SandboxLabels) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o SandboxLabels) ToMap() (map[string]interface{}, error) {
+func (o BoxLabels) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["labels"] = o.Labels
 
@@ -89,7 +89,7 @@ func (o SandboxLabels) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *SandboxLabels) UnmarshalJSON(data []byte) (err error) {
+func (o *BoxLabels) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -111,15 +111,15 @@ func (o *SandboxLabels) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varSandboxLabels := _SandboxLabels{}
+	varBoxLabels := _BoxLabels{}
 
-	err = json.Unmarshal(data, &varSandboxLabels)
+	err = json.Unmarshal(data, &varBoxLabels)
 
 	if err != nil {
 		return err
 	}
 
-	*o = SandboxLabels(varSandboxLabels)
+	*o = BoxLabels(varBoxLabels)
 
 	additionalProperties := make(map[string]interface{})
 
@@ -131,38 +131,40 @@ func (o *SandboxLabels) UnmarshalJSON(data []byte) (err error) {
 	return err
 }
 
-type NullableSandboxLabels struct {
-	value *SandboxLabels
+type NullableBoxLabels struct {
+	value *BoxLabels
 	isSet bool
 }
 
-func (v NullableSandboxLabels) Get() *SandboxLabels {
+func (v NullableBoxLabels) Get() *BoxLabels {
 	return v.value
 }
 
-func (v *NullableSandboxLabels) Set(val *SandboxLabels) {
+func (v *NullableBoxLabels) Set(val *BoxLabels) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableSandboxLabels) IsSet() bool {
+func (v NullableBoxLabels) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableSandboxLabels) Unset() {
+func (v *NullableBoxLabels) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableSandboxLabels(val *SandboxLabels) *NullableSandboxLabels {
-	return &NullableSandboxLabels{value: val, isSet: true}
+func NewNullableBoxLabels(val *BoxLabels) *NullableBoxLabels {
+	return &NullableBoxLabels{value: val, isSet: true}
 }
 
-func (v NullableSandboxLabels) MarshalJSON() ([]byte, error) {
+func (v NullableBoxLabels) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableSandboxLabels) UnmarshalJSON(src []byte) error {
+func (v *NullableBoxLabels) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

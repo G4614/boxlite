@@ -16,26 +16,26 @@ import (
 	"fmt"
 )
 
-// checks if the PaginatedSandboxes type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &PaginatedSandboxes{}
+// checks if the PaginatedBoxes type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &PaginatedBoxes{}
 
-// PaginatedSandboxes struct for PaginatedSandboxes
-type PaginatedSandboxes struct {
-	Items []Sandbox `json:"items"`
+// PaginatedBoxes struct for PaginatedBoxes
+type PaginatedBoxes struct {
+	Items []Box `json:"items"`
 	Total float32 `json:"total"`
 	Page float32 `json:"page"`
 	TotalPages float32 `json:"totalPages"`
 	AdditionalProperties map[string]interface{}
 }
 
-type _PaginatedSandboxes PaginatedSandboxes
+type _PaginatedBoxes PaginatedBoxes
 
-// NewPaginatedSandboxes instantiates a new PaginatedSandboxes object
+// NewPaginatedBoxes instantiates a new PaginatedBoxes object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewPaginatedSandboxes(items []Sandbox, total float32, page float32, totalPages float32) *PaginatedSandboxes {
-	this := PaginatedSandboxes{}
+func NewPaginatedBoxes(items []Box, total float32, page float32, totalPages float32) *PaginatedBoxes {
+	this := PaginatedBoxes{}
 	this.Items = items
 	this.Total = total
 	this.Page = page
@@ -43,18 +43,18 @@ func NewPaginatedSandboxes(items []Sandbox, total float32, page float32, totalPa
 	return &this
 }
 
-// NewPaginatedSandboxesWithDefaults instantiates a new PaginatedSandboxes object
+// NewPaginatedBoxesWithDefaults instantiates a new PaginatedBoxes object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewPaginatedSandboxesWithDefaults() *PaginatedSandboxes {
-	this := PaginatedSandboxes{}
+func NewPaginatedBoxesWithDefaults() *PaginatedBoxes {
+	this := PaginatedBoxes{}
 	return &this
 }
 
 // GetItems returns the Items field value
-func (o *PaginatedSandboxes) GetItems() []Sandbox {
+func (o *PaginatedBoxes) GetItems() []Box {
 	if o == nil {
-		var ret []Sandbox
+		var ret []Box
 		return ret
 	}
 
@@ -63,7 +63,7 @@ func (o *PaginatedSandboxes) GetItems() []Sandbox {
 
 // GetItemsOk returns a tuple with the Items field value
 // and a boolean to check if the value has been set.
-func (o *PaginatedSandboxes) GetItemsOk() ([]Sandbox, bool) {
+func (o *PaginatedBoxes) GetItemsOk() ([]Box, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -71,12 +71,12 @@ func (o *PaginatedSandboxes) GetItemsOk() ([]Sandbox, bool) {
 }
 
 // SetItems sets field value
-func (o *PaginatedSandboxes) SetItems(v []Sandbox) {
+func (o *PaginatedBoxes) SetItems(v []Box) {
 	o.Items = v
 }
 
 // GetTotal returns the Total field value
-func (o *PaginatedSandboxes) GetTotal() float32 {
+func (o *PaginatedBoxes) GetTotal() float32 {
 	if o == nil {
 		var ret float32
 		return ret
@@ -87,7 +87,7 @@ func (o *PaginatedSandboxes) GetTotal() float32 {
 
 // GetTotalOk returns a tuple with the Total field value
 // and a boolean to check if the value has been set.
-func (o *PaginatedSandboxes) GetTotalOk() (*float32, bool) {
+func (o *PaginatedBoxes) GetTotalOk() (*float32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -95,12 +95,12 @@ func (o *PaginatedSandboxes) GetTotalOk() (*float32, bool) {
 }
 
 // SetTotal sets field value
-func (o *PaginatedSandboxes) SetTotal(v float32) {
+func (o *PaginatedBoxes) SetTotal(v float32) {
 	o.Total = v
 }
 
 // GetPage returns the Page field value
-func (o *PaginatedSandboxes) GetPage() float32 {
+func (o *PaginatedBoxes) GetPage() float32 {
 	if o == nil {
 		var ret float32
 		return ret
@@ -111,7 +111,7 @@ func (o *PaginatedSandboxes) GetPage() float32 {
 
 // GetPageOk returns a tuple with the Page field value
 // and a boolean to check if the value has been set.
-func (o *PaginatedSandboxes) GetPageOk() (*float32, bool) {
+func (o *PaginatedBoxes) GetPageOk() (*float32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -119,12 +119,12 @@ func (o *PaginatedSandboxes) GetPageOk() (*float32, bool) {
 }
 
 // SetPage sets field value
-func (o *PaginatedSandboxes) SetPage(v float32) {
+func (o *PaginatedBoxes) SetPage(v float32) {
 	o.Page = v
 }
 
 // GetTotalPages returns the TotalPages field value
-func (o *PaginatedSandboxes) GetTotalPages() float32 {
+func (o *PaginatedBoxes) GetTotalPages() float32 {
 	if o == nil {
 		var ret float32
 		return ret
@@ -135,7 +135,7 @@ func (o *PaginatedSandboxes) GetTotalPages() float32 {
 
 // GetTotalPagesOk returns a tuple with the TotalPages field value
 // and a boolean to check if the value has been set.
-func (o *PaginatedSandboxes) GetTotalPagesOk() (*float32, bool) {
+func (o *PaginatedBoxes) GetTotalPagesOk() (*float32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -143,11 +143,11 @@ func (o *PaginatedSandboxes) GetTotalPagesOk() (*float32, bool) {
 }
 
 // SetTotalPages sets field value
-func (o *PaginatedSandboxes) SetTotalPages(v float32) {
+func (o *PaginatedBoxes) SetTotalPages(v float32) {
 	o.TotalPages = v
 }
 
-func (o PaginatedSandboxes) MarshalJSON() ([]byte, error) {
+func (o PaginatedBoxes) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -155,7 +155,7 @@ func (o PaginatedSandboxes) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o PaginatedSandboxes) ToMap() (map[string]interface{}, error) {
+func (o PaginatedBoxes) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["items"] = o.Items
 	toSerialize["total"] = o.Total
@@ -169,7 +169,7 @@ func (o PaginatedSandboxes) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *PaginatedSandboxes) UnmarshalJSON(data []byte) (err error) {
+func (o *PaginatedBoxes) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -194,15 +194,15 @@ func (o *PaginatedSandboxes) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varPaginatedSandboxes := _PaginatedSandboxes{}
+	varPaginatedBoxes := _PaginatedBoxes{}
 
-	err = json.Unmarshal(data, &varPaginatedSandboxes)
+	err = json.Unmarshal(data, &varPaginatedBoxes)
 
 	if err != nil {
 		return err
 	}
 
-	*o = PaginatedSandboxes(varPaginatedSandboxes)
+	*o = PaginatedBoxes(varPaginatedBoxes)
 
 	additionalProperties := make(map[string]interface{})
 
@@ -217,38 +217,40 @@ func (o *PaginatedSandboxes) UnmarshalJSON(data []byte) (err error) {
 	return err
 }
 
-type NullablePaginatedSandboxes struct {
-	value *PaginatedSandboxes
+type NullablePaginatedBoxes struct {
+	value *PaginatedBoxes
 	isSet bool
 }
 
-func (v NullablePaginatedSandboxes) Get() *PaginatedSandboxes {
+func (v NullablePaginatedBoxes) Get() *PaginatedBoxes {
 	return v.value
 }
 
-func (v *NullablePaginatedSandboxes) Set(val *PaginatedSandboxes) {
+func (v *NullablePaginatedBoxes) Set(val *PaginatedBoxes) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullablePaginatedSandboxes) IsSet() bool {
+func (v NullablePaginatedBoxes) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullablePaginatedSandboxes) Unset() {
+func (v *NullablePaginatedBoxes) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullablePaginatedSandboxes(val *PaginatedSandboxes) *NullablePaginatedSandboxes {
-	return &NullablePaginatedSandboxes{value: val, isSet: true}
+func NewNullablePaginatedBoxes(val *PaginatedBoxes) *NullablePaginatedBoxes {
+	return &NullablePaginatedBoxes{value: val, isSet: true}
 }
 
-func (v NullablePaginatedSandboxes) MarshalJSON() ([]byte, error) {
+func (v NullablePaginatedBoxes) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullablePaginatedSandboxes) UnmarshalJSON(src []byte) error {
+func (v *NullablePaginatedBoxes) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

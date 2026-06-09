@@ -46,7 +46,7 @@ export class AdminBoxController {
   })
   @Audit({
     action: AuditAction.RECOVER,
-    targetType: AuditTarget.SANDBOX,
+    targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
     targetIdFromResult: (result: BoxDto) => result?.id,
   })
