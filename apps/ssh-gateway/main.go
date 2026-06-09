@@ -220,7 +220,7 @@ func (g *SSHGateway) handleConnection(conn net.Conn, serverConfig *ssh.ServerCon
 			return
 		}
 
-		if box.State == nil || *box.State != apiclient.SANDBOXSTATE_STARTED {
+		if box.State == nil || *box.State != apiclient.BOXSTATE_STARTED {
 			state := "unknown"
 			if box.State != nil {
 				state = string(*box.State)

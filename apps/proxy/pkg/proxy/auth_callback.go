@@ -65,7 +65,7 @@ func (p *Proxy) AuthCallback(ctx *gin.Context) {
 		return
 	}
 
-	boxId := stateData["sandboxId"]
+	boxId := stateData["boxId"]
 	if boxId == "" {
 		ctx.Error(common_errors.NewBadRequestError(errors.New("no boxId in state")))
 		return
@@ -119,13 +119,13 @@ func (p *Proxy) AuthCallback(ctx *gin.Context) {
 		return
 	}
 
-	encoded, err := p.secureCookie.Encode(SANDBOX_AUTH_COOKIE_NAME+boxId, boxId)
+	encoded, err := p.secureCookie.Encode(BOX_AUTH_COOKIE_NAME+boxId, boxId)
 	if err != nil {
 		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to encode cookie: %w", err)))
 		return
 	}
 
-	ctx.SetCookie(SANDBOX_AUTH_COOKIE_NAME+boxId, encoded, 3600, "/", cookieDomain, p.config.EnableTLS, true)
+	ctx.SetCookie(BOX_AUTH_COOKIE_NAME+boxId, encoded, 3600, "/", cookieDomain, p.config.EnableTLS, true)
 
 	// Redirect back to the original URL
 	ctx.Redirect(http.StatusFound, returnTo)
@@ -168,9 +168,9 @@ func (p *Proxy) getAuthUrl(ctx *gin.Context, boxId string) (string, error) {
 
 	// Store the original request URL in the state
 	stateData := map[string]string{
-		"state":     state,
-		"returnTo":  fmt.Sprintf("%s://%s%s", p.config.ProxyProtocol, ctx.Request.Host, ctx.Request.URL.String()),
-		"sandboxId": boxId,
+		"state":    state,
+		"returnTo": fmt.Sprintf("%s://%s%s", p.config.ProxyProtocol, ctx.Request.Host, ctx.Request.URL.String()),
+		"boxId":    boxId,
 	}
 	stateJson, err := json.Marshal(stateData)
 	if err != nil {

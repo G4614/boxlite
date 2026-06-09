@@ -16,7 +16,7 @@ import (
 var forceFlag bool
 
 var StopCmd = &cobra.Command{
-	Use:   "stop [SANDBOX_ID] | [SANDBOX_NAME]",
+	Use:   "stop [BOX_ID] | [BOX_NAME]",
 	Short: "Stop a sandbox",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

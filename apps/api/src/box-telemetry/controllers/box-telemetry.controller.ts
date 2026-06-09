@@ -19,8 +19,8 @@ import { MetricsResponseDto } from '../dto/metrics-response.dto'
 import { RequireFlagsEnabled } from '@openfeature/nestjs-sdk'
 import { AnalyticsApiDisabledGuard } from '../guards/analytics-api-disabled.guard'
 
-@ApiTags('sandbox')
-@Controller('sandbox')
+@ApiTags('box')
+@Controller('box')
 @ApiHeader(CustomHeaders.ORGANIZATION_ID)
 @UseGuards(CombinedAuthGuard, OrganizationResourceActionGuard, AuthenticatedRateLimitGuard, AnalyticsApiDisabledGuard)
 @ApiOAuth2(['openid', 'profile', 'email'])

@@ -31,7 +31,7 @@ func NewBoxService(logger *slog.Logger, backupInfoCache *cache.BackupInfoCache, 
 func (s *BoxService) GetBoxInfo(ctx context.Context, boxId string) (*models.BoxInfo, error) {
 	boxState, err := s.boxlite.GetBoxState(ctx, boxId)
 	if err != nil {
-		s.log.Warn("Failed to get box state", "sandboxId", boxId, "error", err)
+		s.log.Warn("Failed to get box state", "boxId", boxId, "error", err)
 		return nil, err
 	}
 

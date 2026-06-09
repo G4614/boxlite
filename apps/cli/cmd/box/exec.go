@@ -16,7 +16,7 @@ import (
 )
 
 var ExecCmd = &cobra.Command{
-	Use:   "exec [SANDBOX_ID | SANDBOX_NAME] -- [COMMAND] [ARGS...]",
+	Use:   "exec [BOX_ID | BOX_NAME] -- [COMMAND] [ARGS...]",
 	Short: "Execute a command in a sandbox",
 	Long:  "Execute a command in a running sandbox",
 	Args:  cobra.MinimumNArgs(2),

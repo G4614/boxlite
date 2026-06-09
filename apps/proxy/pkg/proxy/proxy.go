@@ -36,9 +36,9 @@ type RunnerInfo struct {
 	ApiKey string `json:"apiKey"`
 }
 
-const SANDBOX_AUTH_KEY_HEADER = "X-BoxLite-Preview-Token"
-const SANDBOX_AUTH_KEY_QUERY_PARAM = "BOXLITE_SANDBOX_AUTH_KEY"
-const SANDBOX_AUTH_COOKIE_NAME = "boxlite-box-auth-"
+const BOX_AUTH_KEY_HEADER = "X-BoxLite-Preview-Token"
+const BOX_AUTH_KEY_QUERY_PARAM = "BOXLITE_SANDBOX_AUTH_KEY"
+const BOX_AUTH_COOKIE_NAME = "boxlite-box-auth-"
 const SKIP_LAST_ACTIVITY_UPDATE_HEADER = "X-BoxLite-Skip-Last-Activity-Update"
 const ACTIVITY_POLL_STOP_KEY = "boxlite-activity-poll-stop"
 const TERMINAL_PORT = "22222"

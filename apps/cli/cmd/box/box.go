@@ -14,7 +14,7 @@ var BoxCmd = &cobra.Command{
 	Short:   "Manage BoxLite boxes",
 	Long:    "Commands for managing BoxLite boxes",
 	Aliases: []string{"boxes"},
-	GroupID: internal.SANDBOX_GROUP,
+	GroupID: internal.BOX_GROUP,
 	Hidden:  true, // Deprecated: use top-level commands instead (e.g., "boxlite start" instead of "boxlite box start")
 }
 

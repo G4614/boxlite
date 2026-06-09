@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const SANDBOX_TERMINAL_PORT = 22222
+const BOX_TERMINAL_PORT = 22222
 
 var CreateCmd = &cobra.Command{
 	Use:     "create [flags]",
@@ -135,7 +135,7 @@ var CreateCmd = &cobra.Command{
 			return apiclient_cli.HandleErrorResponse(res, err)
 		}
 
-		if box.State != nil && *box.State == apiclient.SANDBOXSTATE_PENDING_BUILD {
+		if box.State != nil && *box.State == apiclient.BOXSTATE_PENDING_BUILD {
 			c, err := config.GetConfig()
 			if err != nil {
 				return err
@@ -146,7 +146,7 @@ var CreateCmd = &cobra.Command{
 				return err
 			}
 
-			err = common.AwaitBoxState(ctx, apiClient, box.Id, apiclient.SANDBOXSTATE_BUILDING_SNAPSHOT)
+			err = common.AwaitBoxState(ctx, apiClient, box.Id, apiclient.BOXSTATE_BUILDING_SNAPSHOT)
 			if err != nil {
 				return err
 			}
@@ -163,7 +163,7 @@ var CreateCmd = &cobra.Command{
 				ResourceType:         common.ResourceTypeBox,
 			})
 
-			err = common.AwaitBoxState(ctx, apiClient, box.Id, apiclient.SANDBOXSTATE_STARTED)
+			err = common.AwaitBoxState(ctx, apiClient, box.Id, apiclient.BOXSTATE_STARTED)
 			if err != nil {
 				return err
 			}
@@ -173,7 +173,7 @@ var CreateCmd = &cobra.Command{
 			stopLogs()
 		}
 
-		previewUrl, res, err := apiClient.BoxAPI.GetPortPreviewUrl(ctx, box.Id, SANDBOX_TERMINAL_PORT).Execute()
+		previewUrl, res, err := apiClient.BoxAPI.GetPortPreviewUrl(ctx, box.Id, BOX_TERMINAL_PORT).Execute()
 		if err != nil {
 			return apiclient_cli.HandleErrorResponse(res, err)
 		}

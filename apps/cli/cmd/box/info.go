@@ -14,7 +14,7 @@ import (
 )
 
 var InfoCmd = &cobra.Command{
-	Use:     "info [SANDBOX_ID] | [SANDBOX_NAME]",
+	Use:     "info [BOX_ID] | [BOX_NAME]",
 	Short:   "Get box info",
 	Args:    cobra.ExactArgs(1),
 	Aliases: common.GetAliases("info"),

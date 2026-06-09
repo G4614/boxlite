@@ -47,7 +47,7 @@ func ProxyRequest(logger *slog.Logger) gin.HandlerFunc {
 			return
 		}
 
-		boxId := ctx.Param("sandboxId")
+		boxId := ctx.Param("boxId")
 
 		if ctx.Request.Header.Get("Upgrade") == "websocket" {
 			handleWebSocketTerminal(ctx, r, boxId, logger)

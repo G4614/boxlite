@@ -17,7 +17,7 @@ import { BoxService } from '../../box/services/box.service'
 import { SystemRole } from '../../user/enums/system-role.enum'
 
 @ApiTags('admin')
-@Controller('admin/sandbox')
+@Controller('admin/box')
 @UseGuards(CombinedAuthGuard, SystemActionGuard)
 @RequiredApiRole([SystemRole.ADMIN])
 @ApiOAuth2(['openid', 'profile', 'email'])

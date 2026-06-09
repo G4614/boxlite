@@ -14,7 +14,7 @@ import (
 )
 
 var StartCmd = &cobra.Command{
-	Use:   "start [SANDBOX_ID] | [SANDBOX_NAME]",
+	Use:   "start [BOX_ID] | [BOX_NAME]",
 	Short: "Start a sandbox",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

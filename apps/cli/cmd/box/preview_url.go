@@ -13,7 +13,7 @@ import (
 )
 
 var PreviewUrlCmd = &cobra.Command{
-	Use:     "preview-url [SANDBOX_ID | SANDBOX_NAME]",
+	Use:     "preview-url [BOX_ID | BOX_NAME]",
 	Short:   "Get signed preview URL for a box port",
 	Args:    cobra.ExactArgs(1),
 	Aliases: common.GetAliases("preview-url"),

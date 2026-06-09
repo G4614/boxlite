@@ -21,7 +21,7 @@ import (
 const spinnerThreshold = 10
 
 var DeleteCmd = &cobra.Command{
-	Use:     "delete [SANDBOX_ID] | [SANDBOX_NAME]",
+	Use:     "delete [BOX_ID] | [BOX_NAME]",
 	Short:   "Delete a sandbox",
 	Args:    cobra.MaximumNArgs(1),
 	Aliases: common.GetAliases("delete"),

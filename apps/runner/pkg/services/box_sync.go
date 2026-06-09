@@ -52,7 +52,7 @@ func (s *BoxSyncService) GetLocalContainerStates(ctx context.Context) (map[strin
 
 		state, err := s.boxlite.GetBoxState(ctx, boxId)
 		if err != nil {
-			s.log.DebugContext(ctx, "Failed to get state for sandbox", "sandboxId", boxId, "error", err)
+			s.log.DebugContext(ctx, "Failed to get state for sandbox", "boxId", boxId, "error", err)
 			continue
 		}
 
@@ -71,7 +71,7 @@ func (s *BoxSyncService) GetRemoteBoxStates(ctx context.Context) (map[string]api
 		s.client = client
 	}
 	boxes, _, err := s.client.BoxAPI.GetBoxesForRunner(ctx).
-		States(string(apiclient.SANDBOXSTATE_STARTED)).SkipReconcilingBoxes(true).
+		States(string(apiclient.BOXSTATE_STARTED)).SkipReconcilingBoxes(true).
 		Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get boxes from API: %w", err)
@@ -119,11 +119,11 @@ func (s *BoxSyncService) PerformSync(ctx context.Context) error {
 		convertedRemoteState := s.convertFromApiState(remoteState)
 
 		if localState != convertedRemoteState {
-			s.log.InfoContext(ctx, "State mismatch for sandbox", "sandboxId", boxId, "localState", localState, "remoteState", convertedRemoteState)
+			s.log.InfoContext(ctx, "State mismatch for sandbox", "boxId", boxId, "localState", localState, "remoteState", convertedRemoteState)
 
 			err := s.SyncBoxState(ctx, boxId, localState)
 			if err != nil {
-				s.log.ErrorContext(ctx, "Failed to sync state for sandbox", "sandboxId", boxId, "error", err)
+				s.log.ErrorContext(ctx, "Failed to sync state for sandbox", "boxId", boxId, "error", err)
 				continue
 			}
 			syncCount++
@@ -166,51 +166,51 @@ func (s *BoxSyncService) StartSyncProcess(ctx context.Context) {
 func (s *BoxSyncService) convertToApiState(localState enums.BoxState) apiclient.BoxState {
 	switch localState {
 	case enums.BoxStateCreating:
-		return apiclient.SANDBOXSTATE_CREATING
+		return apiclient.BOXSTATE_CREATING
 	case enums.BoxStateRestoring:
-		return apiclient.SANDBOXSTATE_RESTORING
+		return apiclient.BOXSTATE_RESTORING
 	case enums.BoxStateDestroyed:
-		return apiclient.SANDBOXSTATE_DESTROYED
+		return apiclient.BOXSTATE_DESTROYED
 	case enums.BoxStateDestroying:
-		return apiclient.SANDBOXSTATE_DESTROYING
+		return apiclient.BOXSTATE_DESTROYING
 	case enums.BoxStateStarted:
-		return apiclient.SANDBOXSTATE_STARTED
+		return apiclient.BOXSTATE_STARTED
 	case enums.BoxStateStopped:
-		return apiclient.SANDBOXSTATE_STOPPED
+		return apiclient.BOXSTATE_STOPPED
 	case enums.BoxStateStarting:
-		return apiclient.SANDBOXSTATE_STARTING
+		return apiclient.BOXSTATE_STARTING
 	case enums.BoxStateStopping:
-		return apiclient.SANDBOXSTATE_STOPPING
+		return apiclient.BOXSTATE_STOPPING
 	case enums.BoxStateError:
-		return apiclient.SANDBOXSTATE_ERROR
+		return apiclient.BOXSTATE_ERROR
 	case enums.BoxStatePullingSnapshot:
-		return apiclient.SANDBOXSTATE_PULLING_SNAPSHOT
+		return apiclient.BOXSTATE_PULLING_SNAPSHOT
 	default:
-		return apiclient.SANDBOXSTATE_UNKNOWN
+		return apiclient.BOXSTATE_UNKNOWN
 	}
 }
 
 func (s *BoxSyncService) convertFromApiState(apiState apiclient.BoxState) enums.BoxState {
 	switch apiState {
-	case apiclient.SANDBOXSTATE_CREATING:
+	case apiclient.BOXSTATE_CREATING:
 		return enums.BoxStateCreating
-	case apiclient.SANDBOXSTATE_RESTORING:
+	case apiclient.BOXSTATE_RESTORING:
 		return enums.BoxStateRestoring
-	case apiclient.SANDBOXSTATE_DESTROYED:
+	case apiclient.BOXSTATE_DESTROYED:
 		return enums.BoxStateDestroyed
-	case apiclient.SANDBOXSTATE_DESTROYING:
+	case apiclient.BOXSTATE_DESTROYING:
 		return enums.BoxStateDestroying
-	case apiclient.SANDBOXSTATE_STARTED:
+	case apiclient.BOXSTATE_STARTED:
 		return enums.BoxStateStarted
-	case apiclient.SANDBOXSTATE_STOPPED:
+	case apiclient.BOXSTATE_STOPPED:
 		return enums.BoxStateStopped
-	case apiclient.SANDBOXSTATE_STARTING:
+	case apiclient.BOXSTATE_STARTING:
 		return enums.BoxStateStarting
-	case apiclient.SANDBOXSTATE_STOPPING:
+	case apiclient.BOXSTATE_STOPPING:
 		return enums.BoxStateStopping
-	case apiclient.SANDBOXSTATE_ERROR:
+	case apiclient.BOXSTATE_ERROR:
 		return enums.BoxStateError
-	case apiclient.SANDBOXSTATE_PULLING_SNAPSHOT:
+	case apiclient.BOXSTATE_PULLING_SNAPSHOT:
 		return enums.BoxStatePullingSnapshot
 	default:
 		return enums.BoxStateUnknown

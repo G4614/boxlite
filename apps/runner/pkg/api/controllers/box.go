@@ -78,7 +78,7 @@ func Create(ctx *gin.Context) {
 //
 //	@id				Destroy
 func Destroy(ctx *gin.Context) {
-	boxId := ctx.Param("sandboxId")
+	boxId := ctx.Param("boxId")
 
 	runner, err := runner.GetInstance(nil)
 	if err != nil {
@@ -117,7 +117,7 @@ func Destroy(ctx *gin.Context) {
 //	@id				CreateBackup
 func CreateBackup(logger *slog.Logger) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		boxId := ctx.Param("sandboxId")
+		boxId := ctx.Param("boxId")
 
 		var createBackupDTO dto.CreateBackupDTO
 		err := ctx.ShouldBindJSON(&createBackupDTO)
@@ -172,7 +172,7 @@ func Resize(ctx *gin.Context) {
 		return
 	}
 
-	boxId := ctx.Param("sandboxId")
+	boxId := ctx.Param("boxId")
 
 	runner, err := runner.GetInstance(nil)
 	if err != nil {
@@ -217,7 +217,7 @@ func UpdateNetworkSettings(ctx *gin.Context) {
 		return
 	}
 
-	boxId := ctx.Param("sandboxId")
+	boxId := ctx.Param("boxId")
 	runner, err := runner.GetInstance(nil)
 	if err != nil {
 		ctx.Error(err)
@@ -251,7 +251,7 @@ func UpdateNetworkSettings(ctx *gin.Context) {
 //	@id				GetNetworkSettings
 func GetNetworkSettings(ctx *gin.Context) {
 	// TODO: Implement GetNetworkSettings in Docker client
-	// boxId := ctx.Param("sandboxId")
+	// boxId := ctx.Param("boxId")
 	// runner := runner.GetInstance(nil)
 	// networkSettings, err := runner.Boxlite.GetNetworkSettings(ctx.Request.Context(), boxId)
 	// if err != nil {
@@ -287,7 +287,7 @@ func GetNetworkSettings(ctx *gin.Context) {
 //
 //	@id				Start
 func Start(ctx *gin.Context) {
-	boxId := ctx.Param("sandboxId")
+	boxId := ctx.Param("boxId")
 
 	runner, err := runner.GetInstance(nil)
 	if err != nil {
@@ -337,7 +337,7 @@ func Start(ctx *gin.Context) {
 //
 //	@id				Stop
 func Stop(ctx *gin.Context) {
-	boxId := ctx.Param("sandboxId")
+	boxId := ctx.Param("boxId")
 
 	var stopDto dto.StopBoxDTO
 	// Allow empty body for backwards compatibility
@@ -375,7 +375,7 @@ func Stop(ctx *gin.Context) {
 //
 //	@id				Info
 func Info(ctx *gin.Context) {
-	boxId := ctx.Param("sandboxId")
+	boxId := ctx.Param("boxId")
 
 	runner, err := runner.GetInstance(nil)
 	if err != nil {
@@ -440,7 +440,7 @@ func Recover(ctx *gin.Context) {
 		return
 	}
 
-	boxId := ctx.Param("sandboxId")
+	boxId := ctx.Param("boxId")
 	runner, err := runner.GetInstance(nil)
 	if err != nil {
 		ctx.Error(err)

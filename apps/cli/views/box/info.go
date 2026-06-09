@@ -96,33 +96,33 @@ func getInfoLine(key, value string) string {
 
 func getStateLabel(state apiclient.BoxState) string {
 	switch state {
-	case apiclient.SANDBOXSTATE_CREATING:
+	case apiclient.BOXSTATE_CREATING:
 		return common.CreatingStyle.Render("CREATING")
-	case apiclient.SANDBOXSTATE_RESTORING:
+	case apiclient.BOXSTATE_RESTORING:
 		return common.CreatingStyle.Render("RESTORING")
-	case apiclient.SANDBOXSTATE_DESTROYED:
+	case apiclient.BOXSTATE_DESTROYED:
 		return common.DeletedStyle.Render("DESTROYED")
-	case apiclient.SANDBOXSTATE_DESTROYING:
+	case apiclient.BOXSTATE_DESTROYING:
 		return common.DeletedStyle.Render("DESTROYING")
-	case apiclient.SANDBOXSTATE_STARTED:
+	case apiclient.BOXSTATE_STARTED:
 		return common.StartedStyle.Render("STARTED")
-	case apiclient.SANDBOXSTATE_STOPPED:
+	case apiclient.BOXSTATE_STOPPED:
 		return common.StoppedStyle.Render("STOPPED")
-	case apiclient.SANDBOXSTATE_STARTING:
+	case apiclient.BOXSTATE_STARTING:
 		return common.StartingStyle.Render("STARTING")
-	case apiclient.SANDBOXSTATE_STOPPING:
+	case apiclient.BOXSTATE_STOPPING:
 		return common.StoppingStyle.Render("STOPPING")
-	case apiclient.SANDBOXSTATE_PULLING_SNAPSHOT:
+	case apiclient.BOXSTATE_PULLING_SNAPSHOT:
 		return common.CreatingStyle.Render("PULLING SNAPSHOT")
-	case apiclient.SANDBOXSTATE_ARCHIVING:
+	case apiclient.BOXSTATE_ARCHIVING:
 		return common.CreatingStyle.Render("ARCHIVING")
-	case apiclient.SANDBOXSTATE_ARCHIVED:
+	case apiclient.BOXSTATE_ARCHIVED:
 		return common.StoppedStyle.Render("ARCHIVED")
-	case apiclient.SANDBOXSTATE_ERROR:
+	case apiclient.BOXSTATE_ERROR:
 		return common.ErrorStyle.Render("ERROR")
-	case apiclient.SANDBOXSTATE_BUILD_FAILED:
+	case apiclient.BOXSTATE_BUILD_FAILED:
 		return common.ErrorStyle.Render("BUILD FAILED")
-	case apiclient.SANDBOXSTATE_UNKNOWN:
+	case apiclient.BOXSTATE_UNKNOWN:
 		return common.UndefinedStyle.Render("UNKNOWN")
 	default:
 		return common.UndefinedStyle.Render("/")

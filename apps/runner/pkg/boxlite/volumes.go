@@ -37,7 +37,7 @@ type volumeMount struct {
 }
 
 type boxVolumeMountRecord struct {
-	BoxID string   `json:"sandboxId"`
+	BoxID string   `json:"boxId"`
 	Paths []string `json:"paths"`
 }
 

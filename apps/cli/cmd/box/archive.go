@@ -14,7 +14,7 @@ import (
 )
 
 var ArchiveCmd = &cobra.Command{
-	Use:   "archive [SANDBOX_ID] | [SANDBOX_NAME]",
+	Use:   "archive [BOX_ID] | [BOX_NAME]",
 	Short: "Archive a sandbox",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

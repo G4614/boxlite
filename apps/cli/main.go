@@ -35,7 +35,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddGroup(&cobra.Group{ID: internal.USER_GROUP, Title: "User"})
-	rootCmd.AddGroup(&cobra.Group{ID: internal.SANDBOX_GROUP, Title: "Box"})
+	rootCmd.AddGroup(&cobra.Group{ID: internal.BOX_GROUP, Title: "Box"})
 
 	rootCmd.AddCommand(auth.LoginCmd)
 	rootCmd.AddCommand(auth.LogoutCmd)
@@ -85,7 +85,7 @@ func createBoxShortcut(original *cobra.Command) *cobra.Command {
 		Long:    original.Long,
 		Args:    original.Args,
 		Aliases: original.Aliases,
-		GroupID: internal.SANDBOX_GROUP,
+		GroupID: internal.BOX_GROUP,
 		RunE:    original.RunE,
 	}
 	shortcut.Flags().AddFlagSet(original.Flags())

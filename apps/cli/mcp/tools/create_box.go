@@ -77,7 +77,7 @@ func CreateBox(ctx context.Context, request mcp.CallToolRequest, args CreateBoxA
 
 	if boxId != "" {
 		box, _, err := apiClient.BoxAPI.GetBox(ctx, boxId).Execute()
-		if err == nil && box.State != nil && *box.State == apiclient.SANDBOXSTATE_STARTED {
+		if err == nil && box.State != nil && *box.State == apiclient.BOXSTATE_STARTED {
 			return mcp.NewToolResultText(fmt.Sprintf("Reusing existing box %s", boxId)), nil
 		}
 
