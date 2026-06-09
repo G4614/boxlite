@@ -13,6 +13,13 @@ use crate::runtime::types::ImageInfo;
 
 use super::client::ApiClient;
 
+/// Defensive cap on the runner-reported layer count we trust over the
+/// wire. Real OCI manifests cap at 127 layers (the docker registry
+/// hard limit); 4096 gives ~32× headroom for non-standard registries
+/// without letting a malformed / malicious response drive an
+/// allocation that scales with `layer_count`.
+const MAX_REMOTE_LAYER_COUNT: usize = 4096;
+
 #[derive(Debug, Serialize)]
 struct ImagePullRequest<'a> {
     reference: &'a str,
@@ -45,6 +52,12 @@ impl ImageBackend for RestImageBackend {
             reference: image_ref,
         };
         let resp: ImagePullResponse = self.client.post("/images/pull", &body).await?;
+        if resp.layer_count > MAX_REMOTE_LAYER_COUNT {
+            return Err(BoxliteError::Internal(format!(
+                "runner reported {} layers for {} — exceeds sanity cap of {}",
+                resp.layer_count, resp.reference, MAX_REMOTE_LAYER_COUNT
+            )));
+        }
         Ok(ImageObject::new_remote_metadata(
             resp.reference,
             resp.config_digest,
