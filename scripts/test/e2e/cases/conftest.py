@@ -141,14 +141,75 @@ def image() -> str:
 
 
 @pytest_asyncio.fixture
-async def box(rt, image):
-    """Create a box per test, auto-removed on teardown."""
-    b = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-    yield b
+async def box(rt, image, request):
+    """Create a box per test, auto-removed on teardown.
+
+    Image override: `@pytest.mark.image("ubuntu:24.04")` on the test
+    function points the fixture at a non-default image instead of
+    forcing tests to do `rt.create + try/finally` by hand.
+
+    Auto-remove True: belt-and-braces with the explicit `rt.remove`
+    below — if the test crashes after create but before yield reaches
+    the test body, the runner's auto-remove (driven by the box dying)
+    still reclaims the VM.
+    """
+    img = image
+    marker = request.node.get_closest_marker("image")
+    if marker and marker.args:
+        img = marker.args[0]
+    b = await rt.create(boxlite.BoxOptions(image=img, auto_remove=True))
     try:
-        await rt.remove(b.id, force=True)
-    except Exception:
-        pass
+        yield b
+    finally:
+        try:
+            await rt.remove(b.id, force=True)
+        except Exception:
+            pass
+
+
+@pytest_asyncio.fixture
+async def box_factory(rt, image):
+    """Use when a test needs more than one box, or per-box options
+    that the `box` fixture doesn't cover. Returns an async factory;
+    every box it makes is force-removed in finally even if the test
+    raises before reaching cleanup.
+
+    Usage:
+        async def test_two_boxes(box_factory):
+            a = await box_factory()
+            b = await box_factory(image="ubuntu:24.04",
+                                  name="my-box")
+            ...
+    """
+    created: list[str] = []
+
+    async def make(image: str = image, **opts):
+        # Default auto_remove=True so tests don't accidentally leak when
+        # the factory's finally block doesn't reach a force-remove (e.g.
+        # interpreter shutdown mid-test). Callers that need a long-lived
+        # box (e.g. tests that explicitly stop the box) can pass
+        # auto_remove=False to override.
+        opts.setdefault("auto_remove", True)
+        b = await rt.create(boxlite.BoxOptions(image=image, **opts))
+        created.append(b.id)
+        return b
+
+    try:
+        yield make
+    finally:
+        for bid in created:
+            try:
+                await rt.remove(bid, force=True)
+            except Exception:
+                pass
+
+
+def pytest_configure(config):
+    """Register the @pytest.mark.image('<tag>') marker so pytest
+    --strict-markers (used in CI) doesn't reject it."""
+    config.addinivalue_line(
+        "markers", "image(tag): override the default `box` fixture image"
+    )
 
 
 # ─── helpers shared across cases ────────────────────────────────────────────

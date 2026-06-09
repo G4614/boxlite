@@ -22,9 +22,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-import boxlite
 import pytest
-import pytest_asyncio
 
 from conftest import drain, stdout_line_count
 
@@ -40,26 +38,25 @@ async def _run_one(box, cmd: str, args: list[str]) -> int:
 
 
 @pytest.mark.asyncio
-async def test_short_command_stdout_not_dropped(rt, image):
+async def test_short_command_stdout_not_dropped(box_factory):
     """ROUNDS new boxes × 2 execs each (direct cat + shell cat); count
     execs that returned 0 stdout lines and assert below MAX_LOSS_RATE.
 
     The two slots (direct vs shell) are kept from the original repro
-    because empirically both slots can lose, not just the first."""
+    because empirically both slots can lose, not just the first.
+
+    Uses `box_factory` so the autouse path-verification fixture sees
+    every box id and so any box leak across rounds (e.g. fixture
+    cleanup never runs) is caught at suite teardown rather than
+    silently piling onto the runner."""
     losses = 0
     execs = 0
     histogram: dict[int, int] = {}
 
     for _ in range(ROUNDS):
-        box = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-        try:
-            s1 = await _run_one(box, "cat", ["/etc/os-release"])
-            s2 = await _run_one(box, "sh", ["-c", "cat /etc/os-release"])
-        finally:
-            try:
-                await rt.remove(box.id, force=True)
-            except Exception:
-                pass
+        box = await box_factory()
+        s1 = await _run_one(box, "cat", ["/etc/os-release"])
+        s2 = await _run_one(box, "sh", ["-c", "cat /etc/os-release"])
 
         for slot in (s1, s2):
             execs += 1

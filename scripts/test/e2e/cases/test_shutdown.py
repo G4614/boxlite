@@ -32,7 +32,10 @@ def _build_runtime():
 
 @pytest.mark.asyncio
 async def test_close_is_idempotent():
-    """Closing a runtime twice must not raise."""
+    """Closing a runtime twice must not raise. This test deliberately
+    bypasses the `rt` fixture because it builds its own throwaway
+    runtime to call close() on — using the session-scoped rt would
+    leave the rest of the suite without a runtime."""
     rt = _build_runtime()
     close = getattr(rt, "close", None)
     if close is None:
@@ -46,18 +49,14 @@ async def test_close_is_idempotent():
 
 
 @pytest.mark.asyncio
-async def test_two_runtimes_share_world(rt, image):
+async def test_two_runtimes_share_world(box):
     """A second runtime built against the same API sees boxes the
     first one created. This is the REST analogue of
     `cloned_runtime_shares_shutdown_state` in shutdown.rs."""
-    box = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-    try:
-        rt2 = _build_runtime()
-        infos = await rt2.list_info()
-        ids = {info.id for info in infos}
-        assert box.id in ids, (
-            f"second runtime didn't see box {box.id} created by first; "
-            f"got {ids}"
-        )
-    finally:
-        await rt.remove(box.id, force=True)
+    rt2 = _build_runtime()
+    infos = await rt2.list_info()
+    ids = {info.id for info in infos}
+    assert box.id in ids, (
+        f"second runtime didn't see box {box.id} created by first; "
+        f"got {ids}"
+    )

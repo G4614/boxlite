@@ -7,7 +7,6 @@ and the local runtime surfaces.
 """
 from __future__ import annotations
 
-import boxlite
 import pytest
 
 
@@ -25,31 +24,23 @@ async def test_runtime_initialization_creates_empty_list(rt):
 
 
 @pytest.mark.asyncio
-async def test_create_generates_unique_ids(rt, image):
-    a = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-    b = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-    try:
-        assert a.id != b.id
-        # uuid v4 format check
-        assert len(a.id.split("-")) == 5
-        assert len(b.id.split("-")) == 5
-    finally:
-        await rt.remove(a.id, force=True)
-        await rt.remove(b.id, force=True)
+async def test_create_generates_unique_ids(box_factory):
+    a = await box_factory()
+    b = await box_factory()
+    assert a.id != b.id
+    # uuid v4 format check
+    assert len(a.id.split("-")) == 5
+    assert len(b.id.split("-")) == 5
 
 
 @pytest.mark.asyncio
-async def test_get_info_returns_box_metadata(rt, image):
-    box = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-    try:
-        info = await rt.get_info(box.id)
-        assert info is not None
-        assert info.id == box.id
-        # cpus, image, etc. should be populated from the create options.
-        assert hasattr(info, "image")
-        assert image in str(getattr(info, "image", ""))
-    finally:
-        await rt.remove(box.id, force=True)
+async def test_get_info_returns_box_metadata(rt, box, image):
+    info = await rt.get_info(box.id)
+    assert info is not None
+    assert info.id == box.id
+    # cpus, image, etc. should be populated from the create options.
+    assert hasattr(info, "image")
+    assert image in str(getattr(info, "image", ""))
 
 
 @pytest.mark.asyncio

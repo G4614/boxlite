@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from path_verification import runner_journal_seek, runner_hits_for_box
@@ -50,21 +49,20 @@ async def test_sdk_runtime_is_rest_against_local_api(rt):
 
 
 @pytest.mark.asyncio
-async def test_exec_reaches_runner_journal(rt, image):
+async def test_exec_reaches_runner_journal(box):
     """One round-trip exec must leave the runner journal with the box id.
     Runner only sees box ids the API queued for it, so a hit here =
-    proof that SDK→API→Runner went through end-to-end."""
-    import boxlite
+    proof that SDK→API→Runner went through end-to-end.
 
+    The autouse `verify_runner_saw_all_boxes` fixture in conftest already
+    does this check for every test — keeping this explicit test as
+    self-documentation: when this single test fails, the rest of the
+    suite will mass-fail in the same way, and this gives you the
+    narrowest reproducer to debug."""
     runner_before = runner_journal_seek()
-    box = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-    try:
-        ex = await box.exec("cat", ["/etc/os-release"], None)
-        await drain(ex)
-        await ex.wait()
-    finally:
-        await rt.remove(box.id, force=True)
-
+    ex = await box.exec("cat", ["/etc/os-release"], None)
+    await drain(ex)
+    await ex.wait()
     hits = runner_hits_for_box(runner_before, box.id)
     assert hits >= 1, (
         f"no runner journal entries mentioned box_id={box.id}. Either "
