@@ -6,7 +6,7 @@ new CLI process must:
 
   1. see the detached box in `boxlite ls`
   2. exec into it successfully
-  3. report consistent state on `boxlite info`
+  3. report consistent state on `boxlite inspect`
 
 These behaviours are covered for local FFI by `src/boxlite/tests/
 detach.rs` and `recovery.rs`. Nothing covers the API + runner-state
@@ -77,17 +77,19 @@ def test_detached_box_survives_cli_exit_and_is_reusable(cli):
             f"detached box {box_id} not visible after CLI exit: {r_ls.stdout}"
         )
 
-        # 3) fresh CLI: info returns sane state
-        r_info = run(cli, "info", box_id)
-        info_text = r_info.stdout
+        # 3) fresh CLI: inspect returns sane state for a specific box.
+        # `boxlite info` is system-wide runtime info (NOT per-box);
+        # `boxlite inspect <id>` is the per-box detail command.
+        r_inspect = run(cli, "inspect", box_id)
+        info_text = r_inspect.stdout
         assert box_id in info_text, (
-            f"`boxlite info` did not echo the box id: {info_text!r}"
+            f"`boxlite inspect` did not echo the box id: {info_text!r}"
         )
         # Boxes started via `run -d` should show some state (Running /
         # Started / Ready depending on CLI build); just assert it's
         # neither empty nor obviously broken.
         assert "state" in info_text.lower() or "status" in info_text.lower(), (
-            f"`boxlite info` output missing state field: {info_text!r}"
+            f"`boxlite inspect` output missing state field: {info_text!r}"
         )
 
         # 4) fresh CLI: exec a command into the detached box
