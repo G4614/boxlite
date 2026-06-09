@@ -764,18 +764,3 @@ func TestAttachWriteStdinClosedExecErrors(t *testing.T) {
 		t.Fatal("AttachWriteStdin on a Done exec must error, got nil")
 	}
 }
-
-// The complementary window: the inner defer has run (handle.Close + closed=true)
-// but the outer defer that closes Done hasn't, so closed is set while Done is
-// still open. finishedLocked must reject here via the `closed` branch — this
-// pins that the Done-first refactor did not turn `closed` into dead code.
-// Done left open; execution is non-nil, so closed is the sole error source.
-func TestAttachSignalClosedFlagNoDoneErrors(t *testing.T) {
-	m := newQuietManager(t)
-	exec := registerStub(t, m, "attach-sig-closedflag", &stubExecHandle{})
-	exec.closed = true // Done intentionally left open
-
-	if err := exec.AttachSignal(int(syscall.SIGTERM)); err == nil {
-		t.Fatal("AttachSignal with closed=true and Done open must error, got nil")
-	}
-}

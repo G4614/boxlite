@@ -103,7 +103,6 @@ type ManagedExec struct {
 	// against the deferred Close in the wait goroutine. Without this,
 	// Signal/ResizeTTY/stdin Write can race handle.Close().
 	handleMu sync.Mutex
-	closed   bool
 
 	// Per-stream capture + fan-out sinks. Passed directly to the Go SDK as
 	// ExecutionOptions.Stdout/.Stderr — no io.Pipe involved. Every byte the
@@ -385,14 +384,21 @@ func (m *ExecManager) Start(ctx context.Context, bx *boxlite.Box, boxID string, 
 	exec.stdinW = execution.Stdin
 
 	go func() {
-		defer close(exec.Done)
-		defer exec.stdoutBus.close()
-		defer exec.stderrBus.close()
+		// Single cleanup defer with close(Done) FIRST so the canonical
+		// "exec finished, do not use" signal is broadcast even if Wait
+		// or any cleanup step below panics. Subsequent handle.Close /
+		// bus closures are serialized via handleMu against in-flight
+		// control ops — anyone holding handleMu finishes their op,
+		// anyone arriving after sees Done closed and bails.
 		defer func() {
+			close(exec.Done)
+
 			exec.handleMu.Lock()
 			handle.Close()
-			exec.closed = true
 			exec.handleMu.Unlock()
+
+			exec.stdoutBus.close()
+			exec.stderrBus.close()
 		}()
 
 		exitCode, err := handle.Wait(context.Background())
@@ -441,20 +447,21 @@ func (m *ExecManager) GetForBox(id, boxID string) (*ManagedExec, error) {
 	return e, nil
 }
 
-// finishedLocked reports whether the exec is over. Done is the canonical
-// "exec finished" signal — closed by the wait-task's outermost defer, so it
-// fires on any goroutine exit including a panic — while the `closed` flag is
-// set later in a nested defer an abnormal exit can skip. Checking Done first
-// closes the race window where Done is closed but `closed` is still false.
-// Callers must hold handleMu. The per-resource nil check (execution/stdinW)
+// finishedLocked reports whether the exec is over. Done is the single
+// canonical "exec finished, do not touch handle/stdin" signal — the
+// wait-goroutine's cleanup defer closes Done FIRST (before handle.Close
+// and bus closures), so the close is panic-safe and any subsequent
+// control op observing Done==closed knows the C handle is being or has
+// already been released. handleMu serializes us against the cleanup's
+// own handle.Close call. The per-resource nil check (execution / stdinW)
 // stays at the call site since it differs per operation.
 func (e *ManagedExec) finishedLocked() bool {
 	select {
 	case <-e.Done:
 		return true
 	default:
+		return false
 	}
-	return e.closed
 }
 
 func (m *ExecManager) Signal(id string, sig int) error {
@@ -496,7 +503,7 @@ func (m *ExecManager) Kill(id string) error {
 	e.attachMu.Unlock()
 
 	e.handleMu.Lock()
-	if !e.closed && e.execution != nil {
+	if !e.finishedLocked() && e.execution != nil {
 		killCtx, killCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := e.execution.Kill(killCtx)
 		killCancel()
@@ -718,7 +725,7 @@ func (m *ExecManager) escalate(e *ManagedExec, sig syscall.Signal, name string) 
 		"exec_id", e.ID, "signal", name)
 
 	e.handleMu.Lock()
-	if e.closed || e.execution == nil {
+	if e.finishedLocked() || e.execution == nil {
 		e.handleMu.Unlock()
 		e.escalationFailedMarkDoomed(sig)
 		m.killAndEvict(e)
@@ -756,7 +763,7 @@ func (m *ExecManager) killAndEvict(e *ManagedExec) {
 	}
 
 	e.handleMu.Lock()
-	if !e.closed && e.execution != nil {
+	if !e.finishedLocked() && e.execution != nil {
 		killCtx, killCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := e.execution.Kill(killCtx)
 		killCancel()
