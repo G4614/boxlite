@@ -149,9 +149,10 @@ func TestIntegrationExecStdoutRace(t *testing.T) {
 	}
 	if truncated > 0 {
 		t.Fatalf(
-			"Cmd.Run returned before %d/%d stdout deliveries — the "+
-				"#563 race regressed. Either Cmd.Run's post-Wait drain "+
-				"select (<-streamState.drained) was removed, or the "+
+			"Execution.Wait returned before %d/%d stdout deliveries — "+
+				"the #563 race regressed. Either Execution.Wait's "+
+				"post-reap drain step (<-streamState.drained, the "+
+				"os/exec awaitGoroutines analog) was removed, or the "+
 				"C-side exit_pump no longer awaits the stream_done_rx "+
 				"oneshots that close that channel.",
 			truncated, rounds,

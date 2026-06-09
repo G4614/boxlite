@@ -194,15 +194,6 @@ func (b *Box) Exec(ctx context.Context, name string, arg ...string) (*ExecResult
 	if err != nil {
 		return nil, err
 	}
-	// Wait reaps only; the Stdout/Stderr bytesCollectors we read below
-	// are not guaranteed complete until on_exit fires (which the C
-	// exit_pump gates on every stream pump's done_tx). Wrappers that
-	// own buffered sinks compose the drain at this boundary.
-	select {
-	case <-execution.streamState.drained:
-	case <-execution.closing:
-		return nil, ErrRuntimeClosed
-	}
 
 	return &ExecResult{
 		ExitCode: exitCode,
@@ -307,21 +298,28 @@ func (e *Execution) Write(p []byte) (int, error) {
 	return e.Stdin.Write(p)
 }
 
-// Wait reaps the process and returns its exit code. This is the bare
-// "process exited" terminal — it does NOT block on stream pump
-// completion, so a caller using a buffered Stdout/Stderr io.Writer
-// sink may observe a truncated buffer right after Wait returns.
+// Wait reaps the process and blocks until every stdout/stderr
+// callback for this execution has been dispatched, then returns the
+// exit code. Mirrors os/exec.Cmd's Wait for the io.Writer case —
+// every BoxLite execution IS the io.Writer case (streams are pushed
+// to a user-supplied Writer / callback; there is no StdoutPipe-style
+// user-read pipe), so Wait is the single terminal and must guarantee
+// output completeness on return.
 //
-// The callback ordering contract holds: the C side's exit_pump gates
-// the on_exit callback on every stream pump's done_tx, so a caller
-// using OnStdout/OnStderr callbacks naturally sees every chunk before
-// the executionStreamState.drained signal closes.
-//
-// For "whole exec done including output buffers", use Cmd.Run /
-// box.Exec — they compose reap + stream drain at the wrapper
-// boundary where the buffered sinks are owned.
+// The post-reap drain is non-cancelable by ctx (parity with os/exec's
+// awaitGoroutines); only runtime shutdown breaks it, in which case
+// the reap's exit code is preserved and err is overwritten only if
+// the reap had none.
 func (e *Execution) Wait(ctx context.Context) (int, error) {
-	return e.reap(ctx)
+	code, err := e.reap(ctx)
+	select {
+	case <-e.streamState.drained:
+	case <-e.closing:
+		if err == nil {
+			err = ErrRuntimeClosed
+		}
+	}
+	return code, err
 }
 
 // reap is os/exec's Process.Wait analog: it kicks the C
@@ -562,16 +560,6 @@ func (c *Cmd) Run(ctx context.Context) error {
 	exitCode, err := execution.Wait(ctx)
 	if err != nil {
 		return err
-	}
-	// Wait reaps only; c.Stdout / c.Stderr (caller-supplied io.Writer
-	// sinks) are not guaranteed complete until on_exit fires (which
-	// the C exit_pump gates on every stream pump's done_tx). Cmd.Run
-	// composes the drain at the wrapper boundary so the caller can
-	// read their sink immediately after Run returns.
-	select {
-	case <-execution.streamState.drained:
-	case <-execution.closing:
-		return ErrRuntimeClosed
 	}
 
 	c.exitCode = exitCode
