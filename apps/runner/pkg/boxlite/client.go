@@ -350,16 +350,18 @@ func (c *Client) CopyOut(ctx context.Context, sandboxId string, guestSrc, hostDs
 	return bx.CopyOut(ctx, guestSrc, hostDst)
 }
 
-// PullImage pulls an OCI image into the runtime's cache.
-func (c *Client) PullImage(ctx context.Context, imageName string) error {
+// PullImage pulls an OCI image into the runtime's cache and returns
+// metadata about the cached result (reference / config digest /
+// layer count) so REST callers can construct an image handle without
+// a second round-trip.
+func (c *Client) PullImage(ctx context.Context, imageName string) (*boxlite.ImagePullResult, error) {
 	c.logger.Info("pulling image", "image", imageName)
 	images, err := c.runtime.Images()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer images.Close()
-	_, err = images.Pull(ctx, imageName)
-	return err
+	return images.Pull(ctx, imageName)
 }
 
 // RemoveImage removes a cached image.

@@ -112,9 +112,12 @@ impl BoxliteRuntime {
     pub fn rest(config: crate::rest::options::BoxliteRestOptions) -> BoxliteResult<Self> {
         let rest_runtime = Arc::new(RestRuntime::new(&config)?);
         let auth_backend = Arc::clone(&rest_runtime) as Arc<dyn crate::runtime::auth::AuthBackend>;
+        let image_backend = Arc::new(crate::rest::images::RestImageBackend::new(
+            rest_runtime.client_clone(),
+        )) as Arc<dyn ImageBackend>;
         Ok(Self {
             backend: rest_runtime,
-            image_backend: None, // REST runtime doesn't support image operations
+            image_backend: Some(image_backend),
             auth_backend: Some(auth_backend),
         })
     }

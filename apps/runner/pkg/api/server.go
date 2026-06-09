@@ -174,6 +174,12 @@ func (a *ApiServer) Start(ctx context.Context) error {
 		boxliteApi.GET("/:boxId/metrics", controllers.BoxliteMetrics)
 	}
 
+	// BoxLite REST API — runtime-scoped image operations.
+	boxliteImages := protected.Group("/v1/images")
+	{
+		boxliteImages.POST("/pull", controllers.BoxliteImagePull)
+	}
+
 	a.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", a.apiPort),
 		Handler: a.router,

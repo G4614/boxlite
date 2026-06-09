@@ -12,12 +12,19 @@ import { OrganizationModule } from '../organization/organization.module'
 import { BoxliteMeController } from './boxlite-me.controller'
 import { BoxliteConfigController } from './boxlite-config.controller'
 import { BoxliteBoxController } from './boxlite-box.controller'
+import { BoxliteImagesController } from './boxlite-images.controller'
 import { BoxliteProxyController } from './boxlite-proxy.controller'
 import { BoxliteWsProxyService } from './boxlite-ws-proxy.service'
 
 @Module({
   imports: [SandboxModule, AuthModule, ApiKeyModule, OrganizationModule],
-  controllers: [BoxliteMeController, BoxliteConfigController, BoxliteBoxController, BoxliteProxyController],
+  controllers: [
+    BoxliteMeController,
+    BoxliteConfigController,
+    BoxliteBoxController,
+    BoxliteImagesController,
+    BoxliteProxyController,
+  ],
   providers: [BoxliteWsProxyService],
   exports: [BoxliteWsProxyService],
 })

@@ -31,7 +31,8 @@ func (c *Client) PullSnapshot(ctx context.Context, req dto.PullSnapshotRequestDT
 	c.logger.Info("pulling snapshot", "snapshot", req.Snapshot)
 
 	if req.DestinationRegistry == nil {
-		return c.PullImage(ctx, req.Snapshot)
+		_, err := c.PullImage(ctx, req.Snapshot)
+		return err
 	}
 
 	if req.DestinationRegistry.Project == nil || strings.TrimSpace(*req.DestinationRegistry.Project) == "" {
@@ -47,7 +48,7 @@ func (c *Client) PullSnapshot(ctx context.Context, req dto.PullSnapshotRequestDT
 		return err
 	}
 
-	if err := c.PullImage(ctx, targetRef); err != nil {
+	if _, err := c.PullImage(ctx, targetRef); err != nil {
 		return fmt.Errorf("failed to pull copied snapshot %s into BoxLite cache: %w", targetRef, err)
 	}
 
