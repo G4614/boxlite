@@ -86,6 +86,14 @@ def test_node_sdk_create_exec_remove(node_runner):
     box_id = m.group(0)
 
     assert "OK" in r.stdout
+    # exec stdout assertions catch napi stream-marshaling regressions
+    # that plain create + remove silently misses
+    assert "EXIT_CODE=0" in r.stdout, (
+        f"node exec did not return 0: {r.stdout!r}"
+    )
+    assert "HELLO-FROM-NODE" in r.stdout, (
+        f"node exec did not capture stdout marker: {r.stdout!r}"
+    )
 
     hits = runner_hits_for_box(journal_since, box_id)
     assert hits >= 1, (
