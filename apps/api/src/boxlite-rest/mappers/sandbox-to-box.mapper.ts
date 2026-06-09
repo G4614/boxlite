@@ -34,6 +34,22 @@ export function createBoxToCreateSandbox(dto: CreateBoxDto, target?: string): Cr
   createDto.memory = dto.memory_mib ? Math.ceil(dto.memory_mib / 1024) : undefined
   createDto.disk = dto.disk_size_gb
   createDto.target = target
+
+  // Translate BoxOptions.network (mode + allow_net) to the lower-layer
+  // sandbox's two flat flags. Local-FFI enforces these inside the
+  // runtime; the REST chain leaves the field untouched if absent so
+  // existing callers see no behaviour change.
+  if (dto.network) {
+    if (dto.network.mode === 'disabled') {
+      createDto.networkBlockAll = true
+    } else {
+      createDto.networkBlockAll = false
+    }
+    if (dto.network.allow_net && dto.network.allow_net.length > 0) {
+      createDto.networkAllowList = dto.network.allow_net.join(',')
+    }
+  }
+
   return createDto
 }
 
