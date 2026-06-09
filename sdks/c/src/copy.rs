@@ -20,7 +20,15 @@ pub unsafe extern "C" fn boxlite_copy_into(
     user_data: *mut c_void,
     out_error: *mut CBoxliteError,
 ) -> BoxliteErrorCode {
-    box_copy_into(handle, host_src, guest_dst, default_copy_options(), cb, user_data, out_error)
+    box_copy_into(
+        handle,
+        host_src,
+        guest_dst,
+        default_copy_options(),
+        cb,
+        user_data,
+        out_error,
+    )
 }
 
 /// Variant of `boxlite_copy_into` that takes an explicit `overwrite`
