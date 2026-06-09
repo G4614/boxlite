@@ -307,7 +307,9 @@ unsafe fn box_snapshot_get(
                     Box::new(CSnapshotInfo::from_snapshot_info(&info)),
                     free_snapshot_info_ptr,
                 )),
-                Ok(None) => Err(BoxliteError::NotFound(format!("snapshot not found: {name}"))),
+                Ok(None) => Err(BoxliteError::NotFound(format!(
+                    "snapshot not found: {name}"
+                ))),
                 Err(e) => Err(e),
             };
             push_event(

@@ -170,11 +170,7 @@ pub(crate) type CBoxSnapshotCreateFn =
 
 /// Snapshot list completion.
 pub type CBoxSnapshotListCb = Option<
-    extern "C" fn(
-        *mut crate::snapshot::CSnapshotInfoList,
-        *mut crate::CBoxliteError,
-        *mut c_void,
-    ),
+    extern "C" fn(*mut crate::snapshot::CSnapshotInfoList, *mut crate::CBoxliteError, *mut c_void),
 >;
 pub(crate) type CBoxSnapshotListFn =
     extern "C" fn(*mut crate::snapshot::CSnapshotInfoList, *mut crate::CBoxliteError, *mut c_void);

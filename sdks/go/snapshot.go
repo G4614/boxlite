@@ -13,12 +13,12 @@ import (
 
 // SnapshotInfo describes a box state snapshot.
 type SnapshotInfo struct {
-	ID                  string
-	BoxID               string
-	Name                string
-	CreatedAt           int64
-	ContainerDiskBytes  uint64
-	SizeBytes           uint64
+	ID                 string
+	BoxID              string
+	Name               string
+	CreatedAt          int64
+	ContainerDiskBytes uint64
+	SizeBytes          uint64
 }
 
 type snapshotCreateResult struct {

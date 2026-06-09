@@ -51,7 +51,9 @@ impl ImageInfoResponse {
             tag: self.tag.clone(),
             id: self.id.clone(),
             cached_at,
-            size: self.size_bytes.map(crate::runtime::types::Bytes::from_bytes),
+            size: self
+                .size_bytes
+                .map(crate::runtime::types::Bytes::from_bytes),
         }
     }
 }
@@ -82,7 +84,11 @@ impl ImageBackend for RestImageBackend {
     async fn list_images(&self) -> BoxliteResult<Vec<ImageInfo>> {
         // Per-org list (the API resolves the org from the bearer token).
         let resp: ImageInfoListResponse = self.client.get("/images").await?;
-        Ok(resp.images.iter().map(ImageInfoResponse::to_image_info).collect())
+        Ok(resp
+            .images
+            .iter()
+            .map(ImageInfoResponse::to_image_info)
+            .collect())
     }
 }
 
