@@ -26,7 +26,7 @@ import (
 )
 
 type ExecutorConfig struct {
-	Backend   backend.SandboxBackend
+	Backend   backend.BoxBackend
 	Collector *metrics.Collector
 	Logger    *slog.Logger
 }
@@ -35,7 +35,7 @@ type ExecutorConfig struct {
 type Executor struct {
 	log       *slog.Logger
 	client    *apiclient.APIClient
-	backend   backend.SandboxBackend
+	backend   backend.BoxBackend
 	collector *metrics.Collector
 }
 
@@ -130,15 +130,15 @@ func (e *Executor) executeJob(ctx context.Context, job *apiclient.Job) (any, err
 	var err error
 	switch job.GetType() {
 	case apiclient.JOBTYPE_CREATE_SANDBOX:
-		resultMetadata, err = e.createSandbox(ctx, job)
+		resultMetadata, err = e.createBox(ctx, job)
 	case apiclient.JOBTYPE_START_SANDBOX:
-		resultMetadata, err = e.startSandbox(ctx, job)
+		resultMetadata, err = e.startBox(ctx, job)
 	case apiclient.JOBTYPE_STOP_SANDBOX:
-		resultMetadata, err = e.stopSandbox(ctx, job)
+		resultMetadata, err = e.stopBox(ctx, job)
 	case apiclient.JOBTYPE_DESTROY_SANDBOX:
-		resultMetadata, err = e.destroySandbox(ctx, job)
+		resultMetadata, err = e.destroyBox(ctx, job)
 	case apiclient.JOBTYPE_RESIZE_SANDBOX:
-		resultMetadata, err = e.resizeSandbox(ctx, job)
+		resultMetadata, err = e.resizeBox(ctx, job)
 	case apiclient.JOBTYPE_CREATE_BACKUP:
 		resultMetadata, err = e.createBackup(ctx, job)
 	case apiclient.JOBTYPE_BUILD_SNAPSHOT:
@@ -152,7 +152,7 @@ func (e *Executor) executeJob(ctx context.Context, job *apiclient.Job) (any, err
 	case apiclient.JOBTYPE_INSPECT_SNAPSHOT_IN_REGISTRY:
 		resultMetadata, err = e.inspectSnapshotInRegistry(ctx, job)
 	case apiclient.JOBTYPE_RECOVER_SANDBOX:
-		resultMetadata, err = e.recoverSandbox(ctx, job)
+		resultMetadata, err = e.recoverBox(ctx, job)
 	default:
 		err = fmt.Errorf("unknown job type: %s", job.GetType())
 	}

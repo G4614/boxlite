@@ -18,11 +18,11 @@ import PlaygroundActionForm from '../../ActionForm'
 import InlineInputFormControl from '../../Inputs/InlineInputFormControl'
 import FormTextInput from '../../Inputs/TextInput'
 
-const SandboxGitOperations: React.FC = () => {
-  const { sandboxParametersState, playgroundActionParamValueSetter } = usePlayground()
-  const gitCloneParams = sandboxParametersState['gitCloneParams']
-  const gitStatusParams = sandboxParametersState['gitStatusParams']
-  const gitBranchesParams = sandboxParametersState['gitBranchesParams']
+const BoxGitOperations: React.FC = () => {
+  const { boxParametersState, playgroundActionParamValueSetter } = usePlayground()
+  const gitCloneParams = boxParametersState['gitCloneParams']
+  const gitStatusParams = boxParametersState['gitStatusParams']
+  const gitBranchesParams = boxParametersState['gitBranchesParams']
 
   const gitCloneParamsFormData: ParameterFormData<GitCloneParams> = [
     { label: 'URL', key: 'repositoryURL', placeholder: 'Repository URL to clone from', required: true },
@@ -136,4 +136,4 @@ const SandboxGitOperations: React.FC = () => {
   )
 }
 
-export default SandboxGitOperations
+export default BoxGitOperations

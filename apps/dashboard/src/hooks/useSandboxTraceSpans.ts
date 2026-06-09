@@ -9,8 +9,8 @@ import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import { queryKeys } from '@/hooks/queries/queryKeys'
 import { TraceSpan } from '@boxlite-ai/api-client'
 
-export function useSandboxTraceSpans(
-  sandboxId: string | undefined,
+export function useBoxTraceSpans(
+  boxId: string | undefined,
   traceId: string | undefined,
   options?: Omit<UseQueryOptions<TraceSpan[]>, 'queryKey' | 'queryFn'>,
 ) {
@@ -18,17 +18,16 @@ export function useSandboxTraceSpans(
   const { selectedOrganization } = useSelectedOrganization()
 
   return useQuery<TraceSpan[]>({
-    queryKey: queryKeys.telemetry.traceSpans(sandboxId ?? '', traceId ?? ''),
+    queryKey: queryKeys.telemetry.traceSpans(boxId ?? '', traceId ?? ''),
     queryFn: async () => {
-      if (!selectedOrganization || !sandboxId || !traceId || !api.analyticsTelemetryApi) {
+      if (!selectedOrganization || !boxId || !traceId || !api.analyticsTelemetryApi) {
         throw new Error('Missing required parameters')
       }
-      const response =
-        await api.analyticsTelemetryApi.organizationOrganizationIdSandboxSandboxIdTelemetryTracesTraceIdGet(
-          selectedOrganization.id,
-          sandboxId,
-          traceId,
-        )
+      const response = await api.analyticsTelemetryApi.organizationOrganizationIdBoxBoxIdTelemetryTracesTraceIdGet(
+        selectedOrganization.id,
+        boxId,
+        traceId,
+      )
 
       return (response.data ?? []).map((span) => ({
         traceId: span.traceId ?? '',
@@ -42,7 +41,7 @@ export function useSandboxTraceSpans(
         statusMessage: span.statusMessage,
       }))
     },
-    enabled: !!sandboxId && !!traceId && !!selectedOrganization && !!api.analyticsTelemetryApi,
+    enabled: !!boxId && !!traceId && !!selectedOrganization && !!api.analyticsTelemetryApi,
     staleTime: 30_000,
     ...options,
   })

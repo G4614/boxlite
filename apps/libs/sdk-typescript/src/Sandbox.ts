@@ -5,19 +5,19 @@
  */
 
 import {
-  SandboxState,
-  SandboxApi,
-  Sandbox as SandboxDto,
-  PaginatedSandboxes as PaginatedSandboxesDto,
+  BoxState,
+  BoxApi,
+  Box as BoxDto,
+  PaginatedBoxes as PaginatedBoxesDto,
   PortPreviewUrl,
-  SandboxVolume,
+  BoxVolume,
   BuildInfo,
-  SandboxBackupStateEnum,
+  BoxBackupStateEnum,
   Configuration,
   SshAccessDto,
   SshAccessValidationDto,
   SignedPortPreviewUrl,
-  ResizeSandbox,
+  ResizeBox,
 } from '@boxlite-ai/api-client'
 import { Resources } from './BoxLite'
 import {
@@ -43,13 +43,13 @@ import { WithInstrumentation } from './utils/otel.decorator'
  * Interface defining methods that a code toolbox must implement
  * @interface
  */
-export interface SandboxCodeToolbox {
+export interface BoxCodeToolbox {
   /** Generates a command to run the provided code */
   getRunCommand(code: string, params?: CodeRunParams): string
 }
 
 /**
- * Represents a BoxLite Sandbox.
+ * Represents a BoxLite Box.
  *
  * @property {FileSystem} fs - File system operations interface
  * @property {Git} git - Git operations interface
@@ -57,36 +57,36 @@ export interface SandboxCodeToolbox {
  * @property {CodeInterpreter} codeInterpreter - Stateful interpreter interface for executing code.
  *   Currently supports only Python. For other languages, use the `process.codeRun` method.
  * @property {ComputerUse} computerUse - Computer use operations interface for desktop automation
- * @property {string} id - Unique identifier for the Sandbox
- * @property {string} organizationId - Organization ID of the Sandbox
- * @property {string} [snapshot] - BoxLite snapshot used to create the Sandbox
- * @property {string} user - OS user running in the Sandbox
- * @property {Record<string, string>} env - Environment variables set in the Sandbox
- * @property {Record<string, string>} labels - Custom labels attached to the Sandbox
- * @property {boolean} public - Whether the Sandbox is publicly accessible
- * @property {string} target - Target location of the runner where the Sandbox runs
- * @property {number} cpu - Number of CPUs allocated to the Sandbox
- * @property {number} gpu - Number of GPUs allocated to the Sandbox
- * @property {number} memory - Amount of memory allocated to the Sandbox in GiB
- * @property {number} disk - Amount of disk space allocated to the Sandbox in GiB
- * @property {SandboxState} state - Current state of the Sandbox (e.g., "started", "stopped")
- * @property {string} [errorReason] - Error message if Sandbox is in error state
- * @property {boolean} [recoverable] - Whether the Sandbox error is recoverable.
- * @property {SandboxBackupStateEnum} [backupState] - Current state of Sandbox backup
+ * @property {string} id - Unique identifier for the Box
+ * @property {string} organizationId - Organization ID of the Box
+ * @property {string} [snapshot] - BoxLite snapshot used to create the Box
+ * @property {string} user - OS user running in the Box
+ * @property {Record<string, string>} env - Environment variables set in the Box
+ * @property {Record<string, string>} labels - Custom labels attached to the Box
+ * @property {boolean} public - Whether the Box is publicly accessible
+ * @property {string} target - Target location of the runner where the Box runs
+ * @property {number} cpu - Number of CPUs allocated to the Box
+ * @property {number} gpu - Number of GPUs allocated to the Box
+ * @property {number} memory - Amount of memory allocated to the Box in GiB
+ * @property {number} disk - Amount of disk space allocated to the Box in GiB
+ * @property {BoxState} state - Current state of the Box (e.g., "started", "stopped")
+ * @property {string} [errorReason] - Error message if Box is in error state
+ * @property {boolean} [recoverable] - Whether the Box error is recoverable.
+ * @property {BoxBackupStateEnum} [backupState] - Current state of Box backup
  * @property {string} [backupCreatedAt] - When the backup was created
  * @property {number} [autoStopInterval] - Auto-stop interval in minutes
  * @property {number} [autoArchiveInterval] - Auto-archive interval in minutes
  * @property {number} [autoDeleteInterval] - Auto-delete interval in minutes
- * @property {Array<SandboxVolume>} [volumes] - Volumes attached to the Sandbox
- * @property {BuildInfo} [buildInfo] - Build information for the Sandbox if it was created from dynamic build
- * @property {string} [createdAt] - When the Sandbox was created
- * @property {string} [updatedAt] - When the Sandbox was last updated
- * @property {boolean} networkBlockAll - Whether to block all network access for the Sandbox
- * @property {string} [networkAllowList] - Comma-separated list of allowed CIDR network addresses for the Sandbox
+ * @property {Array<BoxVolume>} [volumes] - Volumes attached to the Box
+ * @property {BuildInfo} [buildInfo] - Build information for the Box if it was created from dynamic build
+ * @property {string} [createdAt] - When the Box was created
+ * @property {string} [updatedAt] - When the Box was last updated
+ * @property {boolean} networkBlockAll - Whether to block all network access for the Box
+ * @property {string} [networkAllowList] - Comma-separated list of allowed CIDR network addresses for the Box
  *
  * @class
  */
-export class Sandbox implements SandboxDto {
+export class Box implements BoxDto {
   public readonly fs: FileSystem
   public readonly git: Git
   public readonly process: Process
@@ -106,15 +106,15 @@ export class Sandbox implements SandboxDto {
   public gpu!: number
   public memory!: number
   public disk!: number
-  public state?: SandboxState
+  public state?: BoxState
   public errorReason?: string
   public recoverable?: boolean
-  public backupState?: SandboxBackupStateEnum
+  public backupState?: BoxBackupStateEnum
   public backupCreatedAt?: string
   public autoStopInterval?: number
   public autoArchiveInterval?: number
   public autoDeleteInterval?: number
-  public volumes?: Array<SandboxVolume>
+  public volumes?: Array<BoxVolume>
   public buildInfo?: BuildInfo
   public createdAt?: string
   public updatedAt?: string
@@ -125,21 +125,21 @@ export class Sandbox implements SandboxDto {
   private infoApi: InfoApi
 
   /**
-   * Creates a new Sandbox instance
+   * Creates a new Box instance
    *
-   * @param {SandboxDto} sandboxDto - The API Sandbox instance
-   * @param {SandboxApi} sandboxApi - API client for Sandbox operations
+   * @param {BoxDto} boxDto - The API Box instance
+   * @param {BoxApi} boxApi - API client for Box operations
    * @param {InfoApi} infoApi - API client for info operations
-   * @param {SandboxCodeToolbox} codeToolbox - Language-specific toolbox implementation
+   * @param {BoxCodeToolbox} codeToolbox - Language-specific toolbox implementation
    */
   constructor(
-    sandboxDto: SandboxDto,
+    boxDto: BoxDto,
     private readonly clientConfig: Configuration,
     private readonly axiosInstance: AxiosInstance,
-    private readonly sandboxApi: SandboxApi,
-    private readonly codeToolbox: SandboxCodeToolbox,
+    private readonly boxApi: BoxApi,
+    private readonly codeToolbox: BoxCodeToolbox,
   ) {
-    this.processSandboxDto(sandboxDto)
+    this.processBoxDto(boxDto)
 
     // Set the toolbox base URL
     let baseUrl = this.toolboxProxyUrl
@@ -170,13 +170,13 @@ export class Sandbox implements SandboxDto {
   }
 
   /**
-   * Gets the user's home directory path for the logged in user inside the Sandbox.
+   * Gets the user's home directory path for the logged in user inside the Box.
    *
-   * @returns {Promise<string | undefined>} The absolute path to the Sandbox user's home directory for the logged in user
+   * @returns {Promise<string | undefined>} The absolute path to the Box user's home directory for the logged in user
    *
    * @example
-   * const userHomeDir = await sandbox.getUserHomeDir();
-   * console.log(`Sandbox user home: ${userHomeDir}`);
+   * const userHomeDir = await box.getUserHomeDir();
+   * console.log(`Box user home: ${userHomeDir}`);
    */
   @WithInstrumentation()
   public async getUserHomeDir(): Promise<string | undefined> {
@@ -193,14 +193,14 @@ export class Sandbox implements SandboxDto {
   }
 
   /**
-   * Gets the working directory path inside the Sandbox.
+   * Gets the working directory path inside the Box.
    *
-   * @returns {Promise<string | undefined>} The absolute path to the Sandbox working directory. Uses the WORKDIR specified
+   * @returns {Promise<string | undefined>} The absolute path to the Box working directory. Uses the WORKDIR specified
    * in the Dockerfile if present, or falling back to the user's home directory if not.
    *
    * @example
-   * const workDir = await sandbox.getWorkDir();
-   * console.log(`Sandbox working directory: ${workDir}`);
+   * const workDir = await box.getWorkDir();
+   * console.log(`Box working directory: ${workDir}`);
    */
   @WithInstrumentation()
   public async getWorkDir(): Promise<string | undefined> {
@@ -215,11 +215,11 @@ export class Sandbox implements SandboxDto {
    * diagnostics, and more.
    *
    * @param {LspLanguageId} languageId - The language server type (e.g., "typescript")
-   * @param {string} pathToProject - Path to the project root directory. Relative paths are resolved based on the sandbox working directory.
+   * @param {string} pathToProject - Path to the project root directory. Relative paths are resolved based on the box working directory.
    * @returns {LspServer} A new LSP server instance configured for the specified language
    *
    * @example
-   * const lsp = await sandbox.createLspServer('typescript', 'workspace/project');
+   * const lsp = await box.createLspServer('typescript', 'workspace/project');
    */
   @WithInstrumentation()
   public async createLspServer(languageId: LspLanguageId | string, pathToProject: string): Promise<LspServer> {
@@ -231,16 +231,16 @@ export class Sandbox implements SandboxDto {
   }
 
   /**
-   * Sets labels for the Sandbox.
+   * Sets labels for the Box.
    *
-   * Labels are key-value pairs that can be used to organize and identify Sandboxes.
+   * Labels are key-value pairs that can be used to organize and identify Boxes.
    *
-   * @param {Record<string, string>} labels - Dictionary of key-value pairs representing Sandbox labels
+   * @param {Record<string, string>} labels - Dictionary of key-value pairs representing Box labels
    * @returns {Promise<void>}
    *
    * @example
-   * // Set sandbox labels
-   * await sandbox.setLabels({
+   * // Set box labels
+   * await box.setLabels({
    *   project: 'my-project',
    *   environment: 'development',
    *   team: 'backend'
@@ -248,24 +248,24 @@ export class Sandbox implements SandboxDto {
    */
   @WithInstrumentation()
   public async setLabels(labels: Record<string, string>): Promise<Record<string, string>> {
-    this.labels = (await this.sandboxApi.replaceLabels(this.id, { labels })).data.labels
+    this.labels = (await this.boxApi.replaceLabels(this.id, { labels })).data.labels
     return this.labels
   }
 
   /**
-   * Start the Sandbox.
+   * Start the Box.
    *
-   * This method starts the Sandbox and waits for it to be ready.
+   * This method starts the Box and waits for it to be ready.
    *
    * @param {number} [timeout] - Maximum time to wait in seconds. 0 means no timeout.
    *                            Defaults to 60-second timeout.
    * @returns {Promise<void>}
-   * @throws {BoxliteError} - `BoxliteError` - If Sandbox fails to start or times out
+   * @throws {BoxliteError} - `BoxliteError` - If Box fails to start or times out
    *
    * @example
-   * const sandbox = await boxlite.getCurrentSandbox('my-sandbox');
-   * await sandbox.start(40);  // Wait up to 40 seconds
-   * console.log('Sandbox started successfully');
+   * const box = await boxlite.getCurrentBox('my-sandbox');
+   * await box.start(40);  // Wait up to 40 seconds
+   * console.log('Box started successfully');
    */
   @WithInstrumentation()
   public async start(timeout = 60): Promise<void> {
@@ -274,24 +274,24 @@ export class Sandbox implements SandboxDto {
     }
 
     const startTime = Date.now()
-    const response = await this.sandboxApi.startSandbox(this.id, undefined, { timeout: timeout * 1000 })
-    this.processSandboxDto(response.data)
+    const response = await this.boxApi.startBox(this.id, undefined, { timeout: timeout * 1000 })
+    this.processBoxDto(response.data)
     const timeElapsed = Date.now() - startTime
     await this.waitUntilStarted(timeout ? Math.max(0.001, timeout - timeElapsed / 1000) : timeout)
   }
 
   /**
-   * Recover the Sandbox from a recoverable error and wait for it to be ready.
+   * Recover the Box from a recoverable error and wait for it to be ready.
    *
    * @param {number} [timeout] - Maximum time to wait in seconds. 0 means no timeout.
    *                            Defaults to 60-second timeout.
    * @returns {Promise<void>}
-   * @throws {BoxliteError} - `BoxliteError` - If Sandbox fails to recover or times out
+   * @throws {BoxliteError} - `BoxliteError` - If Box fails to recover or times out
    *
    * @example
-   * const sandbox = await boxlite.get('my-sandbox-id');
-   * await sandbox.recover();
-   * console.log('Sandbox recovered successfully');
+   * const box = await boxlite.get('my-box-id');
+   * await box.recover();
+   * console.log('Box recovered successfully');
    */
   public async recover(timeout = 60): Promise<void> {
     if (timeout < 0) {
@@ -299,16 +299,16 @@ export class Sandbox implements SandboxDto {
     }
 
     const startTime = Date.now()
-    const response = await this.sandboxApi.recoverSandbox(this.id, undefined, { timeout: timeout * 1000 })
-    this.processSandboxDto(response.data)
+    const response = await this.boxApi.recoverBox(this.id, undefined, { timeout: timeout * 1000 })
+    this.processBoxDto(response.data)
     const timeElapsed = Date.now() - startTime
     await this.waitUntilStarted(timeout ? Math.max(0.001, timeout - timeElapsed / 1000) : timeout)
   }
 
   /**
-   * Stops the Sandbox.
+   * Stops the Box.
    *
-   * This method stops the Sandbox and waits for it to be fully stopped.
+   * This method stops the Box and waits for it to be fully stopped.
    *
    * @param {number} [timeout] - Maximum time to wait in seconds. 0 means no timeout.
    *                            Defaults to 60-second timeout.
@@ -316,9 +316,9 @@ export class Sandbox implements SandboxDto {
    * @returns {Promise<void>}
    *
    * @example
-   * const sandbox = await boxlite.get('my-sandbox-id');
-   * await sandbox.stop();
-   * console.log('Sandbox stopped successfully');
+   * const box = await boxlite.get('my-box-id');
+   * await box.stop();
+   * console.log('Box stopped successfully');
    */
   @WithInstrumentation()
   public async stop(timeout = 60, force = false): Promise<void> {
@@ -326,32 +326,32 @@ export class Sandbox implements SandboxDto {
       throw new BoxliteError('Timeout must be a non-negative number')
     }
     const startTime = Date.now()
-    await this.sandboxApi.stopSandbox(this.id, undefined, force, { timeout: timeout * 1000 })
+    await this.boxApi.stopBox(this.id, undefined, force, { timeout: timeout * 1000 })
     await this.refreshDataSafe()
     const timeElapsed = Date.now() - startTime
     await this.waitUntilStopped(timeout ? Math.max(0.001, timeout - timeElapsed / 1000) : timeout)
   }
 
   /**
-   * Deletes the Sandbox.
+   * Deletes the Box.
    * @returns {Promise<void>}
    */
   @WithInstrumentation()
   public async delete(timeout = 60): Promise<void> {
-    await this.sandboxApi.deleteSandbox(this.id, undefined, { timeout: timeout * 1000 })
+    await this.boxApi.deleteBox(this.id, undefined, { timeout: timeout * 1000 })
     this.refreshDataSafe()
   }
 
   /**
-   * Waits for the Sandbox to reach the 'started' state.
+   * Waits for the Box to reach the 'started' state.
    *
-   * This method polls the Sandbox status until it reaches the 'started' state
+   * This method polls the Box status until it reaches the 'started' state
    * or encounters an error.
    *
    * @param {number} [timeout] - Maximum time to wait in seconds. 0 means no timeout.
    *                               Defaults to 60 seconds.
    * @returns {Promise<void>}
-   * @throws {BoxliteError} - `BoxliteError` - If the sandbox ends up in an error state or fails to start within the timeout period.
+   * @throws {BoxliteError} - `BoxliteError` - If the box ends up in an error state or fails to start within the timeout period.
    */
   @WithInstrumentation()
   public async waitUntilStarted(timeout = 60) {
@@ -371,12 +371,12 @@ export class Sandbox implements SandboxDto {
       }
 
       if (this.state === 'error') {
-        const errMsg = `Sandbox ${this.id} failed to start with status: ${this.state}, error reason: ${this.errorReason}`
+        const errMsg = `Box ${this.id} failed to start with status: ${this.state}, error reason: ${this.errorReason}`
         throw new BoxliteError(errMsg)
       }
 
       if (timeout !== 0 && Date.now() - startTime > timeout * 1000) {
-        throw new BoxliteError('Sandbox failed to become ready within the timeout period')
+        throw new BoxliteError('Box failed to become ready within the timeout period')
       }
 
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -384,15 +384,15 @@ export class Sandbox implements SandboxDto {
   }
 
   /**
-   * Wait for Sandbox to reach 'stopped' state.
+   * Wait for Box to reach 'stopped' state.
    *
-   * This method polls the Sandbox status until it reaches the 'stopped' state
+   * This method polls the Box status until it reaches the 'stopped' state
    * or encounters an error.
    *
    * @param {number} [timeout] - Maximum time to wait in seconds. 0 means no timeout.
    *                               Defaults to 60 seconds.
    * @returns {Promise<void>}
-   * @throws {BoxliteError} - `BoxliteError` - If the sandbox fails to stop within the timeout period.
+   * @throws {BoxliteError} - `BoxliteError` - If the box fails to stop within the timeout period.
    */
   @WithInstrumentation()
   public async waitUntilStopped(timeout = 60) {
@@ -403,7 +403,7 @@ export class Sandbox implements SandboxDto {
     const checkInterval = 100 // Wait 100 ms between checks
     const startTime = Date.now()
 
-    // Treat destroyed as stopped to cover ephemeral sandboxes that are automatically deleted after stopping
+    // Treat destroyed as stopped to cover ephemeral boxes that are automatically deleted after stopping
     while (this.state !== 'stopped' && this.state !== 'destroyed') {
       this.refreshDataSafe()
 
@@ -413,12 +413,12 @@ export class Sandbox implements SandboxDto {
       }
 
       if (this.state === 'error') {
-        const errMsg = `Sandbox failed to stop with status: ${this.state}, error reason: ${this.errorReason}`
+        const errMsg = `Box failed to stop with status: ${this.state}, error reason: ${this.errorReason}`
         throw new BoxliteError(errMsg)
       }
 
       if (timeout !== 0 && Date.now() - startTime > timeout * 1000) {
-        throw new BoxliteError('Sandbox failed to become stopped within the timeout period')
+        throw new BoxliteError('Box failed to become stopped within the timeout period')
       }
 
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -426,24 +426,24 @@ export class Sandbox implements SandboxDto {
   }
 
   /**
-   * Refreshes the Sandbox data from the API.
+   * Refreshes the Box data from the API.
    *
    * @returns {Promise<void>}
    *
    * @example
-   * await sandbox.refreshData();
-   * console.log(`Sandbox ${sandbox.id}:`);
-   * console.log(`State: ${sandbox.state}`);
-   * console.log(`Resources: ${sandbox.cpu} CPU, ${sandbox.memory} GiB RAM`);
+   * await box.refreshData();
+   * console.log(`Box ${box.id}:`);
+   * console.log(`State: ${box.state}`);
+   * console.log(`Resources: ${box.cpu} CPU, ${box.memory} GiB RAM`);
    */
   @WithInstrumentation()
   public async refreshData(): Promise<void> {
-    const response = await this.sandboxApi.getSandbox(this.id)
-    this.processSandboxDto(response.data)
+    const response = await this.boxApi.getBox(this.id)
+    this.processBoxDto(response.data)
   }
 
   /**
-   * Refreshes the sandbox activity to reset the timer for automated lifecycle management actions.
+   * Refreshes the box activity to reset the timer for automated lifecycle management actions.
    *
    * This method updates the sandbox's last activity timestamp without changing its state.
    * It is useful for keeping long-running sessions alive while there is still user activity.
@@ -451,19 +451,19 @@ export class Sandbox implements SandboxDto {
    * @returns {Promise<void>}
    *
    * @example
-   * // Keep sandbox activity alive
-   * await sandbox.refreshActivity();
+   * // Keep box activity alive
+   * await box.refreshActivity();
    */
   public async refreshActivity(): Promise<void> {
-    await this.sandboxApi.updateLastActivity(this.id)
+    await this.boxApi.updateLastActivity(this.id)
   }
 
   /**
-   * Set the auto-stop interval for the Sandbox.
+   * Set the auto-stop interval for the Box.
    *
-   * The Sandbox will automatically stop after being idle (no new events) for the specified interval.
-   * Events include any state changes or interactions with the Sandbox through the sdk.
-   * Interactions using Sandbox Previews are not included.
+   * The Box will automatically stop after being idle (no new events) for the specified interval.
+   * Events include any state changes or interactions with the Box through the sdk.
+   * Interactions using Box Previews are not included.
    *
    * @param {number} interval - Number of minutes of inactivity before auto-stopping.
    *                           Set to 0 to disable auto-stop. Default is 15 minutes.
@@ -472,9 +472,9 @@ export class Sandbox implements SandboxDto {
    *
    * @example
    * // Auto-stop after 1 hour
-   * await sandbox.setAutostopInterval(60);
+   * await box.setAutostopInterval(60);
    * // Or disable auto-stop
-   * await sandbox.setAutostopInterval(0);
+   * await box.setAutostopInterval(0);
    */
   @WithInstrumentation()
   public async setAutostopInterval(interval: number): Promise<void> {
@@ -482,134 +482,134 @@ export class Sandbox implements SandboxDto {
       throw new BoxliteError('autoStopInterval must be a non-negative integer')
     }
 
-    await this.sandboxApi.setAutostopInterval(this.id, interval)
+    await this.boxApi.setAutostopInterval(this.id, interval)
     this.autoStopInterval = interval
   }
 
   /**
-   * Set the auto-archive interval for the Sandbox.
+   * Set the auto-archive interval for the Box.
    *
-   * The Sandbox will automatically archive after being continuously stopped for the specified interval.
+   * The Box will automatically archive after being continuously stopped for the specified interval.
    *
-   * @param {number} interval - Number of minutes after which a continuously stopped Sandbox will be auto-archived.
+   * @param {number} interval - Number of minutes after which a continuously stopped Box will be auto-archived.
    *                           Set to 0 for the maximum interval. Default is 7 days.
    * @returns {Promise<void>}
    * @throws {BoxliteError} - `BoxliteError` - If interval is not a non-negative integer
    *
    * @example
    * // Auto-archive after 1 hour
-   * await sandbox.setAutoArchiveInterval(60);
+   * await box.setAutoArchiveInterval(60);
    * // Or use the maximum interval
-   * await sandbox.setAutoArchiveInterval(0);
+   * await box.setAutoArchiveInterval(0);
    */
   @WithInstrumentation()
   public async setAutoArchiveInterval(interval: number): Promise<void> {
     if (!Number.isInteger(interval) || interval < 0) {
       throw new BoxliteError('autoArchiveInterval must be a non-negative integer')
     }
-    await this.sandboxApi.setAutoArchiveInterval(this.id, interval)
+    await this.boxApi.setAutoArchiveInterval(this.id, interval)
     this.autoArchiveInterval = interval
   }
 
   /**
-   * Set the auto-delete interval for the Sandbox.
+   * Set the auto-delete interval for the Box.
    *
-   * The Sandbox will automatically delete after being continuously stopped for the specified interval.
+   * The Box will automatically delete after being continuously stopped for the specified interval.
    *
-   * @param {number} interval - Number of minutes after which a continuously stopped Sandbox will be auto-deleted.
+   * @param {number} interval - Number of minutes after which a continuously stopped Box will be auto-deleted.
    *                           Set to negative value to disable auto-delete. Set to 0 to delete immediately upon stopping.
    *                           By default, auto-delete is disabled.
    * @returns {Promise<void>}
    *
    * @example
    * // Auto-delete after 1 hour
-   * await sandbox.setAutoDeleteInterval(60);
+   * await box.setAutoDeleteInterval(60);
    * // Or delete immediately upon stopping
-   * await sandbox.setAutoDeleteInterval(0);
+   * await box.setAutoDeleteInterval(0);
    * // Or disable auto-delete
-   * await sandbox.setAutoDeleteInterval(-1);
+   * await box.setAutoDeleteInterval(-1);
    */
   @WithInstrumentation()
   public async setAutoDeleteInterval(interval: number): Promise<void> {
-    await this.sandboxApi.setAutoDeleteInterval(this.id, interval)
+    await this.boxApi.setAutoDeleteInterval(this.id, interval)
     this.autoDeleteInterval = interval
   }
 
   /**
-   * Retrieves the preview link for the sandbox at the specified port. If the port is closed,
-   * it will be opened automatically. For private sandboxes, a token is included to grant access
+   * Retrieves the preview link for the box at the specified port. If the port is closed,
+   * it will be opened automatically. For private boxes, a token is included to grant access
    * to the URL.
    *
    * @param {number} port - The port to open the preview link on.
    * @returns {PortPreviewUrl} The response object for the preview link, which includes the `url`
-   * and the `token` (to access private sandboxes).
+   * and the `token` (to access private boxes).
    *
    * @example
-   * const previewLink = await sandbox.getPreviewLink(3000);
+   * const previewLink = await box.getPreviewLink(3000);
    * console.log(`Preview URL: ${previewLink.url}`);
    * console.log(`Token: ${previewLink.token}`);
    */
   @WithInstrumentation()
   public async getPreviewLink(port: number): Promise<PortPreviewUrl> {
-    return (await this.sandboxApi.getPortPreviewUrl(this.id, port)).data
+    return (await this.boxApi.getPortPreviewUrl(this.id, port)).data
   }
 
   /**
-   * Retrieves a signed preview url for the sandbox at the specified port.
+   * Retrieves a signed preview url for the box at the specified port.
    *
    * @param {number} port - The port to open the preview link on.
    * @param {number} [expiresInSeconds] - The number of seconds the signed preview url will be valid for. Defaults to 60 seconds.
    * @returns {Promise<SignedPortPreviewUrl>} The response object for the signed preview url.
    */
   public async getSignedPreviewUrl(port: number, expiresInSeconds?: number): Promise<SignedPortPreviewUrl> {
-    return (await this.sandboxApi.getSignedPortPreviewUrl(this.id, port, undefined, expiresInSeconds)).data
+    return (await this.boxApi.getSignedPortPreviewUrl(this.id, port, undefined, expiresInSeconds)).data
   }
 
   /**
-   * Expires a signed preview url for the sandbox at the specified port.
+   * Expires a signed preview url for the box at the specified port.
    *
    * @param {number} port - The port to expire the signed preview url on.
    * @param {string} token - The token to expire the signed preview url on.
    * @returns {Promise<void>}
    */
   public async expireSignedPreviewUrl(port: number, token: string): Promise<void> {
-    await this.sandboxApi.expireSignedPortPreviewUrl(this.id, port, token)
+    await this.boxApi.expireSignedPortPreviewUrl(this.id, port, token)
   }
 
   /**
-   * Archives the sandbox, making it inactive and preserving its state. When sandboxes are archived, the entire filesystem
-   * state is moved to cost-effective object storage, making it possible to keep sandboxes available for an extended period.
-   * The tradeoff between archived and stopped states is that starting an archived sandbox takes more time, depending on its size.
-   * Sandbox must be stopped before archiving.
+   * Archives the box, making it inactive and preserving its state. When boxes are archived, the entire filesystem
+   * state is moved to cost-effective object storage, making it possible to keep boxes available for an extended period.
+   * The tradeoff between archived and stopped states is that starting an archived box takes more time, depending on its size.
+   * Box must be stopped before archiving.
    */
   @WithInstrumentation()
   public async archive(): Promise<void> {
-    await this.sandboxApi.archiveSandbox(this.id)
+    await this.boxApi.archiveBox(this.id)
     await this.refreshData()
   }
 
   /**
-   * Resizes the Sandbox resources.
+   * Resizes the Box resources.
    *
-   * Changes the CPU, memory, or disk allocation for the Sandbox. Hot resize (on running
-   * sandbox) only allows CPU/memory increases. Disk resize requires a stopped sandbox.
+   * Changes the CPU, memory, or disk allocation for the Box. Hot resize (on running
+   * box) only allows CPU/memory increases. Disk resize requires a stopped box.
    *
    * @param {Resources} resources - New resource configuration. Only specified fields will be updated.
    *   - cpu: Number of CPU cores (minimum: 1). For hot resize, can only be increased.
    *   - memory: Memory in GiB (minimum: 1). For hot resize, can only be increased.
-   *   - disk: Disk space in GiB (can only be increased, requires stopped sandbox).
+   *   - disk: Disk space in GiB (can only be increased, requires stopped box).
    * @param {number} [timeout=60] - Timeout in seconds for the resize operation. 0 means no timeout.
    * @returns {Promise<void>}
-   * @throws {BoxliteError} - If hot resize constraints are violated, disk resize attempted on running sandbox,
+   * @throws {BoxliteError} - If hot resize constraints are violated, disk resize attempted on running box,
    *   disk size decrease is attempted, no resource changes are specified, or resize operation times out.
    *
    * @example
-   * // Increase CPU/memory on running sandbox (hot resize)
-   * await sandbox.resize({ cpu: 4, memory: 8 });
+   * // Increase CPU/memory on running box (hot resize)
+   * await box.resize({ cpu: 4, memory: 8 });
    *
-   * // Change disk (sandbox must be stopped)
-   * await sandbox.stop();
-   * await sandbox.resize({ cpu: 2, memory: 4, disk: 30 });
+   * // Change disk (box must be stopped)
+   * await box.stop();
+   * await box.resize({ cpu: 2, memory: 4, disk: 30 });
    */
   @WithInstrumentation()
   public async resize(resources: Resources, timeout = 60): Promise<void> {
@@ -618,27 +618,27 @@ export class Sandbox implements SandboxDto {
     }
 
     const startTime = Date.now()
-    const resizeRequest: ResizeSandbox = {
+    const resizeRequest: ResizeBox = {
       cpu: resources.cpu,
       memory: resources.memory,
       disk: resources.disk,
     }
-    const response = await this.sandboxApi.resizeSandbox(this.id, resizeRequest, this.organizationId, {
+    const response = await this.boxApi.resizeBox(this.id, resizeRequest, this.organizationId, {
       timeout: timeout * 1000,
     })
-    this.processSandboxDto(response.data)
+    this.processBoxDto(response.data)
     const timeElapsed = Date.now() - startTime
     await this.waitForResizeComplete(timeout ? Math.max(0.001, timeout - timeElapsed / 1000) : timeout)
   }
 
   /**
-   * Waits for the Sandbox resize operation to complete.
+   * Waits for the Box resize operation to complete.
    *
-   * This method polls the Sandbox status until the state is no longer 'resizing'.
+   * This method polls the Box status until the state is no longer 'resizing'.
    *
    * @param {number} [timeout=60] - Maximum time to wait in seconds. 0 means no timeout.
    * @returns {Promise<void>}
-   * @throws {BoxliteError} - If the sandbox ends up in an error state or resize times out.
+   * @throws {BoxliteError} - If the box ends up in an error state or resize times out.
    */
   @WithInstrumentation()
   public async waitForResizeComplete(timeout = 60): Promise<void> {
@@ -649,22 +649,22 @@ export class Sandbox implements SandboxDto {
     const checkInterval = 100 // Wait 100 ms between checks
     const startTime = Date.now()
 
-    while (this.state === SandboxState.RESIZING) {
+    while (this.state === BoxState.RESIZING) {
       await this.refreshData()
 
       // @ts-expect-error this.refreshData() can modify this.state so this check is fine
-      if (this.state === SandboxState.ERROR || this.state === SandboxState.BUILD_FAILED) {
+      if (this.state === BoxState.ERROR || this.state === BoxState.BUILD_FAILED) {
         throw new BoxliteError(
-          `Sandbox ${this.id} resize failed with state: ${this.state}, error reason: ${this.errorReason}`,
+          `Box ${this.id} resize failed with state: ${this.state}, error reason: ${this.errorReason}`,
         )
       }
 
-      if (this.state !== SandboxState.RESIZING) {
+      if (this.state !== BoxState.RESIZING) {
         return
       }
 
       if (timeout !== 0 && Date.now() - startTime > timeout * 1000) {
-        throw new BoxliteError('Sandbox resize did not complete within the timeout period')
+        throw new BoxliteError('Box resize did not complete within the timeout period')
       }
 
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -672,77 +672,77 @@ export class Sandbox implements SandboxDto {
   }
 
   /**
-   * Creates an SSH access token for the sandbox.
+   * Creates an SSH access token for the box.
    *
    * @param {number} expiresInMinutes - The number of minutes the SSH access token will be valid for.
    * @returns {Promise<SshAccessDto>} The SSH access token.
    */
   @WithInstrumentation()
   public async createSshAccess(expiresInMinutes?: number): Promise<SshAccessDto> {
-    return (await this.sandboxApi.createSshAccess(this.id, undefined, expiresInMinutes)).data
+    return (await this.boxApi.createSshAccess(this.id, undefined, expiresInMinutes)).data
   }
 
   /**
-   * Revokes an SSH access token for the sandbox.
+   * Revokes an SSH access token for the box.
    *
    * @param {string} token - The token to revoke.
    * @returns {Promise<void>}
    */
   @WithInstrumentation()
   public async revokeSshAccess(token: string): Promise<void> {
-    await this.sandboxApi.revokeSshAccess(this.id, undefined, token)
+    await this.boxApi.revokeSshAccess(this.id, undefined, token)
   }
 
   /**
-   * Validates an SSH access token for the sandbox.
+   * Validates an SSH access token for the box.
    *
    * @param {string} token - The token to validate.
    * @returns {Promise<SshAccessValidationDto>} The SSH access validation result.
    */
   @WithInstrumentation()
   public async validateSshAccess(token: string): Promise<SshAccessValidationDto> {
-    return (await this.sandboxApi.validateSshAccess(token)).data
+    return (await this.boxApi.validateSshAccess(token)).data
   }
 
   /**
-   * Assigns the API sandbox data to the Sandbox object.
+   * Assigns the API box data to the Box object.
    *
-   * @param {SandboxDto} sandboxDto - The API sandbox instance to assign data from
+   * @param {BoxDto} boxDto - The API box instance to assign data from
    * @returns {void}
    */
-  private processSandboxDto(sandboxDto: SandboxDto) {
-    this.id = sandboxDto.id
-    this.name = sandboxDto.name
-    this.organizationId = sandboxDto.organizationId
-    this.snapshot = sandboxDto.snapshot
-    this.user = sandboxDto.user
-    this.env = sandboxDto.env
-    this.labels = sandboxDto.labels
-    this.public = sandboxDto.public
-    this.target = sandboxDto.target
-    this.cpu = sandboxDto.cpu
-    this.gpu = sandboxDto.gpu
-    this.memory = sandboxDto.memory
-    this.disk = sandboxDto.disk
-    this.state = sandboxDto.state
-    this.errorReason = sandboxDto.errorReason
-    this.recoverable = sandboxDto.recoverable
-    this.backupState = sandboxDto.backupState
-    this.backupCreatedAt = sandboxDto.backupCreatedAt
-    this.autoStopInterval = sandboxDto.autoStopInterval
-    this.autoArchiveInterval = sandboxDto.autoArchiveInterval
-    this.autoDeleteInterval = sandboxDto.autoDeleteInterval
-    this.volumes = sandboxDto.volumes
-    this.buildInfo = sandboxDto.buildInfo
-    this.createdAt = sandboxDto.createdAt
-    this.updatedAt = sandboxDto.updatedAt
-    this.networkBlockAll = sandboxDto.networkBlockAll
-    this.networkAllowList = sandboxDto.networkAllowList
-    this.toolboxProxyUrl = sandboxDto.toolboxProxyUrl
+  private processBoxDto(boxDto: BoxDto) {
+    this.id = boxDto.id
+    this.name = boxDto.name
+    this.organizationId = boxDto.organizationId
+    this.snapshot = boxDto.snapshot
+    this.user = boxDto.user
+    this.env = boxDto.env
+    this.labels = boxDto.labels
+    this.public = boxDto.public
+    this.target = boxDto.target
+    this.cpu = boxDto.cpu
+    this.gpu = boxDto.gpu
+    this.memory = boxDto.memory
+    this.disk = boxDto.disk
+    this.state = boxDto.state
+    this.errorReason = boxDto.errorReason
+    this.recoverable = boxDto.recoverable
+    this.backupState = boxDto.backupState
+    this.backupCreatedAt = boxDto.backupCreatedAt
+    this.autoStopInterval = boxDto.autoStopInterval
+    this.autoArchiveInterval = boxDto.autoArchiveInterval
+    this.autoDeleteInterval = boxDto.autoDeleteInterval
+    this.volumes = boxDto.volumes
+    this.buildInfo = boxDto.buildInfo
+    this.createdAt = boxDto.createdAt
+    this.updatedAt = boxDto.updatedAt
+    this.networkBlockAll = boxDto.networkBlockAll
+    this.networkAllowList = boxDto.networkAllowList
+    this.toolboxProxyUrl = boxDto.toolboxProxyUrl
   }
 
   /**
-   * Refreshes the Sandbox data from the API, but does not throw an error if the sandbox has been deleted.
+   * Refreshes the Box data from the API, but does not throw an error if the box has been deleted.
    * Instead, it sets the state to destroyed.
    *
    * @returns {Promise<void>}
@@ -752,12 +752,12 @@ export class Sandbox implements SandboxDto {
       await this.refreshData()
     } catch (error) {
       if (error instanceof BoxLiteNotFoundError) {
-        this.state = SandboxState.DESTROYED
+        this.state = BoxState.DESTROYED
       }
     }
   }
 }
 
-export interface PaginatedSandboxes extends Omit<PaginatedSandboxesDto, 'items'> {
-  items: Sandbox[]
+export interface PaginatedBoxes extends Omit<PaginatedBoxesDto, 'items'> {
+  items: Box[]
 }

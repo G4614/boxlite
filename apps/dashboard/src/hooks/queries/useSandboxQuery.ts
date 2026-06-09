@@ -9,17 +9,17 @@ import { useQuery } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { queryKeys } from './queryKeys'
 
-export const useSandboxQuery = (sandboxId: string) => {
-  const { sandboxApi } = useApi()
+export const useBoxQuery = (boxId: string) => {
+  const { boxApi } = useApi()
   const { selectedOrganization } = useSelectedOrganization()
 
   return useQuery({
-    queryKey: queryKeys.sandboxes.detail(selectedOrganization?.id ?? '', sandboxId),
+    queryKey: queryKeys.boxes.detail(selectedOrganization?.id ?? '', boxId),
     queryFn: async () => {
-      const response = await sandboxApi.getSandbox(sandboxId, selectedOrganization?.id)
+      const response = await boxApi.getBox(boxId, selectedOrganization?.id)
       return response.data
     },
-    enabled: !!sandboxId && !!selectedOrganization?.id,
+    enabled: !!boxId && !!selectedOrganization?.id,
     staleTime: 1000 * 10,
     retry: (failureCount, error) => {
       if (isAxiosError(error.cause) && error.cause?.status === 404) return false

@@ -6,30 +6,30 @@
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Switch } from '@/components/ui/switch'
-import { SandboxParametersSections } from '@/enums/Playground'
+import { BoxParametersSections } from '@/enums/Playground'
 import { usePlayground } from '@/hooks/usePlayground'
 import { cn } from '@/lib/utils'
 import { BoltIcon, FolderIcon, GitBranchIcon, SquareTerminalIcon } from 'lucide-react'
-import SandboxFileSystem from './FileSystem'
-import SandboxGitOperations from './GitOperations'
-import SandboxManagementParameters from './Management'
-import SandboxProcessCodeExecution from './ProcessCodeExecution'
+import BoxFileSystem from './FileSystem'
+import BoxGitOperations from './GitOperations'
+import BoxManagementParameters from './Management'
+import BoxProcessCodeExecution from './ProcessCodeExecution'
 
-const sandboxParametersSectionsData = [
-  { value: SandboxParametersSections.SANDBOX_MANAGEMENT, label: 'Management' },
-  { value: SandboxParametersSections.FILE_SYSTEM, label: 'File System' },
-  { value: SandboxParametersSections.GIT_OPERATIONS, label: 'Git Operations' },
-  { value: SandboxParametersSections.PROCESS_CODE_EXECUTION, label: 'Process & Code Execution' },
+const boxParametersSectionsData = [
+  { value: BoxParametersSections.SANDBOX_MANAGEMENT, label: 'Management' },
+  { value: BoxParametersSections.FILE_SYSTEM, label: 'File System' },
+  { value: BoxParametersSections.GIT_OPERATIONS, label: 'Git Operations' },
+  { value: BoxParametersSections.PROCESS_CODE_EXECUTION, label: 'Process & Code Execution' },
 ]
 
 const sectionIcons = {
-  [SandboxParametersSections.SANDBOX_MANAGEMENT]: <BoltIcon strokeWidth={1.5} />,
-  [SandboxParametersSections.GIT_OPERATIONS]: <GitBranchIcon strokeWidth={1.5} />,
-  [SandboxParametersSections.FILE_SYSTEM]: <FolderIcon strokeWidth={1.5} />,
-  [SandboxParametersSections.PROCESS_CODE_EXECUTION]: <SquareTerminalIcon strokeWidth={1.5} />,
+  [BoxParametersSections.SANDBOX_MANAGEMENT]: <BoltIcon strokeWidth={1.5} />,
+  [BoxParametersSections.GIT_OPERATIONS]: <GitBranchIcon strokeWidth={1.5} />,
+  [BoxParametersSections.FILE_SYSTEM]: <FolderIcon strokeWidth={1.5} />,
+  [BoxParametersSections.PROCESS_CODE_EXECUTION]: <SquareTerminalIcon strokeWidth={1.5} />,
 }
 
-const SandboxParameters = ({ className }: { className?: string }) => {
+const BoxParameters = ({ className }: { className?: string }) => {
   const { openedParametersSections, setOpenedParametersSections, enabledSections, enableSection, disableSection } =
     usePlayground()
 
@@ -50,18 +50,18 @@ const SandboxParameters = ({ className }: { className?: string }) => {
   return (
     <div className={cn('flex flex-col gap-6', className)}>
       <div>
-        <h2>Sandbox Configuration</h2>
+        <h2>Box Configuration</h2>
         <p className="text-sm text-muted-foreground mt-1">Manage resources, lifecycle policies, and file systems.</p>
       </div>
       <Accordion
         type="multiple"
         value={openedParametersSections}
-        onValueChange={(sections) => setOpenedParametersSections(sections as SandboxParametersSections[])}
+        onValueChange={(sections) => setOpenedParametersSections(sections as BoxParametersSections[])}
       >
-        {sandboxParametersSectionsData.map((section) => {
-          const isManagement = section.value === SandboxParametersSections.SANDBOX_MANAGEMENT
-          const isEnabled = enabledSections.includes(section.value as SandboxParametersSections)
-          const isExpanded = openedParametersSections.includes(section.value as SandboxParametersSections)
+        {boxParametersSectionsData.map((section) => {
+          const isManagement = section.value === BoxParametersSections.SANDBOX_MANAGEMENT
+          const isEnabled = enabledSections.includes(section.value as BoxParametersSections)
+          const isExpanded = openedParametersSections.includes(section.value as BoxParametersSections)
           return (
             <AccordionItem
               key={section.value}
@@ -84,8 +84,8 @@ const SandboxParameters = ({ className }: { className?: string }) => {
                       checked={isEnabled}
                       onCheckedChange={(checked) =>
                         checked
-                          ? enableSection(section.value as SandboxParametersSections)
-                          : disableSection(section.value as SandboxParametersSections)
+                          ? enableSection(section.value as BoxParametersSections)
+                          : disableSection(section.value as BoxParametersSections)
                       }
                       size="sm"
                       className="ml-3"
@@ -100,14 +100,12 @@ const SandboxParameters = ({ className }: { className?: string }) => {
               <AccordionContent className="py-3 px-1">
                 {isExpanded && (
                   <div className="space-y-4">
-                    {section.value === SandboxParametersSections.FILE_SYSTEM && <SandboxFileSystem />}
-                    {section.value === SandboxParametersSections.GIT_OPERATIONS && <SandboxGitOperations />}
-                    {section.value === SandboxParametersSections.SANDBOX_MANAGEMENT && (
-                      <SandboxManagementParameters snapshotsData={[]} snapshotsLoading={false} />
+                    {section.value === BoxParametersSections.FILE_SYSTEM && <BoxFileSystem />}
+                    {section.value === BoxParametersSections.GIT_OPERATIONS && <BoxGitOperations />}
+                    {section.value === BoxParametersSections.SANDBOX_MANAGEMENT && (
+                      <BoxManagementParameters snapshotsData={[]} snapshotsLoading={false} />
                     )}
-                    {section.value === SandboxParametersSections.PROCESS_CODE_EXECUTION && (
-                      <SandboxProcessCodeExecution />
-                    )}
+                    {section.value === BoxParametersSections.PROCESS_CODE_EXECUTION && <BoxProcessCodeExecution />}
                   </div>
                 )}
               </AccordionContent>
@@ -119,4 +117,4 @@ const SandboxParameters = ({ className }: { className?: string }) => {
   )
 }
 
-export default SandboxParameters
+export default BoxParameters

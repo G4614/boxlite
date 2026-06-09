@@ -17,10 +17,10 @@ import { CodeLanguage } from '@boxlite-ai/sdk'
 import PlaygroundActionForm from '../../ActionForm'
 import StackedInputFormControl from '../../Inputs/StackedInputFormControl'
 
-const SandboxProcessCodeExecution: React.FC = () => {
-  const { sandboxParametersState, setSandboxParameterValue } = usePlayground()
-  const codeRunParams = sandboxParametersState['codeRunParams']
-  const shellCommandRunParams = sandboxParametersState['shellCommandRunParams']
+const BoxProcessCodeExecution: React.FC = () => {
+  const { boxParametersState, setBoxParameterValue } = usePlayground()
+  const codeRunParams = boxParametersState['codeRunParams']
+  const shellCommandRunParams = boxParametersState['shellCommandRunParams']
 
   const codeRunLanguageCodeFormData: ParameterFormItem & { key: 'languageCode' } = {
     label: 'Code to execute',
@@ -42,14 +42,14 @@ const SandboxProcessCodeExecution: React.FC = () => {
     {
       methodName: ProcessCodeExecutionActions.CODE_RUN,
       label: 'codeRun()',
-      description: 'Executes code in the Sandbox using the appropriate language runtime',
+      description: 'Executes code in the Box using the appropriate language runtime',
       parametersFormItems: [codeRunLanguageCodeFormData],
       parametersState: codeRunParams,
     },
     {
       methodName: ProcessCodeExecutionActions.SHELL_COMMANDS_RUN,
       label: 'executeCommand()',
-      description: 'Executes a shell command in the Sandbox',
+      description: 'Executes a shell command in the Box',
       parametersFormItems: [shellCommandFormData],
       parametersState: shellCommandRunParams,
     },
@@ -68,7 +68,7 @@ const SandboxProcessCodeExecution: React.FC = () => {
             {processCodeExecutionAction.methodName === ProcessCodeExecutionActions.CODE_RUN && (
               <StackedInputFormControl formItem={codeRunLanguageCodeFormData}>
                 <CodeBlock
-                  language={sandboxParametersState.language || CodeLanguage.PYTHON} // Python is default language if none specified
+                  language={boxParametersState.language || CodeLanguage.PYTHON} // Python is default language if none specified
                   code={codeRunParams[codeRunLanguageCodeFormData.key] || ''}
                 />
               </StackedInputFormControl>
@@ -85,4 +85,4 @@ const SandboxProcessCodeExecution: React.FC = () => {
   )
 }
 
-export default SandboxProcessCodeExecution
+export default BoxProcessCodeExecution

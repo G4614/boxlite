@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { SandboxCodeToolbox } from '../Sandbox'
+import { BoxCodeToolbox } from '../Box'
 import { CodeRunParams } from '../Process'
 import { Buffer } from 'buffer'
 
-export class SandboxPythonCodeToolbox implements SandboxCodeToolbox {
+export class BoxPythonCodeToolbox implements BoxCodeToolbox {
   public getRunCommand(code: string, params?: CodeRunParams): string {
     // Encode the provided code in base64
     let base64Code = Buffer.from(code).toString('base64')
 
     // Override plt.show() method if matplotlib is imported
-    if (SandboxPythonCodeToolbox.isMatplotlibImported(code)) {
+    if (BoxPythonCodeToolbox.isMatplotlibImported(code)) {
       let code_wrapper = Buffer.from(PYTHON_CODE_WRAPPER, 'base64').toString('utf-8')
       code_wrapper = code_wrapper.replace('{encoded_code}', base64Code)
       base64Code = Buffer.from(code_wrapper).toString('base64')

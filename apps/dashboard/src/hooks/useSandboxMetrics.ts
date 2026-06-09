@@ -15,8 +15,8 @@ export interface MetricsQueryParams {
   metricNames?: string[]
 }
 
-export function useSandboxMetrics(
-  sandboxId: string | undefined,
+export function useBoxMetrics(
+  boxId: string | undefined,
   params: MetricsQueryParams,
   options?: Omit<UseQueryOptions<MetricsResponse>, 'queryKey' | 'queryFn'>,
 ) {
@@ -24,16 +24,16 @@ export function useSandboxMetrics(
   const { selectedOrganization } = useSelectedOrganization()
 
   return useQuery<MetricsResponse>({
-    queryKey: queryKeys.telemetry.metrics(sandboxId ?? '', params),
+    queryKey: queryKeys.telemetry.metrics(boxId ?? '', params),
     queryFn: async () => {
-      if (!selectedOrganization || !sandboxId || !api.analyticsTelemetryApi) {
+      if (!selectedOrganization || !boxId || !api.analyticsTelemetryApi) {
         throw new Error('Missing required parameters')
       }
       const metricNames = params.metricNames?.length ? params.metricNames.join(',') : undefined
 
-      const response = await api.analyticsTelemetryApi.organizationOrganizationIdSandboxSandboxIdTelemetryMetricsGet(
+      const response = await api.analyticsTelemetryApi.organizationOrganizationIdBoxBoxIdTelemetryMetricsGet(
         selectedOrganization.id,
-        sandboxId,
+        boxId,
         params.from.toISOString(),
         params.to.toISOString(),
         metricNames,
@@ -59,7 +59,7 @@ export function useSandboxMetrics(
 
       return { series }
     },
-    enabled: !!sandboxId && !!selectedOrganization && !!api.analyticsTelemetryApi && !!params.from && !!params.to,
+    enabled: !!boxId && !!selectedOrganization && !!api.analyticsTelemetryApi && !!params.from && !!params.to,
     staleTime: 10_000,
     ...options,
   })

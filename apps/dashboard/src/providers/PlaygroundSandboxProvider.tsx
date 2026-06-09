@@ -6,20 +6,20 @@
 import { PlaygroundCategories } from '@/enums/Playground'
 import { useDeepCompareMemo } from '@/hooks/useDeepCompareMemo'
 import { usePlayground } from '@/hooks/usePlayground'
-import { useSandboxSession, UseSandboxSessionResult } from '@/hooks/useSandboxSession'
+import { useBoxSession, UseBoxSessionResult } from '@/hooks/useBoxSession'
 import { createContext, useEffect, useRef } from 'react'
 
-export const PlaygroundSandboxContext = createContext<UseSandboxSessionResult | null>(null)
+export const PlaygroundBoxContext = createContext<UseBoxSessionResult | null>(null)
 
-export const PlaygroundSandboxProvider: React.FC<{
+export const PlaygroundBoxProvider: React.FC<{
   activeTab: PlaygroundCategories
   children: React.ReactNode
 }> = ({ activeTab, children }) => {
-  const { getSandboxParametersInfo } = usePlayground()
-  const { createSandboxParams } = getSandboxParametersInfo()
-  const stableCreateParams = useDeepCompareMemo(createSandboxParams)
+  const { getBoxParametersInfo } = usePlayground()
+  const { createBoxParams } = getBoxParametersInfo()
+  const stableCreateParams = useDeepCompareMemo(createBoxParams)
 
-  const session = useSandboxSession({
+  const session = useBoxSession({
     scope: 'playground',
     createParams: stableCreateParams,
     terminal: true,
@@ -27,24 +27,24 @@ export const PlaygroundSandboxProvider: React.FC<{
     notify: { vnc: activeTab === PlaygroundCategories.VNC },
   })
 
-  const createRef = useRef(session.sandbox.create)
-  createRef.current = session.sandbox.create
+  const createRef = useRef(session.box.create)
+  createRef.current = session.box.create
 
   useEffect(() => {
-    const needsSandbox = activeTab === PlaygroundCategories.TERMINAL || activeTab === PlaygroundCategories.VNC
-    if (needsSandbox && !session.sandbox.instance && !session.sandbox.loading && !session.sandbox.error) {
+    const needsBox = activeTab === PlaygroundCategories.TERMINAL || activeTab === PlaygroundCategories.VNC
+    if (needsBox && !session.box.instance && !session.box.loading && !session.box.error) {
       createRef.current()
     }
-  }, [activeTab, session.sandbox.instance, session.sandbox.loading, session.sandbox.error])
+  }, [activeTab, session.box.instance, session.box.loading, session.box.error])
 
-  const vncSandboxId = useRef<string | null>(null)
+  const vncBoxId = useRef<string | null>(null)
   useEffect(() => {
-    const id = session.sandbox.instance?.id
-    if (id && vncSandboxId.current !== id) {
-      vncSandboxId.current = id
+    const id = session.box.instance?.id
+    if (id && vncBoxId.current !== id) {
+      vncBoxId.current = id
       session.vnc.start()
     }
-  }, [session.sandbox.instance?.id, session.vnc])
+  }, [session.box.instance?.id, session.vnc])
 
-  return <PlaygroundSandboxContext.Provider value={session}>{children}</PlaygroundSandboxContext.Provider>
+  return <PlaygroundBoxContext.Provider value={session}>{children}</PlaygroundBoxContext.Provider>
 }

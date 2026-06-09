@@ -4,22 +4,22 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { DEFAULT_SANDBOX_SORTING, SandboxFilters, SandboxSorting } from '@/hooks/useSandboxes'
+import { DEFAULT_SANDBOX_SORTING, BoxFilters, BoxSorting } from '@/hooks/useBoxes'
 import {
-  ListSandboxesPaginatedOrderEnum,
-  ListSandboxesPaginatedSortEnum,
-  ListSandboxesPaginatedStatesEnum,
+  ListBoxesPaginatedOrderEnum,
+  ListBoxesPaginatedSortEnum,
+  ListBoxesPaginatedStatesEnum,
   Region,
-  Sandbox,
-  SandboxState,
+  Box,
+  BoxState,
   SnapshotDto,
 } from '@boxlite-ai/api-client'
 import { ColumnFiltersState, SortingState, Table } from '@tanstack/react-table'
 
-export interface SandboxTableProps {
-  data: Sandbox[]
-  sandboxIsLoading: Record<string, boolean>
-  sandboxStateIsTransitioning: Record<string, boolean>
+export interface BoxTableProps {
+  data: Box[]
+  boxIsLoading: Record<string, boolean>
+  boxStateIsTransitioning: Record<string, boolean>
   loading: boolean
   snapshots: SnapshotDto[]
   snapshotsDataIsLoading: boolean
@@ -42,7 +42,7 @@ export interface SandboxTableProps {
   handleRevokeSshAccess: (id: string) => void
   handleRefresh: () => void
   isRefreshing?: boolean
-  onRowClick?: (sandbox: Sandbox) => void
+  onRowClick?: (box: Box) => void
   pagination: {
     pageIndex: number
     pageSize: number
@@ -50,16 +50,16 @@ export interface SandboxTableProps {
   pageCount: number
   totalItems: number
   onPaginationChange: (pagination: { pageIndex: number; pageSize: number }) => void
-  sorting: SandboxSorting
-  onSortingChange: (sorting: SandboxSorting) => void
-  filters: SandboxFilters
-  onFiltersChange: (filters: SandboxFilters) => void
+  sorting: BoxSorting
+  onSortingChange: (sorting: BoxSorting) => void
+  filters: BoxFilters
+  onFiltersChange: (filters: BoxFilters) => void
   handleRecover: (id: string) => void
   handleScreenRecordings: (id: string) => void
 }
 
-export interface SandboxTableActionsProps {
-  sandbox: Sandbox
+export interface BoxTableActionsProps {
+  box: Box
   layout?: 'table' | 'mobile'
   writePermitted: boolean
   deletePermitted: boolean
@@ -76,8 +76,8 @@ export interface SandboxTableActionsProps {
   onScreenRecordings: (id: string) => void
 }
 
-export interface SandboxTableHeaderProps {
-  table: Table<Sandbox>
+export interface BoxTableHeaderProps {
+  table: Table<Box>
   regionOptions: FacetedFilterOption[]
   regionsDataIsLoading: boolean
   snapshots: SnapshotDto[]
@@ -90,50 +90,50 @@ export interface SandboxTableHeaderProps {
 
 export interface FacetedFilterOption {
   label: string
-  value: string | SandboxState
+  value: string | BoxState
   icon?: any
 }
 
-export const convertTableSortingToApiSorting = (sorting: SortingState): SandboxSorting => {
+export const convertTableSortingToApiSorting = (sorting: SortingState): BoxSorting => {
   if (!sorting.length) {
     return DEFAULT_SANDBOX_SORTING
   }
 
   const sort = sorting[0]
-  let field: ListSandboxesPaginatedSortEnum
+  let field: ListBoxesPaginatedSortEnum
 
   switch (sort.id) {
     case 'name':
-      field = ListSandboxesPaginatedSortEnum.NAME
+      field = ListBoxesPaginatedSortEnum.NAME
       break
     case 'state':
-      field = ListSandboxesPaginatedSortEnum.STATE
+      field = ListBoxesPaginatedSortEnum.STATE
       break
     case 'snapshot':
-      field = ListSandboxesPaginatedSortEnum.SNAPSHOT
+      field = ListBoxesPaginatedSortEnum.SNAPSHOT
       break
     case 'region':
     case 'target':
-      field = ListSandboxesPaginatedSortEnum.REGION
+      field = ListBoxesPaginatedSortEnum.REGION
       break
     case 'lastEvent':
     case 'updatedAt':
-      field = ListSandboxesPaginatedSortEnum.UPDATED_AT
+      field = ListBoxesPaginatedSortEnum.UPDATED_AT
       break
     case 'createdAt':
     default:
-      field = ListSandboxesPaginatedSortEnum.CREATED_AT
+      field = ListBoxesPaginatedSortEnum.CREATED_AT
       break
   }
 
   return {
     field,
-    direction: sort.desc ? ListSandboxesPaginatedOrderEnum.DESC : ListSandboxesPaginatedOrderEnum.ASC,
+    direction: sort.desc ? ListBoxesPaginatedOrderEnum.DESC : ListBoxesPaginatedOrderEnum.ASC,
   }
 }
 
-export const convertTableFiltersToApiFilters = (columnFilters: ColumnFiltersState): SandboxFilters => {
-  const filters: SandboxFilters = {}
+export const convertTableFiltersToApiFilters = (columnFilters: ColumnFiltersState): BoxFilters => {
+  const filters: BoxFilters = {}
 
   columnFilters.forEach((filter) => {
     switch (filter.id) {
@@ -144,7 +144,7 @@ export const convertTableFiltersToApiFilters = (columnFilters: ColumnFiltersStat
         break
       case 'state':
         if (Array.isArray(filter.value) && filter.value.length > 0) {
-          filters.states = filter.value as ListSandboxesPaginatedStatesEnum[]
+          filters.states = filter.value as ListBoxesPaginatedStatesEnum[]
         }
         break
       case 'snapshot':
@@ -217,38 +217,38 @@ export const convertTableFiltersToApiFilters = (columnFilters: ColumnFiltersStat
   return filters
 }
 
-export const convertApiSortingToTableSorting = (sorting: SandboxSorting): SortingState => {
+export const convertApiSortingToTableSorting = (sorting: BoxSorting): SortingState => {
   if (!sorting.field || !sorting.direction) {
     return [{ id: 'lastEvent', desc: true }]
   }
 
   let id: string
   switch (sorting.field) {
-    case ListSandboxesPaginatedSortEnum.NAME:
+    case ListBoxesPaginatedSortEnum.NAME:
       id = 'name'
       break
-    case ListSandboxesPaginatedSortEnum.STATE:
+    case ListBoxesPaginatedSortEnum.STATE:
       id = 'state'
       break
-    case ListSandboxesPaginatedSortEnum.SNAPSHOT:
+    case ListBoxesPaginatedSortEnum.SNAPSHOT:
       id = 'snapshot'
       break
-    case ListSandboxesPaginatedSortEnum.REGION:
+    case ListBoxesPaginatedSortEnum.REGION:
       id = 'region'
       break
-    case ListSandboxesPaginatedSortEnum.UPDATED_AT:
+    case ListBoxesPaginatedSortEnum.UPDATED_AT:
       id = 'lastEvent'
       break
-    case ListSandboxesPaginatedSortEnum.CREATED_AT:
+    case ListBoxesPaginatedSortEnum.CREATED_AT:
     default:
       id = 'createdAt'
       break
   }
 
-  return [{ id, desc: sorting.direction === ListSandboxesPaginatedOrderEnum.DESC }]
+  return [{ id, desc: sorting.direction === ListBoxesPaginatedOrderEnum.DESC }]
 }
 
-export const convertApiFiltersToTableFilters = (filters: SandboxFilters): ColumnFiltersState => {
+export const convertApiFiltersToTableFilters = (filters: BoxFilters): ColumnFiltersState => {
   const columnFilters: ColumnFiltersState = []
 
   if (filters.idOrName) {

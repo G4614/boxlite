@@ -49,17 +49,17 @@ import Playground from './pages/Playground'
 import Regions from './pages/Regions'
 import Registries from './pages/Registries'
 import Runners from './pages/Runners'
-import Sandboxes from './pages/Sandboxes'
+import Boxes from './pages/Boxes'
 import Snapshots from './pages/Snapshots'
 import Spending from './pages/Spending'
 import Volumes from './pages/Volumes'
 import Wallet from './pages/Wallet'
 import WebhookEndpointDetails from './pages/WebhookEndpointDetails'
 import Webhooks from './pages/Webhooks'
-import { SandboxDetails, SandboxTerminalFullscreen, SandboxVncFullscreen } from './components/sandboxes'
+import { BoxDetails, BoxTerminalFullscreen, BoxVncFullscreen } from './components/boxes'
 import { ApiProvider } from './providers/ApiProvider'
 import { RegionsProvider } from './providers/RegionsProvider'
-import { SandboxSessionProvider } from './providers/SandboxSessionProvider'
+import { BoxSessionProvider } from './providers/BoxSessionProvider'
 import { SvixProvider } from './providers/SvixProvider'
 
 // Simple redirection components for external URLs
@@ -173,22 +173,22 @@ function App() {
       >
         <Route index element={<Navigate to={`${getRouteSubPath(RoutePath.SANDBOXES)}${location.search}`} replace />} />
         <Route path={getRouteSubPath(RoutePath.KEYS)} element={<Keys />} />
-        <Route path={getRouteSubPath(RoutePath.SANDBOXES)} element={<Sandboxes />} />
-        {/* Pathless layout route: a single SandboxSessionProvider fiber
-            persists across the three sandbox routes, so activation state
+        <Route path={getRouteSubPath(RoutePath.SANDBOXES)} element={<Boxes />} />
+        {/* Pathless layout route: a single BoxSessionProvider fiber
+            persists across the three box routes, so activation state
             (e.g. "terminal connected") survives navigation between the
             details view and its fullscreen siblings. Per-route providers
             held state in a useRef that died with each unmount. */}
         <Route
           element={
-            <SandboxSessionProvider>
+            <BoxSessionProvider>
               <Outlet />
-            </SandboxSessionProvider>
+            </BoxSessionProvider>
           }
         >
-          <Route path={getRouteSubPath(RoutePath.SANDBOX_TERMINAL)} element={<SandboxTerminalFullscreen />} />
-          <Route path={getRouteSubPath(RoutePath.SANDBOX_VNC)} element={<SandboxVncFullscreen />} />
-          <Route path={getRouteSubPath(RoutePath.SANDBOX_DETAILS)} element={<SandboxDetails />} />
+          <Route path={getRouteSubPath(RoutePath.SANDBOX_TERMINAL)} element={<BoxTerminalFullscreen />} />
+          <Route path={getRouteSubPath(RoutePath.SANDBOX_VNC)} element={<BoxVncFullscreen />} />
+          <Route path={getRouteSubPath(RoutePath.SANDBOX_DETAILS)} element={<BoxDetails />} />
         </Route>
         <Route path={getRouteSubPath(RoutePath.SNAPSHOTS)} element={<Snapshots />} />
         <Route path={getRouteSubPath(RoutePath.REGISTRIES)} element={<Registries />} />

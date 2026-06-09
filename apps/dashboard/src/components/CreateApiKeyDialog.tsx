@@ -50,7 +50,7 @@ const isReadPermission = (permission: CreateApiKeyPermissionsEnum) => permission
 const isWritePermission = (permission: CreateApiKeyPermissionsEnum) => permission.startsWith('write:')
 const isDeletePermission = (permission: CreateApiKeyPermissionsEnum) => permission.startsWith('delete:')
 
-const IMPLICIT_READ_RESOURCES = ['Sandboxes', 'Snapshots', 'Registries', 'Regions']
+const IMPLICIT_READ_RESOURCES = ['Boxes', 'Snapshots', 'Registries', 'Regions']
 
 const formSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -218,16 +218,14 @@ export const CreateApiKeyDialog: React.FC<CreateApiKeyDialogProps> = ({
 
                 <TabsList className="bg-muted w-full [&>*]:flex-1">
                   <TabsTrigger value="full-access">Full Access</TabsTrigger>
-                  <TabsTrigger value="sandbox-access">Sandboxes</TabsTrigger>
+                  <TabsTrigger value="sandbox-access">Boxes</TabsTrigger>
                   <TabsTrigger value="restricted-access">Restricted </TabsTrigger>
                 </TabsList>
                 <TabsContent value="sandbox-access" className="w-full">
                   <Alert variant="info">
                     <InfoIcon />
-                    <AlertTitle>Sandboxes Access</AlertTitle>
-                    <AlertDescription>
-                      This key grants read and write access to the Sandboxes resource.
-                    </AlertDescription>
+                    <AlertTitle>Boxes Access</AlertTitle>
+                    <AlertDescription>This key grants read and write access to the Boxes resource.</AlertDescription>
                   </Alert>
                 </TabsContent>
                 <TabsContent value="full-access" className="w-full">

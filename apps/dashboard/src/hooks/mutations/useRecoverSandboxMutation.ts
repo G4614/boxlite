@@ -8,22 +8,22 @@ import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import { queryKeys } from '@/hooks/queries/queryKeys'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
-interface RecoverSandboxVariables {
-  sandboxId: string
+interface RecoverBoxVariables {
+  boxId: string
 }
 
-export const useRecoverSandboxMutation = () => {
-  const { sandboxApi } = useApi()
+export const useRecoverBoxMutation = () => {
+  const { boxApi } = useApi()
   const { selectedOrganization } = useSelectedOrganization()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ sandboxId }: RecoverSandboxVariables) => {
-      await sandboxApi.recoverSandbox(sandboxId, selectedOrganization?.id)
+    mutationFn: async ({ boxId }: RecoverBoxVariables) => {
+      await boxApi.recoverBox(boxId, selectedOrganization?.id)
     },
-    onSuccess: (_, { sandboxId }) => {
+    onSuccess: (_, { boxId }) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.sandboxes.detail(selectedOrganization?.id ?? '', sandboxId),
+        queryKey: queryKeys.boxes.detail(selectedOrganization?.id ?? '', boxId),
       })
     },
   })

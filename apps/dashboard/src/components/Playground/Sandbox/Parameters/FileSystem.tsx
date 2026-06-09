@@ -19,11 +19,11 @@ import FormCheckboxInput from '../../Inputs/CheckboxInput'
 import InlineInputFormControl from '../../Inputs/InlineInputFormControl'
 import FormTextInput from '../../Inputs/TextInput'
 
-const SandboxFileSystem: React.FC = () => {
-  const { sandboxParametersState, playgroundActionParamValueSetter } = usePlayground()
-  const createFolderParams = sandboxParametersState['createFolderParams']
-  const listFilesParams = sandboxParametersState['listFilesParams']
-  const deleteFileParams = sandboxParametersState['deleteFileParams']
+const BoxFileSystem: React.FC = () => {
+  const { boxParametersState, playgroundActionParamValueSetter } = usePlayground()
+  const createFolderParams = boxParametersState['createFolderParams']
+  const listFilesParams = boxParametersState['listFilesParams']
+  const deleteFileParams = boxParametersState['deleteFileParams']
 
   const listFilesDirectoryFormData: ParameterFormItem & { key: 'directoryPath' } = {
     label: 'Directory location',
@@ -64,7 +64,7 @@ const SandboxFileSystem: React.FC = () => {
       {
         methodName: FileSystemActions.CREATE_FOLDER,
         label: 'createFolder()',
-        description: 'Creates a new directory in the Sandbox at the specified path with the given permissions',
+        description: 'Creates a new directory in the Box at the specified path with the given permissions',
         parametersFormItems: createFolderParamsFormData,
         parametersState: createFolderParams,
       },
@@ -78,7 +78,7 @@ const SandboxFileSystem: React.FC = () => {
       {
         methodName: FileSystemActions.DELETE_FILE,
         label: 'deleteFile()',
-        description: 'Deletes a file from the Sandbox',
+        description: 'Deletes a file from the Box',
         parametersFormItems: [deleteFileLocationFormData, deleteFileRecursiveFormData],
         parametersState: deleteFileParams,
       },
@@ -165,4 +165,4 @@ const SandboxFileSystem: React.FC = () => {
   )
 }
 
-export default SandboxFileSystem
+export default BoxFileSystem

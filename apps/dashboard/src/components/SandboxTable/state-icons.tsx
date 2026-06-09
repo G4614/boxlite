@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { SandboxState } from '@boxlite-ai/api-client'
+import { BoxState } from '@boxlite-ai/api-client'
 import { Loader2 } from 'lucide-react'
 
 interface SquareProps {
@@ -19,23 +19,23 @@ function Square({ color }: SquareProps) {
   )
 }
 
-export const STATE_ICONS: Record<SandboxState | 'RECOVERY', React.ReactNode> = {
-  [SandboxState.UNKNOWN]: <Square color="bg-muted-foreground/20" />,
-  [SandboxState.CREATING]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.STARTING]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.STARTED]: <Square color="bg-green-600" />,
-  [SandboxState.STOPPING]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.STOPPED]: <Square color="bg-muted-foreground/50" />,
-  [SandboxState.DESTROYING]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.DESTROYED]: <Square color="bg-muted-foreground/20" />,
-  [SandboxState.ERROR]: <Square color="bg-destructive" />,
-  [SandboxState.BUILD_FAILED]: <Square color="bg-destructive" />,
-  [SandboxState.BUILDING_SNAPSHOT]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.PULLING_SNAPSHOT]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.PENDING_BUILD]: <Square color="bg-muted-foreground/20" />,
-  [SandboxState.ARCHIVED]: <Square color="bg-muted-foreground/20" />,
-  [SandboxState.ARCHIVING]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.RESTORING]: <Loader2 className="w-3 h-3 animate-spin" />,
-  [SandboxState.RESIZING]: <Loader2 className="w-3 h-3 animate-spin" />,
+export const STATE_ICONS: Record<BoxState | 'RECOVERY', React.ReactNode> = {
+  [BoxState.UNKNOWN]: <Square color="bg-muted-foreground/20" />,
+  [BoxState.CREATING]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.STARTING]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.STARTED]: <Square color="bg-green-600" />,
+  [BoxState.STOPPING]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.STOPPED]: <Square color="bg-muted-foreground/50" />,
+  [BoxState.DESTROYING]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.DESTROYED]: <Square color="bg-muted-foreground/20" />,
+  [BoxState.ERROR]: <Square color="bg-destructive" />,
+  [BoxState.BUILD_FAILED]: <Square color="bg-destructive" />,
+  [BoxState.BUILDING_SNAPSHOT]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.PULLING_SNAPSHOT]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.PENDING_BUILD]: <Square color="bg-muted-foreground/20" />,
+  [BoxState.ARCHIVED]: <Square color="bg-muted-foreground/20" />,
+  [BoxState.ARCHIVING]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.RESTORING]: <Loader2 className="w-3 h-3 animate-spin" />,
+  [BoxState.RESIZING]: <Loader2 className="w-3 h-3 animate-spin" />,
   RECOVERY: <Square color="bg-yellow-600" />,
 }

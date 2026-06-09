@@ -9,7 +9,7 @@ import { OrganizationRolePermissionsEnum } from '@boxlite-ai/api-client'
 export const ORGANIZATION_ROLE_PERMISSIONS_GROUPS: { name: string; permissions: OrganizationRolePermissionsEnum[] }[] =
   [
     {
-      name: 'Sandboxes',
+      name: 'Boxes',
       permissions: [OrganizationRolePermissionsEnum.WRITE_SANDBOXES, OrganizationRolePermissionsEnum.DELETE_SANDBOXES],
     },
     {

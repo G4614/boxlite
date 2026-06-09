@@ -18,8 +18,8 @@ export interface LogsQueryParams {
   search?: string
 }
 
-export function useSandboxLogs(
-  sandboxId: string | undefined,
+export function useBoxLogs(
+  boxId: string | undefined,
   params: LogsQueryParams,
   options?: Omit<UseQueryOptions<PaginatedLogs>, 'queryKey' | 'queryFn'>,
 ) {
@@ -27,9 +27,9 @@ export function useSandboxLogs(
   const { selectedOrganization } = useSelectedOrganization()
 
   return useQuery<PaginatedLogs>({
-    queryKey: queryKeys.telemetry.logs(sandboxId ?? '', params),
+    queryKey: queryKeys.telemetry.logs(boxId ?? '', params),
     queryFn: async () => {
-      if (!selectedOrganization || !sandboxId || !api.analyticsTelemetryApi) {
+      if (!selectedOrganization || !boxId || !api.analyticsTelemetryApi) {
         throw new Error('Missing required parameters')
       }
       const limit = params.limit ?? 50
@@ -37,9 +37,9 @@ export function useSandboxLogs(
       const offset = (page - 1) * limit
       const severity = params.severities?.length ? params.severities.join(',') : undefined
 
-      const response = await api.analyticsTelemetryApi.organizationOrganizationIdSandboxSandboxIdTelemetryLogsGet(
+      const response = await api.analyticsTelemetryApi.organizationOrganizationIdBoxBoxIdTelemetryLogsGet(
         selectedOrganization.id,
-        sandboxId,
+        boxId,
         params.from.toISOString(),
         params.to.toISOString(),
         severity,
@@ -67,7 +67,7 @@ export function useSandboxLogs(
         totalPages: items.length < limit ? page : page + 1,
       }
     },
-    enabled: !!sandboxId && !!selectedOrganization && !!api.analyticsTelemetryApi && !!params.from && !!params.to,
+    enabled: !!boxId && !!selectedOrganization && !!api.analyticsTelemetryApi && !!params.from && !!params.to,
     staleTime: 10_000,
     ...options,
   })

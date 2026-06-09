@@ -5,15 +5,15 @@
  */
 
 import { formatTimestamp, getRelativeTimeString } from '@/lib/utils'
-import { Sandbox, SandboxDesiredState, SandboxState } from '@boxlite-ai/api-client'
+import { Box, BoxDesiredState, BoxState } from '@boxlite-ai/api-client'
 import { ColumnDef } from '@tanstack/react-table'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import React from 'react'
 import { EllipsisWithTooltip } from '../EllipsisWithTooltip'
 import { Checkbox } from '../ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import { SandboxState as SandboxStateComponent } from './SandboxState'
-import { SandboxTableActions } from './SandboxTableActions'
+import { BoxState as BoxStateComponent } from './BoxState'
+import { BoxTableActions } from './BoxTableActions'
 
 interface SortableHeaderProps {
   column: any
@@ -48,7 +48,7 @@ interface GetColumnsProps {
   handleArchive: (id: string) => void
   handleVnc: (id: string) => void
   getWebTerminalUrl: (id: string) => Promise<string | null>
-  sandboxIsLoading: Record<string, boolean>
+  boxIsLoading: Record<string, boolean>
   writePermitted: boolean
   deletePermitted: boolean
   handleCreateSshAccess: (id: string) => void
@@ -65,7 +65,7 @@ export function getColumns({
   handleArchive,
   handleVnc,
   getWebTerminalUrl,
-  sandboxIsLoading,
+  boxIsLoading,
   writePermitted,
   deletePermitted,
   handleCreateSshAccess,
@@ -73,15 +73,15 @@ export function getColumns({
   handleRecover,
   getRegionName,
   handleScreenRecordings,
-}: GetColumnsProps): ColumnDef<Sandbox>[] {
-  const handleOpenWebTerminal = async (sandboxId: string) => {
-    const url = await getWebTerminalUrl(sandboxId)
+}: GetColumnsProps): ColumnDef<Box>[] {
+  const handleOpenWebTerminal = async (boxId: string) => {
+    const url = await getWebTerminalUrl(boxId)
     if (url) {
       window.open(url, '_blank')
     }
   }
 
-  const columns: ColumnDef<Sandbox>[] = [
+  const columns: ColumnDef<Box>[] = [
     {
       id: 'select',
       size: 30,
@@ -92,7 +92,7 @@ export function getColumns({
           }
           onCheckedChange={(value) => {
             for (const row of table.getRowModel().rows) {
-              if (sandboxIsLoading[row.original.id] || row.original.state === SandboxState.DESTROYED) {
+              if (boxIsLoading[row.original.id] || row.original.state === BoxState.DESTROYED) {
                 row.toggleSelected(false)
               } else {
                 row.toggleSelected(!!value)
@@ -130,7 +130,7 @@ export function getColumns({
       },
       accessorKey: 'name',
       cell: ({ row }) => {
-        const displayName = getSandboxDisplayName(row.original)
+        const displayName = getBoxDisplayName(row.original)
         return (
           <div className="w-full truncate">
             <span className="truncate block">{displayName}</span>
@@ -165,7 +165,7 @@ export function getColumns({
       },
       cell: ({ row }) => (
         <div className="w-full truncate">
-          <SandboxStateComponent
+          <BoxStateComponent
             state={row.original.state}
             errorReason={row.original.errorReason}
             recoverable={row.original.recoverable}
@@ -281,9 +281,9 @@ export function getColumns({
       header: ({ column }) => {
         return <SortableHeader column={column} label="Last Event" />
       },
-      accessorFn: (row) => getSandboxLastEvent(row).date,
+      accessorFn: (row) => getBoxLastEvent(row).date,
       cell: ({ row }) => {
-        const lastEvent = getSandboxLastEvent(row.original)
+        const lastEvent = getBoxLastEvent(row.original)
         return (
           <div className="w-full truncate">
             <span className="truncate block">{lastEvent.relativeTimeString}</span>
@@ -314,11 +314,11 @@ export function getColumns({
       enableHiding: false,
       cell: ({ row }) => (
         <div className="w-full flex justify-end">
-          <SandboxTableActions
-            sandbox={row.original}
+          <BoxTableActions
+            box={row.original}
             writePermitted={writePermitted}
             deletePermitted={deletePermitted}
-            isLoading={sandboxIsLoading[row.original.id]}
+            isLoading={boxIsLoading[row.original.id]}
             onStart={handleStart}
             onStop={handleStop}
             onDelete={handleDelete}
@@ -338,20 +338,20 @@ export function getColumns({
   return columns
 }
 
-export function getSandboxDisplayName(sandbox: Sandbox): string {
-  // If the sandbox is destroying and the name starts with "DESTROYED_", trim the prefix and timestamp
-  if (sandbox.desiredState === SandboxDesiredState.DESTROYED && sandbox.name.startsWith('DESTROYED_')) {
+export function getBoxDisplayName(box: Box): string {
+  // If the box is destroying and the name starts with "DESTROYED_", trim the prefix and timestamp
+  if (box.desiredState === BoxDesiredState.DESTROYED && box.name.startsWith('DESTROYED_')) {
     // Remove "DESTROYED_" prefix and everything after the last underscore (timestamp)
-    const withoutPrefix = sandbox.name.substring(10) // Remove "DESTROYED_"
+    const withoutPrefix = box.name.substring(10) // Remove "DESTROYED_"
     const lastUnderscoreIndex = withoutPrefix.lastIndexOf('_')
     if (lastUnderscoreIndex !== -1) {
       return withoutPrefix.substring(0, lastUnderscoreIndex)
     }
     return withoutPrefix
   }
-  return sandbox.name
+  return box.name
 }
 
-export function getSandboxLastEvent(sandbox: Sandbox): { date: Date; relativeTimeString: string } {
-  return getRelativeTimeString(sandbox.updatedAt)
+export function getBoxLastEvent(box: Box): { date: Date; relativeTimeString: string } {
+  return getRelativeTimeString(box.updatedAt)
 }

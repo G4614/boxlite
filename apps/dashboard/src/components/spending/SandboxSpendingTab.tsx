@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback } from 'react'
-import { useSandboxUsagePeriods, AnalyticsUsageParams } from '@/hooks/queries/useAnalyticsUsage'
+import { useBoxUsagePeriods, AnalyticsUsageParams } from '@/hooks/queries/useAnalyticsUsage'
 import { TimeRangeSelector } from '@/components/telemetry/TimeRangeSelector'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -18,11 +18,11 @@ function formatPrice(price: number): string {
   return `$${parseFloat(price.toPrecision(2))}`
 }
 
-interface SandboxSpendingTabProps {
-  sandboxId: string
+interface BoxSpendingTabProps {
+  boxId: string
 }
 
-export const SandboxSpendingTab: React.FC<SandboxSpendingTabProps> = ({ sandboxId }) => {
+export const BoxSpendingTab: React.FC<BoxSpendingTabProps> = ({ boxId }) => {
   const [timeRange, setTimeRange] = useState(() => {
     const now = new Date()
     return { from: subHours(now, 24), to: now }
@@ -33,7 +33,7 @@ export const SandboxSpendingTab: React.FC<SandboxSpendingTabProps> = ({ sandboxI
     to: timeRange.to,
   }
 
-  const { data, isLoading, refetch } = useSandboxUsagePeriods(sandboxId, queryParams)
+  const { data, isLoading, refetch } = useBoxUsagePeriods(boxId, queryParams)
 
   const handleTimeRangeChange = useCallback((from: Date, to: Date) => {
     setTimeRange({ from, to })

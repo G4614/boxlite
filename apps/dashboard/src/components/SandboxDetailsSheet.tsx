@@ -8,26 +8,26 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDuration, formatTimestamp, getRelativeTimeString } from '@/lib/utils'
-import { Sandbox, SandboxState } from '@boxlite-ai/api-client'
+import { Box, BoxState } from '@boxlite-ai/api-client'
 import { Archive, Play, Tag, Trash, Wrench, X } from 'lucide-react'
 import React, { useState } from 'react'
 import { Link, generatePath } from 'react-router-dom'
 import { RoutePath } from '@/enums/RoutePath'
 import { CopyButton } from './CopyButton'
 import { ResourceChip } from './ResourceChip'
-import { SandboxState as SandboxStateComponent } from './SandboxTable/SandboxState'
+import { BoxState as BoxStateComponent } from './BoxTable/BoxState'
 import { TimestampTooltip } from './TimestampTooltip'
 import { LogsTab, TracesTab, MetricsTab } from './telemetry'
-import { SandboxSpendingTab } from './spending'
+import { BoxSpendingTab } from './spending'
 import { useFeatureFlagEnabled } from 'posthog-js/react'
 import { FeatureFlags } from '@/enums/FeatureFlags'
 import { useConfig } from '@/hooks/useConfig'
 
-interface SandboxDetailsSheetProps {
-  sandbox: Sandbox | null
+interface BoxDetailsSheetProps {
+  box: Box | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  sandboxIsLoading: Record<string, boolean>
+  boxIsLoading: Record<string, boolean>
   handleStart: (id: string) => void
   handleStop: (id: string) => void
   handleDelete: (id: string) => void
@@ -39,11 +39,11 @@ interface SandboxDetailsSheetProps {
   handleRecover: (id: string) => void
 }
 
-const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
-  sandbox,
+const BoxDetailsSheet: React.FC<BoxDetailsSheetProps> = ({
+  box,
   open,
   onOpenChange,
-  sandboxIsLoading,
+  boxIsLoading,
   handleStart,
   handleStop,
   handleDelete,
@@ -63,91 +63,78 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
   // TODO: uncomment when we enable the terminal tab
   // useEffect(() => {
   //   const getTerminalUrl = async () => {
-  //     if (!sandbox?.id) {
+  //     if (!box?.id) {
   //       setTerminalUrl(null)
   //       return
   //     }
 
-  //     const url = await getWebTerminalUrl(sandbox.id)
+  //     const url = await getWebTerminalUrl(box.id)
   //     setTerminalUrl(url)
   //   }
 
   //   getTerminalUrl()
-  // }, [sandbox?.id, getWebTerminalUrl])
+  // }, [box?.id, getWebTerminalUrl])
 
-  if (!sandbox) return null
+  if (!box) return null
 
-  const getLastEvent = (sandbox: Sandbox): { date: Date; relativeTimeString: string } => {
-    return getRelativeTimeString(sandbox.updatedAt)
+  const getLastEvent = (box: Box): { date: Date; relativeTimeString: string } => {
+    return getRelativeTimeString(box.updatedAt)
   }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-dvw sm:w-[800px] p-0 flex flex-col gap-0 [&>button]:hidden">
         <SheetHeader className="space-y-0 flex flex-row justify-between items-center  p-4 px-5 border-b border-border">
-          <SheetTitle className="text-2xl font-medium">Sandbox Details</SheetTitle>
+          <SheetTitle className="text-2xl font-medium">Box Details</SheetTitle>
           <div className="flex gap-2 items-center">
             <Button variant="link" asChild>
-              <Link to={generatePath(RoutePath.SANDBOX_DETAILS, { sandboxId: sandbox.id })}>View</Link>
+              <Link to={generatePath(RoutePath.SANDBOX_DETAILS, { boxId: box.id })}>View</Link>
             </Button>
             {writePermitted && (
               <>
-                {sandbox.state === SandboxState.STARTED && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleStop(sandbox.id)}
-                    disabled={sandboxIsLoading[sandbox.id]}
-                  >
+                {box.state === BoxState.STARTED && (
+                  <Button variant="outline" onClick={() => handleStop(box.id)} disabled={boxIsLoading[box.id]}>
                     Stop
                   </Button>
                 )}
-                {(sandbox.state === SandboxState.STOPPED || sandbox.state === SandboxState.ARCHIVED) &&
-                  !sandbox.recoverable && (
-                    <Button
-                      variant="outline"
-                      onClick={() => handleStart(sandbox.id)}
-                      disabled={sandboxIsLoading[sandbox.id]}
-                    >
-                      <Play className="w-4 h-4" />
-                      Start
-                    </Button>
-                  )}
-                {sandbox.state === SandboxState.ERROR && sandbox.recoverable && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleRecover(sandbox.id)}
-                    disabled={sandboxIsLoading[sandbox.id]}
-                  >
+                {(box.state === BoxState.STOPPED || box.state === BoxState.ARCHIVED) && !box.recoverable && (
+                  <Button variant="outline" onClick={() => handleStart(box.id)} disabled={boxIsLoading[box.id]}>
+                    <Play className="w-4 h-4" />
+                    Start
+                  </Button>
+                )}
+                {box.state === BoxState.ERROR && box.recoverable && (
+                  <Button variant="outline" onClick={() => handleRecover(box.id)} disabled={boxIsLoading[box.id]}>
                     <Wrench className="w-4 h-4" />
                     Recover
                   </Button>
                 )}
-                {/* {(sandbox.state === SandboxState.STOPPED || sandbox.state === SandboxState.ARCHIVED) && (
+                {/* {(box.state === BoxState.STOPPED || box.state === BoxState.ARCHIVED) && (
                   <Button
                     variant="outline"
-                    onClick={() => handleFork(sandbox.id)}
-                    disabled={sandboxIsLoading[sandbox.id]}
+                    onClick={() => handleFork(box.id)}
+                    disabled={boxIsLoading[box.id]}
                   >
                     <GitFork className="w-4 h-4" />
                     Fork
                   </Button>
                 )}
-                {(sandbox.state === SandboxState.STOPPED || sandbox.state === SandboxState.ARCHIVED) && (
+                {(box.state === BoxState.STOPPED || box.state === BoxState.ARCHIVED) && (
                   <Button
                     variant="outline"
-                    onClick={() => handleSnapshot(sandbox.id)}
-                    disabled={sandboxIsLoading[sandbox.id]}
+                    onClick={() => handleSnapshot(box.id)}
+                    disabled={boxIsLoading[box.id]}
                   >
                     <Camera className="w-4 h-4" />
                     Snapshot
                   </Button>
                 )} */}
-                {sandbox.state === SandboxState.STOPPED && (
+                {box.state === BoxState.STOPPED && (
                   <Button
                     variant="outline"
                     className="w-8 h-8"
-                    onClick={() => handleArchive(sandbox.id)}
-                    disabled={sandboxIsLoading[sandbox.id]}
+                    onClick={() => handleArchive(box.id)}
+                    disabled={boxIsLoading[box.id]}
                   >
                     <Archive className="w-4 h-4" />
                   </Button>
@@ -158,8 +145,8 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
               <Button
                 variant="outline"
                 className="w-8 h-8"
-                onClick={() => handleDelete(sandbox.id)}
-                disabled={sandboxIsLoading[sandbox.id]}
+                onClick={() => handleDelete(box.id)}
+                disabled={boxIsLoading[box.id]}
               >
                 <Trash className="w-4 h-4" />
               </Button>
@@ -168,7 +155,7 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
               variant="outline"
               className="w-8 h-8"
               onClick={() => onOpenChange(false)}
-              disabled={sandboxIsLoading[sandbox.id]}
+              disabled={boxIsLoading[box.id]}
             >
               <X className="w-4 h-4" />
             </Button>
@@ -218,15 +205,15 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
               <div>
                 <h3 className="text-sm text-muted-foreground">Name</h3>
                 <div className="mt-1 flex items-center gap-2">
-                  <p className="text-sm font-medium truncate">{sandbox.name}</p>
-                  <CopyButton value={sandbox.name} tooltipText="Copy name" size="icon-xs" />
+                  <p className="text-sm font-medium truncate">{box.name}</p>
+                  <CopyButton value={box.name} tooltipText="Copy name" size="icon-xs" />
                 </div>
               </div>
               <div>
                 <h3 className="text-sm text-muted-foreground">UUID</h3>
                 <div className="mt-1 flex items-center gap-2">
-                  <p className="text-sm font-medium truncate">{sandbox.id}</p>
-                  <CopyButton value={sandbox.id} tooltipText="Copy UUID" size="icon-xs" />
+                  <p className="text-sm font-medium truncate">{box.id}</p>
+                  <CopyButton value={box.id} tooltipText="Copy UUID" size="icon-xs" />
                 </div>
               </div>
             </div>
@@ -235,27 +222,21 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
               <div>
                 <h3 className="text-sm text-muted-foreground">State</h3>
                 <div className="mt-1 text-sm">
-                  <SandboxStateComponent
-                    state={sandbox.state}
-                    errorReason={sandbox.errorReason}
-                    recoverable={sandbox.recoverable}
-                  />
+                  <BoxStateComponent state={box.state} errorReason={box.errorReason} recoverable={box.recoverable} />
                 </div>
               </div>
               <div>
                 <h3 className="text-sm text-muted-foreground">Snapshot</h3>
                 <div className="mt-1 flex items-center gap-2">
-                  <p className="text-sm font-medium truncate">{sandbox.snapshot || '-'}</p>
-                  {sandbox.snapshot && (
-                    <CopyButton value={sandbox.snapshot} tooltipText="Copy snapshot" size="icon-xs" />
-                  )}
+                  <p className="text-sm font-medium truncate">{box.snapshot || '-'}</p>
+                  {box.snapshot && <CopyButton value={box.snapshot} tooltipText="Copy snapshot" size="icon-xs" />}
                 </div>
               </div>
               <div>
                 <h3 className="text-sm text-muted-foreground">Region</h3>
                 <div className="mt-1 flex items-center gap-2">
-                  <p className="text-sm font-medium truncate">{getRegionName(sandbox.target) ?? sandbox.target}</p>
-                  <CopyButton value={sandbox.target} tooltipText="Copy region" size="icon-xs" />
+                  <p className="text-sm font-medium truncate">{getRegionName(box.target) ?? box.target}</p>
+                  <CopyButton value={box.target} tooltipText="Copy region" size="icon-xs" />
                 </div>
               </div>
             </div>
@@ -263,17 +244,13 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
               <div>
                 <h3 className="text-sm text-muted-foreground">Last event</h3>
                 <p className="mt-1 text-sm font-medium">
-                  <TimestampTooltip timestamp={sandbox.updatedAt}>
-                    {getLastEvent(sandbox).relativeTimeString}
-                  </TimestampTooltip>
+                  <TimestampTooltip timestamp={box.updatedAt}>{getLastEvent(box).relativeTimeString}</TimestampTooltip>
                 </p>
               </div>
               <div>
                 <h3 className="text-sm text-muted-foreground">Created at</h3>
                 <p className="mt-1 text-sm font-medium">
-                  <TimestampTooltip timestamp={sandbox.createdAt}>
-                    {formatTimestamp(sandbox.createdAt)}
-                  </TimestampTooltip>
+                  <TimestampTooltip timestamp={box.createdAt}>{formatTimestamp(box.createdAt)}</TimestampTooltip>
                 </p>
               </div>
             </div>
@@ -282,22 +259,22 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
               <div>
                 <h3 className="text-sm text-muted-foreground">Auto-stop</h3>
                 <p className="mt-1 text-sm font-medium">
-                  {sandbox.autoStopInterval ? formatDuration(sandbox.autoStopInterval) : 'Disabled'}
+                  {box.autoStopInterval ? formatDuration(box.autoStopInterval) : 'Disabled'}
                 </p>
               </div>
               <div>
                 <h3 className="text-sm text-muted-foreground">Auto-archive</h3>
                 <p className="mt-1 text-sm font-medium">
-                  {sandbox.autoArchiveInterval ? formatDuration(sandbox.autoArchiveInterval) : 'Disabled'}
+                  {box.autoArchiveInterval ? formatDuration(box.autoArchiveInterval) : 'Disabled'}
                 </p>
               </div>
               <div>
                 <h3 className="text-sm text-muted-foreground">Auto-delete</h3>
                 <p className="mt-1 text-sm font-medium">
-                  {sandbox.autoDeleteInterval !== undefined && sandbox.autoDeleteInterval >= 0
-                    ? sandbox.autoDeleteInterval === 0
+                  {box.autoDeleteInterval !== undefined && box.autoDeleteInterval >= 0
+                    ? box.autoDeleteInterval === 0
                       ? 'On stop'
-                      : formatDuration(sandbox.autoDeleteInterval)
+                      : formatDuration(box.autoDeleteInterval)
                     : 'Disabled'}
                 </p>
               </div>
@@ -307,17 +284,17 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
               <div>
                 <h3 className="text-sm text-muted-foreground">Resources</h3>
                 <div className="mt-1 text-sm font-medium flex items-center gap-1 flex-wrap">
-                  <ResourceChip resource="cpu" value={sandbox.cpu} />
-                  <ResourceChip resource="memory" value={sandbox.memory} />
-                  <ResourceChip resource="disk" value={sandbox.disk} />
+                  <ResourceChip resource="cpu" value={box.cpu} />
+                  <ResourceChip resource="memory" value={box.memory} />
+                  <ResourceChip resource="disk" value={box.disk} />
                 </div>
               </div>
             </div>
             <div>
               <h3 className="text-lg font-medium">Labels</h3>
               <div className="mt-3 space-y-4">
-                {Object.entries(sandbox.labels ?? {}).length > 0 ? (
-                  Object.entries(sandbox.labels ?? {}).map(([key, value]) => (
+                {Object.entries(box.labels ?? {}).length > 0 ? (
+                  Object.entries(box.labels ?? {}).map(([key, value]) => (
                     <div key={key} className="text-sm">
                       <div>{key}</div>
                       <div className="font-medium p-2 bg-muted rounded-md mt-1 border border-border">{value}</div>
@@ -338,20 +315,20 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
           </TabsContent>
 
           <TabsContent value="logs" className="flex-1 min-h-0 overflow-hidden">
-            <LogsTab sandboxId={sandbox.id} />
+            <LogsTab boxId={box.id} />
           </TabsContent>
 
           <TabsContent value="traces" className="flex-1 min-h-0 overflow-hidden">
-            <TracesTab sandboxId={sandbox.id} />
+            <TracesTab boxId={box.id} />
           </TabsContent>
 
           <TabsContent value="metrics" className="flex-1 min-h-0 overflow-hidden">
-            <MetricsTab sandboxId={sandbox.id} />
+            <MetricsTab boxId={box.id} />
           </TabsContent>
 
           {spendingTabAvailable && (
             <TabsContent value="spending" className="flex-1 min-h-0 overflow-hidden">
-              <SandboxSpendingTab sandboxId={sandbox.id} />
+              <BoxSpendingTab boxId={box.id} />
             </TabsContent>
           )}
         </Tabs>
@@ -360,4 +337,4 @@ const SandboxDetailsSheet: React.FC<SandboxDetailsSheetProps> = ({
   )
 }
 
-export default SandboxDetailsSheet
+export default BoxDetailsSheet

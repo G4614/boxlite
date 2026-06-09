@@ -13,7 +13,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { SandboxState } from '@boxlite-ai/api-client'
+import { BoxState } from '@boxlite-ai/api-client'
 import { X } from 'lucide-react'
 import { STATUSES, getStateLabel } from '../constants'
 
@@ -23,7 +23,7 @@ interface StateFilterProps {
 }
 
 export function StateFilterIndicator({ value, onFilterChange }: StateFilterProps) {
-  const selectedStates = value.map((v) => getStateLabel(v as SandboxState))
+  const selectedStates = value.map((v) => getStateLabel(v as BoxState))
   return (
     <div className="flex items-center h-6 gap-0.5 rounded-sm border border-border bg-muted/80 hover:bg-muted/50 text-sm">
       <Popover>

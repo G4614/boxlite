@@ -3,33 +3,33 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { ISandboxSessionContext, SandboxSessionContext } from '@/contexts/SandboxSessionContext'
+import { IBoxSessionContext, BoxSessionContext } from '@/contexts/BoxSessionContext'
 import { ReactNode, useCallback, useRef } from 'react'
 
 type SessionFlags = { terminal: boolean; vnc: boolean }
 
-export function SandboxSessionProvider({ children }: { children: ReactNode }) {
+export function BoxSessionProvider({ children }: { children: ReactNode }) {
   const flagsRef = useRef<Map<string, SessionFlags>>(new Map())
 
-  const getFlags = useCallback((sandboxId: string): SessionFlags => {
-    let flags = flagsRef.current.get(sandboxId)
+  const getFlags = useCallback((boxId: string): SessionFlags => {
+    let flags = flagsRef.current.get(boxId)
     if (!flags) {
       flags = { terminal: false, vnc: false }
-      flagsRef.current.set(sandboxId, flags)
+      flagsRef.current.set(boxId, flags)
     }
     return flags
   }, [])
 
-  const value: ISandboxSessionContext = {
-    isTerminalActivated: (sandboxId) => getFlags(sandboxId).terminal,
-    activateTerminal: (sandboxId) => {
-      getFlags(sandboxId).terminal = true
+  const value: IBoxSessionContext = {
+    isTerminalActivated: (boxId) => getFlags(boxId).terminal,
+    activateTerminal: (boxId) => {
+      getFlags(boxId).terminal = true
     },
-    isVncActivated: (sandboxId) => getFlags(sandboxId).vnc,
-    activateVnc: (sandboxId) => {
-      getFlags(sandboxId).vnc = true
+    isVncActivated: (boxId) => getFlags(boxId).vnc,
+    activateVnc: (boxId) => {
+      getFlags(boxId).vnc = true
     },
   }
 
-  return <SandboxSessionContext.Provider value={value}>{children}</SandboxSessionContext.Provider>
+  return <BoxSessionContext.Provider value={value}>{children}</BoxSessionContext.Provider>
 }

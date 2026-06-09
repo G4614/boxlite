@@ -11,21 +11,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PAGE_SIZE_OPTIONS } from '@/constants/Pagination'
-import { ModelsSandboxUsage } from '@boxlite-ai/analytics-api-client'
+import { ModelsBoxUsage } from '@boxlite-ai/analytics-api-client'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import React, { useMemo, useState } from 'react'
 
 const SKELETON_ROWS = 10
 
-interface SandboxUsageTableProps {
-  data: ModelsSandboxUsage[] | undefined
+interface BoxUsageTableProps {
+  data: ModelsBoxUsage[] | undefined
   isLoading: boolean
 }
 
 type SortField = 'totalPrice' | 'totalCPUSeconds' | 'totalRAMGBSeconds' | 'totalDiskGBSeconds'
 type SortDirection = 'asc' | 'desc'
 
-export const SandboxUsageTable: React.FC<SandboxUsageTableProps> = ({ data, isLoading }) => {
+export const BoxUsageTable: React.FC<BoxUsageTableProps> = ({ data, isLoading }) => {
   const [sortField, setSortField] = useState<SortField>('totalPrice')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [pageIndex, setPageIndex] = useState(0)
@@ -75,7 +75,7 @@ export const SandboxUsageTable: React.FC<SandboxUsageTableProps> = ({ data, isLo
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Sandbox ID</TableHead>
+            <TableHead>Box ID</TableHead>
             <SortableTableHead
               field="totalPrice"
               label="Total Price"
@@ -123,24 +123,18 @@ export const SandboxUsageTable: React.FC<SandboxUsageTableProps> = ({ data, isLo
                   </TableCell>
                 </TableRow>
               ))
-            : paginatedData.map((sandbox, index) => (
-                <TableRow key={sandbox.sandboxId ?? `row-${index}`}>
+            : paginatedData.map((box, index) => (
+                <TableRow key={box.boxId ?? `row-${index}`}>
                   <TableCell className="font-mono text-sm">
                     <div className="flex items-center gap-2 group/copy-button">
-                      <span className="truncate max-w-[200px]">{sandbox.sandboxId}</span>
-                      {sandbox.sandboxId && (
-                        <CopyButton value={sandbox.sandboxId} tooltipText="Copy sandbox ID" size="icon-xs" autoHide />
-                      )}
+                      <span className="truncate max-w-[200px]">{box.boxId}</span>
+                      {box.boxId && <CopyButton value={box.boxId} tooltipText="Copy box ID" size="icon-xs" autoHide />}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">${(sandbox.totalPrice ?? 0).toFixed(2)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{(sandbox.totalCPUSeconds ?? 0).toFixed(1)}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {(sandbox.totalRAMGBSeconds ?? 0).toFixed(1)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {(sandbox.totalDiskGBSeconds ?? 0).toFixed(1)}
-                  </TableCell>
+                  <TableCell className="text-right tabular-nums">${(box.totalPrice ?? 0).toFixed(2)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{(box.totalCPUSeconds ?? 0).toFixed(1)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{(box.totalRAMGBSeconds ?? 0).toFixed(1)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{(box.totalDiskGBSeconds ?? 0).toFixed(1)}</TableCell>
                 </TableRow>
               ))}
         </TableBody>

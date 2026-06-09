@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { SandboxCodeToolbox } from '../Sandbox'
+import { BoxCodeToolbox } from '../Box'
 import { CodeRunParams } from '../Process'
 import { Buffer } from 'buffer'
 
-export class SandboxJsCodeToolbox implements SandboxCodeToolbox {
+export class BoxJsCodeToolbox implements BoxCodeToolbox {
   public getRunCommand(code: string, params?: CodeRunParams): string {
     // Prepend argv fix: node - places '-' at argv[1]; splice it out to match legacy node -e behaviour
     const base64Code = Buffer.from('process.argv.splice(1, 1);\n' + code).toString('base64')

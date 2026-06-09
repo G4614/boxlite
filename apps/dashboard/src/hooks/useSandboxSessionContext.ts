@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { ISandboxSessionContext, SandboxSessionContext } from '@/contexts/SandboxSessionContext'
+import { IBoxSessionContext, BoxSessionContext } from '@/contexts/BoxSessionContext'
 import { useContext } from 'react'
 
-export function useSandboxSessionContext(): ISandboxSessionContext {
-  const context = useContext(SandboxSessionContext)
+export function useBoxSessionContext(): IBoxSessionContext {
+  const context = useContext(BoxSessionContext)
   if (!context) {
-    throw new Error('useSandboxSessionContext must be used within a SandboxSessionProvider')
+    throw new Error('useBoxSessionContext must be used within a BoxSessionProvider')
   }
   return context
 }

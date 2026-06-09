@@ -3,22 +3,22 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { CreateSandboxFromImageParams, CreateSandboxFromSnapshotParams, BoxLite, Sandbox } from '@boxlite-ai/sdk'
+import { CreateBoxFromImageParams, CreateBoxFromSnapshotParams, BoxLite, Box } from '@boxlite-ai/sdk'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from 'react-oidc-context'
 import { useSelectedOrganization } from '../useSelectedOrganization'
-import { getSandboxesQueryKey } from '../useSandboxes'
+import { getBoxesQueryKey } from '../useBoxes'
 
-export type CreateSandboxParams = (CreateSandboxFromSnapshotParams | CreateSandboxFromImageParams) & {
+export type CreateBoxParams = (CreateBoxFromSnapshotParams | CreateBoxFromImageParams) & {
   target?: string
 }
 
-export const useCreateSandboxMutation = () => {
+export const useCreateBoxMutation = () => {
   const { user } = useAuth()
   const { selectedOrganization } = useSelectedOrganization()
   const queryClient = useQueryClient()
 
-  return useMutation<Sandbox, unknown, CreateSandboxParams>({
+  return useMutation<Box, unknown, CreateBoxParams>({
     mutationFn: async (params) => {
       if (!user?.access_token || !selectedOrganization?.id) {
         throw new Error('Missing authentication or organization')
@@ -33,13 +33,13 @@ export const useCreateSandboxMutation = () => {
       })
 
       if ('image' in createParams) {
-        return await client.create(createParams as CreateSandboxFromImageParams)
+        return await client.create(createParams as CreateBoxFromImageParams)
       }
-      return await client.create(createParams as CreateSandboxFromSnapshotParams)
+      return await client.create(createParams as CreateBoxFromSnapshotParams)
     },
     onSuccess: async () => {
       if (selectedOrganization?.id) {
-        await queryClient.invalidateQueries({ queryKey: getSandboxesQueryKey(selectedOrganization.id) })
+        await queryClient.invalidateQueries({ queryKey: getBoxesQueryKey(selectedOrganization.id) })
       }
     },
   })

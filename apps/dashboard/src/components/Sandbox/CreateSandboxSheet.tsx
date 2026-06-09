@@ -23,7 +23,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FeatureFlags } from '@/enums/FeatureFlags'
 import { RoutePath } from '@/enums/RoutePath'
-import { useCreateSandboxMutation } from '@/hooks/mutations/useCreateSandboxMutation'
+import { useCreateBoxMutation } from '@/hooks/mutations/useCreateBoxMutation'
 import { useSnapshotsQuery } from '@/hooks/queries/useSnapshotsQuery'
 import { useConfig } from '@/hooks/useConfig'
 import { useIsCompactScreen } from '@/hooks/use-mobile'
@@ -33,7 +33,7 @@ import { parseEnvFile } from '@/lib/env'
 import { handleApiError } from '@/lib/error-handling'
 import { imageNameSchema } from '@/lib/schema'
 import { cn, getRegionFullDisplayName } from '@/lib/utils'
-import { Sandbox } from '@boxlite-ai/sdk'
+import { Box } from '@boxlite-ai/sdk'
 import { useForm } from '@tanstack/react-form'
 import { Info, Minus, Plus, Upload } from 'lucide-react'
 import { useFeatureFlagEnabled } from 'posthog-js/react'
@@ -146,27 +146,21 @@ const InfoTooltipButton = ({ className, ...props }: ComponentProps<'button'>) =>
   )
 }
 
-export const CreateSandboxSheet = ({
-  className,
-  triggerClassName,
-}: {
-  className?: string
-  triggerClassName?: string
-}) => {
+export const CreateBoxSheet = ({ className, triggerClassName }: { className?: string; triggerClassName?: string }) => {
   const navigate = useNavigate()
   const isCompactScreen = useIsCompactScreen()
-  const createSandboxEnabled = useFeatureFlagEnabled(FeatureFlags.DASHBOARD_CREATE_SANDBOX)
+  const createBoxEnabled = useFeatureFlagEnabled(FeatureFlags.DASHBOARD_CREATE_SANDBOX)
   const [open, setOpen] = useState(false)
 
   const config = useConfig()
   const { availableRegions: regions, loadingAvailableRegions: loadingRegions } = useRegions()
   const { selectedOrganization } = useSelectedOrganization()
-  const { reset: resetCreateSandboxMutation, ...createSandboxMutation } = useCreateSandboxMutation()
+  const { reset: resetCreateBoxMutation, ...createBoxMutation } = useCreateBoxMutation()
   const formRef = useRef<HTMLFormElement>(null)
 
-  const maxCpu = selectedOrganization?.maxCpuPerSandbox
-  const maxMemory = selectedOrganization?.maxMemoryPerSandbox
-  const maxDisk = selectedOrganization?.maxDiskPerSandbox
+  const maxCpu = selectedOrganization?.maxCpuPerBox
+  const maxMemory = selectedOrganization?.maxMemoryPerBox
+  const maxDisk = selectedOrganization?.maxDiskPerBox
 
   const formSchema = useMemo(() => buildFormSchema(maxCpu, maxMemory, maxDisk), [maxCpu, maxMemory, maxDisk])
 
@@ -191,7 +185,7 @@ export const CreateSandboxSheet = ({
     },
     onSubmit: async ({ value }) => {
       if (!selectedOrganization?.id) {
-        toast.error('Select an organization to create a sandbox.')
+        toast.error('Select an organization to create a box.')
         return
       }
 
@@ -220,10 +214,10 @@ export const CreateSandboxSheet = ({
         networkBlockAll: value.networkBlockAll || undefined,
       }
 
-      let sandbox: Sandbox | undefined = undefined
+      let box: Box | undefined = undefined
       try {
         if (isImage && value.image) {
-          sandbox = await createSandboxMutation.mutateAsync({
+          box = await createBoxMutation.mutateAsync({
             ...baseParams,
             image: value.image,
             resources:
@@ -232,19 +226,19 @@ export const CreateSandboxSheet = ({
                 : undefined,
           })
         } else {
-          sandbox = await createSandboxMutation.mutateAsync({
+          box = await createBoxMutation.mutateAsync({
             ...baseParams,
             snapshot: value.snapshot || undefined,
           })
         }
 
-        toast.success(`Sandbox created`)
+        toast.success(`Box created`)
 
         setOpen(false)
 
-        if (sandbox?.id) {
+        if (box?.id) {
           navigate({
-            pathname: generatePath(RoutePath.SANDBOX_DETAILS, { sandboxId: sandbox.id }),
+            pathname: generatePath(RoutePath.SANDBOX_DETAILS, { boxId: box.id }),
             search: `${createSearchParams({
               tab: 'terminal',
             })}`,
@@ -273,8 +267,8 @@ export const CreateSandboxSheet = ({
 
   const resetState = useCallback(() => {
     form.reset(defaultValues)
-    resetCreateSandboxMutation()
-  }, [resetCreateSandboxMutation, form])
+    resetCreateBoxMutation()
+  }, [resetCreateBoxMutation, form])
 
   const handleEnvFileImport = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -321,7 +315,7 @@ export const CreateSandboxSheet = ({
     }
   }, [open, resetState])
 
-  if (!createSandboxEnabled) {
+  if (!createBoxEnabled) {
     return null
   }
 
@@ -333,20 +327,20 @@ export const CreateSandboxSheet = ({
       }}
     >
       <SheetTrigger asChild>
-        <Button variant="default" size="sm" title="Create Sandbox" className={cn('w-full sm:w-auto', triggerClassName)}>
+        <Button variant="default" size="sm" title="Create Box" className={cn('w-full sm:w-auto', triggerClassName)}>
           <Plus className="size-4" />
-          <span>{isCompactScreen ? 'Create' : 'Create Sandbox'}</span>
+          <span>{isCompactScreen ? 'Create' : 'Create Box'}</span>
         </Button>
       </SheetTrigger>
       <SheetContent className={`w-dvw sm:w-[500px] p-0 flex flex-col gap-0 ${className ?? ''}`}>
         <SheetHeader className="border-b border-border p-4 px-5 items-center flex text-left flex-row">
-          <SheetTitle className="text-2xl">Create Sandbox</SheetTitle>
-          <SheetDescription className="sr-only">Create a new sandbox in your organization.</SheetDescription>
+          <SheetTitle className="text-2xl">Create Box</SheetTitle>
+          <SheetDescription className="sr-only">Create a new box in your organization.</SheetDescription>
         </SheetHeader>
         <ScrollArea fade="mask" className="flex-1 min-h-0">
           <form
             ref={formRef}
-            id="create-sandbox-form"
+            id="create-box-form"
             className="gap-6 flex flex-col p-5"
             onSubmit={(e) => {
               e.preventDefault()
@@ -370,8 +364,8 @@ export const CreateSandboxSheet = ({
                       placeholder="my-sandbox"
                     />
                     <FieldDescription>
-                      Optional. If not provided, the sandbox ID will be used as the name. Names are reusable once a
-                      sandbox is destroyed.
+                      Optional. If not provided, the box ID will be used as the name. Names are reusable once a box is
+                      destroyed.
                     </FieldDescription>
                     {field.state.meta.errors.length > 0 && field.state.meta.isTouched && (
                       <FieldError errors={field.state.meta.errors} />
@@ -588,8 +582,8 @@ export const CreateSandboxSheet = ({
                     </SelectContent>
                   </Select>
                   <FieldDescription>
-                    The region where the sandbox will be created. If not specified, your organization's default region
-                    will be used.
+                    The region where the box will be created. If not specified, your organization's default region will
+                    be used.
                   </FieldDescription>
                 </Field>
               )}
@@ -638,7 +632,7 @@ export const CreateSandboxSheet = ({
                           label={<InfoTooltipButton aria-label="Auto-archive information" />}
                           content={
                             <p>
-                              Minutes a sandbox must remain continuously stopped before archiving.
+                              Minutes a box must remain continuously stopped before archiving.
                               <br />
                               <span className="text-muted-foreground">0 = max (30 days)</span>
                             </p>
@@ -671,7 +665,7 @@ export const CreateSandboxSheet = ({
                               label={<InfoTooltipButton aria-label="Auto-delete information" />}
                               content={
                                 <p>
-                                  Minutes a sandbox must remain continuously stopped before permanent deletion.
+                                  Minutes a box must remain continuously stopped before permanent deletion.
                                   <br />
                                   <span className="text-muted-foreground">0 = deleted on stop</span>
                                   <br />
@@ -721,7 +715,7 @@ export const CreateSandboxSheet = ({
                         <Label htmlFor={field.name} className="text-sm font-normal">
                           Ephemeral
                         </Label>
-                        <FieldDescription>Automatically delete the sandbox when it stops.</FieldDescription>
+                        <FieldDescription>Automatically delete the box when it stops.</FieldDescription>
                       </div>
                     </div>
                   )}
@@ -900,7 +894,7 @@ export const CreateSandboxSheet = ({
                       <Label htmlFor={field.name} className="text-sm font-normal">
                         Block All Network Access
                       </Label>
-                      <FieldDescription>Block all outbound network access from the sandbox.</FieldDescription>
+                      <FieldDescription>Block all outbound network access from the box.</FieldDescription>
                     </div>
                   </div>
                 )}
@@ -914,7 +908,7 @@ export const CreateSandboxSheet = ({
             children={([canSubmit, isSubmitting]) => (
               <Button
                 type="submit"
-                form="create-sandbox-form"
+                form="create-box-form"
                 variant="default"
                 disabled={!canSubmit || isSubmitting || !selectedOrganization?.id}
               >

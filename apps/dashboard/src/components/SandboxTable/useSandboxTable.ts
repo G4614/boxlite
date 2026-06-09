@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { Sandbox, Region } from '@boxlite-ai/api-client'
+import { Box, Region } from '@boxlite-ai/api-client'
 import {
   useReactTable,
   getCoreRowModel,
@@ -22,14 +22,14 @@ import {
   convertTableSortingToApiSorting,
   convertTableFiltersToApiFilters,
 } from './types'
-import { SandboxFilters, SandboxSorting } from '@/hooks/useSandboxes'
+import { BoxFilters, BoxSorting } from '@/hooks/useBoxes'
 import { LocalStorageKey } from '@/enums/LocalStorageKey'
 import { getLocalStorageItem, setLocalStorageItem } from '@/lib/local-storage'
 import { getRegionFullDisplayName } from '@/lib/utils'
 
-interface UseSandboxTableProps {
-  data: Sandbox[]
-  sandboxIsLoading: Record<string, boolean>
+interface UseBoxTableProps {
+  data: Box[]
+  boxIsLoading: Record<string, boolean>
   writePermitted: boolean
   deletePermitted: boolean
   handleStart: (id: string) => void
@@ -47,18 +47,18 @@ interface UseSandboxTableProps {
   }
   pageCount: number
   onPaginationChange: (pagination: { pageIndex: number; pageSize: number }) => void
-  sorting: SandboxSorting
-  onSortingChange: (sorting: SandboxSorting) => void
-  filters: SandboxFilters
-  onFiltersChange: (filters: SandboxFilters) => void
+  sorting: BoxSorting
+  onSortingChange: (sorting: BoxSorting) => void
+  filters: BoxFilters
+  onFiltersChange: (filters: BoxFilters) => void
   regionsData: Region[]
   handleRecover: (id: string) => void
   getRegionName: (regionId: string) => string | undefined
 }
 
-export function useSandboxTable({
+export function useBoxTable({
   data,
-  sandboxIsLoading,
+  boxIsLoading,
   writePermitted,
   deletePermitted,
   handleStart,
@@ -80,10 +80,10 @@ export function useSandboxTable({
   regionsData,
   handleRecover,
   getRegionName,
-}: UseSandboxTableProps) {
+}: UseBoxTableProps) {
   // Column visibility state management with persistence
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
-    const saved = getLocalStorageItem(LocalStorageKey.SandboxTableColumnVisibility)
+    const saved = getLocalStorageItem(LocalStorageKey.BoxTableColumnVisibility)
     if (saved) {
       try {
         return JSON.parse(saved)
@@ -95,7 +95,7 @@ export function useSandboxTable({
   })
 
   useEffect(() => {
-    setLocalStorageItem(LocalStorageKey.SandboxTableColumnVisibility, JSON.stringify(columnVisibility))
+    setLocalStorageItem(LocalStorageKey.BoxTableColumnVisibility, JSON.stringify(columnVisibility))
   }, [columnVisibility])
 
   // Convert API sorting and filters to table format for internal use
@@ -118,7 +118,7 @@ export function useSandboxTable({
         handleArchive,
         handleVnc,
         getWebTerminalUrl,
-        sandboxIsLoading,
+        boxIsLoading,
         writePermitted,
         deletePermitted,
         handleCreateSshAccess,
@@ -134,7 +134,7 @@ export function useSandboxTable({
       handleArchive,
       handleVnc,
       getWebTerminalUrl,
-      sandboxIsLoading,
+      boxIsLoading,
       writePermitted,
       deletePermitted,
       handleCreateSshAccess,

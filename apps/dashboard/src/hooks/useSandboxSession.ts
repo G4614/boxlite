@@ -7,37 +7,37 @@ import { queryKeys } from '@/hooks/queries/queryKeys'
 import { useApi } from '@/hooks/useApi'
 import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import {
-  CreateSandboxBaseParams,
-  CreateSandboxFromImageParams,
-  CreateSandboxFromSnapshotParams,
+  CreateBoxBaseParams,
+  CreateBoxFromImageParams,
+  CreateBoxFromSnapshotParams,
   BoxLite,
-  Sandbox,
+  Box,
 } from '@boxlite-ai/sdk'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from 'react-oidc-context'
 import { toast } from 'sonner'
 
-type CreateSandboxParams = CreateSandboxBaseParams | CreateSandboxFromImageParams | CreateSandboxFromSnapshotParams
+type CreateBoxParams = CreateBoxBaseParams | CreateBoxFromImageParams | CreateBoxFromSnapshotParams
 
 const TERMINAL_PORT = 22222
 const VNC_PORT = 6080
 const DEFAULT_URL_EXPIRY_SECONDS = 600
 
-export type UseSandboxSessionOptions = {
+export type UseBoxSessionOptions = {
   scope?: string
-  createParams?: CreateSandboxParams
+  createParams?: CreateBoxParams
   terminal?: boolean
   vnc?: boolean
-  notify?: { sandbox?: boolean; terminal?: boolean; vnc?: boolean }
+  notify?: { box?: boolean; terminal?: boolean; vnc?: boolean }
   urlExpirySeconds?: number
 }
 
-export type SandboxState = {
-  instance: Sandbox | null
+export type BoxState = {
+  instance: Box | null
   loading: boolean
   error: string | null
-  create: (params?: CreateSandboxParams) => Promise<Sandbox>
+  create: (params?: CreateBoxParams) => Promise<Box>
 }
 
 export type PortQueryState = {
@@ -51,31 +51,31 @@ export type VncState = PortQueryState & {
   start: () => void
 }
 
-export type UseSandboxSessionResult = {
-  sandbox: SandboxState
+export type UseBoxSessionResult = {
+  box: BoxState
   terminal: PortQueryState
   vnc: VncState
 }
 
-export function removeSandboxSessionQueries(queryClient: QueryClient, scope: string): void {
+export function removeBoxSessionQueries(queryClient: QueryClient, scope: string): void {
   queryClient
     .getMutationCache()
     .findAll({ mutationKey: ['create-sandbox', scope] })
     .forEach((m) => queryClient.getMutationCache().remove(m))
-  queryClient.removeQueries({ queryKey: queryKeys.sandbox.session(scope) })
+  queryClient.removeQueries({ queryKey: queryKeys.box.session(scope) })
 }
 
-export function removeSandboxSessionQueriesByInstanceId(queryClient: QueryClient, sandboxId: string): void {
+export function removeBoxSessionQueriesByInstanceId(queryClient: QueryClient, boxId: string): void {
   const scopes = new Set<string>()
-  for (const query of queryClient.getQueryCache().findAll({ queryKey: queryKeys.sandbox.all })) {
-    if (query.queryKey.includes(sandboxId)) {
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: queryKeys.box.all })) {
+    if (query.queryKey.includes(boxId)) {
       scopes.add(query.queryKey[1] as string)
     }
   }
-  scopes.forEach((s) => removeSandboxSessionQueries(queryClient, s))
+  scopes.forEach((s) => removeBoxSessionQueries(queryClient, s))
 }
 
-export function useSandboxSession(options?: UseSandboxSessionOptions): UseSandboxSessionResult {
+export function useBoxSession(options?: UseBoxSessionOptions): UseBoxSessionResult {
   const {
     scope,
     createParams,
@@ -84,11 +84,11 @@ export function useSandboxSession(options?: UseSandboxSessionOptions): UseSandbo
     notify,
     urlExpirySeconds = DEFAULT_URL_EXPIRY_SECONDS,
   } = options ?? {}
-  const notifyRef = useRef({ sandbox: true, terminal: true, vnc: true, ...notify })
-  notifyRef.current = { sandbox: true, terminal: true, vnc: true, ...notify }
+  const notifyRef = useRef({ box: true, terminal: true, vnc: true, ...notify })
+  notifyRef.current = { box: true, terminal: true, vnc: true, ...notify }
   const { user } = useAuth()
   const { selectedOrganization } = useSelectedOrganization()
-  const { sandboxApi, toolboxApi } = useApi()
+  const { boxApi, toolboxApi } = useApi()
   const queryClient = useQueryClient()
 
   const client = useMemo(() => {
@@ -100,17 +100,17 @@ export function useSandboxSession(options?: UseSandboxSessionOptions): UseSandbo
     })
   }, [user?.access_token, selectedOrganization?.id])
 
-  const createMutation = useMutation<Sandbox, Error, CreateSandboxParams | undefined>({
+  const createMutation = useMutation<Box, Error, CreateBoxParams | undefined>({
     mutationKey: ['create-sandbox', scope ?? 'default'],
     mutationFn: async (params) => {
       if (!client) throw new Error('Unable to create BoxLite client: missing access token or organization ID.')
       return await client.create(params ?? createParams)
     },
-    onSuccess: (newSandbox) => {
-      if (scope) queryClient.setQueryData(queryKeys.sandbox.currentId(scope), newSandbox.id)
+    onSuccess: (newBox) => {
+      if (scope) queryClient.setQueryData(queryKeys.box.currentId(scope), newBox.id)
     },
     onError: (error) => {
-      if (notifyRef.current.sandbox) {
+      if (notifyRef.current.box) {
         toast.error('Failed to create sandbox', {
           description: error.message,
           action: { label: 'Try again', onClick: () => createMutation.mutate(createParams) },
@@ -119,37 +119,37 @@ export function useSandboxSession(options?: UseSandboxSessionOptions): UseSandbo
     },
   })
 
-  const persistedSandboxId = scope ? queryClient.getQueryData<string>(queryKeys.sandbox.currentId(scope)) : undefined
-  const sandboxId = createMutation.data?.id ?? persistedSandboxId ?? ''
-  const resolvedScope = scope ?? sandboxId
+  const persistedBoxId = scope ? queryClient.getQueryData<string>(queryKeys.box.currentId(scope)) : undefined
+  const boxId = createMutation.data?.id ?? persistedBoxId ?? ''
+  const resolvedScope = scope ?? boxId
 
-  const sandboxQuery = useQuery<Sandbox>({
-    queryKey: queryKeys.sandbox.instance(resolvedScope, sandboxId),
-    queryFn: () => client?.get(sandboxId) ?? Promise.reject(new Error('Client not initialized')),
-    enabled: !!resolvedScope && !!sandboxId && !!client,
+  const boxQuery = useQuery<Box>({
+    queryKey: queryKeys.box.instance(resolvedScope, boxId),
+    queryFn: () => client?.get(boxId) ?? Promise.reject(new Error('Client not initialized')),
+    enabled: !!resolvedScope && !!boxId && !!client,
   })
 
-  const sandbox = sandboxQuery.data ?? createMutation.data ?? null
+  const box = boxQuery.data ?? createMutation.data ?? null
 
   const getPortPreviewUrl = useCallback(
     async (id: string, port: number) =>
-      (await sandboxApi.getSignedPortPreviewUrl(id, port, selectedOrganization?.id, urlExpirySeconds)).data.url,
-    [sandboxApi, selectedOrganization?.id, urlExpirySeconds],
+      (await boxApi.getSignedPortPreviewUrl(id, port, selectedOrganization?.id, urlExpirySeconds)).data.url,
+    [boxApi, selectedOrganization?.id, urlExpirySeconds],
   )
 
   const terminalQuery = useQuery<string, Error>({
-    queryKey: queryKeys.sandbox.terminalUrl(resolvedScope, sandboxId),
-    queryFn: () => getPortPreviewUrl(sandboxId, TERMINAL_PORT),
-    enabled: terminal && !!sandboxId,
+    queryKey: queryKeys.box.terminalUrl(resolvedScope, boxId),
+    queryFn: () => getPortPreviewUrl(boxId, TERMINAL_PORT),
+    enabled: terminal && !!boxId,
     staleTime: Infinity,
   })
 
-  const vncToastId = `vnc-${resolvedScope}-${sandboxId}`
+  const vncToastId = `vnc-${resolvedScope}-${boxId}`
   const vncToastShownRef = useRef(false)
 
   const startVncMutation = useMutation<void, Error>({
     mutationFn: async () => {
-      await toolboxApi.startComputerUseDeprecated(sandboxId, selectedOrganization?.id)
+      await toolboxApi.startComputerUseDeprecated(boxId, selectedOrganization?.id)
     },
     onMutate: () => {
       if (notifyRef.current.vnc) {
@@ -164,35 +164,35 @@ export function useSandboxSession(options?: UseSandboxSessionOptions): UseSandbo
     },
   })
 
-  const prevSandboxIdRef = useRef<string>('')
+  const prevBoxIdRef = useRef<string>('')
   useEffect(() => {
-    if (prevSandboxIdRef.current && !sandboxQuery.data && !sandboxQuery.isFetching) {
+    if (prevBoxIdRef.current && !boxQuery.data && !boxQuery.isFetching) {
       createMutation.reset()
       startVncMutation.reset()
       vncToastShownRef.current = false
-      if (scope) removeSandboxSessionQueries(queryClient, scope)
+      if (scope) removeBoxSessionQueries(queryClient, scope)
     }
-    prevSandboxIdRef.current = sandboxId
-  }, [sandboxId, sandboxQuery.data, sandboxQuery.isFetching, createMutation, startVncMutation, queryClient, scope])
+    prevBoxIdRef.current = boxId
+  }, [boxId, boxQuery.data, boxQuery.isFetching, createMutation, startVncMutation, queryClient, scope])
 
   const vncStatusQuery = useQuery<string, Error>({
-    queryKey: queryKeys.sandbox.vncStatus(resolvedScope, sandboxId),
+    queryKey: queryKeys.box.vncStatus(resolvedScope, boxId),
     queryFn: async () => {
       const {
         data: { status },
-      } = await toolboxApi.getComputerUseStatusDeprecated(sandboxId, selectedOrganization?.id)
+      } = await toolboxApi.getComputerUseStatusDeprecated(boxId, selectedOrganization?.id)
       if (status !== 'active') throw new Error(`VNC desktop not ready: ${status}`)
       return status
     },
-    enabled: vnc && !!sandboxId && startVncMutation.isSuccess,
+    enabled: vnc && !!boxId && startVncMutation.isSuccess,
   })
 
   const vncReady = vncStatusQuery.data === 'active'
 
   const vncUrlQuery = useQuery<string, Error>({
-    queryKey: queryKeys.sandbox.vncUrl(resolvedScope, sandboxId),
-    queryFn: async () => await getPortPreviewUrl(sandboxId, VNC_PORT),
-    enabled: vnc && !!sandboxId && vncReady,
+    queryKey: queryKeys.box.vncUrl(resolvedScope, boxId),
+    queryFn: async () => await getPortPreviewUrl(boxId, VNC_PORT),
+    enabled: vnc && !!boxId && vncReady,
     staleTime: Infinity,
   })
 
@@ -211,17 +211,17 @@ export function useSandboxSession(options?: UseSandboxSessionOptions): UseSandbo
     }
   }, [vncToastId, vncUrlQuery.data, startVncMutation.error, vncStatusQuery.error])
 
-  const createSandbox = useCallback(
-    (params?: CreateSandboxParams) => createMutation.mutateAsync(params ?? createParams),
+  const createBox = useCallback(
+    (params?: CreateBoxParams) => createMutation.mutateAsync(params ?? createParams),
     [createMutation, createParams],
   )
 
   return {
-    sandbox: {
-      instance: sandbox,
-      loading: createMutation.isPending || (!!sandboxId && sandboxQuery.isLoading),
-      error: createMutation.error?.message ?? sandboxQuery.error?.message ?? null,
-      create: createSandbox,
+    box: {
+      instance: box,
+      loading: createMutation.isPending || (!!boxId && boxQuery.isLoading),
+      error: createMutation.error?.message ?? boxQuery.error?.message ?? null,
+      create: createBox,
     },
     terminal: {
       url: terminalQuery.data ?? null,
@@ -236,8 +236,8 @@ export function useSandboxSession(options?: UseSandboxSessionOptions): UseSandbo
       start: () => startVncMutation.mutate(),
       refetch: () => {
         startVncMutation.reset()
-        queryClient.removeQueries({ queryKey: queryKeys.sandbox.vncStatus(resolvedScope, sandboxId) })
-        queryClient.removeQueries({ queryKey: queryKeys.sandbox.vncUrl(resolvedScope, sandboxId) })
+        queryClient.removeQueries({ queryKey: queryKeys.box.vncStatus(resolvedScope, boxId) })
+        queryClient.removeQueries({ queryKey: queryKeys.box.vncUrl(resolvedScope, boxId) })
         if (notifyRef.current.vnc) {
           vncToastShownRef.current = true
           toast.loading('Retrying VNC desktop...', { id: vncToastId })

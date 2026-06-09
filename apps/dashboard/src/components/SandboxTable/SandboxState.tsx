@@ -5,24 +5,24 @@
  */
 
 import { cn } from '@/lib/utils'
-import { SandboxState as SandboxStateType } from '@boxlite-ai/api-client'
+import { BoxState as BoxStateType } from '@boxlite-ai/api-client'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { getStateLabel } from './constants'
 import { STATE_ICONS } from './state-icons'
 
-interface SandboxStateProps {
-  state?: SandboxStateType
+interface BoxStateProps {
+  state?: BoxStateType
   errorReason?: string
   recoverable?: boolean
   className?: string
 }
 
-export function SandboxState({ state, errorReason, recoverable, className }: SandboxStateProps) {
+export function BoxState({ state, errorReason, recoverable, className }: BoxStateProps) {
   if (!state) return null
-  const stateIcon = recoverable ? STATE_ICONS['RECOVERY'] : STATE_ICONS[state] || STATE_ICONS[SandboxStateType.UNKNOWN]
+  const stateIcon = recoverable ? STATE_ICONS['RECOVERY'] : STATE_ICONS[state] || STATE_ICONS[BoxStateType.UNKNOWN]
   const label = getStateLabel(state)
 
-  if (state === SandboxStateType.ERROR || state === SandboxStateType.BUILD_FAILED) {
+  if (state === BoxStateType.ERROR || state === BoxStateType.BUILD_FAILED) {
     const errorColor = recoverable ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'
 
     const errorContent = (
@@ -48,11 +48,7 @@ export function SandboxState({ state, errorReason, recoverable, className }: San
 
   return (
     <div
-      className={cn(
-        'flex items-center gap-1',
-        state === SandboxStateType.ARCHIVED && 'text-muted-foreground',
-        className,
-      )}
+      className={cn('flex items-center gap-1', state === BoxStateType.ARCHIVED && 'text-muted-foreground', className)}
     >
       <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">{stateIcon}</div>
       <span className="truncate">{label}</span>

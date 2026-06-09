@@ -16,7 +16,7 @@ import {
   filterStoppable,
   getBulkActionCounts,
 } from '@/lib/utils/sandbox'
-import { OrganizationRolePermissionsEnum, Sandbox, SandboxState } from '@boxlite-ai/api-client'
+import { OrganizationRolePermissionsEnum, Box, BoxState } from '@boxlite-ai/api-client'
 import { flexRender } from '@tanstack/react-table'
 import { Container } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
@@ -28,15 +28,15 @@ import { SelectionToast } from '../SelectionToast'
 import { TableEmptyState } from '../TableEmptyState'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table'
 import { BulkAction, BulkActionAlertDialog } from './BulkActionAlertDialog'
-import { getSandboxDisplayName, getSandboxLastEvent } from './columns'
-import { SandboxState as SandboxStateComponent } from './SandboxState'
-import { SandboxTableActions } from './SandboxTableActions'
-import { SandboxTableHeader } from './SandboxTableHeader'
-import { SandboxTableProps } from './types'
-import { useSandboxCommands } from './useSandboxCommands'
-import { useSandboxTable } from './useSandboxTable'
+import { getBoxDisplayName, getBoxLastEvent } from './columns'
+import { BoxState as BoxStateComponent } from './BoxState'
+import { BoxTableActions } from './BoxTableActions'
+import { BoxTableHeader } from './BoxTableHeader'
+import { BoxTableProps } from './types'
+import { useBoxCommands } from './useBoxCommands'
+import { useBoxTable } from './useBoxTable'
 
-function CompactSandboxMeta({ label, children }: { label: string; children: ReactNode }) {
+function CompactBoxMeta({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0 space-y-1 md:flex md:items-baseline md:gap-2 md:space-y-0">
       <div className="shrink-0 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
@@ -45,10 +45,10 @@ function CompactSandboxMeta({ label, children }: { label: string; children: Reac
   )
 }
 
-export function SandboxTable({
+export function BoxTable({
   data,
-  sandboxIsLoading,
-  sandboxStateIsTransitioning,
+  boxIsLoading,
+  boxStateIsTransitioning,
   loading,
   snapshots,
   snapshotsDataIsLoading,
@@ -82,7 +82,7 @@ export function SandboxTable({
   filters,
   onFiltersChange,
   handleRecover,
-}: SandboxTableProps) {
+}: BoxTableProps) {
   const navigate = useNavigate()
   const isCompactScreen = useIsCompactScreen()
   const useCompactList = isCompactScreen
@@ -90,9 +90,9 @@ export function SandboxTable({
   const writePermitted = authenticatedUserHasPermission(OrganizationRolePermissionsEnum.WRITE_SANDBOXES)
   const deletePermitted = authenticatedUserHasPermission(OrganizationRolePermissionsEnum.DELETE_SANDBOXES)
 
-  const { table, regionOptions } = useSandboxTable({
+  const { table, regionOptions } = useBoxTable({
     data,
-    sandboxIsLoading,
+    boxIsLoading,
     writePermitted,
     deletePermitted,
     handleStart,
@@ -122,18 +122,18 @@ export function SandboxTable({
   const hasSelection = selectedRows.length > 0
   const selectedCount = selectedRows.length
   const totalCount = table.getRowModel().rows.length
-  const selectedSandboxes: Sandbox[] = selectedRows.map((row) => row.original)
+  const selectedBoxes: Box[] = selectedRows.map((row) => row.original)
 
-  const bulkActionCounts = useMemo(() => getBulkActionCounts(selectedSandboxes), [selectedSandboxes])
+  const bulkActionCounts = useMemo(() => getBulkActionCounts(selectedBoxes), [selectedBoxes])
 
   const handleBulkActionConfirm = () => {
     if (!pendingBulkAction) return
 
     const handlers: Record<BulkAction, () => void> = {
-      [BulkAction.Delete]: () => handleBulkDelete(filterDeletable(selectedSandboxes).map((s) => s.id)),
-      [BulkAction.Start]: () => handleBulkStart(filterStartable(selectedSandboxes).map((s) => s.id)),
-      [BulkAction.Stop]: () => handleBulkStop(filterStoppable(selectedSandboxes).map((s) => s.id)),
-      [BulkAction.Archive]: () => handleBulkArchive(filterArchivable(selectedSandboxes).map((s) => s.id)),
+      [BulkAction.Delete]: () => handleBulkDelete(filterDeletable(selectedBoxes).map((s) => s.id)),
+      [BulkAction.Start]: () => handleBulkStart(filterStartable(selectedBoxes).map((s) => s.id)),
+      [BulkAction.Stop]: () => handleBulkStop(filterStoppable(selectedBoxes).map((s) => s.id)),
+      [BulkAction.Archive]: () => handleBulkArchive(filterArchivable(selectedBoxes).map((s) => s.id)),
     }
 
     handlers[pendingBulkAction]()
@@ -145,7 +145,7 @@ export function SandboxTable({
     (selected: boolean) => {
       if (selected) {
         for (const row of table.getRowModel().rows) {
-          const selectDisabled = sandboxIsLoading[row.original.id] || row.original.state === SandboxState.DESTROYED
+          const selectDisabled = boxIsLoading[row.original.id] || row.original.state === BoxState.DESTROYED
           if (!selectDisabled) {
             row.toggleSelected(true)
           }
@@ -154,14 +154,14 @@ export function SandboxTable({
         table.toggleAllRowsSelected(selected)
       }
     },
-    [sandboxIsLoading, table],
+    [boxIsLoading, table],
   )
 
   const selectableCount = useMemo(() => {
-    return data.filter((sandbox) => !sandboxIsLoading[sandbox.id] && sandbox.state !== SandboxState.DESTROYED).length
-  }, [sandboxIsLoading, data])
+    return data.filter((box) => !boxIsLoading[box.id] && box.state !== BoxState.DESTROYED).length
+  }, [boxIsLoading, data])
 
-  useSandboxCommands({
+  useBoxCommands({
     writePermitted,
     deletePermitted,
     selectedCount,
@@ -183,8 +183,8 @@ export function SandboxTable({
   }
 
   const handleOpenWebTerminal = useCallback(
-    async (sandboxId: string) => {
-      const url = await getWebTerminalUrl(sandboxId)
+    async (boxId: string) => {
+      const url = await getWebTerminalUrl(boxId)
       if (url) {
         window.open(url, '_blank')
       }
@@ -194,7 +194,7 @@ export function SandboxTable({
 
   const emptyStateDescription = (
     <div className="space-y-2">
-      <p>Spin up a Sandbox to run code in an isolated environment.</p>
+      <p>Spin up a Box to run code in an isolated environment.</p>
       <p>Use the BoxLite SDK or CLI to create one.</p>
       <p>
         <button onClick={() => navigate(RoutePath.ONBOARDING)} className="text-primary hover:underline font-medium">
@@ -207,7 +207,7 @@ export function SandboxTable({
 
   return (
     <>
-      <SandboxTableHeader
+      <BoxTableHeader
         table={table}
         regionOptions={regionOptions}
         regionsDataIsLoading={regionsDataIsLoading}
@@ -225,17 +225,16 @@ export function SandboxTable({
         ) : table.getRowModel().rows?.length ? (
           <div className="overflow-hidden rounded-sm border border-border bg-background/40">
             {table.getRowModel().rows.map((row) => {
-              const sandbox = row.original
-              const lastEvent = getSandboxLastEvent(sandbox)
-              const regionName = getRegionName(sandbox.target) ?? sandbox.target
+              const box = row.original
+              const lastEvent = getBoxLastEvent(box)
+              const regionName = getRegionName(box.target) ?? box.target
 
               return (
                 <div
                   key={row.id}
                   className={cn('border-b border-border last:border-b-0', {
-                    'opacity-80 pointer-events-none':
-                      sandboxIsLoading[sandbox.id] || sandbox.state === SandboxState.DESTROYED,
-                    'bg-muted animate-pulse': sandboxStateIsTransitioning[sandbox.id],
+                    'opacity-80 pointer-events-none': boxIsLoading[box.id] || box.state === BoxState.DESTROYED,
+                    'bg-muted animate-pulse': boxStateIsTransitioning[box.id],
                   })}
                 >
                   <div
@@ -247,44 +246,42 @@ export function SandboxTable({
                         'cursor-pointer': onRowClick,
                       },
                     )}
-                    onClick={() => onRowClick?.(sandbox)}
+                    onClick={() => onRowClick?.(box)}
                     onKeyDown={(event) => {
                       if ((event.key === 'Enter' || event.key === ' ') && onRowClick) {
                         event.preventDefault()
-                        onRowClick(sandbox)
+                        onRowClick(box)
                       }
                     }}
                   >
                     <div className="grid w-full gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-center md:gap-4">
                       <div className="min-w-0 space-y-0.5">
-                        <div className="truncate text-sm font-medium text-primary">
-                          {getSandboxDisplayName(sandbox)}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">{sandbox.id}</div>
+                        <div className="truncate text-sm font-medium text-primary">{getBoxDisplayName(box)}</div>
+                        <div className="truncate text-xs text-muted-foreground">{box.id}</div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:grid-cols-4 md:gap-x-4">
-                        <CompactSandboxMeta label="Snapshot">{sandbox.snapshot || '-'}</CompactSandboxMeta>
-                        <CompactSandboxMeta label="Region">{regionName}</CompactSandboxMeta>
-                        <CompactSandboxMeta label="Resources">
-                          {sandbox.cpu} vCPU • {sandbox.memory} GiB • {sandbox.disk} GiB
-                        </CompactSandboxMeta>
-                        <CompactSandboxMeta label="Last">{lastEvent.relativeTimeString}</CompactSandboxMeta>
+                        <CompactBoxMeta label="Snapshot">{box.snapshot || '-'}</CompactBoxMeta>
+                        <CompactBoxMeta label="Region">{regionName}</CompactBoxMeta>
+                        <CompactBoxMeta label="Resources">
+                          {box.cpu} vCPU • {box.memory} GiB • {box.disk} GiB
+                        </CompactBoxMeta>
+                        <CompactBoxMeta label="Last">{lastEvent.relativeTimeString}</CompactBoxMeta>
                       </div>
 
                       <div className="flex items-center justify-between gap-3 md:justify-end">
-                        <SandboxStateComponent
-                          state={sandbox.state}
-                          errorReason={sandbox.errorReason}
-                          recoverable={sandbox.recoverable}
+                        <BoxStateComponent
+                          state={box.state}
+                          errorReason={box.errorReason}
+                          recoverable={box.recoverable}
                           className="text-xs"
                         />
-                        <SandboxTableActions
-                          sandbox={sandbox}
+                        <BoxTableActions
+                          box={box}
                           layout="mobile"
                           writePermitted={writePermitted}
                           deletePermitted={deletePermitted}
-                          isLoading={sandboxIsLoading[sandbox.id]}
+                          isLoading={boxIsLoading[box.id]}
                           onStart={handleStart}
                           onStop={handleStop}
                           onDelete={handleDelete}
@@ -306,7 +303,7 @@ export function SandboxTable({
         ) : (
           <div className="flex min-h-56 flex-col items-center justify-center rounded-sm border border-dashed border-border px-6 py-10 text-center">
             <Container className="mb-4 h-8 w-8 text-muted-foreground" />
-            <div className="text-sm font-medium">No Sandboxes yet.</div>
+            <div className="text-sm font-medium">No Boxes yet.</div>
             <div className="mt-2 max-w-sm text-sm text-muted-foreground">{emptyStateDescription}</div>
           </div>
         )
@@ -352,8 +349,8 @@ export function SandboxTable({
                   data-state={row.getIsSelected() && 'selected'}
                   className={cn('group/table-row transition-all', {
                     'opacity-80 pointer-events-none':
-                      sandboxIsLoading[row.original.id] || row.original.state === SandboxState.DESTROYED,
-                    'bg-muted animate-pulse': sandboxStateIsTransitioning[row.original.id],
+                      boxIsLoading[row.original.id] || row.original.state === BoxState.DESTROYED,
+                    'bg-muted animate-pulse': boxStateIsTransitioning[row.original.id],
                     'cursor-pointer': onRowClick,
                   })}
                   onClick={() => onRowClick?.(row.original)}
@@ -382,7 +379,7 @@ export function SandboxTable({
             ) : (
               <TableEmptyState
                 colSpan={table.getAllColumns().length}
-                message="No Sandboxes yet."
+                message="No Boxes yet."
                 icon={<Container className="w-8 h-8" />}
                 description={emptyStateDescription}
               />
@@ -392,7 +389,7 @@ export function SandboxTable({
       )}
 
       <div className="flex items-center justify-end relative">
-        <Pagination className="pb-2 pt-4" table={table} entityName="Sandboxes" totalItems={totalItems} />
+        <Pagination className="pb-2 pt-4" table={table} entityName="Boxes" totalItems={totalItems} />
 
         <AnimatePresence>
           {!useCompactList && hasSelection && (

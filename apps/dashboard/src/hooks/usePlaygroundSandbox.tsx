@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { PlaygroundSandboxContext } from '@/providers/PlaygroundSandboxProvider'
-import { UseSandboxSessionResult } from '@/hooks/useSandboxSession'
+import { PlaygroundBoxContext } from '@/providers/PlaygroundBoxProvider'
+import { UseBoxSessionResult } from '@/hooks/useBoxSession'
 import { useContext } from 'react'
 
-export type UsePlaygroundSandboxResult = UseSandboxSessionResult
+export type UsePlaygroundBoxResult = UseBoxSessionResult
 
-export function usePlaygroundSandbox(): UsePlaygroundSandboxResult {
-  const context = useContext(PlaygroundSandboxContext)
+export function usePlaygroundBox(): UsePlaygroundBoxResult {
+  const context = useContext(PlaygroundBoxContext)
 
   if (!context) {
-    throw new Error('usePlaygroundSandbox must be used within a <PlaygroundSandboxProvider />')
+    throw new Error('usePlaygroundBox must be used within a <PlaygroundBoxProvider />')
   }
 
   return context

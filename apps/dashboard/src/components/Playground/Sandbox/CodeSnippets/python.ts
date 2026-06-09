@@ -12,13 +12,13 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
       [
         'from boxlite import BoxLite as BoxLite',
         p.actions.useConfigObject ? 'BoxliteConfig as BoxLiteConfig' : '',
-        p.config.useSandboxCreateParams
-          ? p.config.createSandboxFromSnapshot
-            ? 'CreateSandboxFromSnapshotParams'
-            : 'CreateSandboxFromImageParams'
+        p.config.useBoxCreateParams
+          ? p.config.createBoxFromSnapshot
+            ? 'CreateBoxFromSnapshotParams'
+            : 'CreateBoxFromImageParams'
           : '',
         p.config.useResources ? 'Resources' : '',
-        p.config.createSandboxFromImage ? 'Image' : '',
+        p.config.createBoxFromImage ? 'Image' : '',
       ]
         .filter(Boolean)
         .join(', ') + '\n'
@@ -40,7 +40,7 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
     if (!p.config.useResources) return ''
     const ind = '\t'
     return [
-      '\n\n# Create a Sandbox with custom resources\nresources = Resources(',
+      '\n\n# Create a Box with custom resources\nresources = Resources(',
       p.config.useResourcesCPU
         ? `${ind}cpu=${p.state['resources']['cpu']}, # ${p.state['resources']['cpu']} CPU cores`
         : '',
@@ -56,25 +56,25 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
       .join('\n')
   },
 
-  getSandboxParams(p) {
-    if (!p.config.useSandboxCreateParams) return ''
+  getBoxParams(p) {
+    if (!p.config.useBoxCreateParams) return ''
     const ind = '\t'
     return [
-      `\n\nparams = ${p.config.createSandboxFromSnapshot ? 'CreateSandboxFromSnapshotParams' : 'CreateSandboxFromImageParams'}(`,
-      p.config.useCustomSandboxSnapshotName ? `${ind}snapshot="${p.state['snapshotName']}",` : '',
-      p.config.createSandboxFromImage ? `${ind}image=Image.debian_slim("3.13"),` : '',
+      `\n\nparams = ${p.config.createBoxFromSnapshot ? 'CreateBoxFromSnapshotParams' : 'CreateBoxFromImageParams'}(`,
+      p.config.useCustomBoxSnapshotName ? `${ind}snapshot="${p.state['snapshotName']}",` : '',
+      p.config.createBoxFromImage ? `${ind}image=Image.debian_slim("3.13"),` : '',
       p.config.useResources ? `${ind}resources=resources,` : '',
       p.config.useLanguageParam ? `${ind}language="${p.state['language']}",` : '',
-      ...(p.config.createSandboxParamsExist
+      ...(p.config.createBoxParamsExist
         ? [
             p.config.useAutoStopInterval
-              ? `${ind}auto_stop_interval=${p.state['createSandboxBaseParams']['autoStopInterval']}, # ${p.state['createSandboxBaseParams']['autoStopInterval'] == 0 ? 'Disables the auto-stop feature' : `Sandbox will be stopped after ${p.state['createSandboxBaseParams']['autoStopInterval']} minute${(p.state['createSandboxBaseParams']['autoStopInterval'] as number) > 1 ? 's' : ''}`}`
+              ? `${ind}auto_stop_interval=${p.state['createBoxBaseParams']['autoStopInterval']}, # ${p.state['createBoxBaseParams']['autoStopInterval'] == 0 ? 'Disables the auto-stop feature' : `Box will be stopped after ${p.state['createBoxBaseParams']['autoStopInterval']} minute${(p.state['createBoxBaseParams']['autoStopInterval'] as number) > 1 ? 's' : ''}`}`
               : '',
             p.config.useAutoArchiveInterval
-              ? `${ind}auto_archive_interval=${p.state['createSandboxBaseParams']['autoArchiveInterval']}, # Auto-archive after a Sandbox has been stopped for ${p.state['createSandboxBaseParams']['autoArchiveInterval'] == 0 ? '30 days' : `${p.state['createSandboxBaseParams']['autoArchiveInterval']} minutes`}`
+              ? `${ind}auto_archive_interval=${p.state['createBoxBaseParams']['autoArchiveInterval']}, # Auto-archive after a Box has been stopped for ${p.state['createBoxBaseParams']['autoArchiveInterval'] == 0 ? '30 days' : `${p.state['createBoxBaseParams']['autoArchiveInterval']} minutes`}`
               : '',
             p.config.useAutoDeleteInterval
-              ? `${ind}auto_delete_interval=${p.state['createSandboxBaseParams']['autoDeleteInterval']}, # ${p.state['createSandboxBaseParams']['autoDeleteInterval'] == 0 ? 'Sandbox will be deleted immediately after stopping' : p.state['createSandboxBaseParams']['autoDeleteInterval'] == -1 ? 'Auto-delete functionality disabled' : `Auto-delete after a Sandbox has been stopped for ${p.state['createSandboxBaseParams']['autoDeleteInterval']} minutes`}`
+              ? `${ind}auto_delete_interval=${p.state['createBoxBaseParams']['autoDeleteInterval']}, # ${p.state['createBoxBaseParams']['autoDeleteInterval'] == 0 ? 'Box will be deleted immediately after stopping' : p.state['createBoxBaseParams']['autoDeleteInterval'] == -1 ? 'Auto-delete functionality disabled' : `Auto-delete after a Box has been stopped for ${p.state['createBoxBaseParams']['autoDeleteInterval']} minutes`}`
               : '',
           ]
         : []),
@@ -84,11 +84,11 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
       .join('\n')
   },
 
-  getSandboxCreate(p) {
+  getBoxCreate(p) {
     return [
-      '\n# Create the Sandbox instance',
-      `sandbox = boxlite.create(${p.config.useSandboxCreateParams ? 'params' : ''})`,
-      'print(f"Sandbox created:{sandbox.id}")',
+      '\n# Create the Box instance',
+      `sandbox = boxlite.create(${p.config.useBoxCreateParams ? 'params' : ''})`,
+      'print(f"Box created:{box.id}")',
     ].join('\n')
   },
 
@@ -96,8 +96,8 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
     if (!p.actions.codeToRunExists) return ''
     const ind = '\t'
     return [
-      '\n\n# Run code securely inside the Sandbox',
-      'codeRunResponse = sandbox.process.code_run(',
+      '\n\n# Run code securely inside the Box',
+      'codeRunResponse = box.process.code_run(',
       `'''${p.state['codeRunParams'].languageCode}'''`,
       ')',
       'if codeRunResponse.exit_code != 0:',
@@ -111,7 +111,7 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
     if (!p.actions.shellCommandExists) return ''
     return [
       '\n\n# Execute shell commands',
-      `shellRunResponse = sandbox.process.exec("${p.state['shellCommandRunParams'].shellCommand}")`,
+      `shellRunResponse = box.process.exec("${p.state['shellCommandRunParams'].shellCommand}")`,
       'print(shellRunResponse.result)',
     ].join('\n')
   },
@@ -133,7 +133,7 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
       sections.push(
         [
           '# List files in a directory',
-          `files = sandbox.fs.list_files("${p.state['listFilesParams'].directoryPath}")`,
+          `files = box.fs.list_files("${p.state['listFilesParams'].directoryPath}")`,
           'for file in files:',
           `${ind}print(f"Name: {file.name}")`,
           `${ind}print(f"Is directory: {file.is_dir}")`,
@@ -181,7 +181,7 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
       sections.push(
         [
           '# Get repository status',
-          `status = sandbox.git.status("${p.state['gitStatusParams'].repositoryPath}")`,
+          `status = box.git.status("${p.state['gitStatusParams'].repositoryPath}")`,
           'print(f"Current branch: {status.current_branch}")',
           'print(f"Commits ahead: {status.ahead}")',
           'print(f"Commits behind: {status.behind}")',
@@ -195,7 +195,7 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
       sections.push(
         [
           '# List branches',
-          `branchesResponse = sandbox.git.branches("${p.state['gitBranchesParams'].repositoryPath}")`,
+          `branchesResponse = box.git.branches("${p.state['gitBranchesParams'].repositoryPath}")`,
           'for branch in branchesResponse.branches:',
           '\tprint(f"Branch: {branch}")',
         ].join('\n'),
@@ -210,8 +210,8 @@ export const PythonSnippetGenerator: CodeSnippetGenerator = {
     const config = this.getConfig(p)
     const client = this.getClientInit(p)
     const resources = this.getResources(p)
-    const params = this.getSandboxParams(p)
-    const create = this.getSandboxCreate(p)
+    const params = this.getBoxParams(p)
+    const create = this.getBoxCreate(p)
     const codeRun = this.getCodeRun(p)
     const shell = this.getShellRun(p)
     const fsOps = this.getFileSystemOps(p)

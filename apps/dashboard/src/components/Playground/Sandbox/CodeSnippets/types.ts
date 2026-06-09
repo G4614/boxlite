@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { SandboxParams, SandboxParametersInfo } from '@/contexts/PlaygroundContext'
+import { BoxParams, BoxParametersInfo } from '@/contexts/PlaygroundContext'
 
 export interface CodeSnippetActionFlags {
   useConfigObject: boolean
@@ -23,8 +23,8 @@ export interface CodeSnippetActionFlags {
 }
 
 export interface CodeSnippetParams {
-  state: SandboxParams
-  config: SandboxParametersInfo
+  state: BoxParams
+  config: BoxParametersInfo
   actions: CodeSnippetActionFlags
 }
 
@@ -33,8 +33,8 @@ export interface CodeSnippetGenerator {
   getConfig(p: CodeSnippetParams): string
   getClientInit(p: CodeSnippetParams): string
   getResources(p: CodeSnippetParams): string
-  getSandboxParams(p: CodeSnippetParams): string
-  getSandboxCreate(p: CodeSnippetParams): string
+  getBoxParams(p: CodeSnippetParams): string
+  getBoxCreate(p: CodeSnippetParams): string
   getCodeRun(p: CodeSnippetParams): string
   getShellRun(p: CodeSnippetParams): string
   getFileSystemOps(p: CodeSnippetParams): string

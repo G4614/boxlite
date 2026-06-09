@@ -5,11 +5,11 @@
 
 import { createContext } from 'react'
 
-export interface ISandboxSessionContext {
-  isTerminalActivated: (sandboxId: string) => boolean
-  activateTerminal: (sandboxId: string) => void
-  isVncActivated: (sandboxId: string) => boolean
-  activateVnc: (sandboxId: string) => void
+export interface IBoxSessionContext {
+  isTerminalActivated: (boxId: string) => boolean
+  activateTerminal: (boxId: string) => void
+  isVncActivated: (boxId: string) => boolean
+  activateVnc: (boxId: string) => void
 }
 
-export const SandboxSessionContext = createContext<ISandboxSessionContext | null>(null)
+export const BoxSessionContext = createContext<IBoxSessionContext | null>(null)

@@ -16,13 +16,13 @@ import {
   FileSystemActions,
   GitOperationsActions,
   ProcessCodeExecutionActions,
-  SandboxParametersSections,
+  BoxParametersSections,
 } from '@/enums/Playground'
 import { usePlayground } from '@/hooks/usePlayground'
-import { usePlaygroundSandbox } from '@/hooks/usePlaygroundSandbox'
+import { usePlaygroundBox } from '@/hooks/usePlaygroundBox'
 import { createErrorMessageOutput } from '@/lib/playground'
 import { cn } from '@/lib/utils'
-import { CodeLanguage, Sandbox } from '@boxlite-ai/sdk'
+import { CodeLanguage, Box } from '@boxlite-ai/sdk'
 import { ChevronUpIcon, Loader2, PanelBottom, Play, XIcon } from 'lucide-react'
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Panel, usePanelRef } from 'react-resizable-panels'
@@ -35,8 +35,8 @@ const codeSnippetSupportedLanguages = [
   { value: CodeLanguage.TYPESCRIPT, label: 'TypeScript', icon: TypescriptIcon },
 ] as const
 
-const SECTION_SCROLL_MARKERS: Partial<Record<SandboxParametersSections, string[]>> = {
-  [SandboxParametersSections.FILE_SYSTEM]: [
+const SECTION_SCROLL_MARKERS: Partial<Record<BoxParametersSections, string[]>> = {
+  [BoxParametersSections.FILE_SYSTEM]: [
     '# Create folder',
     '# List files',
     '# Delete',
@@ -44,7 +44,7 @@ const SECTION_SCROLL_MARKERS: Partial<Record<SandboxParametersSections, string[]
     '// List files',
     '// Delete',
   ],
-  [SandboxParametersSections.GIT_OPERATIONS]: [
+  [BoxParametersSections.GIT_OPERATIONS]: [
     '# Clone git',
     '# Get repository',
     '# List branches',
@@ -52,7 +52,7 @@ const SECTION_SCROLL_MARKERS: Partial<Record<SandboxParametersSections, string[]
     '// Get repository',
     '// List branches',
   ],
-  [SandboxParametersSections.PROCESS_CODE_EXECUTION]: [
+  [BoxParametersSections.PROCESS_CODE_EXECUTION]: [
     '# Run code securely',
     '# Execute shell',
     '// Run code securely',
@@ -60,48 +60,48 @@ const SECTION_SCROLL_MARKERS: Partial<Record<SandboxParametersSections, string[]
   ],
 }
 
-const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
+const BoxCodeSnippetsResponse = ({ className }: { className?: string }) => {
   const [codeSnippetLanguage, setCodeSnippetLanguage] = useState<CodeLanguage>(CodeLanguage.PYTHON)
   const [codeSnippetOutput, setCodeSnippetOutput] = useState<string | ReactNode>('')
   const [isCodeSnippetRunning, setIsCodeSnippetRunning] = useState<boolean>(false)
 
   const {
-    sandboxParametersState,
+    boxParametersState,
     actionRuntimeError,
-    getSandboxParametersInfo,
+    getBoxParametersInfo,
     enabledSections,
     pendingScrollSection,
     clearPendingScrollSection,
   } = usePlayground()
   const {
-    sandbox: { create: createSandbox },
-  } = usePlaygroundSandbox()
+    box: { create: createBox },
+  } = usePlaygroundBox()
 
   const useConfigObject = false // Currently not needed, we use jwtToken for client config
 
-  const fsOn = enabledSections.includes(SandboxParametersSections.FILE_SYSTEM)
-  const gitOn = enabledSections.includes(SandboxParametersSections.GIT_OPERATIONS)
-  const procOn = enabledSections.includes(SandboxParametersSections.PROCESS_CODE_EXECUTION)
+  const fsOn = enabledSections.includes(BoxParametersSections.FILE_SYSTEM)
+  const gitOn = enabledSections.includes(BoxParametersSections.GIT_OPERATIONS)
+  const procOn = enabledSections.includes(BoxParametersSections.PROCESS_CODE_EXECUTION)
 
   const fileSystemListFilesLocationSet = fsOn && !actionRuntimeError[FileSystemActions.LIST_FILES]
   const fileSystemCreateFolderParamsSet = fsOn && !actionRuntimeError[FileSystemActions.CREATE_FOLDER]
   const fileSystemDeleteFileRequiredParamsSet = fsOn && !actionRuntimeError[FileSystemActions.DELETE_FILE]
   const useFileSystemDeleteFileRecursive =
-    fileSystemDeleteFileRequiredParamsSet && sandboxParametersState['deleteFileParams'].recursive === true
+    fileSystemDeleteFileRequiredParamsSet && boxParametersState['deleteFileParams'].recursive === true
   const shellCommandExists = procOn && !actionRuntimeError[ProcessCodeExecutionActions.SHELL_COMMANDS_RUN]
   const codeToRunExists = procOn && !actionRuntimeError[ProcessCodeExecutionActions.CODE_RUN]
   const gitCloneOperationRequiredParamsSet = gitOn && !actionRuntimeError[GitOperationsActions.GIT_CLONE]
-  const useGitCloneBranch = !!sandboxParametersState['gitCloneParams'].branchToClone
-  const useGitCloneCommitId = !!sandboxParametersState['gitCloneParams'].commitToClone
-  const useGitCloneUsername = !!sandboxParametersState['gitCloneParams'].authUsername
-  const useGitClonePassword = !!sandboxParametersState['gitCloneParams'].authPassword
+  const useGitCloneBranch = !!boxParametersState['gitCloneParams'].branchToClone
+  const useGitCloneCommitId = !!boxParametersState['gitCloneParams'].commitToClone
+  const useGitCloneUsername = !!boxParametersState['gitCloneParams'].authUsername
+  const useGitClonePassword = !!boxParametersState['gitCloneParams'].authPassword
   const gitStatusOperationLocationSet = gitOn && !actionRuntimeError[GitOperationsActions.GIT_STATUS]
   const gitBranchesOperationLocationSet = gitOn && !actionRuntimeError[GitOperationsActions.GIT_BRANCHES_LIST]
 
   const codeScrollRef = useRef<HTMLDivElement>(null)
   const highlightTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  const scrollToSection = useCallback((section: SandboxParametersSections) => {
+  const scrollToSection = useCallback((section: BoxParametersSections) => {
     const viewport = codeScrollRef.current?.querySelector<HTMLElement>('[data-slot=scroll-area-viewport]')
     if (!viewport) return
 
@@ -152,8 +152,8 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
 
   const codeSnippetParams = useMemo<CodeSnippetParams>(
     () => ({
-      state: sandboxParametersState,
-      config: getSandboxParametersInfo(),
+      state: boxParametersState,
+      config: getBoxParametersInfo(),
       actions: {
         useConfigObject,
         fileSystemListFilesLocationSet,
@@ -172,8 +172,8 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
       },
     }),
     [
-      sandboxParametersState,
-      getSandboxParametersInfo,
+      boxParametersState,
+      getBoxParametersInfo,
       useConfigObject,
       fileSystemListFilesLocationSet,
       fileSystemCreateFolderParamsSet,
@@ -191,7 +191,7 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
     ],
   )
 
-  const sandboxCodeSnippetsData = useMemo(
+  const boxCodeSnippetsData = useMemo(
     () => ({
       [CodeLanguage.PYTHON]: { code: codeSnippetGenerators[CodeLanguage.PYTHON].buildFullSnippet(codeSnippetParams) },
       [CodeLanguage.TYPESCRIPT]: {
@@ -203,26 +203,24 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
 
   const runCodeSnippet = async () => {
     setIsCodeSnippetRunning(true)
-    let codeSnippetOutput = 'Creating sandbox...\n'
+    let codeSnippetOutput = 'Creating box...\n'
     setCodeSnippetOutput(codeSnippetOutput)
-    let sandbox: Sandbox | undefined
+    let box: Box | undefined
 
     try {
-      sandbox = await createSandbox()
-      codeSnippetOutput = `Sandbox successfully created: ${sandbox.id}\n`
+      box = await createBox()
+      codeSnippetOutput = `Box successfully created: ${box.id}\n`
       setCodeSnippetOutput(codeSnippetOutput)
       if (codeToRunExists) {
         setCodeSnippetOutput(codeSnippetOutput + '\nRunning code...')
-        const codeRunResponse = await sandbox.process.codeRun(
-          sandboxParametersState['codeRunParams'].languageCode as string,
-        ) // codeToRunExists guarantees that value isn't undefined so we put as string to silence TS compiler
+        const codeRunResponse = await box.process.codeRun(boxParametersState['codeRunParams'].languageCode as string) // codeToRunExists guarantees that value isn't undefined so we put as string to silence TS compiler
         codeSnippetOutput += `\nCode run result: ${codeRunResponse.result}`
         setCodeSnippetOutput(codeSnippetOutput)
       }
       if (shellCommandExists) {
         setCodeSnippetOutput(codeSnippetOutput + '\nRunning shell command...')
-        const shellCommandResponse = await sandbox.process.executeCommand(
-          sandboxParametersState['shellCommandRunParams'].shellCommand as string, // shellCommandExists guarantees that value isn't undefined so we put as string to silence TS compiler
+        const shellCommandResponse = await box.process.executeCommand(
+          boxParametersState['shellCommandRunParams'].shellCommand as string, // shellCommandExists guarantees that value isn't undefined so we put as string to silence TS compiler
         )
         codeSnippetOutput += `\nShell command result: ${shellCommandResponse.result}`
         setCodeSnippetOutput(codeSnippetOutput)
@@ -239,16 +237,16 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
       setCodeSnippetOutput(codeSnippetOutput)
       if (fileSystemCreateFolderParamsSet) {
         setCodeSnippetOutput(codeSnippetOutput + '\nCreating directory...')
-        await sandbox.fs.createFolder(
-          sandboxParametersState['createFolderParams'].folderDestinationPath,
-          sandboxParametersState['createFolderParams'].permissions,
+        await box.fs.createFolder(
+          boxParametersState['createFolderParams'].folderDestinationPath,
+          boxParametersState['createFolderParams'].permissions,
         )
         codeSnippetOutput += '\n🎉 Directory created successfully.\n'
         setCodeSnippetOutput(codeSnippetOutput)
       }
       if (fileSystemListFilesLocationSet) {
         setCodeSnippetOutput(codeSnippetOutput + '\nListing directory files...')
-        const files = await sandbox.fs.listFiles(sandboxParametersState['listFilesParams'].directoryPath)
+        const files = await box.fs.listFiles(boxParametersState['listFilesParams'].directoryPath)
         codeSnippetOutput += '\nDirectory content:'
         codeSnippetOutput += '\n'
         files.forEach((file) => {
@@ -263,8 +261,8 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
         setCodeSnippetOutput(
           codeSnippetOutput + `\nDeleting ${useFileSystemDeleteFileRecursive ? 'directory' : 'file'}...`,
         )
-        await sandbox.fs.deleteFile(
-          sandboxParametersState['deleteFileParams'].filePath,
+        await box.fs.deleteFile(
+          boxParametersState['deleteFileParams'].filePath,
           useFileSystemDeleteFileRecursive || false,
         )
         codeSnippetOutput += `\n🎉 ${useFileSystemDeleteFileRecursive ? 'Directory' : 'File'} deleted successfully.\n`
@@ -272,20 +270,20 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
       }
       if (gitCloneOperationRequiredParamsSet) {
         setCodeSnippetOutput(codeSnippetOutput + '\nCloning repo...')
-        await sandbox.git.clone(
-          sandboxParametersState['gitCloneParams'].repositoryURL,
-          sandboxParametersState['gitCloneParams'].cloneDestinationPath,
-          useGitCloneBranch ? sandboxParametersState['gitCloneParams'].branchToClone : undefined,
-          useGitCloneCommitId ? sandboxParametersState['gitCloneParams'].commitToClone : undefined,
-          useGitCloneUsername ? sandboxParametersState['gitCloneParams'].authUsername : undefined,
-          useGitClonePassword ? sandboxParametersState['gitCloneParams'].authPassword : undefined,
+        await box.git.clone(
+          boxParametersState['gitCloneParams'].repositoryURL,
+          boxParametersState['gitCloneParams'].cloneDestinationPath,
+          useGitCloneBranch ? boxParametersState['gitCloneParams'].branchToClone : undefined,
+          useGitCloneCommitId ? boxParametersState['gitCloneParams'].commitToClone : undefined,
+          useGitCloneUsername ? boxParametersState['gitCloneParams'].authUsername : undefined,
+          useGitClonePassword ? boxParametersState['gitCloneParams'].authPassword : undefined,
         )
         codeSnippetOutput += '\n🎉 Repository cloned successfully.\n'
         setCodeSnippetOutput(codeSnippetOutput)
       }
       if (gitStatusOperationLocationSet) {
         setCodeSnippetOutput(codeSnippetOutput + '\nFetching repository status...')
-        const status = await sandbox.git.status(sandboxParametersState['gitStatusParams'].repositoryPath)
+        const status = await box.git.status(boxParametersState['gitStatusParams'].repositoryPath)
         codeSnippetOutput += `\nCurrent branch: ${status.currentBranch}\n`
         codeSnippetOutput += `Commits ahead: ${status.ahead}\n`
         codeSnippetOutput += `Commits behind: ${status.behind}\n`
@@ -294,12 +292,12 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
       }
       if (gitBranchesOperationLocationSet) {
         setCodeSnippetOutput(codeSnippetOutput + '\nFetching repository branches...')
-        const response = await sandbox.git.branches(sandboxParametersState['gitBranchesParams'].repositoryPath)
+        const response = await box.git.branches(boxParametersState['gitBranchesParams'].repositoryPath)
         codeSnippetOutput += '\n'
         response.branches.forEach((branch) => (codeSnippetOutput += `Branch: ${branch}\n`))
         setCodeSnippetOutput(codeSnippetOutput)
       }
-      setCodeSnippetOutput(codeSnippetOutput + '\nSandbox session finished.')
+      setCodeSnippetOutput(codeSnippetOutput + '\nBox session finished.')
     } catch (error) {
       console.error(error)
       setCodeSnippetOutput(
@@ -318,7 +316,7 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
 
   return (
     <Window className={className}>
-      <WindowTitleBar>Sandbox Code</WindowTitleBar>
+      <WindowTitleBar>Box Code</WindowTitleBar>
       <WindowContent className="relative">
         <Tabs
           value={codeSnippetLanguage}
@@ -386,7 +384,7 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
                       className="absolute right-4 z-10 backdrop-blur-sm"
                       variant="ghost"
                       size="icon-sm"
-                      value={sandboxCodeSnippetsData[language.value].code}
+                      value={boxCodeSnippetsData[language.value].code}
                     />
                     <ScrollArea
                       fade="mask"
@@ -397,7 +395,7 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
                       <CodeBlock
                         showCopy={false}
                         language={language.value}
-                        code={sandboxCodeSnippetsData[language.value].code}
+                        code={boxCodeSnippetsData[language.value].code}
                         codeAreaClassName="text-sm [overflow:initial] min-w-fit h-full"
                       />
                     </ScrollArea>
@@ -449,4 +447,4 @@ const SandboxCodeSnippetsResponse = ({ className }: { className?: string }) => {
   )
 }
 
-export default SandboxCodeSnippetsResponse
+export default BoxCodeSnippetsResponse

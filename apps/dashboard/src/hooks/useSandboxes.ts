@@ -8,18 +8,18 @@ import { QueryKey, useQuery } from '@tanstack/react-query'
 import { useApi } from '@/hooks/useApi'
 import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import {
-  ListSandboxesPaginatedOrderEnum,
-  ListSandboxesPaginatedSortEnum,
-  ListSandboxesPaginatedStatesEnum,
-  PaginatedSandboxes,
+  ListBoxesPaginatedOrderEnum,
+  ListBoxesPaginatedSortEnum,
+  ListBoxesPaginatedStatesEnum,
+  PaginatedBoxes,
 } from '@boxlite-ai/api-client'
 import { isValidUUID } from '@/lib/utils'
 
-export interface SandboxFilters {
+export interface BoxFilters {
   idOrName?: string
   labels?: Record<string, string>
   includeErroredDeleted?: boolean
-  states?: ListSandboxesPaginatedStatesEnum[]
+  states?: ListBoxesPaginatedStatesEnum[]
   snapshots?: string[]
   regions?: string[]
   minCpu?: number
@@ -32,25 +32,25 @@ export interface SandboxFilters {
   lastEventBefore?: Date
 }
 
-export interface SandboxSorting {
-  field?: ListSandboxesPaginatedSortEnum
-  direction?: ListSandboxesPaginatedOrderEnum
+export interface BoxSorting {
+  field?: ListBoxesPaginatedSortEnum
+  direction?: ListBoxesPaginatedOrderEnum
 }
 
-export const DEFAULT_SANDBOX_SORTING: SandboxSorting = {
-  field: ListSandboxesPaginatedSortEnum.UPDATED_AT,
-  direction: ListSandboxesPaginatedOrderEnum.DESC,
+export const DEFAULT_SANDBOX_SORTING: BoxSorting = {
+  field: ListBoxesPaginatedSortEnum.UPDATED_AT,
+  direction: ListBoxesPaginatedOrderEnum.DESC,
 }
 
-export interface SandboxQueryParams {
+export interface BoxQueryParams {
   page: number
   pageSize: number
-  filters?: SandboxFilters
-  sorting?: SandboxSorting
+  filters?: BoxFilters
+  sorting?: BoxSorting
 }
 
-export const getSandboxesQueryKey = (organizationId: string | undefined, params?: SandboxQueryParams): QueryKey => {
-  const baseKey = ['sandboxes' as const, organizationId]
+export const getBoxesQueryKey = (organizationId: string | undefined, params?: BoxQueryParams): QueryKey => {
+  const baseKey = ['boxes' as const, organizationId]
 
   if (!params) {
     return baseKey
@@ -66,11 +66,11 @@ export const getSandboxesQueryKey = (organizationId: string | undefined, params?
   return [...baseKey, normalizedParams]
 }
 
-export function useSandboxes(queryKey: QueryKey, params: SandboxQueryParams) {
-  const { sandboxApi } = useApi()
+export function useBoxes(queryKey: QueryKey, params: BoxQueryParams) {
+  const { boxApi } = useApi()
   const { selectedOrganization } = useSelectedOrganization()
 
-  return useQuery<PaginatedSandboxes>({
+  return useQuery<PaginatedBoxes>({
     queryKey,
     queryFn: async () => {
       if (!selectedOrganization) {
@@ -79,7 +79,7 @@ export function useSandboxes(queryKey: QueryKey, params: SandboxQueryParams) {
 
       const { page, pageSize, filters = {}, sorting = {} } = params
 
-      const listResponse = await sandboxApi.listSandboxesPaginated(
+      const listResponse = await boxApi.listBoxesPaginated(
         selectedOrganization.id,
         page,
         pageSize,
@@ -106,16 +106,16 @@ export function useSandboxes(queryKey: QueryKey, params: SandboxQueryParams) {
 
       // TODO: this will be obsolete once we introduce the search API
       if (filters.idOrName && isValidUUID(filters.idOrName) && page === 1) {
-        // Attempt to fetch sandbox by ID if the search value is a valid UUID
+        // Attempt to fetch box by ID if the search value is a valid UUID
         try {
-          const sandbox = (await sandboxApi.getSandbox(filters.idOrName, selectedOrganization.id)).data
-          const existsInPaginatedData = paginatedData.items.some((item) => item.id === sandbox.id)
+          const box = (await boxApi.getBox(filters.idOrName, selectedOrganization.id)).data
+          const existsInPaginatedData = paginatedData.items.some((item) => item.id === box.id)
 
           if (!existsInPaginatedData) {
             paginatedData = {
               ...paginatedData,
               // This is an exact UUID match, ignore sorting
-              items: [sandbox, ...paginatedData.items],
+              items: [box, ...paginatedData.items],
               total: paginatedData.total + 1,
             }
           }

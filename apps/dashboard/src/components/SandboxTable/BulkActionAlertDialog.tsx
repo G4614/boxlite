@@ -30,32 +30,32 @@ interface BulkActionData {
 }
 
 function getBulkActionData(action: BulkAction, count: number): BulkActionData {
-  const countText = count === 1 ? 'this sandbox' : `these ${count} selected sandboxes`
+  const countText = count === 1 ? 'this sandbox' : `these ${count} selected boxes`
 
   switch (action) {
     case BulkAction.Delete:
       return {
-        title: 'Delete Sandboxes',
+        title: 'Delete Boxes',
         description: `Are you sure you want to delete ${countText}? This action cannot be undone.`,
         buttonLabel: 'Delete',
         buttonVariant: 'destructive',
       }
     case BulkAction.Start:
       return {
-        title: 'Start Sandboxes',
+        title: 'Start Boxes',
         description: `Are you sure you want to start ${countText}?`,
         buttonLabel: 'Start',
       }
     case BulkAction.Stop:
       return {
-        title: 'Stop Sandboxes',
+        title: 'Stop Boxes',
         description: `Are you sure you want to stop ${countText}?`,
         buttonLabel: 'Stop',
       }
     case BulkAction.Archive:
       return {
-        title: 'Archive Sandboxes',
-        description: `Are you sure you want to archive ${countText}? Archived sandboxes can be restored later.`,
+        title: 'Archive Boxes',
+        description: `Are you sure you want to archive ${countText}? Archived boxes can be restored later.`,
         buttonLabel: 'Archive',
       }
   }

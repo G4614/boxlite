@@ -22,9 +22,9 @@ type DeleteFileArgs struct {
 
 func GetDeleteFileTool() mcp.Tool {
 	return mcp.NewTool("delete_file",
-		mcp.WithDescription("Delete a file or directory in the BoxLite sandbox."),
+		mcp.WithDescription("Delete a file or directory in the BoxLite box."),
 		mcp.WithString("filePath", mcp.Required(), mcp.Description("Path to the file or directory to delete.")),
-		mcp.WithString("id", mcp.Required(), mcp.Description("ID of the sandbox to delete the file in.")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID of the box to delete the file in.")),
 	)
 }
 

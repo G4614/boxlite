@@ -122,7 +122,7 @@ export function Sidebar({ isBannerVisible, billingEnabled, version: _version }: 
     const arr: SidebarItem[] = [
       {
         icon: <Container size={16} strokeWidth={1.5} />,
-        label: 'Sandboxes',
+        label: 'Boxes',
         path: RoutePath.SANDBOXES,
       },
       {

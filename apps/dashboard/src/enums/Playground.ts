@@ -10,7 +10,7 @@ export enum PlaygroundCategories {
   VNC = 'vnc',
 }
 
-export enum SandboxParametersSections {
+export enum BoxParametersSections {
   SANDBOX_MANAGEMENT = 'sandbox_management',
   FILE_SYSTEM = 'file_system',
   GIT_OPERATIONS = 'git_operations',
@@ -84,9 +84,9 @@ export enum ProcessCodeExecutionActions {
   SHELL_COMMANDS_RUN = 'executeCommand',
 }
 
-export type SandboxCodeSnippetsActions = FileSystemActions | GitOperationsActions | ProcessCodeExecutionActions
+export type BoxCodeSnippetsActions = FileSystemActions | GitOperationsActions | ProcessCodeExecutionActions
 
 export type VNCInteractionActions = DisplayActions | KeyboardActions | MouseActions | ScreenshotActions
 
 // Actions enums values represent method names for TypeScript SDK
-export type PlaygroundActions = VNCInteractionActions | SandboxCodeSnippetsActions
+export type PlaygroundActions = VNCInteractionActions | BoxCodeSnippetsActions

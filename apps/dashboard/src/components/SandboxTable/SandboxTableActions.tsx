@@ -5,7 +5,7 @@
  */
 
 import { RoutePath } from '@/enums/RoutePath'
-import { SandboxState } from '@boxlite-ai/api-client'
+import { BoxState } from '@boxlite-ai/api-client'
 import { Terminal, MoreVertical, Play, Square, Loader2, Wrench } from 'lucide-react'
 import { generatePath, useNavigate } from 'react-router-dom'
 import { useMemo } from 'react'
@@ -17,10 +17,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
-import { SandboxTableActionsProps } from './types'
+import { BoxTableActionsProps } from './types'
 
-export function SandboxTableActions({
-  sandbox,
+export function BoxTableActions({
+  box,
   layout = 'table',
   writePermitted,
   deletePermitted,
@@ -35,16 +35,16 @@ export function SandboxTableActions({
   onRevokeSshAccess,
   onRecover,
   onScreenRecordings,
-}: SandboxTableActionsProps) {
+}: BoxTableActionsProps) {
   const navigate = useNavigate()
-  const isTransitioning = sandbox.state === SandboxState.STARTING || sandbox.state === SandboxState.STOPPING
+  const isTransitioning = box.state === BoxState.STARTING || box.state === BoxState.STOPPING
 
   const primaryAction = useMemo(() => {
-    if (sandbox.state === SandboxState.STARTED) {
+    if (box.state === BoxState.STARTED) {
       return {
         label: 'Stop',
         icon: <Square className="w-4 h-4" />,
-        onClick: () => onStop(sandbox.id),
+        onClick: () => onStop(box.id),
       }
     }
 
@@ -56,20 +56,20 @@ export function SandboxTableActions({
       }
     }
 
-    if (sandbox.state === SandboxState.ERROR && sandbox.recoverable) {
+    if (box.state === BoxState.ERROR && box.recoverable) {
       return {
         label: 'Recover',
         icon: <Wrench className="w-4 h-4" />,
-        onClick: () => onRecover(sandbox.id),
+        onClick: () => onRecover(box.id),
       }
     }
 
     return {
       label: 'Start',
       icon: <Play className="w-4 h-4" />,
-      onClick: () => onStart(sandbox.id),
+      onClick: () => onStart(box.id),
     }
-  }, [isTransitioning, onRecover, onStart, onStop, sandbox.id, sandbox.recoverable, sandbox.state])
+  }, [isTransitioning, onRecover, onStart, onStop, box.id, box.recoverable, box.state])
 
   const menuItems = useMemo(() => {
     const items = []
@@ -77,57 +77,57 @@ export function SandboxTableActions({
     items.push({
       key: 'open',
       label: 'Open',
-      onClick: () => navigate(generatePath(RoutePath.SANDBOX_DETAILS, { sandboxId: sandbox.id })),
+      onClick: () => navigate(generatePath(RoutePath.SANDBOX_DETAILS, { boxId: box.id })),
       disabled: isLoading,
     })
 
     if (writePermitted) {
-      if (sandbox.state === SandboxState.STARTED) {
+      if (box.state === BoxState.STARTED) {
         items.push({
           key: 'terminal',
           label: 'Terminal',
-          onClick: () => onOpenWebTerminal(sandbox.id),
+          onClick: () => onOpenWebTerminal(box.id),
           disabled: isLoading,
         })
         items.push({
           key: 'vnc',
           label: 'VNC',
-          onClick: () => onVnc(sandbox.id),
+          onClick: () => onVnc(box.id),
           disabled: isLoading,
         })
         items.push({
           key: 'screen-recordings',
           label: 'Screen Recordings',
-          onClick: () => onScreenRecordings(sandbox.id),
+          onClick: () => onScreenRecordings(box.id),
           disabled: isLoading,
         })
         items.push({
           key: 'stop',
           label: 'Stop',
-          onClick: () => onStop(sandbox.id),
+          onClick: () => onStop(box.id),
           disabled: isLoading,
         })
-      } else if (sandbox.state === SandboxState.STOPPED || sandbox.state === SandboxState.ARCHIVED) {
+      } else if (box.state === BoxState.STOPPED || box.state === BoxState.ARCHIVED) {
         items.push({
           key: 'start',
           label: 'Start',
-          onClick: () => onStart(sandbox.id),
+          onClick: () => onStart(box.id),
           disabled: isLoading,
         })
-      } else if (sandbox.state === SandboxState.ERROR && sandbox.recoverable) {
+      } else if (box.state === BoxState.ERROR && box.recoverable) {
         items.push({
           key: 'recover',
           label: 'Recover',
-          onClick: () => onRecover(sandbox.id),
+          onClick: () => onRecover(box.id),
           disabled: isLoading,
         })
       }
 
-      if (sandbox.state === SandboxState.STOPPED) {
+      if (box.state === BoxState.STOPPED) {
         items.push({
           key: 'archive',
           label: 'Archive',
-          onClick: () => onArchive(sandbox.id),
+          onClick: () => onArchive(box.id),
           disabled: isLoading,
         })
       }
@@ -136,26 +136,26 @@ export function SandboxTableActions({
       items.push({
         key: 'create-ssh',
         label: 'Create SSH Access',
-        onClick: () => onCreateSshAccess(sandbox.id),
+        onClick: () => onCreateSshAccess(box.id),
         disabled: isLoading,
       })
       items.push({
         key: 'revoke-ssh',
         label: 'Revoke SSH Access',
-        onClick: () => onRevokeSshAccess(sandbox.id),
+        onClick: () => onRevokeSshAccess(box.id),
         disabled: isLoading,
       })
     }
 
     if (deletePermitted) {
-      if (items.length > 0 && (sandbox.state === SandboxState.STOPPED || sandbox.state === SandboxState.STARTED)) {
+      if (items.length > 0 && (box.state === BoxState.STOPPED || box.state === BoxState.STARTED)) {
         items.push({ key: 'separator', type: 'separator' })
       }
 
       items.push({
         key: 'delete',
         label: 'Delete',
-        onClick: () => onDelete(sandbox.id),
+        onClick: () => onDelete(box.id),
         disabled: isLoading,
         className: 'text-red-600 dark:text-red-400',
       })
@@ -165,10 +165,10 @@ export function SandboxTableActions({
   }, [
     writePermitted,
     deletePermitted,
-    sandbox.state,
-    sandbox.id,
+    box.state,
+    box.id,
     isLoading,
-    sandbox.recoverable,
+    box.recoverable,
     onStart,
     onStop,
     onDelete,
@@ -258,7 +258,7 @@ export function SandboxTableActions({
         {primaryAction.icon}
       </Button>
 
-      {sandbox.state === SandboxState.STARTED ? (
+      {box.state === BoxState.STARTED ? (
         <Button
           variant="outline"
           size="icon-sm"
@@ -266,7 +266,7 @@ export function SandboxTableActions({
           disabled={isLoading}
           onClick={(e) => {
             e.stopPropagation()
-            onOpenWebTerminal(sandbox.id)
+            onOpenWebTerminal(box.id)
           }}
         >
           <Terminal className="w-4 h-4" />

@@ -10,7 +10,7 @@ import { ArchiveIcon, CheckSquare2Icon, MinusSquareIcon, PlayIcon, SquareIcon, T
 import { useMemo } from 'react'
 import { CommandConfig, useRegisterCommands } from '../CommandPalette'
 
-interface UseSandboxCommandsProps {
+interface UseBoxCommandsProps {
   writePermitted: boolean
   deletePermitted: boolean
   selectedCount: number
@@ -24,7 +24,7 @@ interface UseSandboxCommandsProps {
   onArchive: () => void
 }
 
-export function useSandboxCommands({
+export function useBoxCommands({
   writePermitted,
   deletePermitted,
   selectedCount,
@@ -36,14 +36,14 @@ export function useSandboxCommands({
   onStart,
   onStop,
   onArchive,
-}: UseSandboxCommandsProps) {
+}: UseBoxCommandsProps) {
   const rootCommands: CommandConfig[] = useMemo(() => {
     const commands: CommandConfig[] = []
 
     if (selectableCount !== selectedCount) {
       commands.push({
-        id: 'select-all-sandboxes',
-        label: 'Select All Sandboxes',
+        id: 'select-all-boxes',
+        label: 'Select All Boxes',
         icon: <CheckSquare2Icon className="w-4 h-4" />,
         onSelect: () => toggleAllRowsSelected(true),
         chainable: true,
@@ -52,8 +52,8 @@ export function useSandboxCommands({
 
     if (selectedCount > 0) {
       commands.push({
-        id: 'deselect-all-sandboxes',
-        label: 'Deselect All Sandboxes',
+        id: 'deselect-all-boxes',
+        label: 'Deselect All Boxes',
         icon: <MinusSquareIcon className="w-4 h-4" />,
         onSelect: () => toggleAllRowsSelected(false),
         chainable: true,
@@ -62,8 +62,8 @@ export function useSandboxCommands({
 
     if (writePermitted && bulkActionCounts.startable > 0) {
       commands.push({
-        id: 'start-sandboxes',
-        label: `Start ${pluralize(bulkActionCounts.startable, 'Sandbox', 'Sandboxes')}`,
+        id: 'start-boxes',
+        label: `Start ${pluralize(bulkActionCounts.startable, 'Box', 'Boxes')}`,
         icon: <PlayIcon className="w-4 h-4" />,
         onSelect: onStart,
       })
@@ -71,8 +71,8 @@ export function useSandboxCommands({
 
     if (writePermitted && bulkActionCounts.stoppable > 0) {
       commands.push({
-        id: 'stop-sandboxes',
-        label: `Stop ${pluralize(bulkActionCounts.stoppable, 'Sandbox', 'Sandboxes')}`,
+        id: 'stop-boxes',
+        label: `Stop ${pluralize(bulkActionCounts.stoppable, 'Box', 'Boxes')}`,
         icon: <SquareIcon className="w-4 h-4" />,
         onSelect: onStop,
       })
@@ -80,8 +80,8 @@ export function useSandboxCommands({
 
     if (writePermitted && bulkActionCounts.archivable > 0) {
       commands.push({
-        id: 'archive-sandboxes',
-        label: `Archive ${pluralize(bulkActionCounts.archivable, 'Sandbox', 'Sandboxes')}`,
+        id: 'archive-boxes',
+        label: `Archive ${pluralize(bulkActionCounts.archivable, 'Box', 'Boxes')}`,
         icon: <ArchiveIcon className="w-4 h-4" />,
         onSelect: onArchive,
       })
@@ -89,8 +89,8 @@ export function useSandboxCommands({
 
     if (deletePermitted && bulkActionCounts.deletable > 0) {
       commands.push({
-        id: 'delete-sandboxes',
-        label: `Delete ${pluralize(bulkActionCounts.deletable, 'Sandbox', 'Sandboxes')}`,
+        id: 'delete-boxes',
+        label: `Delete ${pluralize(bulkActionCounts.deletable, 'Box', 'Boxes')}`,
         icon: <TrashIcon className="w-4 h-4" />,
         onSelect: onDelete,
       })
@@ -110,5 +110,5 @@ export function useSandboxCommands({
     onArchive,
   ])
 
-  useRegisterCommands(rootCommands, { groupId: 'sandbox-actions', groupLabel: 'Sandbox actions', groupOrder: 0 })
+  useRegisterCommands(rootCommands, { groupId: 'sandbox-actions', groupLabel: 'Box actions', groupOrder: 0 })
 }

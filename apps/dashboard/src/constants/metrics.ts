@@ -17,5 +17,5 @@ export const METRIC_DISPLAY_NAMES: Record<string, string> = {
 }
 
 export function getMetricDisplayName(metricName: string): string {
-  return METRIC_DISPLAY_NAMES[metricName] ?? metricName.replace(/^boxlite\.sandbox\./, '')
+  return METRIC_DISPLAY_NAMES[metricName] ?? metricName.replace(/^boxlite\.box\./, '')
 }

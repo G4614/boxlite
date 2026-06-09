@@ -19,32 +19,29 @@ import FormSelectInput from '../../Inputs/SelectInput'
 import StackedInputFormControl from '../../Inputs/StackedInputFormControl'
 import { useEffect } from 'react'
 
-// TODO - Currently, snapshot selection is not supported in the Playground, so props are hardcoded to an empty array and false for loading. We keep snapshot parts commented to enable it in future if requested by users. Also, sandbox creation and code snippet generation suppoort snapshot selection, so they will work when snapshot selection is enabled in the UI without requiring any additional changes. Currently, the snapshot value is fixed to 'Default'
-type SandboxManagementParametersProps = {
+// TODO - Currently, snapshot selection is not supported in the Playground, so props are hardcoded to an empty array and false for loading. We keep snapshot parts commented to enable it in future if requested by users. Also, box creation and code snippet generation suppoort snapshot selection, so they will work when snapshot selection is enabled in the UI without requiring any additional changes. Currently, the snapshot value is fixed to 'Default'
+type BoxManagementParametersProps = {
   snapshotsData: Array<SnapshotDto>
   snapshotsLoading: boolean
 }
 
-const SandboxManagementParameters: React.FC<SandboxManagementParametersProps> = ({
-  snapshotsData,
-  snapshotsLoading,
-}) => {
-  const { sandboxParametersState, setSandboxParameterValue } = usePlayground()
-  const sandboxLanguage = sandboxParametersState['language']
-  const sandboxSnapshotName = sandboxParametersState['snapshotName']
-  const resources = sandboxParametersState['resources']
-  const sandboxFromImageParams = sandboxParametersState['createSandboxBaseParams']
+const BoxManagementParameters: React.FC<BoxManagementParametersProps> = ({ snapshotsData, snapshotsLoading }) => {
+  const { boxParametersState, setBoxParameterValue } = usePlayground()
+  const boxLanguage = boxParametersState['language']
+  const boxSnapshotName = boxParametersState['snapshotName']
+  const resources = boxParametersState['resources']
+  const boxFromImageParams = boxParametersState['createBoxBaseParams']
 
   const languageFormData: ParameterFormItem = {
     label: 'Language',
     key: 'language',
-    placeholder: 'Select sandbox language',
+    placeholder: 'Select box language',
   }
 
-  // const sandboxSnapshotFormData: ParameterFormItem = {
+  // const boxSnapshotFormData: ParameterFormItem = {
   //   label: 'Snapshot',
   //   key: 'snapshotName',
-  //   placeholder: 'Select sandbox snapshot',
+  //   placeholder: 'Select box snapshot',
   // }
 
   // Available languages
@@ -76,28 +73,28 @@ const SandboxManagementParameters: React.FC<SandboxManagementParametersProps> = 
     { label: 'Delete (min)', key: 'autoDeleteInterval', min: -1, max: Infinity, placeholder: '' },
   ]
 
-  // Change code to run based on selected sandbox language
+  // Change code to run based on selected box language
   useEffect(() => {
-    setSandboxParameterValue('codeRunParams', {
-      languageCode: getLanguageCodeToRun(sandboxParametersState.language),
+    setBoxParameterValue('codeRunParams', {
+      languageCode: getLanguageCodeToRun(boxParametersState.language),
     })
-  }, [sandboxParametersState.language, setSandboxParameterValue])
+  }, [boxParametersState.language, setBoxParameterValue])
 
-  const nonDefaultSnapshotSelected = sandboxSnapshotName && sandboxSnapshotName !== SANDBOX_SNAPSHOT_DEFAULT_VALUE
+  const nonDefaultSnapshotSelected = boxSnapshotName && boxSnapshotName !== SANDBOX_SNAPSHOT_DEFAULT_VALUE
 
   return (
     <>
       <StackedInputFormControl formItem={languageFormData}>
         <FormSelectInput
           selectOptions={languageOptions}
-          selectValue={sandboxLanguage}
+          selectValue={boxLanguage}
           formItem={languageFormData}
           onChangeHandler={(value) => {
-            setSandboxParameterValue(languageFormData.key as 'language', value as CodeLanguage)
+            setBoxParameterValue(languageFormData.key as 'language', value as CodeLanguage)
           }}
         />
       </StackedInputFormControl>
-      {/* <StackedInputFormControl formItem={sandboxSnapshotFormData}>
+      {/* <StackedInputFormControl formItem={boxSnapshotFormData}>
         <FormSelectInput
           selectOptions={[
             { value: SANDBOX_SNAPSHOT_DEFAULT_VALUE, label: 'Default' },
@@ -107,10 +104,10 @@ const SandboxManagementParameters: React.FC<SandboxManagementParametersProps> = 
             })),
           ]}
           loading={snapshotsLoading}
-          selectValue={sandboxSnapshotName}
-          formItem={sandboxSnapshotFormData}
+          selectValue={boxSnapshotName}
+          formItem={boxSnapshotFormData}
           onChangeHandler={(snapshotName) => {
-            setSandboxParameterValue(sandboxSnapshotFormData.key as 'snapshotName', snapshotName)
+            setBoxParameterValue(boxSnapshotFormData.key as 'snapshotName', snapshotName)
           }}
         />
       </StackedInputFormControl> */}
@@ -142,7 +139,7 @@ const SandboxManagementParameters: React.FC<SandboxManagementParametersProps> = 
                 numberValue={resources[resourceParamFormItem.key]}
                 numberFormItem={resourceParamFormItem}
                 onChangeHandler={(value) => {
-                  setSandboxParameterValue('resources', { ...resources, [resourceParamFormItem.key]: value })
+                  setBoxParameterValue('resources', { ...resources, [resourceParamFormItem.key]: value })
                 }}
               />
             </InlineInputFormControl>
@@ -157,11 +154,11 @@ const SandboxManagementParameters: React.FC<SandboxManagementParametersProps> = 
           {lifecycleParamsFormData.map((lifecycleParamFormItem) => (
             <InlineInputFormControl key={lifecycleParamFormItem.key} formItem={lifecycleParamFormItem}>
               <FormNumberInput
-                numberValue={sandboxFromImageParams[lifecycleParamFormItem.key]}
+                numberValue={boxFromImageParams[lifecycleParamFormItem.key]}
                 numberFormItem={lifecycleParamFormItem}
                 onChangeHandler={(value) => {
-                  setSandboxParameterValue('createSandboxBaseParams', {
-                    ...sandboxFromImageParams,
+                  setBoxParameterValue('createBoxBaseParams', {
+                    ...boxFromImageParams,
                     [lifecycleParamFormItem.key]: value,
                   })
                 }}
@@ -174,4 +171,4 @@ const SandboxManagementParameters: React.FC<SandboxManagementParametersProps> = 
   )
 }
 
-export default SandboxManagementParameters
+export default BoxManagementParameters

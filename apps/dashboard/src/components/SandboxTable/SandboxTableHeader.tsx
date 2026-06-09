@@ -50,7 +50,7 @@ import { RegionFilter, RegionFilterIndicator } from './filters/RegionFilter'
 import { ResourceFilter, ResourceFilterIndicator, ResourceFilterValue } from './filters/ResourceFilter'
 import { SnapshotFilter, SnapshotFilterIndicator } from './filters/SnapshotFilter'
 import { StateFilter, StateFilterIndicator } from './filters/StateFilter'
-import { SandboxTableHeaderProps } from './types'
+import { BoxTableHeaderProps } from './types'
 
 const RESOURCE_FILTERS = [
   { type: 'cpu' as const, label: 'CPU', icon: Cpu },
@@ -58,7 +58,7 @@ const RESOURCE_FILTERS = [
   { type: 'disk' as const, label: 'Disk', icon: HardDrive },
 ]
 
-export function SandboxTableHeader({
+export function BoxTableHeader({
   table,
   regionOptions,
   regionsDataIsLoading,
@@ -68,7 +68,7 @@ export function SandboxTableHeader({
   onChangeSnapshotSearchValue,
   onRefresh,
   isRefreshing = false,
-}: SandboxTableHeaderProps) {
+}: BoxTableHeaderProps) {
   const isMobile = useIsMobile()
   const isCompactScreen = useIsCompactScreen()
   const [open, setOpen] = React.useState(false)
@@ -115,7 +115,7 @@ export function SandboxTableHeader({
           variant="outline"
           onClick={onRefresh}
           disabled={isRefreshing}
-          aria-label="Refresh sandboxes"
+          aria-label="Refresh boxes"
           className={cn('flex items-center gap-2', isCompactScreen && 'px-2')}
         >
           <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />

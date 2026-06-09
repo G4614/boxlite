@@ -50,7 +50,7 @@ const Onboarding: React.FC = () => {
     }
   }, [selectedOrganization])
 
-  // User must have permission to create sandboxes to use the onboarding snippet
+  // User must have permission to create boxes to use the onboarding snippet
   useEffect(() => {
     const ensureOnboardingPermissions = async () => {
       if (authenticatedUserHasPermission(OrganizationRolePermissionsEnum.WRITE_SANDBOXES)) {
@@ -68,7 +68,7 @@ const Onboarding: React.FC = () => {
           if (success) {
             toast.success('Switched to personal organization', {
               description:
-                'You did not have the necessary permissions for creating sandboxes in the previous organization.',
+                'You did not have the necessary permissions for creating boxes in the previous organization.',
             })
             return
           }
@@ -124,7 +124,7 @@ const Onboarding: React.FC = () => {
           <div className="flex justify-between items-center mb-8">
             <div>
               <h1 className="text-2xl font-bold mb-2">Get Started</h1>
-              <p className="text-muted-foreground">Install and get your Sandboxes running.</p>
+              <p className="text-muted-foreground">Install and get your Boxes running.</p>
             </div>
             <div className="flex items-center space-x-2">
               <Tabs value={language} onValueChange={(value) => setLanguage(value as 'typescript' | 'python')}>
@@ -176,7 +176,7 @@ const Onboarding: React.FC = () => {
                   <p className="mb-4">
                     This API key will have permissions to only{' '}
                     {apiKeyPermissions.includes(CreateApiKeyPermissionsEnum.DELETE_SANDBOXES) ? 'manage' : 'create'}{' '}
-                    Sandboxes. For full API permissions, head to the{' '}
+                    Boxes. For full API permissions, head to the{' '}
                     <button
                       onClick={() => navigate(RoutePath.KEYS)}
                       className="underline cursor-pointer hover:text-muted-foreground"
@@ -269,8 +269,8 @@ const Onboarding: React.FC = () => {
                   3
                 </div>
                 <div className={!createdApiKey ? 'opacity-40 pointer-events-none' : ''}>
-                  <h2 className="text-xl font-semibold mb-4">Create a Sandbox</h2>
-                  <p className="mb-4">The example below will create a Sandbox and run a simple code snippet:</p>
+                  <h2 className="text-xl font-semibold mb-4">Create a Box</h2>
+                  <p className="mb-4">The example below will create a Box and run a simple code snippet:</p>
                   <div className="transition-all duration-500">
                     <CodeBlock
                       code={
@@ -351,11 +351,11 @@ const rt = JsBoxlite.rest(new BoxliteRestOptions({
 //   credential: ApiKeyCredential.fromEnv() ?? undefined,
 // }))
 
-// Create a sandbox
+// Create a box
 const box = await rt.create({ image: 'alpine:latest' }, 'my-sandbox')
 await box.start()
 
-// Run a command securely inside the sandbox
+// Run a command securely inside the box
 const exec = await box.exec('echo', ['Hello World!'])
 const result = await exec.wait()
 console.log('Exit code:', result.exitCode)
@@ -381,11 +381,11 @@ async def main():
     # (reads BOXLITE_REST_URL + BOXLITE_API_KEY):
     # rt = Boxlite.rest(BoxliteRestOptions.from_env())
 
-    # Create a sandbox
+    # Create a box
     box = await rt.create(BoxOptions(image="alpine:latest"), name="my-sandbox")
     await box.start()
 
-    # Run a command securely inside the sandbox
+    # Run a command securely inside the box
     execution = await box.exec("echo", args=["Hello World!"])
     result = await execution.wait()
     print(f"Exit code: {result.exit_code}")
