@@ -55,7 +55,15 @@ export class BoxliteImagesController {
     @AuthContext() _ctx: OrganizationAuthContext,
     @Body() dto: ImagePullRequestDto,
   ): Promise<ImagePullResponseDto> {
-    const reference = (dto?.reference ?? '').trim()
+    // Tolerate non-string `reference` payloads explicitly instead of
+    // calling `.trim()` on whatever the client sent (booleans, arrays,
+    // numbers) and surfacing the resulting TypeError as a 500. A
+    // client typing `"reference": 123` should get a clean 400.
+    const rawReference = dto?.reference
+    if (typeof rawReference !== 'string') {
+      throw new HttpException('reference must be a string', HttpStatus.BAD_REQUEST)
+    }
+    const reference = rawReference.trim()
     if (!reference) {
       throw new HttpException('reference is required', HttpStatus.BAD_REQUEST)
     }
