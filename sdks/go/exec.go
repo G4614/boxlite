@@ -92,6 +92,16 @@ type executionStreamState struct {
 	onStderr func([]byte)
 
 	released atomic.Bool
+
+	// drained is the os/exec `goroutineErr` analog: closed by
+	// deliverExit when the C-side on_exit callback fires. C's exit_pump
+	// gates Exit on every stream pump's done_tx, so by the time on_exit
+	// runs, the drain goroutine has already dispatched every
+	// Stdout/Stderr callback for this execution. Execution.Wait blocks
+	// on this after the reap so a caller using buffered Stdout/Stderr
+	// sinks never sees a truncated buffer. The fold happens at the SDK
+	// boundary; the C-side Wait task stays decoupled from streams.
+	drained chan struct{}
 }
 
 func newExecutionStreamState(opts ExecutionOptions) *executionStreamState {
@@ -100,6 +110,7 @@ func newExecutionStreamState(opts ExecutionOptions) *executionStreamState {
 		stderr:   opts.Stderr,
 		onStdout: opts.OnStdout,
 		onStderr: opts.OnStderr,
+		drained:  make(chan struct{}),
 	}
 }
 
@@ -137,6 +148,7 @@ func (s *executionStreamState) deliverStderr(data []byte) {
 
 func (s *executionStreamState) deliverExit(_ int) {
 	s.released.Store(true)
+	close(s.drained)
 }
 
 func (s *executionStreamState) markReleased() {
@@ -181,6 +193,15 @@ func (b *Box) Exec(ctx context.Context, name string, arg ...string) (*ExecResult
 	exitCode, err := execution.Wait(ctx)
 	if err != nil {
 		return nil, err
+	}
+	// Wait reaps only; the Stdout/Stderr bytesCollectors we read below
+	// are not guaranteed complete until on_exit fires (which the C
+	// exit_pump gates on every stream pump's done_tx). Wrappers that
+	// own buffered sinks compose the drain at this boundary.
+	select {
+	case <-execution.streamState.drained:
+	case <-execution.closing:
+		return nil, ErrRuntimeClosed
 	}
 
 	return &ExecResult{
@@ -286,12 +307,28 @@ func (e *Execution) Write(p []byte) (int, error) {
 	return e.Stdin.Write(p)
 }
 
-// Wait waits for the command to finish and returns its exit code.
+// Wait reaps the process and returns its exit code. This is the bare
+// "process exited" terminal — it does NOT block on stream pump
+// completion, so a caller using a buffered Stdout/Stderr io.Writer
+// sink may observe a truncated buffer right after Wait returns.
 //
-// boxlite_execution_wait runs as its own async task on the C side and
-// pushes a wait completion event into the runtime queue, dispatched here
-// by the drain goroutine.
+// The callback ordering contract holds: the C side's exit_pump gates
+// the on_exit callback on every stream pump's done_tx, so a caller
+// using OnStdout/OnStderr callbacks naturally sees every chunk before
+// the executionStreamState.drained signal closes.
+//
+// For "whole exec done including output buffers", use Cmd.Run /
+// box.Exec — they compose reap + stream drain at the wrapper
+// boundary where the buffered sinks are owned.
 func (e *Execution) Wait(ctx context.Context) (int, error) {
+	return e.reap(ctx)
+}
+
+// reap is os/exec's Process.Wait analog: it kicks the C
+// boxlite_execution_wait task and blocks on its result, with ctx and
+// runtime-shutdown escapes. Decoupled from stream drain — caller (Wait)
+// composes the drain step.
+func (e *Execution) reap(ctx context.Context) (int, error) {
 	if e.handle == nil {
 		return 0, &Error{Code: ErrInvalidState, Message: "execution is closed"}
 	}
@@ -300,8 +337,7 @@ func (e *Execution) Wait(ctx context.Context) (int, error) {
 	h := registerHandleForDispatch(cgo.NewHandle(ch))
 
 	var cerr C.CBoxliteError
-	code := C.boxlite_execution_wait(e.handle, C.cbExecutionWait(), handleToPtr(h), &cerr)
-	if code != C.Ok {
+	if rc := C.boxlite_execution_wait(e.handle, C.cbExecutionWait(), handleToPtr(h), &cerr); rc != C.Ok {
 		deleteHandleForDispatch(h)
 		return 0, freeError(&cerr)
 	}
@@ -526,6 +562,16 @@ func (c *Cmd) Run(ctx context.Context) error {
 	exitCode, err := execution.Wait(ctx)
 	if err != nil {
 		return err
+	}
+	// Wait reaps only; c.Stdout / c.Stderr (caller-supplied io.Writer
+	// sinks) are not guaranteed complete until on_exit fires (which
+	// the C exit_pump gates on every stream pump's done_tx). Cmd.Run
+	// composes the drain at the wrapper boundary so the caller can
+	// read their sink immediately after Run returns.
+	select {
+	case <-execution.streamState.drained:
+	case <-execution.closing:
+		return ErrRuntimeClosed
 	}
 
 	c.exitCode = exitCode
