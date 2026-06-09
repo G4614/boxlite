@@ -225,7 +225,10 @@ impl BoxBackend for RestBox {
         let path = if opts.overwrite {
             format!("/boxes/{}/files?path={}", box_id, encoded_dst)
         } else {
-            format!("/boxes/{}/files?path={}&overwrite=false", box_id, encoded_dst)
+            format!(
+                "/boxes/{}/files?path={}&overwrite=false",
+                box_id, encoded_dst
+            )
         };
         let builder = self
             .client
