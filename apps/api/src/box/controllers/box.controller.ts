@@ -347,7 +347,7 @@ export class BoxController {
     operationId: 'getBox',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -365,7 +365,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   async getBox(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     @Query('verbose') verbose?: boolean,
   ): Promise<BoxDto> {
@@ -382,7 +382,7 @@ export class BoxController {
     operationId: 'deleteBox',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -401,7 +401,7 @@ export class BoxController {
   })
   async deleteBox(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
   ): Promise<BoxDto> {
     const box = await this.boxService.destroy(boxIdOrName, authContext.organizationId)
     return this.boxService.toBoxDto(box)
@@ -416,7 +416,7 @@ export class BoxController {
     operationId: 'recoverBox',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -435,7 +435,7 @@ export class BoxController {
   })
   async recoverBox(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
   ): Promise<BoxDto> {
     const recoveredBox = await this.boxService.recover(boxIdOrName, authContext.organization)
     let boxDto = await this.boxService.toBoxDto(recoveredBox)
@@ -456,7 +456,7 @@ export class BoxController {
     operationId: 'startBox',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -475,7 +475,7 @@ export class BoxController {
   })
   async startBox(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
   ): Promise<BoxDto> {
     const sbx = await this.boxService.start(boxIdOrName, authContext.organization)
     let box = await this.boxService.toBoxDto(sbx)
@@ -496,7 +496,7 @@ export class BoxController {
     operationId: 'stopBox',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -526,7 +526,7 @@ export class BoxController {
   })
   async stopBox(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Query('force', new ParseBoolPipe({ optional: true })) force?: boolean,
   ): Promise<BoxDto> {
     const box = await this.boxService.stop(boxIdOrName, authContext.organizationId, force)
@@ -543,7 +543,7 @@ export class BoxController {
     operationId: 'resizeBox',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -570,7 +570,7 @@ export class BoxController {
   })
   async resizeBox(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Body() resizeBoxDto: ResizeBoxDto,
   ): Promise<BoxDto> {
     const box = await this.boxService.resize(boxIdOrName, resizeBoxDto, authContext.organization)
@@ -584,7 +584,7 @@ export class BoxController {
     operationId: 'replaceLabels',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -608,7 +608,7 @@ export class BoxController {
   })
   async replaceLabels(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Body() labelsDto: BoxLabelsDto,
   ): Promise<BoxDto> {
     const box = await this.boxService.replaceLabels(boxIdOrName, labelsDto.labels, authContext.organizationId)
@@ -647,7 +647,7 @@ export class BoxController {
     operationId: 'createBackup',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -666,7 +666,7 @@ export class BoxController {
   })
   async createBackup(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
   ): Promise<BoxDto> {
     const box = await this.boxService.createBackup(boxIdOrName, authContext.organizationId)
     return this.boxService.toBoxDto(box)
@@ -678,7 +678,7 @@ export class BoxController {
     operationId: 'updatePublicStatus',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -707,7 +707,7 @@ export class BoxController {
   })
   async updatePublicStatus(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Param('isPublic') isPublic: boolean,
   ): Promise<BoxDto> {
     const box = await this.boxService.updatePublicStatus(boxIdOrName, isPublic, authContext.organizationId)
@@ -739,7 +739,7 @@ export class BoxController {
     operationId: 'setAutostopInterval',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -768,7 +768,7 @@ export class BoxController {
   })
   async setAutostopInterval(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Param('interval') interval: number,
   ): Promise<BoxDto> {
     const box = await this.boxService.setAutostopInterval(boxIdOrName, interval, authContext.organizationId)
@@ -781,7 +781,7 @@ export class BoxController {
     operationId: 'setAutoArchiveInterval',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -810,7 +810,7 @@ export class BoxController {
   })
   async setAutoArchiveInterval(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Param('interval') interval: number,
   ): Promise<BoxDto> {
     const box = await this.boxService.setAutoArchiveInterval(boxIdOrName, interval, authContext.organizationId)
@@ -823,7 +823,7 @@ export class BoxController {
     operationId: 'setAutoDeleteInterval',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -853,7 +853,7 @@ export class BoxController {
   })
   async setAutoDeleteInterval(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Param('interval') interval: number,
   ): Promise<BoxDto> {
     const box = await this.boxService.setAutoDeleteInterval(boxIdOrName, interval, authContext.organizationId)
@@ -867,7 +867,7 @@ export class BoxController {
   //   operationId: 'updateNetworkSettings',
   // })
   // @ApiParam({
-  //   name: 'sandboxIdOrName',
+  //   name: 'boxIdOrName',
   //   description: 'ID or name of the sandbox',
   //   type: 'string',
   // })
@@ -892,7 +892,7 @@ export class BoxController {
   // })
   // async updateNetworkSettings(
   //   @AuthContext() authContext: OrganizationAuthContext,
-  //   @Param('sandboxIdOrName') boxIdOrName: string,
+  //   @Param('boxIdOrName') boxIdOrName: string,
   //   @Body() networkSettings: UpdateBoxNetworkSettingsDto,
   // ): Promise<BoxDto> {
   //   const box = await this.boxService.updateNetworkSettings(
@@ -927,7 +927,7 @@ export class BoxController {
   })
   async archiveBox(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
   ): Promise<BoxDto> {
     const box = await this.boxService.archive(boxIdOrName, authContext.organizationId)
     return this.boxService.toBoxDto(box)
@@ -939,7 +939,7 @@ export class BoxController {
     operationId: 'getPortPreviewUrl',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -956,7 +956,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   async getPortPreviewUrl(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Param('port') port: number,
   ): Promise<PortPreviewUrlDto> {
     return this.boxService.getPortPreviewUrl(boxIdOrName, authContext.organizationId, port)
@@ -968,7 +968,7 @@ export class BoxController {
     operationId: 'getSignedPortPreviewUrl',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -991,7 +991,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   async getSignedPortPreviewUrl(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Param('port') port: number,
     @Query('expiresInSeconds') expiresInSeconds?: number,
   ): Promise<SignedPortPreviewUrlDto> {
@@ -1004,7 +1004,7 @@ export class BoxController {
     operationId: 'expireSignedPortPreviewUrl',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -1025,7 +1025,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   async expireSignedPortPreviewUrl(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Param('port') port: number,
     @Param('token') token: string,
   ): Promise<void> {
@@ -1040,7 +1040,7 @@ export class BoxController {
     description: 'This endpoint is deprecated. Use `getBuildLogsUrl` instead.',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -1060,7 +1060,7 @@ export class BoxController {
     @Res() res: ServerResponse<IncomingMessage>,
     @Next() next: NextFunction,
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Query('follow', new ParseBoolPipe({ optional: true })) follow?: boolean,
   ): Promise<void> {
     const box = await this.boxService.findOneByIdOrName(boxIdOrName, authContext.organizationId)
@@ -1096,7 +1096,7 @@ export class BoxController {
     operationId: 'getBuildLogsUrl',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -1108,7 +1108,7 @@ export class BoxController {
   @UseGuards(BoxAccessGuard)
   async getBuildLogsUrl(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
   ): Promise<UrlDto> {
     const buildLogsUrl = await this.boxService.getBuildLogsUrl(boxIdOrName, authContext.organizationId)
 
@@ -1122,7 +1122,7 @@ export class BoxController {
     operationId: 'createSshAccess',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -1152,7 +1152,7 @@ export class BoxController {
   })
   async createSshAccess(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Query('expiresInMinutes') expiresInMinutes?: number,
   ): Promise<SshAccessDto> {
     return await this.boxService.createSshAccess(boxIdOrName, expiresInMinutes, authContext.organizationId)
@@ -1165,7 +1165,7 @@ export class BoxController {
     operationId: 'revokeSshAccess',
   })
   @ApiParam({
-    name: 'sandboxIdOrName',
+    name: 'boxIdOrName',
     description: 'ID or name of the sandbox',
     type: 'string',
   })
@@ -1195,7 +1195,7 @@ export class BoxController {
   })
   async revokeSshAccess(
     @AuthContext() authContext: OrganizationAuthContext,
-    @Param('sandboxIdOrName') boxIdOrName: string,
+    @Param('boxIdOrName') boxIdOrName: string,
     @Query('token') token?: string,
   ): Promise<BoxDto> {
     const box = await this.boxService.revokeSshAccess(boxIdOrName, token, authContext.organizationId)
