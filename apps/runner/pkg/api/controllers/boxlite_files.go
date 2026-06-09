@@ -26,6 +26,13 @@ func BoxliteFileUpload(ctx *gin.Context) {
 		return
 	}
 
+	// `overwrite=false` is the only CopyOptions bit the SDK can't encode
+	// in the tar layout (the others — recursive / include_parent /
+	// follow_symlinks — change which entries get tarred). The SDK
+	// passes it as a query param when set; absence means the historical
+	// "clobber whatever is at the destination" default.
+	overwrite := ctx.Query("overwrite") != "false"
+
 	// The SDK uploads a tar archive (Content-Type: application/x-tar) so
 	// that copy_in(host_dir, ...) can move trees in a single request.
 	// We MUST extract the archive into a staging dir on the runner host
@@ -55,7 +62,7 @@ func BoxliteFileUpload(ctx *gin.Context) {
 		src = stagedPath
 	}
 
-	if err := r.Boxlite.CopyInto(ctx.Request.Context(), boxId, src, destPath); err != nil {
+	if err := r.Boxlite.CopyIntoWithOptions(ctx.Request.Context(), boxId, src, destPath, overwrite); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("copy failed: %s", err)})
 		return
 	}
