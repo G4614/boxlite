@@ -254,9 +254,25 @@ impl BoxBackend for RestBox {
         &self,
         container_src: &str,
         host_dst: &Path,
-        _opts: CopyOptions,
+        opts: CopyOptions,
     ) -> BoxliteResult<()> {
         let box_id = self.box_id_str();
+
+        // Overwrite check happens here on the SDK side because
+        // copy_out's "destination" lives on the *host* — the runner
+        // streams the archive bytes back and the host write happens
+        // in this process. (Symmetric counterpart of copy_in in #691,
+        // which had to plumb `overwrite=false` through to libboxlite
+        // because the destination lives in the guest.) Refusing
+        // early avoids the runner doing work whose result we'd have
+        // to discard.
+        if !opts.overwrite && host_dst.exists() {
+            return Err(BoxliteError::AlreadyExists(format!(
+                "copy_out refused: host destination {} already exists \
+                 and overwrite=false",
+                host_dst.display()
+            )));
+        }
 
         // Download tar from server
         let encoded_src = urlencoding::encode(container_src);
