@@ -656,21 +656,12 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         None => NetworkSpec::default(),
     };
 
-    // Security resolution, in priority order:
-    //   1. `security_settings` (full custom struct) wins outright.
-    //   2. `security` preset string resolves via
-    //      `SecurityOptions::from_preset`. Unknown name surfaces as
-    //      `InvalidArgument` back to the REST client.
-    //   3. Neither set → keep `AdvancedBoxOptions::default()`, which
-    //      since this PR is the standard preset (jailer + seccomp on
-    //      for Linux). Pre-PR clients that don't mention security
-    //      thus get sandbox-by-default, matching the local SDK path.
-    let mut advanced = boxlite::AdvancedBoxOptions::default();
-    if let Some(custom) = req.security_settings.clone() {
-        advanced.security = custom;
-    } else if let Some(name) = req.security.as_deref() {
-        advanced.security = boxlite::SecurityOptions::from_preset(name)?;
-    }
+    // SecurityOptions is deliberately NOT client-configurable over
+    // REST: sandbox security is the operator's policy. The server
+    // always uses `AdvancedBoxOptions::default()` for new boxes, so
+    // the default-flip (jailer + seccomp on for Linux/macOS) applies
+    // uniformly. Operators who want a different policy run the
+    // server with a different default; clients cannot relax it.
 
     Ok(BoxOptions {
         rootfs,
@@ -685,7 +676,6 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         user: req.user.clone(),
         auto_remove: req.auto_remove.unwrap_or(false),
         detach: req.detach.unwrap_or(true),
-        advanced,
         ..Default::default()
     })
 }
@@ -1035,66 +1025,57 @@ mod tests {
     }
 
     // ============================================================
-    // REST `security` / `security_settings` wire contract
+    // REST `security` wire contract: server-owned only.
     //
-    // The server resolves in priority order:
-    //   1. `security_settings` custom struct → win outright
-    //   2. `security` preset string → from_preset()
-    //   3. neither → SecurityOptions::default() (= standard preset)
+    // The REST surface deliberately exposes no knob for clients to
+    // pick a security preset or override `SecurityOptions`. Combined
+    // with `#[serde(deny_unknown_fields)]` on `CreateBoxRequest`,
+    // any client attempt to send `security` / `security_settings`
+    // is rejected at deserialize time (i.e. 400 from the API)
+    // rather than silently relaxing the server's policy.
     // ============================================================
 
     #[test]
-    fn build_box_options_no_security_field_keeps_default() {
-        // Pre-PR clients send no security field — server falls through
-        // to the runtime default. After the default flip, that's the
-        // standard preset (jailer on for Linux/macOS).
+    fn build_box_options_empty_body_lands_on_server_default_security() {
+        // Bog-standard REST body. Server resolves security from its
+        // own default; on Linux/macOS that's jailer-on (the standard
+        // preset, post-flip).
         let json = r#"{"image": "alpine:latest"}"#;
         let req: super::types::CreateBoxRequest =
-            serde_json::from_str(json).expect("legacy body must still deserialize");
+            serde_json::from_str(json).expect("body must deserialize");
         let opts = build_box_options(&req).expect("build_box_options");
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert!(
             opts.advanced.security.jailer_enabled,
-            "default must be sandbox-on after the flip"
+            "server default must be sandbox-on after the flip"
         );
     }
 
     #[test]
-    fn build_box_options_security_preset_string_resolves() {
-        // Explicit preset string lands as the matching SecurityOptions.
+    fn create_box_request_rejects_client_supplied_security_preset() {
+        // A malicious or careless client sends `security: "development"`
+        // hoping to disable the jailer. `deny_unknown_fields` turns
+        // that into a hard deserialize error, which the REST layer
+        // surfaces as a 400 — there is no quiet fall-through.
         let json = r#"{"image": "alpine:latest", "security": "development"}"#;
-        let req: super::types::CreateBoxRequest =
-            serde_json::from_str(json).expect("must deserialize");
-        let opts = build_box_options(&req).expect("build_box_options");
+        let msg = match serde_json::from_str::<super::types::CreateBoxRequest>(json) {
+            Ok(_) => panic!("`security` must be rejected at deserialize"),
+            Err(e) => e.to_string(),
+        };
         assert!(
-            !opts.advanced.security.jailer_enabled,
-            "development preset disables jailer"
+            msg.contains("unknown field") && msg.contains("security"),
+            "expected deny-unknown-fields rejection mentioning `security`; got {msg}"
         );
     }
 
     #[test]
-    fn build_box_options_security_preset_typo_surfaces_invalid_argument() {
-        // Reverting the from_preset call in build_box_options would
-        // let this slip through with silent default; we want loud reject.
-        let json = r#"{"image": "alpine:latest", "security": "ultra"}"#;
-        let req: super::types::CreateBoxRequest =
-            serde_json::from_str(json).expect("must deserialize");
-        let err = build_box_options(&req).expect_err("unknown preset must reject");
-        assert!(err.to_string().contains("ultra"), "got {err}");
-    }
-
-    #[test]
-    fn build_box_options_security_settings_wins_over_preset() {
-        // When both fields are sent, the explicit settings struct
-        // wins outright (matches the comment in build_box_options).
-        // We send `security: "development"` (which would relax) and
-        // settings with `jailer_enabled: true` (which would tighten)
-        // and assert the settings won.
+    fn create_box_request_rejects_client_supplied_security_settings() {
+        // Same shape as the previous test but with a `security_settings`
+        // struct. Also blocked at deserialize.
         let json = r#"{
             "image": "alpine:latest",
-            "security": "development",
             "security_settings": {
-                "jailer_enabled":  true,
+                "jailer_enabled":  false,
                 "seccomp_enabled": false,
                 "uid": null,
                 "gid": null,
@@ -1110,12 +1091,13 @@ mod tests {
                 "network_enabled": true
             }
         }"#;
-        let req: super::types::CreateBoxRequest =
-            serde_json::from_str(json).expect("must deserialize");
-        let opts = build_box_options(&req).expect("build_box_options");
+        let msg = match serde_json::from_str::<super::types::CreateBoxRequest>(json) {
+            Ok(_) => panic!("`security_settings` must be rejected at deserialize"),
+            Err(e) => e.to_string(),
+        };
         assert!(
-            opts.advanced.security.jailer_enabled,
-            "explicit settings.jailer_enabled=true must beat preset=development"
+            msg.contains("unknown field") && msg.contains("security_settings"),
+            "expected deny-unknown-fields rejection mentioning `security_settings`; got {msg}"
         );
     }
 
