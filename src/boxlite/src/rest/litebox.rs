@@ -911,12 +911,12 @@ fn extract_tar_to_path(tar_bytes: &[u8], host_dst: &Path) -> BoxliteResult<()> {
     let mut file_count = 0usize;
     let mut other_count = 0usize;
     let mut single_entry_path: Option<std::path::PathBuf> = None;
-    for entry in probe.entries().map_err(|e| {
-        BoxliteError::Internal(format!("failed to read tar archive: {}", e))
-    })? {
-        let entry = entry.map_err(|e| {
-            BoxliteError::Internal(format!("failed to read tar entry: {}", e))
-        })?;
+    for entry in probe
+        .entries()
+        .map_err(|e| BoxliteError::Internal(format!("failed to read tar archive: {}", e)))?
+    {
+        let entry = entry
+            .map_err(|e| BoxliteError::Internal(format!("failed to read tar entry: {}", e)))?;
         let header = entry.header();
         match header.entry_type() {
             tar::EntryType::Regular => {
@@ -943,9 +943,10 @@ fn extract_tar_to_path(tar_bytes: &[u8], host_dst: &Path) -> BoxliteResult<()> {
         // Re-read the (single) entry from a fresh Archive and copy
         // its bytes into host_dst directly.
         let mut archive = tar::Archive::new(tar_bytes);
-        for entry in archive.entries().map_err(|e| {
-            BoxliteError::Internal(format!("failed to re-read tar archive: {}", e))
-        })? {
+        for entry in archive
+            .entries()
+            .map_err(|e| BoxliteError::Internal(format!("failed to re-read tar archive: {}", e)))?
+        {
             let mut entry = entry.map_err(|e| {
                 BoxliteError::Internal(format!("failed to re-read tar entry: {}", e))
             })?;
@@ -953,18 +954,10 @@ fn extract_tar_to_path(tar_bytes: &[u8], host_dst: &Path) -> BoxliteResult<()> {
                 continue;
             }
             let mut out = std::fs::File::create(host_dst).map_err(|e| {
-                BoxliteError::Internal(format!(
-                    "failed to create {}: {}",
-                    host_dst.display(),
-                    e
-                ))
+                BoxliteError::Internal(format!("failed to create {}: {}", host_dst.display(), e))
             })?;
             std::io::copy(&mut entry, &mut out).map_err(|e| {
-                BoxliteError::Internal(format!(
-                    "failed to write {}: {}",
-                    host_dst.display(),
-                    e
-                ))
+                BoxliteError::Internal(format!("failed to write {}: {}", host_dst.display(), e))
             })?;
             return Ok(());
         }
