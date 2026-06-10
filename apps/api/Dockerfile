@@ -27,6 +27,13 @@ COPY apps/libs/analytics-api-client/ libs/analytics-api-client/
 COPY apps/libs/toolbox-api-client/ libs/toolbox-api-client/
 COPY apps/libs/sdk-typescript/ libs/sdk-typescript/
 
+# tsconfig.base.json (now at apps/) declares paths as "libs/<lib>/src/index.ts"
+# relative to its own dir, i.e. /boxlite/apps/libs/<lib>/…, but the COPYs above
+# place them at /boxlite/libs/<lib>/…  (the stripped layout the nx project graph
+# expects via each lib's sourceRoot). Bridge with a symlink instead of moving
+# files, so both consumers see the libs where they expect.
+RUN ln -s ../libs apps/libs
+
 RUN echo 1777389170 && yarn nx build api --configuration=production --nxBail=true
 
 RUN VITE_BASE_API_URL=%BOXLITE_BASE_API_URL% yarn nx build dashboard --configuration=production --nxBail=true --output-style=stream
