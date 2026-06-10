@@ -17,15 +17,13 @@
 /**
  *
  * @export
- * @enum {string}
+ * @interface StartSandboxResponse
  */
-
-export const EnumsBackupState = {
-    BackupStateNone: 'NONE',
-    BackupStatePending: 'PENDING',
-    BackupStateInProgress: 'IN_PROGRESS',
-    BackupStateCompleted: 'COMPLETED',
-    BackupStateFailed: 'FAILED'
-} as const;
-
-export type EnumsBackupState = typeof EnumsBackupState[keyof typeof EnumsBackupState];
+export interface StartSandboxResponse {
+    /**
+     *
+     * @type {string}
+     * @memberof StartSandboxResponse
+     */
+    'daemonVersion'?: string;
+}

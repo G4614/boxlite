@@ -17,25 +17,31 @@
 /**
  *
  * @export
- * @interface UpdateNetworkSettingsDTO
+ * @interface ResizeSandboxDTO
  */
-export interface UpdateNetworkSettingsDTO {
+export interface ResizeSandboxDTO {
     /**
      *
-     * @type {string}
-     * @memberof UpdateNetworkSettingsDTO
+     * @type {number}
+     * @memberof ResizeSandboxDTO
      */
-    'networkAllowList'?: string;
+    'cpu'?: number;
     /**
      *
-     * @type {boolean}
-     * @memberof UpdateNetworkSettingsDTO
+     * @type {number}
+     * @memberof ResizeSandboxDTO
      */
-    'networkBlockAll'?: boolean;
+    'disk'?: number;
     /**
      *
-     * @type {boolean}
-     * @memberof UpdateNetworkSettingsDTO
+     * @type {number}
+     * @memberof ResizeSandboxDTO
      */
-    'networkLimitEgress'?: boolean;
+    'gpu'?: number;
+    /**
+     *
+     * @type {number}
+     * @memberof ResizeSandboxDTO
+     */
+    'memory'?: number;
 }
