@@ -117,6 +117,11 @@ export class Runner {
   currentSnapshotCount: number
 
   @Column({
+    // PR #706 renamed the entity field Sandbox→Box but the DB column
+    // is frozen per the zero-DDL allowlist. Pin to the original name
+    // so TypeORM does not synthesize `currentStartedBoxes` as the SQL
+    // identifier. Remove once a follow-up DDL migration lands.
+    name: 'currentStartedSandboxes',
     default: 0,
   })
   currentStartedBoxes: number

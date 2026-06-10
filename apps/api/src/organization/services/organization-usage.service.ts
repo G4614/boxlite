@@ -615,9 +615,9 @@ export class OrganizationUsageService {
     } = await this.boxRepository
       .createQueryBuilder('sandbox')
       .select([
-        `SUM(CASE WHEN box.state IN (:...statesConsumingCompute) OR (box.state = :resizingState AND box."desiredState" = :startedDesiredState) THEN box.cpu ELSE 0 END) as used_cpu`,
-        `SUM(CASE WHEN box.state IN (:...statesConsumingCompute) OR (box.state = :resizingState AND box."desiredState" = :startedDesiredState) THEN box.mem ELSE 0 END) as used_mem`,
-        'SUM(CASE WHEN box.state IN (:...statesConsumingDisk) THEN box.disk ELSE 0 END) as used_disk',
+        `SUM(CASE WHEN sandbox.state IN (:...statesConsumingCompute) OR (sandbox.state = :resizingState AND sandbox."desiredState" = :startedDesiredState) THEN sandbox.cpu ELSE 0 END) as used_cpu`,
+        `SUM(CASE WHEN sandbox.state IN (:...statesConsumingCompute) OR (sandbox.state = :resizingState AND sandbox."desiredState" = :startedDesiredState) THEN sandbox.mem ELSE 0 END) as used_mem`,
+        'SUM(CASE WHEN sandbox.state IN (:...statesConsumingDisk) THEN sandbox.disk ELSE 0 END) as used_disk',
       ])
       .where('sandbox.organizationId = :organizationId', { organizationId })
       .andWhere('sandbox.region = :regionId', { regionId })

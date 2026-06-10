@@ -5,7 +5,11 @@
  */
 
 export enum ResourceType {
-  BOX = 'BOX',
+  // PR #706 zero-DDL: DB enum `job_resourcetype_enum` still holds the
+  // literal `'SANDBOX'`. Keep the TS member name as `BOX` (in line
+  // with the entity rename) but pin the wire/DB literal to
+  // `'SANDBOX'` so existing rows round-trip cleanly.
+  BOX = 'SANDBOX',
   SNAPSHOT = 'SNAPSHOT',
   BACKUP = 'BACKUP',
 }

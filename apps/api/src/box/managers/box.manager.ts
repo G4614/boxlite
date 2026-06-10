@@ -105,7 +105,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
         readyRunners.map(async (runner) => {
           const boxes = await this.boxRepository
             .createQueryBuilder('sandbox')
-            .innerJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = box.id')
+            .innerJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = sandbox.id')
             .where('sandbox."runnerId" = :runnerId', { runnerId: runner.id })
             .andWhere('sandbox."organizationId" != :warmPoolOrg', {
               warmPoolOrg: BOX_WARM_POOL_UNASSIGNED_ORGANIZATION,
@@ -116,7 +116,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
             })
             .andWhere('sandbox.pending != true')
             .andWhere('sandbox."autoStopInterval" != 0')
-            .andWhere('activity."lastActivityAt" < NOW() - INTERVAL \'1 minute\' * box."autoStopInterval"')
+            .andWhere('activity."lastActivityAt" < NOW() - INTERVAL \'1 minute\' * sandbox."autoStopInterval"')
             .orderBy('sandbox."lastBackupAt"', 'ASC')
             .limit(100)
             .getMany()
@@ -178,7 +178,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
     try {
       const boxes = await this.boxRepository
         .createQueryBuilder('sandbox')
-        .innerJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = box.id')
+        .innerJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = sandbox.id')
         .where('sandbox."organizationId" != :warmPoolOrg', {
           warmPoolOrg: BOX_WARM_POOL_UNASSIGNED_ORGANIZATION,
         })
@@ -188,7 +188,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
         })
         .andWhere('sandbox.pending != true')
         .andWhere('sandbox."autoArchiveInterval" != 0')
-        .andWhere('activity."lastActivityAt" < NOW() - INTERVAL \'1 minute\' * box."autoArchiveInterval"')
+        .andWhere('activity."lastActivityAt" < NOW() - INTERVAL \'1 minute\' * sandbox."autoArchiveInterval"')
         .orderBy('sandbox."lastBackupAt"', 'ASC')
         .limit(100)
         .getMany()
@@ -244,7 +244,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
         readyRunners.map(async (runner) => {
           const boxes = await this.boxRepository
             .createQueryBuilder('sandbox')
-            .innerJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = box.id')
+            .innerJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = sandbox.id')
             .where('sandbox."runnerId" = :runnerId', { runnerId: runner.id })
             .andWhere('sandbox."organizationId" != :warmPoolOrg', {
               warmPoolOrg: BOX_WARM_POOL_UNASSIGNED_ORGANIZATION,
@@ -255,7 +255,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
             })
             .andWhere('sandbox.pending != true')
             .andWhere('sandbox."autoDeleteInterval" >= 0')
-            .andWhere('activity."lastActivityAt" < NOW() - INTERVAL \'1 minute\' * box."autoDeleteInterval"')
+            .andWhere('activity."lastActivityAt" < NOW() - INTERVAL \'1 minute\' * sandbox."autoDeleteInterval"')
             .orderBy('activity."lastActivityAt"', 'ASC')
             .limit(100)
             .getMany()
@@ -672,7 +672,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
       const queryBuilder = this.boxRepository
         .createQueryBuilder('sandbox')
         .select(['sandbox.id'])
-        .leftJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = box.id')
+        .leftJoin('sandbox_last_activity', 'activity', 'activity."sandboxId" = sandbox.id')
         .where('sandbox.state NOT IN (:...excludedStates)', {
           excludedStates: [BoxState.DESTROYED, BoxState.ERROR, BoxState.BUILD_FAILED, BoxState.RESIZING],
         })

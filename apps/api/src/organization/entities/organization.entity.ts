@@ -178,6 +178,8 @@ export class Organization {
   snapshotDeactivationTimeoutMinutes: number
 
   @Column({
+    // PR #706 zero-DDL: DB column is still `sandboxLimitedNetworkEgress`.
+    name: 'sandboxLimitedNetworkEgress',
     default: false,
   })
   boxLimitedNetworkEgress: boolean
