@@ -98,9 +98,10 @@ type executionStreamState struct {
 	// gates Exit on every stream pump's done_tx, so by the time on_exit
 	// runs, the drain goroutine has already dispatched every
 	// Stdout/Stderr callback for this execution. Execution.Wait blocks
-	// on this after the reap so a caller using buffered Stdout/Stderr
-	// sinks never sees a truncated buffer. The fold happens at the SDK
-	// boundary; the C-side Wait task stays decoupled from streams.
+	// on this after the process's exit code has been collected, so a
+	// caller using buffered Stdout/Stderr sinks never sees a truncated
+	// buffer. The fold happens at the SDK boundary; the C-side Wait
+	// task stays decoupled from streams.
 	drained chan struct{}
 }
 
@@ -298,7 +299,7 @@ func (e *Execution) Write(p []byte) (int, error) {
 	return e.Stdin.Write(p)
 }
 
-// Wait reaps the process and blocks until every stdout/stderr
+// Wait blocks until the process has exited AND every stdout/stderr
 // callback for this execution has been dispatched, then returns the
 // exit code. Mirrors os/exec.Cmd's Wait for the io.Writer case —
 // every BoxLite execution IS the io.Writer case (streams are pushed
@@ -306,27 +307,11 @@ func (e *Execution) Write(p []byte) (int, error) {
 // user-read pipe), so Wait is the single terminal and must guarantee
 // output completeness on return.
 //
-// The post-reap drain is non-cancelable by ctx (parity with os/exec's
-// awaitGoroutines); only runtime shutdown breaks it, in which case
-// the reap's exit code is preserved and err is overwritten only if
-// the reap had none.
+// The post-exit-code drain is non-cancelable by ctx (parity with
+// os/exec's awaitGoroutines); only runtime shutdown breaks it, in
+// which case the process's exit code is preserved and err is
+// overwritten only if the wait had none.
 func (e *Execution) Wait(ctx context.Context) (int, error) {
-	code, err := e.reap(ctx)
-	select {
-	case <-e.streamState.drained:
-	case <-e.closing:
-		if err == nil {
-			err = ErrRuntimeClosed
-		}
-	}
-	return code, err
-}
-
-// reap is os/exec's Process.Wait analog: it kicks the C
-// boxlite_execution_wait task and blocks on its result, with ctx and
-// runtime-shutdown escapes. Decoupled from stream drain — caller (Wait)
-// composes the drain step.
-func (e *Execution) reap(ctx context.Context) (int, error) {
 	if e.handle == nil {
 		return 0, &Error{Code: ErrInvalidState, Message: "execution is closed"}
 	}
@@ -340,16 +325,35 @@ func (e *Execution) reap(ctx context.Context) (int, error) {
 		return 0, freeError(&cerr)
 	}
 
+	var code int
+	var err error
 	select {
 	case res := <-ch:
-		return res.exitCode, res.err
+		code, err = res.exitCode, res.err
 	case <-ctx.Done():
+		// ctx cancel before the process reports exit: skip the
+		// drain barrier (consistent with os/exec's behavior on
+		// Process.Wait cancellation).
 		drainAndDelete(ch, h, e.closing)
 		return 0, ctx.Err()
 	case <-e.closing:
 		drainAndDelete(ch, h, e.closing)
 		return 0, ErrRuntimeClosed
 	}
+
+	// Drain barrier: wait for stream pumps to flush before returning,
+	// so the caller's stdout/stderr Writers see every chunk the exec
+	// produced. Non-cancelable by ctx — only runtime shutdown breaks
+	// it. Preserves the exit code from the wait result; overwrites
+	// err only if the wait itself had none.
+	select {
+	case <-e.streamState.drained:
+	case <-e.closing:
+		if err == nil {
+			err = ErrRuntimeClosed
+		}
+	}
+	return code, err
 }
 
 // Kill terminates the running command.
