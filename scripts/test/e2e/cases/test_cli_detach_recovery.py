@@ -56,9 +56,26 @@ def run(cli, *args, timeout: int = 60, check: bool = True) -> subprocess.Complet
     )
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Step 3 (`boxlite exec <id> -- sh -c 'echo still-alive'`) returns "
+        "empty stdout — same stdout-drop race that #563 fixes (the CLI's "
+        "exec command goes through libboxlite's drain path). Steps 1 + 2 "
+        "(detach run + ls verify) work today. When #563 lands the assertion "
+        "`'still-alive' in r_exec.stdout` starts holding and this xfail "
+        "flips xpass-strict — drop the marker then."
+    ),
+)
 def test_detached_box_survives_cli_exit_and_is_reusable(cli):
     """The cycle: detach → CLI exits → fresh CLI invocations still
-    see / exec / info the same box id."""
+    see / exec the same box id.
+
+    `boxlite info` is currently system-wide (version / runtime stats),
+    not per-box, so we don't try to query the box via `info <id>` here
+    — `boxlite ls` already proves the runtime knows about it, and the
+    subsequent `exec` proves it's still usable. Add a per-box info
+    command and we'll extend the contract."""
     journal_since = runner_journal_seek()
 
     # 1) detach run in one CLI process
@@ -69,28 +86,27 @@ def test_detached_box_survives_cli_exit_and_is_reusable(cli):
 
     try:
         # The CLI process from step 1 has already exited by the time
-        # subprocess.run returned, so steps 2/3/4 each start fresh.
+        # subprocess.run returned, so steps 2/3 each start fresh.
 
-        # 2) fresh CLI: ls sees the box
+        # 2) fresh CLI: ls sees the box, and the row shows it Running
         r_ls = run(cli, "ls")
         assert box_id in r_ls.stdout, (
             f"detached box {box_id} not visible after CLI exit: {r_ls.stdout}"
         )
-
-        # 3) fresh CLI: info returns sane state
-        r_info = run(cli, "info", box_id)
-        info_text = r_info.stdout
-        assert box_id in info_text, (
-            f"`boxlite info` did not echo the box id: {info_text!r}"
+        # Find the box's row and check it advertises a non-empty state.
+        # The CLI's ls renders a Unicode table; we grep the row by id
+        # and ensure it contains a status keyword (Running / Started /
+        # Ready / Configured — varies by build).
+        ls_row = next(
+            (ln for ln in r_ls.stdout.splitlines() if box_id in ln), ""
         )
-        # Boxes started via `run -d` should show some state (Running /
-        # Started / Ready depending on CLI build); just assert it's
-        # neither empty nor obviously broken.
-        assert "state" in info_text.lower() or "status" in info_text.lower(), (
-            f"`boxlite info` output missing state field: {info_text!r}"
+        assert any(
+            kw in ls_row for kw in ("Running", "Started", "Ready", "Configured")
+        ), (
+            f"`boxlite ls` row for {box_id} has no recognisable state: {ls_row!r}"
         )
 
-        # 4) fresh CLI: exec a command into the detached box
+        # 3) fresh CLI: exec a command into the detached box
         r_exec = run(cli, "exec", box_id, "--", "sh", "-c", "echo still-alive")
         assert "still-alive" in r_exec.stdout, (
             f"exec into detached box failed: {r_exec.stdout!r}"

@@ -1,17 +1,20 @@
-"""E2E port of `src/boxlite/tests/mount_security.rs` (RO surface only).
+"""E2E pin: the REST surface does NOT expose host bind mounts.
 
-Verifies a `read_only=True` volume:
+The cloud / managed runtime intentionally dropped host bind mounts
+(see PR #639 "remove host bind mounts; only managed volumes
+allowed"). Passing `volumes=[(host_path, guest_path, ...)]` to a
+REST-mode `BoxOptions` must be a no-op at the runner — the
+guest must never gain visibility of arbitrary host paths.
 
-  - shows up in `/proc/mounts` with the `ro` flag inside the guest
-  - rejects writes (`echo > file` returns nonzero)
+Day-1 RO semantics for *managed* volumes are covered separately;
+the GHSA-g6ww-w5j2-r7x3 remount-RW attack and per-virtiofs RO
+enforcement are in:
+  - `sdks/python/tests/test_readonly_volume_remount.py` (FFI layer)
+  - `src/boxlite/tests/mount_security.rs` (Rust)
 
-This is the day-1 RO contract; the GHSA-g6ww-w5j2-r7x3 remount-RW
-attack is exhaustively covered at the FFI layer in
-`sdks/python/tests/test_readonly_volume_remount.py` and the Rust
-`mount_security.rs`, so we don't replay it here.
-
-Runs against the e2e stack — the host bind-mount path must be a
-directory the boxlite-runner systemd user can read.
+This test pins the *negative* contract specific to the REST path:
+host bind mounts are silently ignored, so no /mnt/<x> from the
+host tree ever surfaces inside the guest.
 """
 
 from __future__ import annotations
@@ -27,56 +30,54 @@ from conftest import drain
 
 
 @pytest.mark.asyncio
-async def test_readonly_volume_mount_flag_and_write_reject(rt, image):
-    """RO host dir mounted into the guest:
-       - `/proc/mounts` reports `ro,`
-       - direct write inside the guest returns nonzero exit"""
+async def test_host_bind_mount_via_rest_is_silently_ignored(rt, image):
+    """`BoxOptions(volumes=[(host_dir, "/mnt/ro", True)])` over REST
+    must NOT result in /mnt/ro being mounted inside the guest. The
+    REST API has no host-bind-mount surface (cf. PR #639); requests
+    that include host paths get dropped at the mapper, the box
+    starts cleanly, and the guest has no extra mount."""
     with tempfile.TemporaryDirectory(prefix="boxlite_e2e_ro_") as host_dir:
-        # World-readable so the runner user can see it without specific gid
-        # permissions; on the e2e host this still respects fs RO once
-        # mounted because the runtime enforces RO at the virtiofs side.
         os.chmod(host_dir, 0o755)
-        with open(os.path.join(host_dir, "marker.txt"), "w") as f:
+        marker_path = os.path.join(host_dir, "marker.txt")
+        with open(marker_path, "w") as f:
             f.write("host-original\n")
 
         b = await rt.create(
             boxlite.BoxOptions(
                 image=image,
                 auto_remove=True,
-                volumes=[(host_dir, "/mnt/ro", True)],  # (host, guest, read_only)
+                # Caller asks for a host bind mount — REST must drop this.
+                volumes=[(host_dir, "/mnt/ro", True)],
             ),
         )
         try:
-            # 1) Mount is reported as read-only in /proc/mounts.
+            # 1) /mnt/ro must NOT exist or must NOT be a mount point.
             ex = await b.exec(
-                "sh", ["-c", "grep ' /mnt/ro ' /proc/mounts || true"], None,
+                "sh",
+                [
+                    "-c",
+                    # Print MOUNT_LINE=<row> if /mnt/ro shows up in
+                    # /proc/mounts, otherwise MOUNT_LINE=<none>.
+                    "row=\"$(grep ' /mnt/ro ' /proc/mounts || true)\"; "
+                    "echo MOUNT_LINE=\"${row:-<none>}\"",
+                ],
+                None,
             )
             out, _ = await drain(ex)
             rc = await asyncio.wait_for(ex.wait(), timeout=30)
             assert rc.exit_code == 0, f"grep /proc/mounts failed: rc={rc.exit_code}"
-            assert " ro," in out or out.endswith(" ro\n") or " ro " in out, (
-                f"volume not mounted read-only in guest: {out!r}"
+            assert "MOUNT_LINE=<none>" in out, (
+                f"REST should NOT honour host bind mounts, but the guest has a "
+                f"mount at /mnt/ro: {out!r}"
             )
 
-            # 2) Write attempt fails.
-            ex = await b.exec(
-                "sh",
-                ["-c", "echo guest-write > /mnt/ro/marker.txt 2>&1; echo EXIT=$?"],
-                None,
-            )
-            out, _ = await drain(ex)
-            await asyncio.wait_for(ex.wait(), timeout=30)
-            # Look for explicit failure marker; redirection itself may
-            # set the shell's $? to nonzero, but we still need the
-            # echo EXIT=… to land in stdout.
-            assert "EXIT=0" not in out, (
-                f"write to read-only volume unexpectedly succeeded: {out!r}"
-            )
-
-            # 3) Host file unchanged.
-            with open(os.path.join(host_dir, "marker.txt"), "r") as f:
+            # 2) Host file must not have been read or referenced by the
+            # box — independent confirmation that no host path made it
+            # through. Re-read host_dir contents and verify nothing
+            # mutated.
+            with open(marker_path, "r") as f:
                 assert f.read() == "host-original\n", (
-                    "host file mutated through RO mount"
+                    "host file mutated despite host bind mount not being wired"
                 )
         finally:
             try:
