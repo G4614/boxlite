@@ -10,7 +10,7 @@ import { Repository, In } from 'typeorm'
 import { Volume } from '../entities/volume.entity'
 import { VolumeState } from '../enums/volume-state.enum'
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule'
-import { S3Client, CreateBucketCommand, ListBucketsCommand, PutBucketTaggingCommand } from '@aws-sdk/client-s3'
+import { S3Client, CreateBucketCommand, ListObjectsV2Command, PutBucketTaggingCommand } from '@aws-sdk/client-s3'
 import { InjectRedis } from '@nestjs-modules/ioredis'
 import { Redis } from 'ioredis'
 import { RedisLockProvider } from '../common/redis-lock.provider'
@@ -50,17 +50,28 @@ export class VolumeManager
 
     const endpoint = this.configService.getOrThrow('s3.endpoint')
     const region = this.configService.getOrThrow('s3.region')
-    const accessKeyId = this.configService.getOrThrow('s3.accessKey')
-    const secretAccessKey = this.configService.getOrThrow('s3.secretKey')
+    const accessKeyId = this.configService.get('s3.accessKey')
+    const secretAccessKey = this.configService.get('s3.secretKey')
     this.skipTestConnection = this.configService.get('skipConnections')
+
+    // Both-or-neither (mirrors observability-s3.reader.ts): a lone key is a
+    // typo'd pair, and silently falling back to the SDK default chain would
+    // mask the misconfig.
+    if ((accessKeyId && !secretAccessKey) || (!accessKeyId && secretAccessKey)) {
+      throw new Error('S3_ACCESS_KEY and S3_SECRET_KEY must be set together')
+    }
+    // MinIO cannot use the SDK default chain — fail fast at boot with a clear
+    // message instead of a generic auth error from the connection probe.
+    if (endpoint.includes('minio') && !accessKeyId) {
+      throw new Error('MinIO requires S3_ACCESS_KEY and S3_SECRET_KEY to be configured')
+    }
 
     this.s3Client = new S3Client({
       endpoint: endpoint.startsWith('http') ? endpoint : `http://${endpoint}`,
       region,
-      credentials: {
-        accessKeyId,
-        secretAccessKey,
-      },
+      // Static keys for S3-compatible deployments (MinIO); unset on AWS,
+      // where the SDK default chain supplies the ECS task-role credentials.
+      ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
       forcePathStyle: true,
     })
   }
@@ -95,9 +106,17 @@ export class VolumeManager
   }
 
   private async testConnection() {
+    // Probe a bucket we already know instead of ListBuckets: same
+    // connectivity+auth signal, but needs no account-wide
+    // s3:ListAllMyBuckets grant on the task role.
+    const bucket = this.configService.get('s3.defaultBucket')
+    if (!bucket) {
+      this.logger.debug('No default bucket configured; skipping S3 connection test')
+      return
+    }
+
     try {
-      // Try a simple operation to test the connection
-      const command = new ListBucketsCommand({})
+      const command = new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 })
       await this.s3Client.send(command)
       this.logger.debug('Successfully connected to S3')
     } catch (error) {

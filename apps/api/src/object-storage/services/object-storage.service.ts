@@ -15,8 +15,11 @@ import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts'
 interface S3Config {
   endpoint: string
   stsEndpoint: string
-  accessKey: string
-  secretKey: string
+  // Static keys are only required for S3-compatible deployments (MinIO).
+  // On AWS they stay unset and the SDK default chain supplies the ECS
+  // task-role credentials.
+  accessKey?: string
+  secretKey?: string
   bucket: string
   region: string
   accountId?: string
@@ -38,11 +41,19 @@ export class ObjectStorageService {
 
     try {
       const bucket = this.configService.getOrThrow('s3.defaultBucket')
+      const accessKey = this.configService.get('s3.accessKey')
+      const secretKey = this.configService.get('s3.secretKey')
+      // Both-or-neither (mirrors observability-s3.reader.ts): a lone key is a
+      // typo'd pair, and silently falling back to the SDK default chain would
+      // mask the misconfig.
+      if ((accessKey && !secretKey) || (!accessKey && secretKey)) {
+        throw new BadRequestException('S3_ACCESS_KEY and S3_SECRET_KEY must be set together')
+      }
       const s3Config: S3Config = {
         endpoint: this.configService.getOrThrow('s3.endpoint'),
         stsEndpoint: this.configService.getOrThrow('s3.stsEndpoint'),
-        accessKey: this.configService.getOrThrow('s3.accessKey'),
-        secretKey: this.configService.getOrThrow('s3.secretKey'),
+        accessKey,
+        secretKey,
         bucket,
         region: this.configService.getOrThrow('s3.region'),
         accountId: this.configService.getOrThrow('s3.accountId'),
@@ -80,6 +91,12 @@ export class ObjectStorageService {
   }
 
   private async getMinioCredentials(config: S3Config): Promise<StorageAccessDto> {
+    if (!config.accessKey || !config.secretKey) {
+      throw new BadRequestException(
+        'MinIO STS requires S3_ACCESS_KEY and S3_SECRET_KEY to sign the assume-role request',
+      )
+    }
+
     const body = new URLSearchParams({
       Action: 'AssumeRole',
       Version: '2011-06-15',
@@ -131,10 +148,9 @@ export class ObjectStorageService {
       const stsClient = new STSClient({
         region: config.region,
         endpoint: config.stsEndpoint,
-        credentials: {
-          accessKeyId: config.accessKey,
-          secretAccessKey: config.secretKey,
-        },
+        ...(config.accessKey && config.secretKey
+          ? { credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey } }
+          : {}),
         maxAttempts: 3,
       })
 

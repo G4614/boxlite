@@ -159,19 +159,19 @@ export default $config({
     const cluster = new sst.aws.Cluster('Cluster', { vpc, forceUpgrade: 'v2' })
 
     // ─── 3. IAM ──────────────────────────────────────────────────────────────
-    // S3 IAM user: API signs STS tokens for box S3 uploads.
-    const s3User = new aws.iam.User('S3User', {})
-    new aws.iam.UserPolicy('S3UserPolicy', {
-      user: s3User.name,
-      policy: JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [
-          { Effect: 'Allow', Action: ['s3:*'], Resource: ['*'] },
-          { Effect: 'Allow', Action: ['sts:AssumeRole', 'sts:GetCallerIdentity'], Resource: ['*'] },
-        ],
-      }),
-    })
-    const s3AccessKey = new aws.iam.AccessKey('S3AccessKey', { user: s3User.name })
+    // Box-storage credential vending. The Api's ECS task role assumes the
+    // S3AccessRole declared after the Api service with a per-organization
+    // inline session policy (apps/api object-storage.service.ts); effective
+    // access is the intersection of the two. No IAM user / static keys: ECS
+    // already delivers auto-rotated task-role credentials to the container.
+    //
+    // The role name is declared up front (deterministic, stage-scoped) so it
+    // can go into the Api env and IAM grant as a plain string. The role
+    // itself can only be created after the Api service, because its trust
+    // policy names the task role — which exists once the Api does. Declaring
+    // the name first breaks that resource cycle.
+    const s3AccessRoleName = `${$app.name}-${$app.stage}-s3-access`
+    const s3AccessRoleArn = $interpolate`arn:aws:iam::${aws.getCallerIdentityOutput().accountId}:role/${s3AccessRoleName}`
 
     // ─── 4. AUTH ─────────────────────────────────────────────────────────────
     // OIDC is delegated to an external provider (Auth0/Okta/etc.) via
@@ -274,11 +274,27 @@ export default $config({
           lbArgs.idleTimeout = 3600
         },
       },
-      link: [db, redis, storage],
+      // storage is deliberately NOT linked: the link grant is s3:* on the
+      // bucket, far beyond the API's verified need (list-only — see the
+      // s3:ListBucket statement below). Box object reads/writes flow through
+      // vended S3AccessRole credentials, never the task role.
+      link: [db, redis],
       permissions: [
         {
+          // DescribeLogGroups ignores log-group-name granularity, but scoping
+          // the resource still cuts cross-region/cross-account reach. The
+          // observability reader defaults to this region
+          // (ADMIN_OBSERVABILITY_CLOUDWATCH_REGION).
           actions: ['logs:DescribeLogGroups'],
-          resources: ['*'],
+          resources: [
+            $interpolate`arn:aws:logs:${REGION}:${aws.getCallerIdentityOutput().accountId}:log-group:*`,
+          ],
+        },
+        {
+          // Admin observability S3 reader + VolumeManager boot probe are
+          // list-only on the storage bucket (ListObjectsV2).
+          actions: ['s3:ListBucket'],
+          resources: [storage.arn],
         },
         {
           actions: ['logs:FilterLogEvents'],
@@ -286,6 +302,28 @@ export default $config({
             $interpolate`arn:aws:logs:${REGION}:${aws.getCallerIdentityOutput().accountId}:log-group:/sst/cluster/${cluster.nodes.cluster.name}/*`,
             $interpolate`arn:aws:logs:${REGION}:${aws.getCallerIdentityOutput().accountId}:log-group:/sst/cluster/${cluster.nodes.cluster.name}/*:*`,
           ],
+        },
+        {
+          // Vend per-org box storage credentials (object-storage.service.ts).
+          actions: ['sts:AssumeRole'],
+          resources: [s3AccessRoleArn],
+        },
+        {
+          // VolumeManager's exact bucket-lifecycle surface (volume.manager.ts
+          // create/tag, delete-s3-bucket.ts empty/delete). Deliberately NOT
+          // s3:* — that tail (PutBucketPolicy/PutBucketAcl/…) is what would
+          // let a compromised API expose volume buckets publicly. A new S3
+          // call in code needs a matching action added here.
+          actions: [
+            's3:CreateBucket',
+            's3:PutBucketTagging',
+            's3:ListBucket',
+            's3:ListBucketVersions',
+            's3:DeleteObject',
+            's3:DeleteObjectVersion',
+            's3:DeleteBucket',
+          ],
+          resources: ['arn:aws:s3:::boxlite-volume-*', 'arn:aws:s3:::boxlite-volume-*/*'],
         },
       ],
       scaling: { min: 1, max: 4 },
@@ -363,15 +401,16 @@ export default $config({
           OIDC_POST_LOGOUT_REDIRECT_ALLOWLIST: process.env.OIDC_POST_LOGOUT_REDIRECT_ALLOWLIST,
         }),
 
-        // S3 (API signs STS creds for per-box buckets)
+        // S3 (API mints STS creds for per-box buckets). No S3_ACCESS_KEY /
+        // S3_SECRET_KEY: the API uses the SDK default chain (task role) and
+        // assumes S3_ROLE_NAME for box-scoped credentials. Static keys remain
+        // supported only for S3-compatible deployments (MinIO).
         S3_ENDPOINT: $interpolate`https://s3.${aws.getRegionOutput().name}.amazonaws.com`,
         S3_STS_ENDPOINT: $interpolate`https://sts.${aws.getRegionOutput().name}.amazonaws.com`,
         S3_REGION: REGION,
-        S3_ACCESS_KEY: s3AccessKey.id,
-        S3_SECRET_KEY: s3AccessKey.secret,
         S3_DEFAULT_BUCKET: storage.name,
         S3_ACCOUNT_ID: aws.getCallerIdentityOutput().accountId,
-        S3_ROLE_NAME: 'BoxliteS3Role',
+        S3_ROLE_NAME: s3AccessRoleName,
 
         // Proxy
         PROXY_DOMAIN: envOr('PROXY_DOMAIN', `proxy.${stackDomain}`),
@@ -472,6 +511,32 @@ export default $config({
           ...(process.env.SVIX_SERVER_URL && { SVIX_SERVER_URL: process.env.SVIX_SERVER_URL }),
         }),
       },
+    })
+
+    // Assumed by the Api task role to vend per-org box storage credentials
+    // (see section 3). The permission set mirrors the session policy's action
+    // set in object-storage.service.ts, so the intersection that boxes
+    // receive is exactly the per-org prefix scope.
+    const s3AccessRole = new aws.iam.Role('S3AccessRole', {
+      name: s3AccessRoleName,
+      assumeRolePolicy: api.nodes.taskRole.arn.apply((taskRoleArn) =>
+        JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [{ Effect: 'Allow', Principal: { AWS: taskRoleArn }, Action: 'sts:AssumeRole' }],
+        }),
+      ),
+    })
+    new aws.iam.RolePolicy('S3AccessRolePolicy', {
+      role: s3AccessRole.name,
+      policy: storage.arn.apply((bucketArn) =>
+        JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject'], Resource: [`${bucketArn}/*`] },
+            { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: [bucketArn] },
+          ],
+        }),
+      ),
     })
 
     // ─── 7. EDGE SERVICES ────────────────────────────────────────────────────
@@ -613,11 +678,19 @@ export default $config({
       role: runnerRole.name,
       policy: JSON.stringify({
         Version: '2012-10-17',
+        // Exactly Mountpoint for Amazon S3's documented permission set —
+        // mount-s3 is the runner's only S3 consumer (volumes.go). Bucket
+        // lifecycle (create/tag/delete) lives on the Api task role instead.
         Statement: [
           {
             Effect: 'Allow',
-            Action: ['s3:*'],
-            Resource: ['arn:aws:s3:::boxlite-volume-*', 'arn:aws:s3:::boxlite-volume-*/*'],
+            Action: ['s3:ListBucket'],
+            Resource: ['arn:aws:s3:::boxlite-volume-*'],
+          },
+          {
+            Effect: 'Allow',
+            Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload'],
+            Resource: ['arn:aws:s3:::boxlite-volume-*/*'],
           },
         ],
       }),
