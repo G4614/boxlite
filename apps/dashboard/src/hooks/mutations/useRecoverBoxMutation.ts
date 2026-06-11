@@ -10,6 +10,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 interface RecoverBoxVariables {
   boxId: string
+  detailRef?: string
 }
 
 export const useRecoverBoxMutation = () => {
@@ -21,10 +22,15 @@ export const useRecoverBoxMutation = () => {
     mutationFn: async ({ boxId }: RecoverBoxVariables) => {
       await boxApi.recoverBox(boxId, selectedOrganization?.id)
     },
-    onSuccess: (_, { boxId }) => {
+    onSuccess: (_, { boxId, detailRef }) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.boxes.detail(selectedOrganization?.id ?? '', boxId),
       })
+      if (detailRef && detailRef !== boxId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.boxes.detail(selectedOrganization?.id ?? '', detailRef),
+        })
+      }
     },
   })
 }

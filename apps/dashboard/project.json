@@ -1,7 +1,7 @@
 {
   "name": "dashboard",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "sourceRoot": "apps/dashboard/src",
+  "sourceRoot": "dashboard/src",
   "projectType": "application",
   "tags": [],
   "targets": {
@@ -14,7 +14,7 @@
       "dependsOn": [
         {
           "target": "build",
-          "projects": "sdk-typescript"
+          "projects": ["sdk-typescript", "analytics-api-client"]
         }
       ]
     },

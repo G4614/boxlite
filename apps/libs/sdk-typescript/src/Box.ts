@@ -11,8 +11,6 @@ import {
   PaginatedBoxes as PaginatedBoxesDto,
   PortPreviewUrl,
   BoxVolume,
-  BuildInfo,
-  BoxBackupStateEnum,
   Configuration,
   SshAccessDto,
   SshAccessValidationDto,
@@ -58,8 +56,8 @@ export interface BoxCodeToolbox {
  *   Currently supports only Python. For other languages, use the `process.codeRun` method.
  * @property {ComputerUse} computerUse - Computer use operations interface for desktop automation
  * @property {string} id - Unique identifier for the Box
+ * @property {string} boxId - Public Box ID shown to users and SDK clients
  * @property {string} organizationId - Organization ID of the Box
- * @property {string} [snapshot] - BoxLite snapshot used to create the Box
  * @property {string} user - OS user running in the Box
  * @property {Record<string, string>} env - Environment variables set in the Box
  * @property {Record<string, string>} labels - Custom labels attached to the Box
@@ -72,13 +70,9 @@ export interface BoxCodeToolbox {
  * @property {BoxState} state - Current state of the Box (e.g., "started", "stopped")
  * @property {string} [errorReason] - Error message if Box is in error state
  * @property {boolean} [recoverable] - Whether the Box error is recoverable.
- * @property {BoxBackupStateEnum} [backupState] - Current state of Box backup
- * @property {string} [backupCreatedAt] - When the backup was created
  * @property {number} [autoStopInterval] - Auto-stop interval in minutes
- * @property {number} [autoArchiveInterval] - Auto-archive interval in minutes
  * @property {number} [autoDeleteInterval] - Auto-delete interval in minutes
  * @property {Array<BoxVolume>} [volumes] - Volumes attached to the Box
- * @property {BuildInfo} [buildInfo] - Build information for the Box if it was created from dynamic build
  * @property {string} [createdAt] - When the Box was created
  * @property {string} [updatedAt] - When the Box was last updated
  * @property {boolean} networkBlockAll - Whether to block all network access for the Box
@@ -94,9 +88,9 @@ export class Box implements BoxDto {
   public readonly codeInterpreter: CodeInterpreter
 
   public id!: string
+  public boxId!: string
   public name!: string
   public organizationId!: string
-  public snapshot?: string
   public user!: string
   public env!: Record<string, string>
   public labels!: Record<string, string>
@@ -109,13 +103,9 @@ export class Box implements BoxDto {
   public state?: BoxState
   public errorReason?: string
   public recoverable?: boolean
-  public backupState?: BoxBackupStateEnum
-  public backupCreatedAt?: string
   public autoStopInterval?: number
-  public autoArchiveInterval?: number
   public autoDeleteInterval?: number
   public volumes?: Array<BoxVolume>
-  public buildInfo?: BuildInfo
   public createdAt?: string
   public updatedAt?: string
   public networkBlockAll!: boolean
@@ -487,31 +477,6 @@ export class Box implements BoxDto {
   }
 
   /**
-   * Set the auto-archive interval for the Box.
-   *
-   * The Box will automatically archive after being continuously stopped for the specified interval.
-   *
-   * @param {number} interval - Number of minutes after which a continuously stopped Box will be auto-archived.
-   *                           Set to 0 for the maximum interval. Default is 7 days.
-   * @returns {Promise<void>}
-   * @throws {BoxliteError} - `BoxliteError` - If interval is not a non-negative integer
-   *
-   * @example
-   * // Auto-archive after 1 hour
-   * await box.setAutoArchiveInterval(60);
-   * // Or use the maximum interval
-   * await box.setAutoArchiveInterval(0);
-   */
-  @WithInstrumentation()
-  public async setAutoArchiveInterval(interval: number): Promise<void> {
-    if (!Number.isInteger(interval) || interval < 0) {
-      throw new BoxliteError('autoArchiveInterval must be a non-negative integer')
-    }
-    await this.boxApi.setAutoArchiveInterval(this.id, interval)
-    this.autoArchiveInterval = interval
-  }
-
-  /**
    * Set the auto-delete interval for the Box.
    *
    * The Box will automatically delete after being continuously stopped for the specified interval.
@@ -574,18 +539,6 @@ export class Box implements BoxDto {
    */
   public async expireSignedPreviewUrl(port: number, token: string): Promise<void> {
     await this.boxApi.expireSignedPortPreviewUrl(this.id, port, token)
-  }
-
-  /**
-   * Archives the box, making it inactive and preserving its state. When boxes are archived, the entire filesystem
-   * state is moved to cost-effective object storage, making it possible to keep boxes available for an extended period.
-   * The tradeoff between archived and stopped states is that starting an archived box takes more time, depending on its size.
-   * Box must be stopped before archiving.
-   */
-  @WithInstrumentation()
-  public async archive(): Promise<void> {
-    await this.boxApi.archiveBox(this.id)
-    await this.refreshData()
   }
 
   /**
@@ -712,9 +665,9 @@ export class Box implements BoxDto {
    */
   private processBoxDto(boxDto: BoxDto) {
     this.id = boxDto.id
+    this.boxId = boxDto.boxId
     this.name = boxDto.name
     this.organizationId = boxDto.organizationId
-    this.snapshot = boxDto.snapshot
     this.user = boxDto.user
     this.env = boxDto.env
     this.labels = boxDto.labels
@@ -727,13 +680,9 @@ export class Box implements BoxDto {
     this.state = boxDto.state
     this.errorReason = boxDto.errorReason
     this.recoverable = boxDto.recoverable
-    this.backupState = boxDto.backupState
-    this.backupCreatedAt = boxDto.backupCreatedAt
     this.autoStopInterval = boxDto.autoStopInterval
-    this.autoArchiveInterval = boxDto.autoArchiveInterval
     this.autoDeleteInterval = boxDto.autoDeleteInterval
     this.volumes = boxDto.volumes
-    this.buildInfo = boxDto.buildInfo
     this.createdAt = boxDto.createdAt
     this.updatedAt = boxDto.updatedAt
     this.networkBlockAll = boxDto.networkBlockAll

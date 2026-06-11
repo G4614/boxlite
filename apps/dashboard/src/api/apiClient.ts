@@ -15,12 +15,10 @@ import {
   ApiKeysApi,
   AuditApi,
   Configuration,
-  DockerRegistryApi,
   OrganizationsApi,
   RegionsApi,
   RunnersApi,
   BoxApi,
-  SnapshotsApi,
   ToolboxApi,
   UsersApi,
   VolumesApi,
@@ -31,11 +29,9 @@ import { BoxliteError } from './errors'
 
 export class ApiClient {
   private config: Configuration
-  private _snapshotApi: SnapshotsApi
   private _boxApi: BoxApi
   private _userApi: UsersApi
   private _apiKeyApi: ApiKeysApi
-  private _dockerRegistryApi: DockerRegistryApi
   private _organizationsApi: OrganizationsApi
   private _billingApi: BillingApiClient
   private _volumeApi: VolumesApi
@@ -54,6 +50,13 @@ export class ApiClient {
     })
 
     const axiosInstance = axios.create()
+    axiosInstance.interceptors.request.use((request) => {
+      request.headers?.delete?.('User-Agent')
+      if (request.headers) {
+        delete (request.headers as Record<string, unknown>)['User-Agent']
+      }
+      return request
+    })
     axiosInstance.interceptors.response.use(
       (response) => {
         return response
@@ -72,11 +75,9 @@ export class ApiClient {
     )
 
     // Initialize APIs
-    this._snapshotApi = new SnapshotsApi(this.config, undefined, axiosInstance)
     this._boxApi = new BoxApi(this.config, undefined, axiosInstance)
     this._userApi = new UsersApi(this.config, undefined, axiosInstance)
     this._apiKeyApi = new ApiKeysApi(this.config, undefined, axiosInstance)
-    this._dockerRegistryApi = new DockerRegistryApi(this.config, undefined, axiosInstance)
     this._organizationsApi = new OrganizationsApi(this.config, undefined, axiosInstance)
     this._billingApi = new BillingApiClient(config.billingApiUrl || window.location.origin, accessToken)
     this._volumeApi = new VolumesApi(this.config, undefined, axiosInstance)
@@ -108,10 +109,6 @@ export class ApiClient {
     this.config.accessToken = accessToken
   }
 
-  public get snapshotApi() {
-    return this._snapshotApi
-  }
-
   public get boxApi() {
     return this._boxApi
   }
@@ -122,10 +119,6 @@ export class ApiClient {
 
   public get apiKeyApi() {
     return this._apiKeyApi
-  }
-
-  public get dockerRegistryApi() {
-    return this._dockerRegistryApi
   }
 
   public get organizationsApi() {

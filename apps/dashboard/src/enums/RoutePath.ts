@@ -19,8 +19,10 @@ export enum RoutePath {
   // Dashboard sub-routes
   KEYS = '/dashboard/keys',
   BOXES = '/dashboard/boxes',
-  SNAPSHOTS = '/dashboard/snapshots',
-  REGISTRIES = '/dashboard/registries',
+  BILLING = '/dashboard/billing',
+  PRICING = '/dashboard/pricing',
+  ADMIN = '/dashboard/admin',
+  IMAGES = '/dashboard/images',
   VOLUMES = '/dashboard/volumes',
   LIMITS = '/dashboard/limits',
   BILLING_SPENDING = '/dashboard/billing/spending',
