@@ -41,7 +41,7 @@ const SUPPORTED_IMAGE_SOURCES: Array<{ envVar: string; fallbackRef: string }> = 
   // manifest fetches, so the runner pulls without credentials.
   {
     envVar: 'BOXLITE_PUBLIC_TEST_IMAGE',
-    fallbackRef: 'docker.io/library/alpine:3.21',
+    fallbackRef: 'docker.io/library/alpine:3.23',
   },
 ]
 
