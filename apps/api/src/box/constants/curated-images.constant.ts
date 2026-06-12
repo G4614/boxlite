@@ -33,6 +33,16 @@ const SUPPORTED_IMAGE_SOURCES: Array<{ envVar: string; fallbackRef: string }> = 
     fallbackRef:
       'ghcr.io/boxlite-ai/boxlite-agent-node@sha256:fcb8b840ab68567975853666c82fb6c59a3c1d14a0cdc31d7cbf3a01e6c6d247',
   },
+  // Anonymous-pullable test image. The three ghcr refs above need an
+  // OCI bearer token (Tokyo's runner is launched without GHCR_TOKEN
+  // because the SecretsManager wiring is env-gated on
+  // apps/infra/.env); e2e-cloud-test uses this entry so its boxes
+  // boot without per-stack auth setup. Docker Hub allows anonymous
+  // manifest fetches, so the runner pulls without credentials.
+  {
+    envVar: 'BOXLITE_PUBLIC_TEST_IMAGE',
+    fallbackRef: 'docker.io/library/alpine:3.21',
+  },
 ]
 
 /** Pinned OCI refs a box may boot from. The first entry is the default image. */

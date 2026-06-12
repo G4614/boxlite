@@ -324,6 +324,12 @@ jobs:
         env:
           BOXLITE_E2E_SKIP_PATH_VERIFY: '1'
           BOXLITE_E2E_PROFILE: p1
+          # Tokyo's runner is launched without GHCR_TOKEN, so its anonymous
+          # pull of the three boxlite-agent-* ghcr digests gets 401. Point
+          # the suite at docker.io/library/alpine:3.21 — the curated-image
+          # allowlist includes it explicitly for this case, and Docker Hub
+          # answers anonymous manifest requests.
+          BOXLITE_E2E_IMAGE: 'docker.io/library/alpine:3.21'
         run: |
           # pytest-timeout caps individual test wall time so a hung VM /
           # wedged exec doesn't burn the full 45-minute job timeout (which
