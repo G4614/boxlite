@@ -30,6 +30,22 @@ export class AddImageToBox1749700000000 implements MigrationInterface {
   name = 'AddImageToBox1749700000000'
 
   async up(queryRunner: QueryRunner): Promise<void> {
+    // Belt-and-suspenders: pre-#735/#736 schemas accumulated several
+    // box columns the new entity no longer references. Each `DROP COLUMN
+    // IF EXISTS` is a no-op on stacks that have already converged.
+    const obsoleteBoxColumns = [
+      'boxId', // collapsed into id by #735/0e6b8758
+      'autoArchiveInterval', // archive flow removed pre-launch
+      'backupErrorReason', // backup subsystem deleted in #7ec370b7
+      'backupRegistryId',
+      'backupSnapshot',
+      'snapshot', // snapshot/template subsystem deleted in #7ec370b7
+      'snapshotName',
+      'template',
+      'templateId',
+      'artifactRef', // runner artifact handoff deleted in #7ec370b7
+    ]
+
     await queryRunner.query(`
       DO $$
       BEGIN
@@ -40,15 +56,12 @@ export class AddImageToBox1749700000000 implements MigrationInterface {
           ALTER TABLE "box" ADD COLUMN "image" character varying NOT NULL DEFAULT '';
           ALTER TABLE "box" ALTER COLUMN "image" DROP DEFAULT;
         END IF;
-
-        IF EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_name = 'box' AND column_name = 'boxId'
-        ) THEN
-          ALTER TABLE "box" DROP COLUMN "boxId";
-        END IF;
       END$$;
     `)
+
+    for (const col of obsoleteBoxColumns) {
+      await queryRunner.query(`ALTER TABLE "box" DROP COLUMN IF EXISTS "${col}"`)
+    }
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
