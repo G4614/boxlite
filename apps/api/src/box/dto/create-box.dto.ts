@@ -19,6 +19,10 @@ export class CreateBoxDto {
   @IsString()
   name?: string
 
+  @IsOptional()
+  @IsString()
+  image?: string
+
   @ApiPropertyOptional({
     description: 'The user associated with the project',
     example: 'boxlite',

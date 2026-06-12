@@ -8,6 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Sheet,
   SheetContent,
@@ -36,6 +37,20 @@ import { ScrollArea } from '../ui/scroll-area'
 
 const NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 const MAX_INTERVAL_MINUTES = 2_147_483_647
+// Pinned OCI refs the API accepts (mirrors the server-side allowlist fallbacks in
+// apps/api/src/box/constants/curated-images.constant.ts -- keep in sync on rotation).
+const SUPPORTED_IMAGES = [
+  'ghcr.io/boxlite-ai/boxlite-agent-base@sha256:834dcb65465985fc2f648451d76c81d166bc7672391c9064a0a115ce6306c85f',
+  'ghcr.io/boxlite-ai/boxlite-agent-python@sha256:80d562a57f4bc12def4e54dbdb9e7d26d3268fe0767a2955ab5ad718041145d6',
+  'ghcr.io/boxlite-ai/boxlite-agent-node@sha256:fcb8b840ab68567975853666c82fb6c59a3c1d14a0cdc31d7cbf3a01e6c6d247',
+] as const
+type SupportedImage = (typeof SUPPORTED_IMAGES)[number]
+
+const SUPPORTED_IMAGE_OPTIONS: Array<{ key: SupportedImage; label: string; description: string }> = [
+  { key: SUPPORTED_IMAGES[0], label: 'Base', description: 'Core runtime' },
+  { key: SUPPORTED_IMAGES[1], label: 'Python', description: 'Python tooling' },
+  { key: SUPPORTED_IMAGES[2], label: 'Node', description: 'Node.js tooling' },
+]
 
 const isOptionalIntegerInRange = (value: string | undefined, min: number) => {
   const trimmedValue = value?.trim()
@@ -65,6 +80,7 @@ const formSchema = z.object({
     .string()
     .optional()
     .refine((val) => !val || NAME_REGEX.test(val), 'Only letters, digits, dots, underscores and dashes are allowed'),
+  image: z.enum(SUPPORTED_IMAGES),
   autoStopInterval: z
     .string()
     .optional()
@@ -82,6 +98,7 @@ type FormValues = z.input<typeof formSchema>
 
 const defaultValues: FormValues = {
   name: '',
+  image: SUPPORTED_IMAGES[0],
   autoStopInterval: '',
   autoDeleteInterval: '',
   cpu: '',
@@ -155,11 +172,9 @@ export const CreateBoxSheet = ({
         }
         const hasResourceOverrides = Object.values(resources).some((resource) => resource !== undefined)
 
-        // TODO(image-rewrite): the image/template picker was removed with the image/template
-        // subsystem; box creation no longer selects an image. Rebuild image selection here once
-        // the new model lands.
         const box = await createBoxMutation.mutateAsync({
           name: value.name?.trim() || undefined,
+          image: value.image,
           public: false,
           networkBlockAll: false,
           autoStopInterval: parseOptionalInteger(value.autoStopInterval),
@@ -248,7 +263,36 @@ export const CreateBoxSheet = ({
               }}
             </form.Field>
 
-            {/* TODO(image-rewrite): image/template picker removed with the image/template subsystem; rebuild here. */}
+            <form.Field name="image">
+              {(field) => (
+                <Field>
+                  <FieldLabel className="text-sm font-semibold">Image</FieldLabel>
+                  <RadioGroup
+                    value={field.state.value}
+                    onValueChange={(value) => field.handleChange(value as SupportedImage)}
+                    className="grid gap-2 sm:grid-cols-3"
+                  >
+                    {SUPPORTED_IMAGE_OPTIONS.map((option) => (
+                      <div
+                        key={option.key}
+                        className={cn(
+                          'flex min-w-0 items-start gap-3 rounded-md border border-input bg-background p-3 transition-colors hover:bg-accent',
+                          field.state.value === option.key && 'border-primary bg-primary/5',
+                        )}
+                      >
+                        <RadioGroupItem id={`create-box-image-${option.key}`} value={option.key} className="mt-0.5" />
+                        <Label htmlFor={`create-box-image-${option.key}`} className="min-w-0 flex-1 cursor-pointer">
+                          <span className="block truncate text-sm font-medium">{option.label}</span>
+                          <span className="mt-1 block truncate text-xs font-normal text-muted-foreground">
+                            {option.description}
+                          </span>
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </Field>
+              )}
+            </form.Field>
 
             <Accordion
               type="single"
