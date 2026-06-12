@@ -238,6 +238,18 @@ export class Box {
             BoxState.ARCHIVED,
             BoxState.ERROR,
             BoxState.ARCHIVING,
+            // Transient-state destroys are now reachable: when a CREATE_BOX
+            // job stalls the box stays in CREATING until the runner times
+            // it out, but the test fixture (and any caller using ?force=true)
+            // needs to tear it down immediately. Box.destroy gates the
+            // unsafe destruction on the force flag at the service layer;
+            // here we just need to let the state transition through.
+            BoxState.UNKNOWN,
+            BoxState.CREATING,
+            BoxState.STARTING,
+            BoxState.STOPPING,
+            BoxState.RESTORING,
+            BoxState.RESIZING,
           ].includes(this.state)
         ) {
           break
