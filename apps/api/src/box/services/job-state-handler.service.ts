@@ -112,6 +112,12 @@ export class JobStateHandlerService {
       } else if (job.status === JobStatus.FAILED) {
         this.logger.error(`CREATE_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
         updateData.state = BoxState.ERROR
+        // Clear the pending flag so /destroy can run. createFromTemplate
+        // sets pending=true to gate concurrent state changes during the
+        // CREATE_BOX → STARTED transition; on FAILED we never reach
+        // STARTED and nothing else will clear it, so destroy() will
+        // permanently reject with "Box state change in progress".
+        updateData.pending = false
         const { recoverable, errorReason } = sanitizeBoxError(job.errorMessage)
         updateData.errorReason = errorReason || 'Failed to create box'
         updateData.recoverable = recoverable
