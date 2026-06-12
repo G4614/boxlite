@@ -147,8 +147,16 @@ export class BoxliteBoxController {
     targetType: AuditTarget.BOX,
     targetIdFromRequest: (req) => req.params.boxId,
   })
-  async removeBox(@AuthContext() authContext: OrganizationAuthContext, @Param('boxId') boxId: string) {
-    await this.boxService.destroy(boxId, authContext.organizationId)
+  async removeBox(
+    @AuthContext() authContext: OrganizationAuthContext,
+    @Param('boxId') boxId: string,
+    // Forward the SDK's force flag — the boxlite Python SDK adds
+    // `?force=true` on rt.remove(force=True), which test fixtures use to
+    // tear down boxes regardless of whether the CREATE_BOX job is still
+    // pending or the box ended up ERROR.
+    @Query('force') force?: string,
+  ) {
+    await this.boxService.destroy(boxId, authContext.organizationId, force === 'true')
   }
 
   @Post(':boxId/start')

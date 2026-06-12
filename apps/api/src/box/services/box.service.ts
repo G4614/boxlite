@@ -722,10 +722,14 @@ export class BoxService {
     await this.redis.del(lockKey)
   }
 
-  async destroy(boxIdOrName: string, organizationId?: string): Promise<Box> {
+  async destroy(boxIdOrName: string, organizationId?: string, force = false): Promise<Box> {
     const box = await this.findOneByIdOrName(boxIdOrName, organizationId)
 
-    if (box.pending) {
+    // `force` lets callers tear down a box even while a state-change job
+    // (typically CREATE_BOX) is still in-flight. Test fixtures and SDK
+    // remove(force=True) need this; without it, every box that stalled
+    // mid-create stays undeletable until the runner times the job out.
+    if (box.pending && !force) {
       throw new BoxError('Box state change in progress')
     }
 
@@ -733,7 +737,10 @@ export class BoxService {
 
     const updatedBox = await this.boxRepository.updateWhere(box.id, {
       updateData,
-      whereCondition: { pending: box.pending, state: box.state },
+      // CAS-write so concurrent transitions can't race us out of the
+      // expected (pending, state) tuple. Force callers want to clobber
+      // any in-flight state, so they bypass the CAS guard.
+      whereCondition: force ? {} : { pending: box.pending, state: box.state },
     })
 
     this.eventEmitter.emit(BoxEvents.DESTROYED, new BoxDestroyedEvent(updatedBox))
