@@ -246,17 +246,28 @@ jobs:
             | grep -E '\|4\|8192\|20$' \
             || { echo "::error::admin-org quota SELECT did not show target values (|4|8192|20)"; exit 1; }
 
-      - name: Purge stale named-fixture box rows (idempotent)
-        # test_create_named_box uses a stable name ('e2e-test-box') and
-        # cleans up via `auto_remove=True` only when the test reaches
-        # its `finally`. Any prior run that failed before that point
-        # (e.g. runs from before the image-pull fix in libboxlite/store)
-        # leaves the row behind, and the next run then 409s with
-        # "Box with name e2e-test-box already exists" at [1%].
-        # Surgical delete: only the named-fixture rows on the admin's
-        # default org (no broad wipe — preserves any in-flight test
-        # state for unrelated suites). box_last_activity / ssh_access
-        # cascade-delete via FK.
+      - name: Purge stale e2e box rows (idempotent)
+        # Two distinct cleanup problems on the shared Tokyo CI DB:
+        #
+        # (1) test_create_named_box uses the stable name 'e2e-test-box'
+        #     and only cleans up in its `finally`. A prior run that died
+        #     before that point leaves the row behind, and the next run
+        #     409s at [1%].
+        #
+        # (2) Earlier runs of the XPASS-strict quota tests POSTed
+        #     `cpus=999` against the API back when there was no boundary
+        #     enforcement, leaving Box rows whose `cpu` column is 999.
+        #     The Python SDK's BoxInfo struct types `cpus: u8` (max 255),
+        #     so every test_list_info* that round-trips the response
+        #     blows up with `invalid value: integer 999, expected u8`.
+        #
+        # Surgical, provably-test-only scope on the admin's default org:
+        #   - the fixture name
+        #   - the exact literal cpu value the over-quota cases POST
+        #     (999 — way outside max_cpu_per_box=4 and the
+        #     ADMIN_TOTAL_CPU_QUOTA=32 envelope, so it cannot be
+        #     legitimate state).
+        # box_last_activity / ssh_access cascade-delete via FK.
         run: |
           set -euo pipefail
           CLUSTER="${{ steps.resources.outputs.cluster }}"
@@ -271,15 +282,15 @@ jobs:
                 if [ "$TD" = "$PRIMARY_TD" ]; then echo "$arn"; break; fi
             done)
           [ -n "$TASK" ] || { echo "::error::No Api task on PRIMARY deployment"; exit 1; }
-          SQL='DELETE FROM "box" WHERE "name" = '\''e2e-test-box'\'' AND "organizationId" = (SELECT "organizationId" FROM "organization_user" WHERE "userId" = '\''boxlite-admin'\'' AND "isDefaultForUser" = true LIMIT 1); SELECT count(*) FROM "box" WHERE "name" = '\''e2e-test-box'\'' AND "organizationId" = (SELECT "organizationId" FROM "organization_user" WHERE "userId" = '\''boxlite-admin'\'' AND "isDefaultForUser" = true LIMIT 1);'
+          SQL='DELETE FROM "box" WHERE "organizationId" = (SELECT "organizationId" FROM "organization_user" WHERE "userId" = '\''boxlite-admin'\'' AND "isDefaultForUser" = true LIMIT 1) AND ("name" = '\''e2e-test-box'\'' OR "cpu" = 999); SELECT count(*) FROM "box" WHERE "organizationId" = (SELECT "organizationId" FROM "organization_user" WHERE "userId" = '\''boxlite-admin'\'' AND "isDefaultForUser" = true LIMIT 1) AND ("name" = '\''e2e-test-box'\'' OR "cpu" = 999);'
           SQL_B64=$(printf '%s' "$SQL" | base64 -w0)
           OUT=/tmp/ecs_purge.log
           aws ecs execute-command --cluster "$CLUSTER" --task "$TASK" --container Api --interactive \
             --command "sh -c \"echo ${SQL_B64} | base64 -d | PAGER=cat PGPASSWORD=\\\"\\\$DB_PASSWORD\\\" psql -h \\\"\\\$DB_HOST\\\" -U \\\"\\\$DB_USERNAME\\\" -d \\\"\\\$DB_DATABASE\\\" -A -t -P pager=off -v ON_ERROR_STOP=1 -f -\"" \
             2>&1 | tee "$OUT"
-          # Post-purge: zero rows with the fixture name on this org.
+          # Post-purge: zero rows matching the wipe predicate on this org.
           tr -d '\r' < "$OUT" | grep -E '^0$' \
-            || { echo "::error::post-purge SELECT count for e2e-test-box did not show 0"; exit 1; }
+            || { echo "::error::post-purge SELECT count did not show 0"; exit 1; }
 
       # ──────────────────────────────────────────────────────────────────
       # Build SDK from THIS checkout (path_prefix and other source-tree
