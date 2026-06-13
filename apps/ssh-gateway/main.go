@@ -31,11 +31,42 @@ const (
 )
 
 type SSHGateway struct {
-	port       int
-	apiClient  *apiclient.APIClient
-	hostKey    ssh.Signer
-	privateKey ssh.Signer
-	publicKey  ssh.PublicKey
+	port                  int
+	apiClient             *apiclient.APIClient
+	hostKey               ssh.Signer
+	privateKey            ssh.Signer
+	publicKey             ssh.PublicKey
+	runnerHostKeyCallback ssh.HostKeyCallback
+}
+
+// buildRunnerHostKeyCallback returns the HostKeyCallback used for the
+// gateway→runner SSH hop. When RUNNER_HOST_KEY (base64-encoded runner public
+// host key, authorized_keys or wire format) is configured, the runner's host
+// key is pinned via ssh.FixedHostKey, so a MITM on the gateway→runner path can
+// no longer impersonate the runner and intercept the proxied shell session.
+// When it is empty the previous (unverified) behavior is preserved so existing
+// deployments are not broken; the boolean reports whether verification is on so
+// the caller can log the downgrade.
+func buildRunnerHostKeyCallback(b64Key string) (ssh.HostKeyCallback, bool, error) {
+	if strings.TrimSpace(b64Key) == "" {
+		return ssh.InsecureIgnoreHostKey(), false, nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(b64Key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to base64 decode RUNNER_HOST_KEY: %w", err)
+	}
+
+	// Accept either authorized_keys text ("ssh-ed25519 AAAA...") or raw wire format.
+	pub, _, _, _, err := ssh.ParseAuthorizedKey(decoded)
+	if err != nil {
+		pub, err = ssh.ParsePublicKey(decoded)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to parse RUNNER_HOST_KEY as public key: %w", err)
+		}
+	}
+
+	return ssh.FixedHostKey(pub), true, nil
 }
 
 func main() {
@@ -99,12 +130,23 @@ func main() {
 	// Generate public key from private key
 	publicKey := privateKey.PublicKey()
 
+	runnerHostKeyCallback, runnerHostKeyVerified, err := buildRunnerHostKeyCallback(getEnv("RUNNER_HOST_KEY", ""))
+	if err != nil {
+		log.Fatalf("Failed to configure runner host key verification: %v", err)
+	}
+	if runnerHostKeyVerified {
+		log.Printf("Runner host key pinned from RUNNER_HOST_KEY (gateway→runner host key verification enabled)")
+	} else {
+		log.Printf("WARNING: RUNNER_HOST_KEY not set; gateway→runner host key verification is DISABLED (MITM possible). Set RUNNER_HOST_KEY to the runner's base64 public host key to enable pinning.")
+	}
+
 	gateway := &SSHGateway{
-		port:       port,
-		apiClient:  apiClient,
-		hostKey:    hostKey,
-		privateKey: privateKey,
-		publicKey:  publicKey,
+		port:                  port,
+		apiClient:             apiClient,
+		hostKey:               hostKey,
+		privateKey:            privateKey,
+		publicKey:             publicKey,
+		runnerHostKeyCallback: runnerHostKeyCallback,
 	}
 
 	log.Printf("Host key loaded from SSH_HOST_KEY environment variable (base64 decoded)")
@@ -395,7 +437,7 @@ func (g *SSHGateway) connectToRunner(boxId string, runnerDomain string, signer s
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: g.runnerHostKeyCallback,
 		Timeout:         30 * time.Second,
 	}
 
