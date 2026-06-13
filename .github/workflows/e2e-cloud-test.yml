@@ -246,6 +246,41 @@ jobs:
             | grep -E '\|4\|8192\|20$' \
             || { echo "::error::admin-org quota SELECT did not show target values (|4|8192|20)"; exit 1; }
 
+      - name: Purge stale named-fixture box rows (idempotent)
+        # test_create_named_box uses a stable name ('e2e-test-box') and
+        # cleans up via `auto_remove=True` only when the test reaches
+        # its `finally`. Any prior run that failed before that point
+        # (e.g. runs from before the image-pull fix in libboxlite/store)
+        # leaves the row behind, and the next run then 409s with
+        # "Box with name e2e-test-box already exists" at [1%].
+        # Surgical delete: only the named-fixture rows on the admin's
+        # default org (no broad wipe — preserves any in-flight test
+        # state for unrelated suites). box_last_activity / ssh_access
+        # cascade-delete via FK.
+        run: |
+          set -euo pipefail
+          CLUSTER="${{ steps.resources.outputs.cluster }}"
+          PRIMARY_TD=$(aws ecs describe-services --cluster "$CLUSTER" --services Api \
+            --query 'services[0].deployments[?status==`PRIMARY`]|[0].taskDefinition' --output text)
+          TASK=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name Api \
+            --query 'taskArns[]' --output text \
+            | tr '\t' '\n' \
+            | while read -r arn; do
+                TD=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$arn" \
+                    --query 'tasks[0].taskDefinitionArn' --output text)
+                if [ "$TD" = "$PRIMARY_TD" ]; then echo "$arn"; break; fi
+            done)
+          [ -n "$TASK" ] || { echo "::error::No Api task on PRIMARY deployment"; exit 1; }
+          SQL='DELETE FROM "box" WHERE "name" = '\''e2e-test-box'\'' AND "organizationId" = (SELECT "organizationId" FROM "organization_user" WHERE "userId" = '\''boxlite-admin'\'' AND "isDefaultForUser" = true LIMIT 1); SELECT count(*) FROM "box" WHERE "name" = '\''e2e-test-box'\'' AND "organizationId" = (SELECT "organizationId" FROM "organization_user" WHERE "userId" = '\''boxlite-admin'\'' AND "isDefaultForUser" = true LIMIT 1);'
+          SQL_B64=$(printf '%s' "$SQL" | base64 -w0)
+          OUT=/tmp/ecs_purge.log
+          aws ecs execute-command --cluster "$CLUSTER" --task "$TASK" --container Api --interactive \
+            --command "sh -c \"echo ${SQL_B64} | base64 -d | PAGER=cat PGPASSWORD=\\\"\\\$DB_PASSWORD\\\" psql -h \\\"\\\$DB_HOST\\\" -U \\\"\\\$DB_USERNAME\\\" -d \\\"\\\$DB_DATABASE\\\" -A -t -P pager=off -v ON_ERROR_STOP=1 -f -\"" \
+            2>&1 | tee "$OUT"
+          # Post-purge: zero rows with the fixture name on this org.
+          tr -d '\r' < "$OUT" | grep -E '^0$' \
+            || { echo "::error::post-purge SELECT count for e2e-test-box did not show 0"; exit 1; }
+
       # ──────────────────────────────────────────────────────────────────
       # Build SDK from THIS checkout (path_prefix and other source-tree
       # additions may be ahead of the PyPI release with the same version
@@ -334,9 +369,17 @@ jobs:
           # pytest-timeout caps individual test wall time so a hung VM /
           # wedged exec doesn't burn the full 45-minute job timeout (which
           # would prevent the on-failure log capture step from running).
+          #
+          # --timeout-method=signal raises a Timeout exception in the test
+          # via SIGALRM (UNIX-only, GHA runners are Linux). The previous
+          # `thread` method dumps a stack and then `os._exit(99)`s, which
+          # killed pytest itself the first time a single test hung —
+          # leaving the rest of the suite uncovered and the FAILURES
+          # section unprinted. Signal lets the timed-out test fail in
+          # place and pytest carries on to the next test.
           timeout 35m python3 -m pytest scripts/test/e2e/cases/ \
               -v --tb=short --no-header -p no:cacheprovider \
-              --timeout=180 --timeout-method=thread \
+              --timeout=180 --timeout-method=signal \
               --junit-xml=pytest-junit.xml
 
       - name: Upload pytest junit XML
