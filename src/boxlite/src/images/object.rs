@@ -185,12 +185,15 @@ impl ImageObject {
 
         let layers = &self.manifest.layers;
         if diff_ids.len() != layers.len() {
-            tracing::warn!(
-                "DiffID count ({}) doesn't match layer count ({}), skipping verification",
+            // The config declares rootfs.diff_ids; OCI requires exactly one per
+            // layer. A non-matching count is a malformed or tampered manifest, so
+            // fail closed instead of silently skipping verification (which would
+            // let an attacker disable DiffID checks by supplying a short list).
+            return Err(BoxliteError::Image(format!(
+                "DiffID count ({}) does not match layer count ({}); refusing to use image with inconsistent rootfs.diff_ids",
                 diff_ids.len(),
                 layers.len()
-            );
-            return Ok(());
+            )));
         }
 
         for (i, (layer, diff_id)) in layers.iter().zip(diff_ids.iter()).enumerate() {
@@ -276,5 +279,81 @@ impl std::fmt::Display for ImageObject {
             self.reference,
             self.manifest.layers.len()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::images::blob_source::{BlobSource, LocalBundleBlobSource};
+    use crate::images::manager::{ImageManifest, LayerInfo};
+    use std::path::PathBuf;
+
+    fn layer(digest: &str) -> LayerInfo {
+        LayerInfo {
+            digest: digest.to_string(),
+            media_type: "application/vnd.oci.image.layer.v1.tar+gzip".to_string(),
+            size: 1,
+        }
+    }
+
+    fn object_with(layers: Vec<LayerInfo>, diff_ids: Vec<String>) -> ImageObject {
+        let manifest = ImageManifest {
+            manifest_digest:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+            layers,
+            config_digest:
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    .to_string(),
+            diff_ids,
+        };
+        // count-mismatch is rejected before any blob is touched, so a dummy
+        // blob source with unused paths is sufficient.
+        let blob_source = BlobSource::LocalBundle(LocalBundleBlobSource::new(
+            PathBuf::from("/nonexistent/bundle"),
+            PathBuf::from("/nonexistent/cache"),
+        ));
+        ImageObject::new("test:image".to_string(), manifest, blob_source)
+    }
+
+    // A config that declares a different number of diff_ids than there are layers
+    // is malformed/tampered; verification must fail closed rather than silently
+    // skip (which would let an attacker disable DiffID checks). With the fix
+    // reverted this returns Ok and the assertion fails.
+    #[test]
+    fn verify_diff_ids_rejects_count_mismatch() {
+        let obj = object_with(
+            vec![layer(
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )],
+            vec![
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                    .to_string(),
+            ],
+        );
+        assert!(
+            obj.verify_diff_ids().is_err(),
+            "expected count-mismatch diff_ids to be rejected"
+        );
+    }
+
+    // Empty diff_ids (e.g. local bundles, or config not yet downloaded) remain a
+    // skip, not a hard failure — preserving existing behavior and avoiding
+    // breakage of legitimate local-bundle loads.
+    #[test]
+    fn verify_diff_ids_allows_empty() {
+        let obj = object_with(
+            vec![layer(
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )],
+            vec![],
+        );
+        assert!(
+            obj.verify_diff_ids().is_ok(),
+            "empty diff_ids should skip verification"
+        );
     }
 }
