@@ -324,6 +324,12 @@ jobs:
         env:
           BOXLITE_E2E_SKIP_PATH_VERIFY: '1'
           BOXLITE_E2E_PROFILE: p1
+          # Tokyo Api (post-#758) supportedImages = the 3 ghcr-pinned
+          # boxlite-agent-* digests only. The conftest default `alpine:3.23`
+          # is the short form and is no longer in the allowlist. Send the
+          # curated-images.constant.ts fallback for the base image; runner
+          # pulls it once GHCR_USERNAME/GHCR_TOKEN are wired on the Tokyo EC2.
+          BOXLITE_E2E_IMAGE: 'ghcr.io/boxlite-ai/boxlite-agent-base@sha256:834dcb65465985fc2f648451d76c81d166bc7672391c9064a0a115ce6306c85f'
         run: |
           # pytest-timeout caps individual test wall time so a hung VM /
           # wedged exec doesn't burn the full 45-minute job timeout (which
