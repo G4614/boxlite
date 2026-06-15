@@ -454,6 +454,11 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 			if err := OverrideTCPHandler(vn, tapConfig, tapConfig.Ec2MetadataAccess, tcpFilter, instance.ca, instance.secretMatcher); err != nil {
 				logrus.WithError(err).Error("TCP: failed to override handler")
 			}
+			// Optional UDP filtering (audit finding #2). Experimental and OFF by
+			// default — see forked_udp.go. Only enforces when allow_net is set.
+			if err := OverrideUDPHandlerIfEnabled(vn, tapConfig, tcpFilter, os.Getenv("BOXLITE_UDP_FILTER") == "true"); err != nil {
+				logrus.WithError(err).Error("UDP: failed to override handler")
+			}
 		}
 
 		// Store VirtualNetwork reference for stats collection
