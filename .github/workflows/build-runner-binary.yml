@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  actions: read  # download artifacts from the triggering "Build C SDK" run
 
 env:
   CARGO_TERM_COLOR: always
@@ -38,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read  # download artifacts from the triggering "Build C SDK" run
 
     steps:
       - uses: actions/checkout@v4
@@ -56,16 +58,60 @@ jobs:
           VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download prebuilt libboxlite.a
+      # Source `libboxlite.a` from the freshly-built "Build C SDK" artifact
+      # rather than the v${VERSION} release tarball. The release artifact
+      # lags `main` whenever the Go side adds a new C symbol before a new
+      # release is cut (e.g. `boxlite_rest_options_set_path_prefix` on main
+      # not in v0.9.5), which breaks the cgo link. Consuming the workflow
+      # artifact keeps Go and C in lockstep on the same commit.
+      - name: Resolve fresh Build C SDK run id
+        id: csdk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          # workflow_run trigger: the triggering Build C SDK run id (empty otherwise)
+          EVENT_C_RUN_ID: ${{ github.event.workflow_run.id }}
+          # workflow_dispatch: branch this workflow is dispatched on
+          DISPATCH_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_run" ] && [ -n "$EVENT_C_RUN_ID" ]; then
+            RUN_ID="$EVENT_C_RUN_ID"
+            echo "Using triggering workflow_run id=$RUN_ID"
+          else
+            RUN_ID=$(gh run list --repo "$REPO" --workflow "Build C SDK" \
+                       --branch "$DISPATCH_REF" --status success \
+                       --limit 1 --json databaseId --jq '.[0].databaseId')
+            if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+              echo "::error::No successful Build C SDK run found on branch=$DISPATCH_REF — run Build C SDK first." >&2
+              exit 1
+            fi
+            echo "Resolved latest successful Build C SDK run id=$RUN_ID on $DISPATCH_REF"
+          fi
+          echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Download libboxlite.a from Build C SDK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: c-sdk-linux-x64-gnu
+          path: /tmp/csdk
+          run-id: ${{ steps.csdk.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+
+      - name: Install libboxlite.a into sdks/go
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
+          # The c-sdk artifact contains exactly one tarball:
+          #   boxlite-c-v${VERSION}-linux-x64-gnu.tar.gz
+          # which expands to boxlite-c-v${VERSION}-linux-x64-gnu/lib/libboxlite.a
           ARCHIVE="boxlite-c-v${VERSION}-linux-x64-gnu.tar.gz"
-          URL="https://github.com/${GH_REPO}/releases/download/v${VERSION}/${ARCHIVE}"
-          echo "Downloading $URL"
-          curl -fsSL "${URL}" | tar xz -C /tmp/
+          tar xzf "/tmp/csdk/${ARCHIVE}" -C /tmp/
           cp "/tmp/boxlite-c-v${VERSION}-linux-x64-gnu/lib/libboxlite.a" sdks/go/libboxlite.a
+          ls -l sdks/go/libboxlite.a
 
       - name: Rewrite go.work for minimal modules
         run: |
