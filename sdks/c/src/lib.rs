@@ -18,6 +18,7 @@ mod metrics;
 mod options;
 mod rest;
 mod runtime;
+mod security;
 #[cfg(test)]
 mod tests;
 mod util;
@@ -56,6 +57,7 @@ pub type CImageInfoList = images::CImageInfoList;
 pub type CImagePullResult = images::CImagePullResult;
 pub type CRuntimeMetrics = metrics::CRuntimeMetrics;
 pub type BoxliteCommand = exec::BoxliteCommand;
+pub type CSecurityOptions = security::SecurityOptionsHandle;
 
 pub use box_handle::*;
 pub use copy::*;
@@ -68,4 +70,5 @@ pub use metrics::*;
 pub use options::*;
 pub use rest::*;
 pub use runtime::*;
+pub use security::*;
 pub use util::*;

@@ -186,7 +186,7 @@ type boxConfig struct {
 	detach     *bool
 	network    *NetworkSpec
 	secrets    []Secret
-	security   *bool // nil = runtime default (enabled); true = enabled; false = disabled
+	security   *SecurityOptions // nil = runtime default (enabled); non-nil = caller-owned spec attached via boxlite_options_set_security
 }
 
 type volumeEntry struct {
@@ -321,21 +321,38 @@ func buildAndFreeCOptions(image string, cfg *boxConfig) error {
 	return nil
 }
 
-// WithSecurity turns the host sandbox on or off.
-//
-// Security is a two-state switch: enabled (the default) applies the full
-// host-isolation profile (jailer master switch plus every supported
-// sub-protection); disabled turns the master switch and all sub-protections
-// off. Not calling this leaves the box on the runtime default (enabled).
+// WithSecurityOptions attaches a fine-grained SecurityOptions spec to
+// the box. Build the spec via NewSecurityOptions (the full host-
+// isolation profile — also the runtime default if WithSecurityOptions
+// is never called) or NewSecurityOptionsDisabled (master switch + all
+// sub-protections off), optionally tweak fields with its setters, then
+// pass it here. The caller retains ownership of `spec` and is
+// responsible for calling `spec.Close()` after the box has been
+// created (or sooner, if discarded).
 //
 // Examples:
 //
-//	box, err := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurity(true))  // full isolation (also the default)
-//	box, err := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurity(false)) // disable the sandbox for debugging
-func WithSecurity(enabled bool) BoxOption {
-	return func(c *boxConfig) { c.security = &enabled }
+//	// Equivalent of the old WithSecurity(true) — explicit, also the default.
+//	enabled, _ := boxlite.NewSecurityOptions()
+//	defer enabled.Close()
+//	box, _ := runtime.Create(ctx, "alpine:latest",
+//	    boxlite.WithSecurityOptions(enabled))
+//
+//	// Equivalent of the old WithSecurity(false) — opt out for debugging.
+//	disabled, _ := boxlite.NewSecurityOptionsDisabled()
+//	defer disabled.Close()
+//	box, _ := runtime.Create(ctx, "alpine:latest",
+//	    boxlite.WithSecurityOptions(disabled))
+//
+//	// Fine-grained: full isolation but with a custom chroot base + extra env.
+//	custom, _ := boxlite.NewSecurityOptions()
+//	defer custom.Close()
+//	custom.SetChrootBase("/srv/my-jails")
+//	custom.AddEnvAllowlist("MY_APP_DEBUG")
+//	box, _ := runtime.Create(ctx, "alpine:latest",
+//	    boxlite.WithSecurityOptions(custom))
+func WithSecurityOptions(spec *SecurityOptions) BoxOption {
+	return func(c *boxConfig) { c.security = spec }
 }
 
 func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
@@ -470,15 +487,11 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 	if cfg.detach != nil {
 		C.boxlite_options_set_detach(cOpts, boolToCInt(*cfg.detach))
 	}
-	if cfg.security != nil {
-		// Two-state switch applied directly on the options object (no preset
-		// string, nothing to validate), mirroring the network enable/disable
-		// setters.
-		if *cfg.security {
-			C.boxlite_options_set_security_enabled(cOpts)
-		} else {
-			C.boxlite_options_set_security_disabled(cOpts)
-		}
+	if cfg.security != nil && cfg.security.handle != nil {
+		// Fine-grained spec — clones the spec's SecurityOptions into the
+		// box options. The Go-side handle stays caller-owned; the box
+		// has its own copy after this call returns.
+		C.boxlite_options_set_security(cOpts, cfg.security.handle)
 	}
 	if cfg.entrypoint != nil {
 		cArgs, argc := toCStringArray(cfg.entrypoint)

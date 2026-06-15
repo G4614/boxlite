@@ -482,34 +482,94 @@ func TestBuildCOptions_MissingImageAndPath(t *testing.T) {
 // Security preset
 // ============================================================================
 //
-// `WithSecurity(bool)` records a two-state switch on the boxConfig;
-// `buildCOptions` forwards it to the C SDK via the
-// `boxlite_options_set_security_{enabled,disabled}` setters (option-class
-// style, like network). There is no preset string and nothing to validate, so
-// both states must round-trip through buildCOptions cleanly, and not calling it
-// leaves the runtime default (enabled) in place.
+// WithSecurityOptions(spec) routes through `boxlite_options_set_security` —
+// the spec is built via NewSecurityOptions / NewSecurityOptionsDisabled
+// (and optionally tweaked), then forwarded as a const handle. Both
+// preset entries must round-trip cleanly, and not calling
+// WithSecurityOptions leaves the runtime default (enabled) in place.
 
 func TestBuildCOptions_SecurityEnabledDisabled(t *testing.T) {
-	for _, enabled := range []bool{true, false} {
+	cases := []struct {
+		name string
+		ctor func() (*SecurityOptions, error)
+	}{
+		{"enabled", NewSecurityOptions},
+		{"disabled", NewSecurityOptionsDisabled},
+	}
+	for _, tc := range cases {
+		spec, err := tc.ctor()
+		if err != nil {
+			t.Fatalf("%s: ctor failed: %v", tc.name, err)
+		}
 		cfg := &boxConfig{}
-		WithSecurity(enabled)(cfg)
-		if cfg.security == nil || *cfg.security != enabled {
-			t.Fatalf("WithSecurity(%v) must record the switch on the config", enabled)
+		WithSecurityOptions(spec)(cfg)
+		if cfg.security != spec {
+			t.Fatalf("%s: WithSecurityOptions must record the spec on the config", tc.name)
 		}
 		if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
-			t.Fatalf("WithSecurity(%v) must apply cleanly; got error: %v", enabled, err)
+			t.Fatalf("%s: buildCOptions must apply cleanly; got error: %v", tc.name, err)
 		}
+		spec.Close()
 	}
 }
 
 func TestBuildCOptions_SecurityUnsetKeepsDefault(t *testing.T) {
-	// WithSecurity never called → nil → leaves the runtime default in place.
+	// WithSecurityOptions never called → nil → leaves the runtime default in place.
 	cfg := &boxConfig{}
 	if cfg.security != nil {
-		t.Fatal("security must be nil when WithSecurity is not called")
+		t.Fatal("security must be nil when WithSecurityOptions is not called")
 	}
 	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
 		t.Fatalf("unset security must be a no-op; got error: %v", err)
+	}
+}
+
+func TestSecurityOptions_FieldSetters(t *testing.T) {
+	// Exercise the setter / clear pairs to ensure none of them panic on
+	// the cgo boundary. We don't have introspection into the C-side
+	// struct from Go, so this is a smoke-test that the cgo calls land.
+	spec, err := NewSecurityOptions()
+	if err != nil {
+		t.Fatalf("NewSecurityOptions: %v", err)
+	}
+	defer spec.Close()
+
+	spec.SetJailerEnabled(true)
+	spec.SetSeccompEnabled(false)
+	spec.SetNewPIDNamespace(true)
+	spec.SetNewNetNamespace(false)
+	spec.SetChrootEnabled(true)
+	spec.SetCloseFDs(true)
+	spec.SetSanitizeEnv(true)
+	spec.SetNetworkEnabled(true)
+
+	spec.SetUID(1000)
+	spec.ClearUID()
+	spec.SetGID(1000)
+	spec.ClearGID()
+
+	spec.SetChrootBase("/srv/my-jails")
+	spec.SetSandboxProfile("/etc/my-sandbox.sb")
+	spec.ClearSandboxProfile()
+
+	spec.AddEnvAllowlist("MY_VAR")
+	spec.ClearEnvAllowlist()
+
+	spec.SetMaxOpenFiles(1024)
+	spec.ClearMaxOpenFiles()
+	spec.SetMaxFileSize(1 << 30)
+	spec.ClearMaxFileSize()
+	spec.SetMaxProcesses(64)
+	spec.ClearMaxProcesses()
+	spec.SetMaxMemory(1 << 31)
+	spec.ClearMaxMemory()
+	spec.SetMaxCPUTime(60)
+	spec.ClearMaxCPUTime()
+
+	cfg := &boxConfig{}
+	WithSecurityOptions(spec)(cfg)
+	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
+		t.Fatalf("buildCOptions with tweaked spec must succeed; got: %v", err)
 	}
 }
 

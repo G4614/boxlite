@@ -163,6 +163,29 @@ pub unsafe extern "C" fn boxlite_options_set_security_disabled(opts: *mut CBoxli
     unsafe { options_set_security_disabled(opts) }
 }
 
+/// Apply a fine-grained `CSecurityOptions` to a `CBoxliteOptions`.
+/// Clones the security configuration into the box options — the caller
+/// retains ownership of `security_opts` and is responsible for freeing
+/// it via `boxlite_security_options_free`.
+///
+/// Either pointer being null is a no-op. Use this in place of
+/// `set_security_enabled` / `set_security_disabled` when callers need
+/// to tweak individual fields (`jailer_enabled`, `uid`, `chroot_base`,
+/// `resource_limits.max_open_files`, etc.); the two-state shortcuts
+/// remain available for the common case.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_options_set_security(
+    opts: *mut CBoxliteOptions,
+    security_opts: *const crate::CSecurityOptions,
+) {
+    if opts.is_null() || security_opts.is_null() {
+        return;
+    }
+    unsafe {
+        (*opts).options.advanced.security = (*security_opts).options.clone();
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_entrypoint(
     opts: *mut CBoxliteOptions,

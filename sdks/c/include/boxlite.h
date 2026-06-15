@@ -106,6 +106,11 @@ typedef struct RestOptionsHandle RestOptionsHandle;
 // per-runtime event queue used by the post-and-drain callback API.
 typedef struct RuntimeHandle RuntimeHandle;
 
+// Opaque handle wrapping a `SecurityOptions`. Allocated via
+// `boxlite_security_options_new` / `_new_disabled`, freed via
+// `boxlite_security_options_free`.
+typedef struct SecurityOptionsHandle SecurityOptionsHandle;
+
 typedef struct RuntimeHandle CBoxliteRuntime;
 
 typedef struct OptionsHandle CBoxliteOptions;
@@ -285,6 +290,8 @@ typedef struct CRuntimeMetrics {
 
 // Runtime metrics completion.
 typedef void (*CRuntimeMetricsCb)(struct CRuntimeMetrics*, CBoxliteError*, void*);
+
+typedef struct SecurityOptionsHandle CSecurityOptions;
 
 typedef struct CredentialHandle CBoxliteCredential;
 
@@ -541,6 +548,18 @@ void boxlite_options_set_security_enabled(CBoxliteOptions *opts);
 
 void boxlite_options_set_security_disabled(CBoxliteOptions *opts);
 
+// Apply a fine-grained `CSecurityOptions` to a `CBoxliteOptions`.
+// Clones the security configuration into the box options — the caller
+// retains ownership of `security_opts` and is responsible for freeing
+// it via `boxlite_security_options_free`.
+//
+// Either pointer being null is a no-op. Use this in place of
+// `set_security_enabled` / `set_security_disabled` when callers need
+// to tweak individual fields (`jailer_enabled`, `uid`, `chroot_base`,
+// `resource_limits.max_open_files`, etc.); the two-state shortcuts
+// remain available for the common case.
+void boxlite_options_set_security(CBoxliteOptions *opts, const CSecurityOptions *security_opts);
+
 void boxlite_options_set_entrypoint(CBoxliteOptions *opts, const char *const *args, int argc);
 
 void boxlite_options_set_cmd(CBoxliteOptions *opts, const char *const *args, int argc);
@@ -669,6 +688,85 @@ void boxlite_runtime_free(CBoxliteRuntime *runtime);
 //
 // Returns the number of dispatched events, or `-1` on error.
 int boxlite_runtime_drain(CBoxliteRuntime *runtime, int timeout_ms, CBoxliteError *out_error);
+
+// Allocate a `CSecurityOptions` initialized to `SecurityOptions::enabled()`
+// (full host-isolation profile — jailer + seccomp + namespaces + chroot
+// where applicable).
+//
+// Sets `*out_opts` to the new handle on `Ok`. The caller owns the handle
+// and must release it via `boxlite_security_options_free` once it has
+// been attached to a `CBoxliteOptions` via `boxlite_options_set_security`
+// (or if no longer needed).
+enum BoxliteErrorCode boxlite_security_options_new(CSecurityOptions **out_opts,
+                                                   struct FFIError *out_error);
+
+// Allocate a `CSecurityOptions` initialized to `SecurityOptions::disabled()`
+// (master switch off, every sub-protection off). Use only for debugging
+// or environments that genuinely can't sandbox.
+enum BoxliteErrorCode boxlite_security_options_new_disabled(CSecurityOptions **out_opts,
+                                                            struct FFIError *out_error);
+
+// Release a `CSecurityOptions` previously returned by
+// `boxlite_security_options_new` / `_new_disabled`. Null is a no-op.
+void boxlite_security_options_free(CSecurityOptions *opts);
+
+void boxlite_security_options_set_jailer_enabled(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_seccomp_enabled(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_new_pid_ns(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_new_net_ns(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_chroot_enabled(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_close_fds(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_sanitize_env(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_network_enabled(CSecurityOptions *opts, int val);
+
+void boxlite_security_options_set_uid(CSecurityOptions *opts, uint32_t uid);
+
+void boxlite_security_options_clear_uid(CSecurityOptions *opts);
+
+void boxlite_security_options_set_gid(CSecurityOptions *opts, uint32_t gid);
+
+void boxlite_security_options_clear_gid(CSecurityOptions *opts);
+
+// Set the chroot base directory. `path` must be a valid UTF-8 C string;
+// null or invalid UTF-8 leaves the field untouched.
+void boxlite_security_options_set_chroot_base(CSecurityOptions *opts, const char *path);
+
+// Set the macOS sandbox profile override. null = use the built-in profile.
+void boxlite_security_options_set_sandbox_profile(CSecurityOptions *opts, const char *path);
+
+void boxlite_security_options_clear_sandbox_profile(CSecurityOptions *opts);
+
+// Append a name to the env allowlist. null / invalid UTF-8 = no-op.
+void boxlite_security_options_add_env_allowlist(CSecurityOptions *opts, const char *name);
+
+void boxlite_security_options_clear_env_allowlist(CSecurityOptions *opts);
+
+void boxlite_security_options_set_max_open_files(CSecurityOptions *opts, uint64_t val);
+
+void boxlite_security_options_clear_max_open_files(CSecurityOptions *opts);
+
+void boxlite_security_options_set_max_file_size(CSecurityOptions *opts, uint64_t val);
+
+void boxlite_security_options_clear_max_file_size(CSecurityOptions *opts);
+
+void boxlite_security_options_set_max_processes(CSecurityOptions *opts, uint64_t val);
+
+void boxlite_security_options_clear_max_processes(CSecurityOptions *opts);
+
+void boxlite_security_options_set_max_memory(CSecurityOptions *opts, uint64_t val);
+
+void boxlite_security_options_clear_max_memory(CSecurityOptions *opts);
+
+void boxlite_security_options_set_max_cpu_time(CSecurityOptions *opts, uint64_t val);
+
+void boxlite_security_options_clear_max_cpu_time(CSecurityOptions *opts);
 
 void boxlite_free_string(char *s);
 
