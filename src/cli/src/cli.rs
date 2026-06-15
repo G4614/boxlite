@@ -694,11 +694,10 @@ pub struct ManagementFlags {
     #[arg(long)]
     pub rm: bool,
 
-    /// Sandbox security preset. One of `development`, `standard`, or
-    /// `maximum` (case-insensitive). Absent → the box uses
-    /// `SecurityOptions::default()`, which is the standard preset
-    /// (jailer + seccomp on for Linux). Use `--security=development`
-    /// to disable isolation when debugging.
+    /// Sandbox security: `enable` (default) or `disable` (case-insensitive).
+    /// Absent → the box uses `SecurityOptions::default()` = enable, the
+    /// fully-isolated profile. Use `--security=disable` to turn the sandbox
+    /// off (master switch + all sub-protections) when debugging.
     #[arg(long, env = "BOXLITE_SECURITY")]
     pub security: Option<String>,
 }
@@ -1161,9 +1160,9 @@ mod tests {
     // ============================================================
     // ManagementFlags --security
     //
-    // Side A (preset valid) — `--security=maximum` lands as
-    // SecurityOptions::maximum() on the resulting BoxOptions.
-    // Side B (preset invalid) — surfaces back as an
+    // Side A (setting valid) — `--security=disable` lands as
+    // SecurityOptions::disabled() on the resulting BoxOptions.
+    // Side B (setting invalid) — surfaces back as an
     // anyhow::Error pointing at the offending value. Reverting the
     // `from_preset(preset)?` call in apply_to flips both red.
     // ============================================================
@@ -1174,14 +1173,14 @@ mod tests {
             name: None,
             detach: false,
             rm: false,
-            security: Some("maximum".to_string()),
+            security: Some("disable".to_string()),
         };
         let mut opts = BoxOptions::default();
-        flags.apply_to(&mut opts).expect("preset must apply");
+        flags.apply_to(&mut opts).expect("setting must apply");
         assert_eq!(
             opts.advanced.security,
-            boxlite::SecurityOptions::maximum(),
-            "advanced.security must equal SecurityOptions::maximum()"
+            boxlite::SecurityOptions::disabled(),
+            "advanced.security must equal SecurityOptions::disabled()"
         );
     }
 

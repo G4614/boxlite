@@ -482,33 +482,34 @@ func TestBuildCOptions_MissingImageAndPath(t *testing.T) {
 // Security preset
 // ============================================================================
 //
-// `WithSecurityPreset` stashes the name on the boxConfig; `buildCOptions`
-// forwards it to the C SDK, which resolves it at Create time. So
-// `buildCOptions` itself can't see a bad preset — the rejection path
-// lives at Create. We pin what buildCOptions CAN observe here:
-// valid presets round-trip without error, and empty is a no-op.
-//
-// The "unknown preset → InvalidArgument" policy is covered by
-// `security_from_preset_unknown_surfaces_invalid_argument` (Rust
-// boxlite::runtime::options) and `create_box_rejects_unknown_security_preset`
-// (C SDK integration).
+// `WithSecurity(bool)` records a two-state switch on the boxConfig;
+// `buildCOptions` forwards it to the C SDK via the
+// `boxlite_options_set_security_{enabled,disabled}` setters (option-class
+// style, like network). There is no preset string and nothing to validate, so
+// both states must round-trip through buildCOptions cleanly, and not calling it
+// leaves the runtime default (enabled) in place.
 
-func TestBuildCOptions_SecurityPresetValid(t *testing.T) {
-	for _, preset := range []string{"development", "standard", "maximum", "STANDARD", "max"} {
+func TestBuildCOptions_SecurityEnabledDisabled(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
 		cfg := &boxConfig{}
-		WithSecurityPreset(preset)(cfg)
+		WithSecurity(enabled)(cfg)
+		if cfg.security == nil || *cfg.security != enabled {
+			t.Fatalf("WithSecurity(%v) must record the switch on the config", enabled)
+		}
 		if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
-			t.Fatalf("WithSecurityPreset(%q) must apply cleanly; got error: %v", preset, err)
+			t.Fatalf("WithSecurity(%v) must apply cleanly; got error: %v", enabled, err)
 		}
 	}
 }
 
-func TestBuildCOptions_SecurityPresetEmptyKeepsDefault(t *testing.T) {
-	// Empty string = WithSecurityPreset never called effectively;
-	// leaves the runtime default in place. Must not error.
-	cfg := &boxConfig{securityPreset: ""}
+func TestBuildCOptions_SecurityUnsetKeepsDefault(t *testing.T) {
+	// WithSecurity never called → nil → leaves the runtime default in place.
+	cfg := &boxConfig{}
+	if cfg.security != nil {
+		t.Fatal("security must be nil when WithSecurity is not called")
+	}
 	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
-		t.Fatalf("empty preset must be a no-op; got error: %v", err)
+		t.Fatalf("unset security must be a no-op; got error: %v", err)
 	}
 }
 

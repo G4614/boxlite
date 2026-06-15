@@ -19,7 +19,7 @@ use std::path::PathBuf;
 /// let jail = JailerBuilder::new()
 ///     .with_box_id("my-box")
 ///     .with_layout(layout)
-///     .with_security(SecurityOptions::standard())
+///     .with_security(SecurityOptions::enabled())
 ///     .build()?;
 /// ```
 #[derive(Debug, Clone)]
@@ -246,28 +246,20 @@ impl JailerBuilder {
 
     // -------- preset shortcuts -----------------------------------------------
     //
-    // Mirror `SecurityOptions::{development, standard, maximum}` so a
-    // caller can pick a baseline with the same fluent style they use
-    // for the rest of the builder.
+    // Mirror `SecurityOptions::{enabled, disabled}` so a caller can pick a
+    // baseline with the same fluent style they use for the rest of the builder.
 
-    /// Replace the security profile with the **development** preset —
-    /// minimal isolation, easiest to debug.
-    pub fn with_development_security(mut self) -> Self {
-        self.security = SecurityOptions::development();
+    /// Replace the security profile with the fully-**enabled** profile (the
+    /// default) — every supported isolation feature on.
+    pub fn with_security_enabled(mut self) -> Self {
+        self.security = SecurityOptions::enabled();
         self
     }
 
-    /// Replace the security profile with the **standard** preset —
-    /// the recommended default for most callers.
-    pub fn with_standard_security(mut self) -> Self {
-        self.security = SecurityOptions::standard();
-        self
-    }
-
-    /// Replace the security profile with the **maximum** preset — all
-    /// isolation features enabled.
-    pub fn with_maximum_security(mut self) -> Self {
-        self.security = SecurityOptions::maximum();
+    /// Replace the security profile with the **disabled** profile — master
+    /// switch off, every sub-protection off. For debugging / unsandboxable envs.
+    pub fn with_security_disabled(mut self) -> Self {
+        self.security = SecurityOptions::disabled();
         self
     }
 
@@ -388,7 +380,7 @@ mod tests {
         let jailer = JailerBuilder::new()
             .with_box_id("test-box")
             .with_layout(test_layout("/tmp/box"))
-            .with_security(SecurityOptions::maximum())
+            .with_security(SecurityOptions::enabled())
             .build()
             .expect("Should build successfully");
 
@@ -570,7 +562,7 @@ mod tests {
         let dev = JailerBuilder::new()
             .with_box_id("test-box")
             .with_layout(test_layout("/tmp/box"))
-            .with_development_security()
+            .with_security_disabled()
             .build()
             .expect("should build dev");
         assert!(!dev.security().jailer_enabled);
@@ -579,7 +571,7 @@ mod tests {
         let max = JailerBuilder::new()
             .with_box_id("test-box")
             .with_layout(test_layout("/tmp/box"))
-            .with_maximum_security()
+            .with_security_enabled()
             .build()
             .expect("should build max");
         assert!(max.security().jailer_enabled);
@@ -591,7 +583,7 @@ mod tests {
             .with_box_id("test-box")
             .with_layout(test_layout("/tmp/box"))
             .with_uid(Some(0)) // would normally be clobbered
-            .with_standard_security()
+            .with_security_enabled()
             .build()
             .expect("should build std");
         assert!(std_p.security().jailer_enabled);

@@ -537,7 +537,9 @@ void boxlite_options_set_auto_remove(CBoxliteOptions *opts, int val);
 
 void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 
-void boxlite_options_set_security_preset(CBoxliteOptions *opts, const char *preset);
+void boxlite_options_set_security_enabled(CBoxliteOptions *opts);
+
+void boxlite_options_set_security_disabled(CBoxliteOptions *opts);
 
 void boxlite_options_set_entrypoint(CBoxliteOptions *opts, const char *const *args, int argc);
 

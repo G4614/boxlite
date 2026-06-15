@@ -905,117 +905,113 @@ mod tests {
 
     #[test]
     fn test_security_builder_presets() {
-        let dev = SecurityOptionsBuilder::development().build();
-        assert!(!dev.jailer_enabled);
-        assert!(!dev.close_fds);
+        // Two settings only: enabled (full) and disabled (master switch off,
+        // every sub-protection off).
+        let off = SecurityOptionsBuilder::disabled().build();
+        assert!(!off.jailer_enabled);
+        assert!(!off.close_fds);
+        assert!(!off.sanitize_env);
+        assert!(off.uid.is_none());
 
-        let std = SecurityOptionsBuilder::standard().build();
-        assert!(std.jailer_enabled || !cfg!(any(target_os = "linux", target_os = "macos")));
-
-        let max = SecurityOptionsBuilder::maximum().build();
-        assert!(max.jailer_enabled);
-        assert!(max.close_fds);
-        assert!(max.sanitize_env);
+        let on = SecurityOptionsBuilder::enabled().build();
+        assert!(on.jailer_enabled);
+        assert!(on.close_fds);
+        assert!(on.sanitize_env);
+        assert_eq!(on, SecurityOptions::default(), "enabled is the default");
     }
 
     // ===========================================================
     // SecurityOptions::from_preset — operator-surface contract
     //
-    // CLI / REST / Go / C all funnel preset *strings* through this
-    // helper. Reverting (deleting the match) flips all four red. The
-    // synonyms are part of the public contract — `from_preset("dev")`
-    // is the same as `from_preset("development")` and so on.
+    // CLI / REST / Go / C all funnel the setting *string* through this
+    // helper. Reverting (deleting the match) flips all four red. There
+    // are two settings — enable (default) and disable — each with
+    // documented synonyms (on/off).
     // ===========================================================
 
     #[test]
     fn security_from_preset_canonical_names() {
         use crate::runtime::advanced_options::SecurityOptions;
         assert_eq!(
-            SecurityOptions::from_preset("development").unwrap(),
-            SecurityOptions::development()
+            SecurityOptions::from_preset("enable").unwrap(),
+            SecurityOptions::enabled()
         );
         assert_eq!(
-            SecurityOptions::from_preset("standard").unwrap(),
-            SecurityOptions::standard()
-        );
-        assert_eq!(
-            SecurityOptions::from_preset("maximum").unwrap(),
-            SecurityOptions::maximum()
+            SecurityOptions::from_preset("disable").unwrap(),
+            SecurityOptions::disabled()
         );
     }
 
     #[test]
     fn security_from_preset_case_insensitive_and_synonyms() {
         use crate::runtime::advanced_options::SecurityOptions;
-        // Casing.
+        // Casing + whitespace.
         assert_eq!(
-            SecurityOptions::from_preset("STANDARD").unwrap(),
-            SecurityOptions::standard()
-        );
-        // Trim whitespace.
-        assert_eq!(
-            SecurityOptions::from_preset("  maximum  ").unwrap(),
-            SecurityOptions::maximum()
+            SecurityOptions::from_preset("  ENABLE ").unwrap(),
+            SecurityOptions::enabled()
         );
         // Documented synonyms.
         assert_eq!(
-            SecurityOptions::from_preset("dev").unwrap(),
-            SecurityOptions::development()
+            SecurityOptions::from_preset("enabled").unwrap(),
+            SecurityOptions::enabled()
         );
         assert_eq!(
-            SecurityOptions::from_preset("default").unwrap(),
-            SecurityOptions::standard()
+            SecurityOptions::from_preset("on").unwrap(),
+            SecurityOptions::enabled()
         );
         assert_eq!(
-            SecurityOptions::from_preset("max").unwrap(),
-            SecurityOptions::maximum()
+            SecurityOptions::from_preset("disabled").unwrap(),
+            SecurityOptions::disabled()
         );
         assert_eq!(
-            SecurityOptions::from_preset("strict").unwrap(),
-            SecurityOptions::maximum()
+            SecurityOptions::from_preset("off").unwrap(),
+            SecurityOptions::disabled()
         );
     }
 
     #[test]
     fn security_from_preset_unknown_surfaces_invalid_argument() {
         use crate::runtime::advanced_options::SecurityOptions;
-        let err = SecurityOptions::from_preset("ultra").expect_err("typo must reject");
+        // A previously-valid 3-tier name must now be rejected too.
+        let err = SecurityOptions::from_preset("maximum").expect_err("old preset must reject");
         let msg = err.to_string();
         assert!(
-            msg.contains("ultra"),
+            msg.contains("maximum"),
             "rejection must echo the offending value; got {msg}"
         );
         assert!(
-            msg.contains("development") && msg.contains("standard") && msg.contains("maximum"),
-            "rejection must list the supported presets; got {msg}"
+            msg.contains("enable") && msg.contains("disable"),
+            "rejection must list the supported settings; got {msg}"
         );
     }
 
-    /// Default-flip contract: `SecurityOptions::default()` and
-    /// `BoxOptions::default().advanced.security` must now be the
-    /// standard preset on Linux + macOS. Reverting
-    /// `default_jailer_enabled` to `cfg!(target_os = "macos")` flips
-    /// this red on Linux.
+    /// Default contract: `SecurityOptions::default()` and
+    /// `BoxOptions::default().advanced.security` are the fully-**enabled**
+    /// profile. Reverting `Default` to the old moderate/jailer-off value flips
+    /// this red.
     #[test]
-    fn security_default_is_standard_on_supported_platforms() {
+    fn security_default_is_enabled() {
         use crate::runtime::advanced_options::SecurityOptions;
         let direct = SecurityOptions::default();
         let via_box = BoxOptions::default().advanced.security;
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        {
-            assert!(direct.jailer_enabled);
-            assert!(via_box.jailer_enabled);
-        }
+        assert_eq!(direct, SecurityOptions::enabled());
+        assert_eq!(via_box, SecurityOptions::enabled());
+        // Full profile: jailer master switch + fd/env hardening always on.
+        assert!(direct.jailer_enabled);
+        assert!(direct.close_fds);
+        assert!(direct.sanitize_env);
+        assert_eq!(direct.uid, Some(65534));
         #[cfg(target_os = "linux")]
         {
             assert!(direct.seccomp_enabled);
-            assert!(via_box.seccomp_enabled);
+            assert!(direct.new_pid_ns);
+            assert!(direct.chroot_enabled);
         }
     }
 
     #[test]
     fn test_security_builder_chaining() {
-        let opts = SecurityOptionsBuilder::standard()
+        let opts = SecurityOptionsBuilder::enabled()
             .jailer_enabled(true)
             .seccomp_enabled(false)
             .max_open_files(2048)
@@ -1354,8 +1350,10 @@ mod tests {
 
     #[test]
     fn test_security_builder_non_consuming() {
-        // Verify builder can be reused (non-consuming pattern)
-        let mut builder = SecurityOptionsBuilder::standard();
+        // Verify builder can be reused (non-consuming pattern). Start from the
+        // disabled profile so resource limits begin unset and the assertions
+        // below isolate exactly what each `build()` added.
+        let mut builder = SecurityOptionsBuilder::disabled();
         builder.max_open_files(1024);
 
         let opts1 = builder.build();

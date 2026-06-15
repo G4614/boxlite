@@ -261,81 +261,18 @@ fn default_network_enabled() -> bool {
 }
 
 impl Default for SecurityOptions {
+    /// Default is the fully-enabled ("enable") profile: secure by default.
+    /// `SecurityOptions::disabled()` is the explicit opt-out. There are exactly
+    /// two states callers pick between — enable (this) and disable.
     fn default() -> Self {
-        Self {
-            jailer_enabled: default_jailer_enabled(),
-            seccomp_enabled: default_seccomp_enabled(),
-            uid: None,
-            gid: None,
-            new_pid_ns: false,
-            new_net_ns: false,
-            chroot_base: default_chroot_base(),
-            chroot_enabled: default_chroot_enabled(),
-            close_fds: default_close_fds(),
-            sanitize_env: default_sanitize_env(),
-            env_allowlist: default_env_allowlist(),
-            resource_limits: ResourceLimits::default(),
-            sandbox_profile: None,
-            network_enabled: default_network_enabled(),
-        }
-    }
-}
-
-impl SecurityOptions {
-    /// Development mode: minimal isolation for debugging.
-    ///
-    /// Use this when debugging issues where isolation interferes.
-    pub fn development() -> Self {
-        Self {
-            jailer_enabled: false,
-            seccomp_enabled: false,
-            chroot_enabled: false,
-            close_fds: false,
-            sanitize_env: false,
-            ..Default::default()
-        }
-    }
-
-    /// Standard mode: recommended for most use cases.
-    ///
-    /// Enables jailer on Linux/macOS and seccomp on Linux.
-    pub fn standard() -> Self {
-        Self {
-            jailer_enabled: cfg!(any(target_os = "linux", target_os = "macos")),
-            seccomp_enabled: cfg!(target_os = "linux"),
-            ..Default::default()
-        }
-    }
-
-    /// Look up a preset by name. Accepts the same three labels the CLI
-    /// / REST / Go / C surfaces use (case-insensitive). Returns an
-    /// `InvalidArgument` error for anything else so operator surfaces
-    /// can surface the typo back to the caller verbatim.
-    pub fn from_preset(name: &str) -> boxlite_shared::errors::BoxliteResult<Self> {
-        match name.trim().to_ascii_lowercase().as_str() {
-            "development" | "dev" => Ok(Self::development()),
-            "standard" | "default" => Ok(Self::standard()),
-            "maximum" | "max" | "strict" => Ok(Self::maximum()),
-            other => Err(boxlite_shared::errors::BoxliteError::InvalidArgument(
-                format!(
-                    "unknown security preset {other:?}; expected one of \
-                     development|standard|maximum"
-                ),
-            )),
-        }
-    }
-
-    /// Maximum mode: all isolation features enabled.
-    ///
-    /// Use this for untrusted workloads (AI sandbox, multi-tenant).
-    pub fn maximum() -> Self {
         Self {
             jailer_enabled: true,
             seccomp_enabled: cfg!(target_os = "linux"),
             uid: Some(65534), // nobody
             gid: Some(65534), // nogroup
             new_pid_ns: cfg!(target_os = "linux"),
-            new_net_ns: false, // gvproxy needs network
+            new_net_ns: false, // gvproxy provides networking
+            chroot_base: default_chroot_base(),
             chroot_enabled: cfg!(target_os = "linux"),
             close_fds: true,
             sanitize_env: true,
@@ -344,10 +281,55 @@ impl SecurityOptions {
                 max_open_files: Some(1024),
                 max_file_size: Some(1024 * 1024 * 1024), // 1GB
                 max_processes: Some(100),
-                max_memory: None,   // Let VM config handle this
-                max_cpu_time: None, // Let VM config handle this
+                max_memory: None,   // VM config handles this
+                max_cpu_time: None, // VM config handles this
             },
-            ..Default::default()
+            sandbox_profile: None,
+            network_enabled: default_network_enabled(),
+        }
+    }
+}
+
+impl SecurityOptions {
+    /// Enabled ("enable"): full host isolation. This is the default — every
+    /// protection the platform supports is on (jailer master switch + seccomp,
+    /// chroot, new PID ns on Linux; unprivileged uid/gid; closed fds; sanitized
+    /// env; resource limits).
+    pub fn enabled() -> Self {
+        Self::default()
+    }
+
+    /// Disabled: the jailer master switch is off and every sub-protection is
+    /// off too. The opt-out for debugging / environments that can't sandbox.
+    pub fn disabled() -> Self {
+        Self {
+            jailer_enabled: false,
+            seccomp_enabled: false,
+            uid: None,
+            gid: None,
+            new_pid_ns: false,
+            new_net_ns: false,
+            chroot_base: default_chroot_base(),
+            chroot_enabled: false,
+            close_fds: false,
+            sanitize_env: false,
+            env_allowlist: Vec::new(),
+            resource_limits: ResourceLimits::default(),
+            sandbox_profile: None,
+            network_enabled: default_network_enabled(),
+        }
+    }
+
+    /// Resolve the two security settings by name (case-insensitive). Accepts
+    /// `enable`/`enabled`/`on` and `disable`/`disabled`/`off`; anything else is
+    /// an `InvalidArgument` so operator surfaces echo the typo back verbatim.
+    pub fn from_preset(name: &str) -> boxlite_shared::errors::BoxliteResult<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "enable" | "enabled" | "on" => Ok(Self::enabled()),
+            "disable" | "disabled" | "off" => Ok(Self::disabled()),
+            other => Err(boxlite_shared::errors::BoxliteError::InvalidArgument(
+                format!("unknown security setting {other:?}; expected one of enable|disable"),
+            )),
         }
     }
 
@@ -389,7 +371,7 @@ impl SecurityOptions {
 /// ```
 /// use boxlite::runtime::advanced_options::SecurityOptionsBuilder;
 ///
-/// let security = SecurityOptionsBuilder::standard()
+/// let security = SecurityOptionsBuilder::enabled()
 ///     .max_open_files(2048)
 ///     .max_file_size_bytes(1024 * 1024 * 512) // 512 MiB
 ///     .build();
@@ -413,30 +395,18 @@ impl SecurityOptionsBuilder {
         }
     }
 
-    /// Create a builder starting from development settings.
-    ///
-    /// Minimal isolation for debugging.
-    pub fn development() -> Self {
+    /// Create a builder starting from the fully-enabled profile (the default).
+    pub fn enabled() -> Self {
         Self {
-            inner: SecurityOptions::development(),
+            inner: SecurityOptions::enabled(),
         }
     }
 
-    /// Create a builder starting from standard settings.
-    ///
-    /// Recommended for most use cases.
-    pub fn standard() -> Self {
+    /// Create a builder starting from the disabled profile (master switch off,
+    /// every sub-protection off).
+    pub fn disabled() -> Self {
         Self {
-            inner: SecurityOptions::standard(),
-        }
-    }
-
-    /// Create a builder starting from maximum security settings.
-    ///
-    /// All isolation features enabled.
-    pub fn maximum() -> Self {
-        Self {
-            inner: SecurityOptions::maximum(),
+            inner: SecurityOptions::disabled(),
         }
     }
 
@@ -605,9 +575,8 @@ pub struct AdvancedBoxOptions {
     /// Defaults are compatibility-focused (jailer enabled on macOS, disabled on Linux/other
     /// platforms; seccomp disabled). Use presets:
     /// - `SecurityOptions::default()` — compatibility-focused defaults
-    /// - `SecurityOptions::standard()` — recommended for production
-    /// - `SecurityOptions::development()` — minimal isolation for debugging
-    /// - `SecurityOptions::maximum()` — maximum isolation for untrusted workloads
+    /// - `SecurityOptions::enabled()` — full isolation (the default)
+    /// - `SecurityOptions::disabled()` — master switch off, all sub-protections off
     #[serde(default)]
     pub security: SecurityOptions,
 

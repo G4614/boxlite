@@ -120,26 +120,11 @@ unsafe fn create_box(
         }
         let cb = crate::unwrap_cb_or_return!(cb, out_error);
 
-        // Resolve any pending security preset before we take ownership
-        // of `opts`. On a bad name the caller still owns + frees opts,
-        // matching the null-runtime / null-cb error paths above.
-        let resolved_security = match (*opts).pending_security_preset.as_ref() {
-            Some(preset) => match boxlite::SecurityOptions::from_preset(preset) {
-                Ok(sec) => Some(sec),
-                Err(e) => {
-                    write_error(out_error, e);
-                    return BoxliteErrorCode::InvalidArgument;
-                }
-            },
-            None => None,
-        };
-
+        // Security is applied to the options object directly by the
+        // enable/disable setters (two-state, nothing to validate), so there is
+        // no deferred preset to resolve here.
         let runtime_ref = &*runtime;
-        let mut opts_handle = Box::from_raw(opts);
-        opts_handle.pending_security_preset = None;
-        if let Some(sec) = resolved_security {
-            opts_handle.options.advanced.security = sec;
-        }
+        let opts_handle = Box::from_raw(opts);
         let runtime_clone = runtime_ref.runtime.clone();
         let tokio_rt = runtime_ref.tokio_rt.clone();
         let queue = runtime_ref.queue.clone();

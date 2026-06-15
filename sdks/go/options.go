@@ -171,22 +171,22 @@ type Secret struct {
 }
 
 type boxConfig struct {
-	name           string
-	cpus           int
-	memoryMiB      int
-	diskSizeGB     int
-	rootfsPath     string
-	env            [][2]string
-	volumes        []volumeEntry
-	ports          []PortSpec
-	workDir        string
-	entrypoint     []string
-	cmd            []string
-	autoRemove     *bool
-	detach         *bool
-	network        *NetworkSpec
-	secrets        []Secret
-	securityPreset string // empty = server default; else "development" / "standard" / "maximum"
+	name       string
+	cpus       int
+	memoryMiB  int
+	diskSizeGB int
+	rootfsPath string
+	env        [][2]string
+	volumes    []volumeEntry
+	ports      []PortSpec
+	workDir    string
+	entrypoint []string
+	cmd        []string
+	autoRemove *bool
+	detach     *bool
+	network    *NetworkSpec
+	secrets    []Secret
+	security   *bool // nil = runtime default (enabled); true = enabled; false = disabled
 }
 
 type volumeEntry struct {
@@ -321,24 +321,21 @@ func buildAndFreeCOptions(image string, cfg *boxConfig) error {
 	return nil
 }
 
-// WithSecurityPreset picks a sandbox security preset by name.
+// WithSecurity turns the host sandbox on or off.
 //
-// Accepts one of "development" / "standard" / "maximum" (case-
-// insensitive). Empty string (the zero value) leaves the box on the
-// server / runtime default, which is the standard preset.
+// Security is a two-state switch: enabled (the default) applies the full
+// host-isolation profile (jailer master switch plus every supported
+// sub-protection); disabled turns the master switch and all sub-protections
+// off. Not calling this leaves the box on the runtime default (enabled).
 //
 // Examples:
 //
 //	box, err := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurityPreset("maximum"))
+//	    boxlite.WithSecurity(true))  // full isolation (also the default)
 //	box, err := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurityPreset("development")) // disable isolation for debugging
-//
-// An invalid preset name surfaces at box creation as an
-// InvalidArgument error, not silently — silent fallback would be how
-// operators end up unsandboxed by accident.
-func WithSecurityPreset(preset string) BoxOption {
-	return func(c *boxConfig) { c.securityPreset = preset }
+//	    boxlite.WithSecurity(false)) // disable the sandbox for debugging
+func WithSecurity(enabled bool) BoxOption {
+	return func(c *boxConfig) { c.security = &enabled }
 }
 
 func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
@@ -473,14 +470,15 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 	if cfg.detach != nil {
 		C.boxlite_options_set_detach(cOpts, boolToCInt(*cfg.detach))
 	}
-	if cfg.securityPreset != "" {
-		// Preset name is validated at Create, not here — a typo
-		// surfaces as InvalidArgument from Runtime.Create with the
-		// offending value in the error. Silent fallthrough to default
-		// is never acceptable.
-		cPreset := toCString(cfg.securityPreset)
-		C.boxlite_options_set_security_preset(cOpts, cPreset)
-		C.free(unsafe.Pointer(cPreset))
+	if cfg.security != nil {
+		// Two-state switch applied directly on the options object (no preset
+		// string, nothing to validate), mirroring the network enable/disable
+		// setters.
+		if *cfg.security {
+			C.boxlite_options_set_security_enabled(cOpts)
+		} else {
+			C.boxlite_options_set_security_disabled(cOpts)
+		}
 	}
 	if cfg.entrypoint != nil {
 		cArgs, argc := toCStringArray(cfg.entrypoint)

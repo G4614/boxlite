@@ -575,7 +575,7 @@ mod tests {
         let opts = BoxOptions {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
             advanced: AdvancedBoxOptions {
-                security: SecurityOptions::maximum(),
+                security: SecurityOptions::enabled(),
                 ..Default::default()
             },
             ..Default::default()

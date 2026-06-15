@@ -1,5 +1,6 @@
 use std::os::raw::{c_char, c_int};
 
+use boxlite::SecurityOptions;
 use boxlite::runtime::options::{
     BoxOptions, NetworkSpec, PortProtocol, PortSpec, RootfsSpec, Secret, VolumeSpec,
 };
@@ -11,11 +12,6 @@ use crate::{CBoxliteError, CBoxliteOptions};
 pub struct OptionsHandle {
     pub options: BoxOptions,
     pub name: Option<String>,
-    /// Security preset name (e.g. "maximum") stashed by
-    /// `boxlite_options_set_security_preset`. Resolved in
-    /// `boxlite_create_box`; unknown names surface as
-    /// `InvalidArgument` from there, not from the setter.
-    pub pending_security_preset: Option<String>,
 }
 
 #[unsafe(no_mangle)]
@@ -152,16 +148,19 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
     options_set_detach(opts, val)
 }
 
-// Stays bare to match sibling `boxlite_options_set_*` setters in
-// the generated header (none of which carry inline doc blocks; the
-// full preset description lives in the Rust source on the internal
-// `options_set_security_preset` helper and in the API reference).
+// Security is a two-state switch on the options object, mirroring the
+// `boxlite_options_set_network_{enabled,disabled}` pair: `enabled` is the
+// fully-isolated default, `disabled` turns the jailer master switch and every
+// sub-protection off. There is no preset string, so nothing can be invalid and
+// the value is applied to the options directly (no deferred validation).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_options_set_security_preset(
-    opts: *mut CBoxliteOptions,
-    preset: *const c_char,
-) {
-    unsafe { options_set_security_preset(opts, preset) }
+pub unsafe extern "C" fn boxlite_options_set_security_enabled(opts: *mut CBoxliteOptions) {
+    unsafe { options_set_security_enabled(opts) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_options_set_security_disabled(opts: *mut CBoxliteOptions) {
+    unsafe { options_set_security_disabled(opts) }
 }
 
 #[unsafe(no_mangle)]
@@ -212,7 +211,6 @@ pub unsafe fn options_new(
                 ..Default::default()
             },
             name: None,
-            pending_security_preset: None,
         });
 
         *out_opts = Box::into_raw(handle);
@@ -277,22 +275,20 @@ pub unsafe fn options_set_workdir(handle: *mut OptionsHandle, workdir: *const c_
     }
 }
 
-/// Internal helper backing `boxlite_options_set_security_preset`.
-///
-/// Stashes the name; `boxlite_create_box` calls
-/// `SecurityOptions::from_preset` to validate + apply. NULL preset
-/// clears any previously-stashed name.
-pub unsafe fn options_set_security_preset(handle: *mut OptionsHandle, preset: *const c_char) {
+/// Internal helpers backing the security setters. Apply the chosen profile to
+/// the options object directly (option-class style, like network).
+pub unsafe fn options_set_security_enabled(handle: *mut OptionsHandle) {
     unsafe {
-        if handle.is_null() {
-            return;
+        if !handle.is_null() {
+            (*handle).options.advanced.security = SecurityOptions::enabled();
         }
-        if preset.is_null() {
-            (*handle).pending_security_preset = None;
-            return;
-        }
-        if let Ok(s) = c_str_to_string(preset) {
-            (*handle).pending_security_preset = Some(s);
+    }
+}
+
+pub unsafe fn options_set_security_disabled(handle: *mut OptionsHandle) {
+    unsafe {
+        if !handle.is_null() {
+            (*handle).options.advanced.security = SecurityOptions::disabled();
         }
     }
 }
