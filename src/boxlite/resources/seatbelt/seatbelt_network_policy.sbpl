@@ -23,6 +23,21 @@
 ; NETWORK OPERATIONS
 ; ============================================================================
 ; Allow all network connections (needed for gvproxy)
+;
+; TODO(security): `(allow network-inbound)` is broader than required. gvproxy
+; only needs inbound on host ports listed in the box's EXPOSE/port-mappings;
+; everything else could be denied. Implementation is non-trivial:
+;
+;   - port list is per-box runtime data → cannot use `sandbox-exec -D` (string
+;     substitution doesn't fit inside `(local tcp "*:N")`); must be built into
+;     the policy string by seatbelt.rs from NetworkBackendConfig.final_mappings
+;     before the shim is spawned.
+;   - SBPL `network-bind` vs `network-inbound` semantics must be pinned down:
+;     bind(2) is `network-bind`, accept(2)/UDP receive is `network-inbound`.
+;     Gvproxy needs both for forwarded ports and may also bind ephemeral ports
+;     for the NAT return path — validate before tightening or EXPOSE silently
+;     breaks.
+;   - Must run real macOS e2e with EXPOSE before merging.
 (allow network-outbound)
 (allow network-inbound)
 (allow system-socket)

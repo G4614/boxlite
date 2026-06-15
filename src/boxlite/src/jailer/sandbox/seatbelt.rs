@@ -522,6 +522,30 @@ mod tests {
         assert!(SEATBELT_FILE_WRITE_POLICY.contains("(subpath \"/private/var/tmp\")"));
     }
 
+    /// The static write policy must NOT grant the whole per-user temp/cache
+    /// tree (`/private/var/folders`, a.k.a. `$TMPDIR` / `DARWIN_USER_*_DIR`).
+    /// The shim's TMPDIR is redirected to a box-scoped path by
+    /// `configure_env()` in `vmm/controller/spawn.rs`, so no blanket grant is
+    /// needed under the built-in profile. If you re-add a grant here, scope it
+    /// to a single subpath (`-D` parameter), not the whole tree.
+    #[test]
+    fn test_file_write_policy_excludes_per_user_temp_tree() {
+        // Match the grant form, not bare mentions in doc comments. SBPL
+        // comments start with `;` so we look for `(subpath "..."` which is
+        // unambiguously a live allow expression.
+        for grant in [
+            "(subpath \"/private/var/folders\")",
+            "(subpath \"/private/var/folders/",
+        ] {
+            assert!(
+                !SEATBELT_FILE_WRITE_POLICY.contains(grant),
+                "static file-write policy must not grant `{grant}`; \
+                 shim TMPDIR is redirected to box-scoped tmp by \
+                 vmm/controller/spawn.rs::configure_env"
+            );
+        }
+    }
+
     #[test]
     fn test_dynamic_read_paths_empty() {
         let binary_path = PathBuf::from("/usr/local/bin/boxlite-shim");
