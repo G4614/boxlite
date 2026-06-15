@@ -383,7 +383,6 @@ fn create_box_rejects_null_callback() {
 // reverting them to no-ops flips it red.
 #[test]
 fn security_setters_apply_to_options() {
-    use crate::options::OptionsHandle;
     use boxlite::SecurityOptions;
 
     let image = CString::new("alpine:latest").expect("image cstring");
@@ -393,7 +392,7 @@ fn security_setters_apply_to_options() {
         unsafe { boxlite_options_new(image.as_ptr(), &mut opts as *mut _, &mut error as *mut _) };
     assert_eq!(code, BoxliteErrorCode::Ok);
 
-    let handle = opts as *mut OptionsHandle;
+    let handle = opts;
 
     unsafe { boxlite_options_set_security_disabled(opts) };
     assert_eq!(
