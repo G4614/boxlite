@@ -53,7 +53,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.config.outputs.platforms) }}
+        # Branch-local override: only build linux-x64-gnu to feed the
+        # runner binary build. Full matrix lives in config.yml and is used
+        # by main.
+        include:
+          - os: ubuntu-latest
+            target: linux-x64-gnu
+            rust_target: x86_64-unknown-linux-gnu
 
     steps:
       - uses: actions/checkout@v4
