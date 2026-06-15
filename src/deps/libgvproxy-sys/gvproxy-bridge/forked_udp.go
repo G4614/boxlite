@@ -7,12 +7,16 @@ package main
 // (audit finding #2). This installs a UDP forwarder that drops datagrams to
 // destinations not permitted by the AllowNet filter.
 //
-// WIP / NOT INTEGRATION-VERIFIED: the policy decision (udpAllowed) is unit
-// tested, but the live forwarder path — in particular whether overriding the UDP
-// protocol handler bypasses gvproxy's embedded DNS resolver endpoint, and the
-// datagram relay/idle-timeout behavior — has NOT been validated against a running
-// network stack. It is therefore gated behind BOXLITE_UDP_FILTER=true and is OFF
-// by default (live behavior unchanged). See OverrideUDPHandlerIfEnabled.
+// DNS safety is verified: gvproxy binds its DNS resolver as a UDP *endpoint*
+// (services.go: gonet.DialUDP gateway:53), and gvisor's transport demuxer
+// delivers to a bound endpoint before the SetTransportProtocolHandler forwarder.
+// TestUDPFilter_BoundDNSEndpointNotBypassed injects real packets through a gvisor
+// stack and confirms :53 reaches the resolver endpoint while other UDP reaches
+// this forwarder — so replacing the UDP handler does not break DNS.
+//
+// Still gated behind BOXLITE_UDP_FILTER=true (OFF by default): the drop path and
+// DNS preservation are tested, but end-to-end relay of *allowed* flows under real
+// guest traffic has not been load-tested. See OverrideUDPHandlerIfEnabled.
 
 import (
 	"fmt"
