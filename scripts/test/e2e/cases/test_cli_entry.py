@@ -30,6 +30,12 @@ from path_verification import runner_journal_seek, runner_hits_for_box
 
 BOXLITE_BIN = os.environ.get("BOXLITE_E2E_CLI", shutil.which("boxlite"))
 IMAGE = os.environ.get("BOXLITE_E2E_IMAGE", "alpine:3.23")
+# Credential profile the harness configured (see fixture_setup.py). The
+# Python SDK targets it via BOXLITE_E2E_PROFILE; the CLI reads BOXLITE_PROFILE
+# (GlobalFlags::profile, cli.rs). Without this the CLI falls back to the
+# `default` profile, which the cloud credential setup does not write, so
+# `auth whoami` reports "not logged in".
+PROFILE = os.environ.get("BOXLITE_E2E_PROFILE", "p1")
 UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
@@ -44,7 +50,12 @@ def cli():
 
 def run(cli, *args, timeout: int = 60, stdin: str | None = None,
         check: bool = True) -> subprocess.CompletedProcess:
-    """Wrap subprocess.run with consistent settings + always capture."""
+    """Wrap subprocess.run with consistent settings + always capture.
+
+    Pins BOXLITE_PROFILE so every CLI invocation reads the same credential
+    profile the Python SDK uses, independent of whether a `default` profile
+    exists on the box.
+    """
     return subprocess.run(
         [cli, *args],
         timeout=timeout,
@@ -52,6 +63,7 @@ def run(cli, *args, timeout: int = 60, stdin: str | None = None,
         text=True,
         capture_output=True,
         check=check,
+        env={**os.environ, "BOXLITE_PROFILE": PROFILE},
     )
 
 

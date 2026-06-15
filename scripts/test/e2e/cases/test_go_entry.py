@@ -40,10 +40,24 @@ def go_binary():
     if not SRC.exists():
         pytest.skip(f"{SRC} missing")
 
+    # The default (prebuilt) CGO directives link `sdks/go/libboxlite.a`,
+    # which only exists after `go run .../cmd/setup` downloads a release
+    # artifact — not present in CI. In-tree e2e instead links the
+    # workspace build via the `boxlite_dev` tag (bridge_cgo_dev.go), whose
+    # directives point at `target/debug/libboxlite.a`. The C SDK install
+    # step stages the archive under `target/release/`, so mirror it into
+    # the debug path the dev directives expect.
+    dev_lib = REPO / "target/debug/libboxlite.a"
+    if not dev_lib.exists():
+        release_lib = REPO / "target/release/libboxlite.a"
+        if release_lib.exists():
+            dev_lib.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(release_lib, dev_lib)
+
     bin_path = Path("/tmp/boxlite_e2e_go")
     try:
         subprocess.run(
-            ["go", "build", "-o", str(bin_path), str(SRC)],
+            ["go", "build", "-tags", "boxlite_dev", "-o", str(bin_path), str(SRC)],
             cwd=str(REPO / "sdks/go"),
             check=True, capture_output=True, text=True, timeout=180,
         )
@@ -62,8 +76,9 @@ def test_go_sdk_create_exec_remove(go_binary):
         "BOXLITE_E2E_API_KEY": p["api_key"],
         "BOXLITE_E2E_PREFIX": p.get("path_prefix") or "",
         "BOXLITE_E2E_IMAGE": "alpine:3.23",
-        # CGO dev tag — uses libboxlite.so from the workspace target/release,
-        # not a vendored prebuilt one.
+        # The binary is statically linked against libboxlite.a (boxlite_dev
+        # tag), but keep the workspace target/release on the loader path for
+        # any dlopen'd runtime deps (e.g. libkrun).
         "LD_LIBRARY_PATH": str(REPO / "target/release"),
     }
     r = subprocess.run(

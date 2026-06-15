@@ -1,8 +1,11 @@
 // Minimal Node SDK e2e smoke driver, called by cases/test_node_entry.py.
 //
-// Imports from the LOCAL sdks/node build (the repo root has a stale
-// @boxlite-ai/boxlite 0.9.5 install with field-name glitches; we want
-// e2e to test current code, not last release).
+// Imports the LOCAL sdks/node TypeScript source directly (we run under
+// `npx tsx`, which compiles TS on the fly). The package `main` points at
+// `dist/index.js`, which the CI install step does not produce — it only
+// stages the napi binary (native/ + npm/). Importing `lib/index.ts`
+// exercises current code without a separate `tsc` build, and the binding
+// still loads via lib/native.ts → ../native/boxlite.js.
 //
 // Like the C SDK smoke, this only does create + remove — that exercises
 // the napi-rs binding's URL/credential/options marshalling end to end.
@@ -10,7 +13,7 @@
 
 import {
   JsBoxlite, BoxliteRestOptions, ApiKeyCredential,
-} from '../../../../../sdks/node';
+} from '../../../../../sdks/node/lib/index.ts';
 
 function env(k: string, def: string): string {
   const v = process.env[k];
