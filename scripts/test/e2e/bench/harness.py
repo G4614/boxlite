@@ -73,6 +73,31 @@ def box_metrics(box_id: str) -> dict | None:
         return None
 
 
+def stop_box(box_id: str, timeout: int = 30):
+    status, body = api("POST", f"boxes/{box_id}/stop", timeout=timeout)
+    if status >= 300:
+        raise RuntimeError(f"stop_box failed: {status} {body}")
+    return status, body
+
+
+def start_box(box_id: str, timeout: int = 30):
+    status, body = api("POST", f"boxes/{box_id}/start", timeout=timeout)
+    if status >= 300:
+        raise RuntimeError(f"start_box failed: {status} {body}")
+    return status, body
+
+
+def wait_box_status(box_id: str, target: str, timeout: int = 60, poll_interval: float = 1.0):
+    """Poll until box reaches target status."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status, body = api("GET", f"boxes/{box_id}", timeout=10)
+        if status == 200 and body and body.get("status") == target:
+            return
+        time.sleep(poll_interval)
+    raise RuntimeError(f"box {box_id} not '{target}' after {timeout}s")
+
+
 def exec_command(box_id: str, command: str = "echo", args: list[str] | None = None, timeout: int = 30) -> tuple[int, dict | None]:
     payload = {"command": command}
     if args:

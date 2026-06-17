@@ -21,6 +21,7 @@ from bench.harness import build_report, print_aggregates, ctx
 from bench.scenarios import latency_cold_start
 from bench.scenarios import latency_exec
 from bench.scenarios import latency_lifecycle
+from bench.scenarios import latency_restart
 from bench.scenarios import throughput_exec_serial
 from bench.scenarios import throughput_exec_parallel
 from bench.scenarios import density_parallel_create
@@ -31,6 +32,7 @@ SCENARIOS = {
     latency_cold_start.SCENARIO: latency_cold_start,
     latency_exec.SCENARIO: latency_exec,
     latency_lifecycle.SCENARIO: latency_lifecycle,
+    latency_restart.SCENARIO: latency_restart,
     throughput_exec_serial.SCENARIO: throughput_exec_serial,
     throughput_exec_parallel.SCENARIO: throughput_exec_parallel,
     density_parallel_create.SCENARIO: density_parallel_create,

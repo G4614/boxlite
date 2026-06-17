@@ -36,6 +36,7 @@ Run from the repo root (`scripts/test/e2e/` must be in the Python path).
 | `latency-cold-start` | POST /boxes wall clock + runner create_duration_ms + first exec |
 | `latency-exec` | Single exec on a warm box |
 | `latency-lifecycle` | Full create → exec → delete cycle |
+| `latency-restart` | Stop → start → exec on a running box |
 
 ### Throughput
 
