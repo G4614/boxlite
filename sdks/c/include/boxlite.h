@@ -544,20 +544,15 @@ void boxlite_options_set_auto_remove(CBoxliteOptions *opts, int val);
 
 void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 
-void boxlite_options_set_security_enabled(CBoxliteOptions *opts);
-
-void boxlite_options_set_security_disabled(CBoxliteOptions *opts);
-
 // Apply a fine-grained `CSecurityOptions` to a `CBoxliteOptions`.
 // Clones the security configuration into the box options — the caller
 // retains ownership of `security_opts` and is responsible for freeing
 // it via `boxlite_security_options_free`.
 //
-// Either pointer being null is a no-op. Use this in place of
-// `set_security_enabled` / `set_security_disabled` when callers need
-// to tweak individual fields (`jailer_enabled`, `uid`, `chroot_base`,
-// `resource_limits.max_open_files`, etc.); the two-state shortcuts
-// remain available for the common case.
+// Either pointer being null is a no-op. Build the `CSecurityOptions` handle
+// from a profile (`boxlite_security_options_new` / `_new_disabled`) or a
+// preset, then tweak individual fields (`jailer_enabled`, `uid`,
+// `chroot_base`, `resource_limits.max_open_files`, etc.) before applying.
 void boxlite_options_set_security(CBoxliteOptions *opts, const CSecurityOptions *security_opts);
 
 void boxlite_options_set_entrypoint(CBoxliteOptions *opts, const char *const *args, int argc);

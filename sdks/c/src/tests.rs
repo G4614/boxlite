@@ -376,13 +376,13 @@ fn create_box_rejects_null_callback() {
     let _ = std::fs::remove_dir_all(home_dir);
 }
 
-// Security is a two-state switch on the options object (option-class style,
-// like the network enable/disable pair). The setters apply directly — there is
-// no preset string, so nothing can be invalid and there is no deferred
-// validation. This pins that the setters mutate the options handle as expected;
-// reverting them to no-ops flips it red.
+// `boxlite_options_set_security` clones a `CSecurityOptions` handle into the
+// options object. This pins that the disabled and enabled profile handles each
+// land on the options as their respective profile; reverting the setter to a
+// no-op flips it red. The handles are built via the profile constructors that
+// replaced the old `set_security_{enabled,disabled}` two-state shortcuts.
 #[test]
-fn security_setters_apply_to_options() {
+fn set_security_applies_profile_handle_to_options() {
     use boxlite::SecurityOptions;
 
     let image = CString::new("alpine:latest").expect("image cstring");
@@ -394,19 +394,30 @@ fn security_setters_apply_to_options() {
 
     let handle = opts;
 
-    unsafe { boxlite_options_set_security_disabled(opts) };
+    let mut disabled: *mut CSecurityOptions = ptr::null_mut();
+    let code = unsafe {
+        boxlite_security_options_new_disabled(&mut disabled as *mut _, &mut error as *mut _)
+    };
+    assert_eq!(code, BoxliteErrorCode::Ok);
+    unsafe { boxlite_options_set_security(opts, disabled) };
     assert_eq!(
         unsafe { &(*handle).options.advanced.security },
         &SecurityOptions::disabled(),
-        "set_security_disabled must apply the disabled profile"
+        "set_security must apply the disabled profile handle"
     );
+    unsafe { boxlite_security_options_free(disabled) };
 
-    unsafe { boxlite_options_set_security_enabled(opts) };
+    let mut enabled: *mut CSecurityOptions = ptr::null_mut();
+    let code =
+        unsafe { boxlite_security_options_new(&mut enabled as *mut _, &mut error as *mut _) };
+    assert_eq!(code, BoxliteErrorCode::Ok);
+    unsafe { boxlite_options_set_security(opts, enabled) };
     assert_eq!(
         unsafe { &(*handle).options.advanced.security },
         &SecurityOptions::enabled(),
-        "set_security_enabled must apply the enabled (full) profile"
+        "set_security must apply the enabled (full) profile handle"
     );
+    unsafe { boxlite_security_options_free(enabled) };
 
     unsafe { boxlite_options_free(opts) };
 }

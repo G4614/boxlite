@@ -1,6 +1,5 @@
 use std::os::raw::{c_char, c_int};
 
-use boxlite::SecurityOptions;
 use boxlite::runtime::options::{
     BoxOptions, NetworkSpec, PortProtocol, PortSpec, RootfsSpec, Secret, VolumeSpec,
 };
@@ -148,31 +147,15 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
     options_set_detach(opts, val)
 }
 
-// Security is a two-state switch on the options object, mirroring the
-// `boxlite_options_set_network_{enabled,disabled}` pair: `enabled` is the
-// fully-isolated default, `disabled` turns the jailer master switch and every
-// sub-protection off. There is no preset string, so nothing can be invalid and
-// the value is applied to the options directly (no deferred validation).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_options_set_security_enabled(opts: *mut CBoxliteOptions) {
-    unsafe { options_set_security_enabled(opts) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_options_set_security_disabled(opts: *mut CBoxliteOptions) {
-    unsafe { options_set_security_disabled(opts) }
-}
-
 /// Apply a fine-grained `CSecurityOptions` to a `CBoxliteOptions`.
 /// Clones the security configuration into the box options — the caller
 /// retains ownership of `security_opts` and is responsible for freeing
 /// it via `boxlite_security_options_free`.
 ///
-/// Either pointer being null is a no-op. Use this in place of
-/// `set_security_enabled` / `set_security_disabled` when callers need
-/// to tweak individual fields (`jailer_enabled`, `uid`, `chroot_base`,
-/// `resource_limits.max_open_files`, etc.); the two-state shortcuts
-/// remain available for the common case.
+/// Either pointer being null is a no-op. Build the `CSecurityOptions` handle
+/// from a profile (`boxlite_security_options_new` / `_new_disabled`) or a
+/// preset, then tweak individual fields (`jailer_enabled`, `uid`,
+/// `chroot_base`, `resource_limits.max_open_files`, etc.) before applying.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_security(
     opts: *mut CBoxliteOptions,
@@ -294,24 +277,6 @@ pub unsafe fn options_set_workdir(handle: *mut OptionsHandle, workdir: *const c_
         }
         if let Ok(s) = c_str_to_string(workdir) {
             (*handle).options.working_dir = Some(s);
-        }
-    }
-}
-
-/// Internal helpers backing the security setters. Apply the chosen profile to
-/// the options object directly (option-class style, like network).
-pub unsafe fn options_set_security_enabled(handle: *mut OptionsHandle) {
-    unsafe {
-        if !handle.is_null() {
-            (*handle).options.advanced.security = SecurityOptions::enabled();
-        }
-    }
-}
-
-pub unsafe fn options_set_security_disabled(handle: *mut OptionsHandle) {
-    unsafe {
-        if !handle.is_null() {
-            (*handle).options.advanced.security = SecurityOptions::disabled();
         }
     }
 }
