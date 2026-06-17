@@ -142,6 +142,7 @@ def cmd_compare(args):
     print()
 
     all_names = sorted(set(base_aggs) | set(curr_aggs))
+    compared = 0
     for name in all_names:
         ba = base_aggs.get(name)
         ca = curr_aggs.get(name)
@@ -155,6 +156,7 @@ def cmd_compare(args):
             continue
         bv = float(ba[field])
         cv = float(ca[field])
+        compared += 1
         higher = ba.get("higher_is_better", False)
 
         if bv == 0:
@@ -170,6 +172,10 @@ def cmd_compare(args):
         print(f"  {name:35s}  {bv:10.1f} → {cv:10.1f}  {direction} {ratio:+.1%}{marker}")
         if regressed:
             regressions.append(name)
+
+    if compared == 0:
+        print(f"\nERROR: no metrics compared — check that '{field}' exists in both reports")
+        sys.exit(1)
 
     if regressions:
         print(f"\nFAIL: {len(regressions)} regression(s) exceed {threshold:.0%} threshold")
