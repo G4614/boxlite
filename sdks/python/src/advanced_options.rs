@@ -235,7 +235,7 @@ impl From<PySecurityOptions> for SecurityOptions {
         SecurityOptions {
             jailer_enabled: py_opts.jailer_enabled,
             seccomp_enabled: py_opts.seccomp_enabled,
-            network_enabled: py_opts.network_enabled,
+            sandbox_network_enabled: py_opts.network_enabled,
             close_fds: py_opts.close_fds,
             resource_limits: ResourceLimits {
                 max_open_files: py_opts.max_open_files,
