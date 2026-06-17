@@ -15,22 +15,24 @@ def _create_one(idx: int) -> tuple[str, float]:
 
 
 def run_once(iteration: int) -> dict[str, float]:
-    t0 = time.monotonic()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=BOX_COUNT) as pool:
-        futs = [pool.submit(_create_one, i) for i in range(BOX_COUNT)]
-        results = [f.result() for f in concurrent.futures.as_completed(futs)]
-    batch_wall = (time.monotonic() - t0) * 1000
-
-    bids = [r[0] for r in results]
-    per_box = [r[1] for r in results]
-
+    bids: list[str] = []
     try:
+        t0 = time.monotonic()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=BOX_COUNT) as pool:
+            futs = [pool.submit(_create_one, i) for i in range(BOX_COUNT)]
+            results = []
+            for f in concurrent.futures.as_completed(futs):
+                bid, elapsed = f.result()
+                bids.append(bid)
+                results.append(elapsed)
+        batch_wall = (time.monotonic() - t0) * 1000
+
         return {
             "batch_wall_ms": batch_wall,
-            "box_count": float(BOX_COUNT),
-            "per_box_mean_ms": sum(per_box) / len(per_box),
-            "per_box_max_ms": max(per_box),
-            "per_box_min_ms": min(per_box),
+            "box_count": float(len(results)),
+            "per_box_mean_ms": sum(results) / len(results),
+            "per_box_max_ms": max(results),
+            "per_box_min_ms": min(results),
         }
     finally:
         for bid in bids:

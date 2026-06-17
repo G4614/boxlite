@@ -20,6 +20,7 @@ def run_once(iteration: int) -> dict[str, float]:
         cycle_times.append((time.monotonic() - t0) * 1000)
 
     return {
+        "total_wall_ms": sum(cycle_times),
         "cycles": float(CYCLES),
         "first_cycle_ms": cycle_times[0],
         "last_cycle_ms": cycle_times[-1],

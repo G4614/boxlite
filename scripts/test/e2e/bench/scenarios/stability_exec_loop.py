@@ -23,6 +23,7 @@ def run_once(iteration: int) -> dict[str, float]:
         last_10 = sum(times[-10:]) / 10
 
         return {
+            "total_wall_ms": sum(times),
             "exec_count": float(EXEC_COUNT),
             "mean_exec_ms": sum(times) / len(times),
             "max_exec_ms": max(times),

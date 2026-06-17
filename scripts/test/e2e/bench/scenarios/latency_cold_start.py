@@ -20,9 +20,9 @@ def run_once(iteration: int) -> dict[str, float]:
         time.sleep(2)
         rm = box_metrics(bid)
         if rm:
-            if rm.get("create_duration_ms"):
+            if rm.get("create_duration_ms") is not None:
                 metrics["runner_create_ms"] = float(rm["create_duration_ms"])
-            if rm.get("boot_duration_ms"):
+            if rm.get("boot_duration_ms") is not None:
                 metrics["runner_boot_ms"] = float(rm["boot_duration_ms"])
 
         t1 = time.monotonic()

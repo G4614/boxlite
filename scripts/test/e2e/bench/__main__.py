@@ -108,7 +108,9 @@ def cmd_run(args):
     print_aggregates(report)
 
     if args.out:
-        Path(args.out).write_text(json.dumps(report, indent=2))
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2))
         print(f"\nReport: {args.out}")
     else:
         print(f"\n{json.dumps(report, indent=2)}")
@@ -148,8 +150,11 @@ def cmd_compare(args):
             print(f"  {name:35s}  {status}")
             continue
 
-        bv = ba.get(field, ba.get("p99", 0))
-        cv = ca.get(field, ca.get("p99", 0))
+        if field not in ba or field not in ca:
+            print(f"  {name:35s}  SKIP: missing '{field}'")
+            continue
+        bv = float(ba[field])
+        cv = float(ca[field])
         higher = ba.get("higher_is_better", False)
 
         if bv == 0:
@@ -161,7 +166,7 @@ def cmd_compare(args):
 
         regressed = ratio > threshold
         marker = " ← REGRESSION" if regressed else ""
-        direction = "↑" if (cv > bv) != higher else "↓"
+        direction = "→" if cv == bv else ("↑" if cv > bv else "↓")
         print(f"  {name:35s}  {bv:10.1f} → {cv:10.1f}  {direction} {ratio:+.1%}{marker}")
         if regressed:
             regressions.append(name)

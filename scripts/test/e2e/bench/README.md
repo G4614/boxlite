@@ -30,6 +30,7 @@ Run from the repo root (`scripts/test/e2e/` must be in the Python path).
 ## Scenarios
 
 ### Latency
+
 | Scenario | What it measures |
 |----------|------------------|
 | `latency-cold-start` | POST /boxes wall clock + runner create_duration_ms + first exec |
@@ -37,17 +38,20 @@ Run from the repo root (`scripts/test/e2e/` must be in the Python path).
 | `latency-lifecycle` | Full create → exec → delete cycle |
 
 ### Throughput
+
 | Scenario | What it measures |
 |----------|------------------|
 | `throughput-exec-serial` | 20 serial execs on one box; execs/sec |
 | `throughput-exec-parallel` | 10 concurrent execs on one box; batch wall + per-exec |
 
 ### Density
+
 | Scenario | What it measures |
 |----------|------------------|
 | `density-parallel-create` | 5 boxes created concurrently; per-box and batch wall |
 
 ### Stability
+
 | Scenario | What it measures |
 |----------|------------------|
 | `stability-churn` | 10 create+exec+delete cycles; latency drift |

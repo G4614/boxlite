@@ -77,7 +77,10 @@ def exec_command(box_id: str, command: str = "echo", args: list[str] | None = No
     payload = {"command": command}
     if args:
         payload["args"] = args
-    return api("POST", f"boxes/{box_id}/exec", payload, timeout=timeout)
+    status, body = api("POST", f"boxes/{box_id}/exec", payload, timeout=timeout)
+    if status not in (200, 201):
+        raise RuntimeError(f"exec failed: {status} {body}")
+    return status, body
 
 
 # ── Stats ──────────────────────────────────────────────────────────
