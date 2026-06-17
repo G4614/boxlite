@@ -179,10 +179,7 @@ pub unsafe extern "C" fn boxlite_security_options_set_network_enabled(
 // ─── Setters: Option<u32> fields (uid, gid) ────────────────────────────────
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_set_uid(
-    opts: *mut CSecurityOptions,
-    uid: u32,
-) {
+pub unsafe extern "C" fn boxlite_security_options_set_uid(opts: *mut CSecurityOptions, uid: u32) {
     unsafe { with_handle(opts, |o| o.uid = Some(uid)) }
 }
 
@@ -192,10 +189,7 @@ pub unsafe extern "C" fn boxlite_security_options_clear_uid(opts: *mut CSecurity
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_set_gid(
-    opts: *mut CSecurityOptions,
-    gid: u32,
-) {
+pub unsafe extern "C" fn boxlite_security_options_set_gid(opts: *mut CSecurityOptions, gid: u32) {
     unsafe { with_handle(opts, |o| o.gid = Some(gid)) }
 }
 
@@ -262,9 +256,7 @@ pub unsafe extern "C" fn boxlite_security_options_add_env_allowlist(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_clear_env_allowlist(
-    opts: *mut CSecurityOptions,
-) {
+pub unsafe extern "C" fn boxlite_security_options_clear_env_allowlist(opts: *mut CSecurityOptions) {
     unsafe { with_handle(opts, |o| o.env_allowlist.clear()) }
 }
 
@@ -294,9 +286,7 @@ pub unsafe extern "C" fn boxlite_security_options_set_max_file_size(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_clear_max_file_size(
-    opts: *mut CSecurityOptions,
-) {
+pub unsafe extern "C" fn boxlite_security_options_clear_max_file_size(opts: *mut CSecurityOptions) {
     unsafe { with_handle(opts, |o| o.resource_limits.max_file_size = None) }
 }
 
@@ -309,9 +299,7 @@ pub unsafe extern "C" fn boxlite_security_options_set_max_processes(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_clear_max_processes(
-    opts: *mut CSecurityOptions,
-) {
+pub unsafe extern "C" fn boxlite_security_options_clear_max_processes(opts: *mut CSecurityOptions) {
     unsafe { with_handle(opts, |o| o.resource_limits.max_processes = None) }
 }
 
@@ -324,9 +312,7 @@ pub unsafe extern "C" fn boxlite_security_options_set_max_memory(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_clear_max_memory(
-    opts: *mut CSecurityOptions,
-) {
+pub unsafe extern "C" fn boxlite_security_options_clear_max_memory(opts: *mut CSecurityOptions) {
     unsafe { with_handle(opts, |o| o.resource_limits.max_memory = None) }
 }
 
@@ -339,8 +325,6 @@ pub unsafe extern "C" fn boxlite_security_options_set_max_cpu_time(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_clear_max_cpu_time(
-    opts: *mut CSecurityOptions,
-) {
+pub unsafe extern "C" fn boxlite_security_options_clear_max_cpu_time(opts: *mut CSecurityOptions) {
     unsafe { with_handle(opts, |o| o.resource_limits.max_cpu_time = None) }
 }
