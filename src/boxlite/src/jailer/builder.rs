@@ -237,10 +237,10 @@ impl JailerBuilder {
         self
     }
 
-    /// Allow / deny network access inside the macOS sandbox. Default
-    /// `true` because gvproxy networking needs it.
-    pub fn with_network_enabled(mut self, enabled: bool) -> Self {
-        self.security.network_enabled = enabled;
+    /// Allow / deny network access inside the sandbox profile (Linux landlock
+    /// + macOS seatbelt). Default `true` because gvproxy networking needs it.
+    pub fn with_sandbox_network_enabled(mut self, enabled: bool) -> Self {
+        self.security.sandbox_network_enabled = enabled;
         self
     }
 
@@ -315,6 +315,10 @@ impl JailerBuilder {
         let layout = self.layout.ok_or_else(|| {
             crate::jailer::ConfigError::InvalidConfig("layout is required".to_string())
         })?;
+
+        // Surface fields that this platform silently ignores (flat struct mixes
+        // Linux-only and macOS-only knobs).
+        self.security.warn_inert_fields();
 
         Ok(Jailer {
             sandbox,
@@ -546,14 +550,14 @@ mod tests {
             .with_box_id("test-box")
             .with_layout(test_layout("/tmp/box"))
             .with_sandbox_profile(Some("/etc/box.sb".into()))
-            .with_network_enabled(false)
+            .with_sandbox_network_enabled(false)
             .build()
             .expect("should build");
         assert_eq!(
             jailer.security().sandbox_profile,
             Some(std::path::PathBuf::from("/etc/box.sb"))
         );
-        assert!(!jailer.security().network_enabled);
+        assert!(!jailer.security().sandbox_network_enabled);
     }
 
     #[test]

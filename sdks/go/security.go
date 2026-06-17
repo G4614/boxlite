@@ -130,14 +130,14 @@ func (s *SecurityOptions) SetSanitizeEnv(v bool) {
 	C.boxlite_security_options_set_sanitize_env(s.handle, boolToCInt(v))
 }
 
-// SetNetworkEnabled toggles the macOS sandbox profile's network policy.
-// (Not to be confused with `WithNetwork` / `NetworkSpec`, which is the
-// guest VM's network plumbing.)
-func (s *SecurityOptions) SetNetworkEnabled(v bool) {
+// SetSandboxNetworkEnabled toggles the sandbox profile's network policy
+// (Linux landlock + macOS seatbelt). Not to be confused with `WithNetwork` /
+// `NetworkSpec`, which is the guest VM's network plumbing.
+func (s *SecurityOptions) SetSandboxNetworkEnabled(v bool) {
 	if s == nil || s.handle == nil {
 		return
 	}
-	C.boxlite_security_options_set_network_enabled(s.handle, boolToCInt(v))
+	C.boxlite_security_options_set_sandbox_network_enabled(s.handle, boolToCInt(v))
 }
 
 // ─── Option<u32> setters (uid, gid) ────────────────────────────────────────

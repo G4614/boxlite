@@ -920,6 +920,30 @@ mod tests {
         assert_eq!(on, SecurityOptions::default(), "enabled is the default");
     }
 
+    // Single source of truth for the default profile: deserializing an empty
+    // object must yield exactly `SecurityOptions::default()`. This guards the
+    // struct-level `#[serde(default)]`. Previously each field carried its own
+    // `#[serde(default = "...")]` that diverged from `Default` — a partial JSON
+    // body (e.g. a `{}` security block) silently produced a *weaker* sandbox
+    // (uid unset, no resource limits, no new PID ns on Linux). Reintroducing
+    // per-field serde defaults that disagree with `Default` flips this red.
+    #[test]
+    fn deserializing_empty_equals_default() {
+        use crate::runtime::advanced_options::SecurityOptions;
+        let from_json: SecurityOptions = serde_json::from_str("{}").unwrap();
+        assert_eq!(from_json, SecurityOptions::default());
+    }
+
+    // The renamed `sandbox_network_enabled` field still accepts the old
+    // `network_enabled` JSON key via `#[serde(alias)]`, so existing configs
+    // keep deserializing.
+    #[test]
+    fn sandbox_network_enabled_accepts_legacy_alias() {
+        use crate::runtime::advanced_options::SecurityOptions;
+        let s: SecurityOptions = serde_json::from_str(r#"{"network_enabled": false}"#).unwrap();
+        assert!(!s.sandbox_network_enabled);
+    }
+
     // ===========================================================
     // SecurityOptions::from_preset — operator-surface contract
     //

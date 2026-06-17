@@ -482,7 +482,7 @@ impl<S: Sandbox> Jailer<S> {
             id: &self.box_id,
             paths,
             resource_limits: &self.security.resource_limits,
-            network_enabled: self.security.network_enabled,
+            network_enabled: self.security.sandbox_network_enabled,
             sandbox_profile: self.security.sandbox_profile.as_deref(),
         }
     }

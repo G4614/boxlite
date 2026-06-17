@@ -541,7 +541,7 @@ func TestSecurityOptions_FieldSetters(t *testing.T) {
 	spec.SetChrootEnabled(true)
 	spec.SetCloseFDs(true)
 	spec.SetSanitizeEnv(true)
-	spec.SetNetworkEnabled(true)
+	spec.SetSandboxNetworkEnabled(true)
 
 	spec.SetUID(1000)
 	spec.ClearUID()

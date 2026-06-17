@@ -169,11 +169,11 @@ pub unsafe extern "C" fn boxlite_security_options_set_sanitize_env(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_security_options_set_network_enabled(
+pub unsafe extern "C" fn boxlite_security_options_set_sandbox_network_enabled(
     opts: *mut CSecurityOptions,
     val: c_int,
 ) {
-    unsafe { with_handle(opts, |o| o.network_enabled = val != 0) }
+    unsafe { with_handle(opts, |o| o.sandbox_network_enabled = val != 0) }
 }
 
 // ─── Setters: Option<u32> fields (uid, gid) ────────────────────────────────
