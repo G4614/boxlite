@@ -525,55 +525,6 @@ func TestBuildCOptions_SecurityUnsetKeepsDefault(t *testing.T) {
 	}
 }
 
-func TestSecurityOptions_FieldSetters(t *testing.T) {
-	// Exercise the setter / clear pairs to ensure none of them panic on
-	// the cgo boundary. We don't have introspection into the C-side
-	// struct from Go, so this is a smoke-test that the cgo calls land.
-	spec, err := NewSecurityOptions()
-	if err != nil {
-		t.Fatalf("NewSecurityOptions: %v", err)
-	}
-	defer spec.Close()
-
-	spec.SetJailerEnabled(true)
-	spec.SetSeccompEnabled(false)
-	spec.SetNewPIDNamespace(true)
-	spec.SetNewNetNamespace(false)
-	spec.SetChrootEnabled(true)
-	spec.SetCloseFDs(true)
-	spec.SetSanitizeEnv(true)
-	spec.SetNetworkEnabled(true)
-
-	spec.SetUID(1000)
-	spec.ClearUID()
-	spec.SetGID(1000)
-	spec.ClearGID()
-
-	spec.SetChrootBase("/srv/my-jails")
-	spec.SetSandboxProfile("/etc/my-sandbox.sb")
-	spec.ClearSandboxProfile()
-
-	spec.AddEnvAllowlist("MY_VAR")
-	spec.ClearEnvAllowlist()
-
-	spec.SetMaxOpenFiles(1024)
-	spec.ClearMaxOpenFiles()
-	spec.SetMaxFileSize(1 << 30)
-	spec.ClearMaxFileSize()
-	spec.SetMaxProcesses(64)
-	spec.ClearMaxProcesses()
-	spec.SetMaxMemory(1 << 31)
-	spec.ClearMaxMemory()
-	spec.SetMaxCPUTime(60)
-	spec.ClearMaxCPUTime()
-
-	cfg := &boxConfig{}
-	WithSecurityOptions(spec)(cfg)
-	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
-		t.Fatalf("buildCOptions with tweaked spec must succeed; got: %v", err)
-	}
-}
-
 // ============================================================================
 // State constants
 // ============================================================================

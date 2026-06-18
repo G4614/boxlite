@@ -343,14 +343,6 @@ func buildAndFreeCOptions(image string, cfg *boxConfig) error {
 //	defer disabled.Close()
 //	box, _ := runtime.Create(ctx, "alpine:latest",
 //	    boxlite.WithSecurityOptions(disabled))
-//
-//	// Fine-grained: full isolation but with a custom chroot base + extra env.
-//	custom, _ := boxlite.NewSecurityOptions()
-//	defer custom.Close()
-//	custom.SetChrootBase("/srv/my-jails")
-//	custom.AddEnvAllowlist("MY_APP_DEBUG")
-//	box, _ := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurityOptions(custom))
 func WithSecurityOptions(spec *SecurityOptions) BoxOption {
 	return func(c *boxConfig) { c.security = spec }
 }

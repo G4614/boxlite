@@ -737,64 +737,6 @@ enum BoxliteErrorCode boxlite_security_options_new_disabled(CSecurityOptions **o
 // `boxlite_security_options_new` / `_new_disabled`. Null is a no-op.
 void boxlite_security_options_free(CSecurityOptions *opts);
 
-void boxlite_security_options_set_jailer_enabled(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_seccomp_enabled(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_new_pid_ns(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_new_net_ns(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_chroot_enabled(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_close_fds(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_sanitize_env(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_network_enabled(CSecurityOptions *opts, int val);
-
-void boxlite_security_options_set_uid(CSecurityOptions *opts, uint32_t uid);
-
-void boxlite_security_options_clear_uid(CSecurityOptions *opts);
-
-void boxlite_security_options_set_gid(CSecurityOptions *opts, uint32_t gid);
-
-void boxlite_security_options_clear_gid(CSecurityOptions *opts);
-
-// Set the chroot base directory. `path` must be a valid UTF-8 C string;
-// null or invalid UTF-8 leaves the field untouched.
-void boxlite_security_options_set_chroot_base(CSecurityOptions *opts, const char *path);
-
-// Set the macOS sandbox profile override. null = use the built-in profile.
-void boxlite_security_options_set_sandbox_profile(CSecurityOptions *opts, const char *path);
-
-void boxlite_security_options_clear_sandbox_profile(CSecurityOptions *opts);
-
-// Append a name to the env allowlist. null / invalid UTF-8 = no-op.
-void boxlite_security_options_add_env_allowlist(CSecurityOptions *opts, const char *name);
-
-void boxlite_security_options_clear_env_allowlist(CSecurityOptions *opts);
-
-void boxlite_security_options_set_max_open_files(CSecurityOptions *opts, uint64_t val);
-
-void boxlite_security_options_clear_max_open_files(CSecurityOptions *opts);
-
-void boxlite_security_options_set_max_file_size(CSecurityOptions *opts, uint64_t val);
-
-void boxlite_security_options_clear_max_file_size(CSecurityOptions *opts);
-
-void boxlite_security_options_set_max_processes(CSecurityOptions *opts, uint64_t val);
-
-void boxlite_security_options_clear_max_processes(CSecurityOptions *opts);
-
-void boxlite_security_options_set_max_memory(CSecurityOptions *opts, uint64_t val);
-
-void boxlite_security_options_clear_max_memory(CSecurityOptions *opts);
-
-void boxlite_security_options_set_max_cpu_time(CSecurityOptions *opts, uint64_t val);
-
-void boxlite_security_options_clear_max_cpu_time(CSecurityOptions *opts);
-
 void boxlite_free_string(char *s);
 
 #ifdef __cplusplus
