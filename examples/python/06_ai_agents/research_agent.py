@@ -2,12 +2,12 @@
 """
 Research agent example.
 
-Accepts a question, searches the web, asks a Codex-compatible reasoner to
-synthesize an answer, and prints the final response.
+Accepts a question, searches the web, asks an OpenAI-compatible chat
+completion endpoint to synthesize an answer, and prints the final response.
 
-This example intentionally keeps provider credentials out of the agent. The
-reasoning step can be backed by a local command, a control-plane relay, or a
-deterministic echo mode for smoke tests.
+When this runs inside a BoxLite box, the API key can be supplied as a BoxLite
+secret placeholder. The real key stays on the host side and gvproxy substitutes
+it only when the request reaches the configured LLM API host.
 """
 
 from __future__ import annotations
@@ -16,9 +16,6 @@ import argparse
 import html
 import json
 import os
-import shlex
-import subprocess
-import sys
 import textwrap
 import urllib.parse
 import urllib.request
@@ -28,6 +25,8 @@ from typing import Iterable
 
 
 DEFAULT_USER_AGENT = "boxlite-research-agent/0.1"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 
 
 @dataclass
@@ -123,7 +122,7 @@ def format_context(results: Iterable[SearchResult]) -> str:
     return "\n\n".join(lines)
 
 
-def build_codex_prompt(question: str, results: list[SearchResult]) -> str:
+def build_answer_prompt(question: str, results: list[SearchResult]) -> str:
     return textwrap.dedent(
         f"""
         You are a concise research agent. Answer the user's question using the
@@ -139,28 +138,49 @@ def build_codex_prompt(question: str, results: list[SearchResult]) -> str:
     ).strip()
 
 
-def ask_codex_command(prompt: str, command: str, timeout: float) -> str:
-    proc = subprocess.run(
-        shlex.split(command),
-        input=prompt,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
+def openai_api_key() -> str | None:
+    return os.getenv("OPENAI_API_KEY") or os.getenv("BOXLITE_SECRET_OPENAI_API_KEY")
+
+
+def ask_openai(prompt: str, model: str, base_url: str, timeout: float) -> str:
+    api_key = openai_api_key()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY or BOXLITE_SECRET_OPENAI_API_KEY is required")
+
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You answer with concise, cited research summaries.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+    }
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": DEFAULT_USER_AGENT,
+        },
+        method="POST",
     )
-    if proc.returncode != 0:
-        raise RuntimeError(f"Codex command failed with exit code {proc.returncode}: {proc.stderr.strip()}")
-    return proc.stdout.strip()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI request failed with HTTP {exc.code}: {body[:500]}") from exc
 
-
-def ask_codex_relay(prompt: str) -> str:
-    print(json.dumps({"type": "codex_request", "prompt": prompt}), flush=True)
-    line = sys.stdin.readline()
-    if not line:
-        raise RuntimeError("relay mode expected a JSON response on stdin")
-    payload = json.loads(line)
-    if payload.get("type") != "codex_response":
-        raise RuntimeError(f"unexpected relay response: {payload}")
-    return str(payload.get("answer", "")).strip()
+    data = json.loads(body)
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError(f"OpenAI response did not include choices: {body[:500]}")
+    message = choices[0].get("message") or {}
+    return str(message.get("content", "")).strip()
 
 
 def ask_echo(question: str, results: list[SearchResult]) -> str:
@@ -171,12 +191,13 @@ def ask_echo(question: str, results: list[SearchResult]) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Search the web, ask Codex, and answer a question.")
+    parser = argparse.ArgumentParser(description="Search the web, ask an LLM, and answer a question.")
     parser.add_argument("question", nargs="+", help="Question to answer")
     parser.add_argument("--search-provider", choices=["duckduckgo", "fixture"], default=os.getenv("RESEARCH_AGENT_SEARCH_PROVIDER", "duckduckgo"))
     parser.add_argument("--search-fixture", default=os.getenv("RESEARCH_AGENT_SEARCH_FIXTURE"))
-    parser.add_argument("--codex-provider", choices=["command", "relay", "echo"], default=os.getenv("RESEARCH_AGENT_CODEX_PROVIDER", "echo"))
-    parser.add_argument("--codex-command", default=os.getenv("RESEARCH_AGENT_CODEX_COMMAND"))
+    parser.add_argument("--answer-provider", choices=["openai", "echo"], default=os.getenv("RESEARCH_AGENT_ANSWER_PROVIDER", "echo"))
+    parser.add_argument("--openai-model", default=os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL))
+    parser.add_argument("--openai-base-url", default=os.getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL))
     parser.add_argument("--limit", type=int, default=int(os.getenv("RESEARCH_AGENT_SEARCH_LIMIT", "5")))
     parser.add_argument("--timeout", type=float, default=float(os.getenv("RESEARCH_AGENT_TIMEOUT", "20")))
     return parser.parse_args()
@@ -193,13 +214,9 @@ def main() -> int:
     else:
         results = search_duckduckgo(question, args.limit, args.timeout)
 
-    prompt = build_codex_prompt(question, results)
-    if args.codex_provider == "command":
-        if not args.codex_command:
-            raise SystemExit("--codex-command or RESEARCH_AGENT_CODEX_COMMAND is required")
-        answer = ask_codex_command(prompt, args.codex_command, args.timeout)
-    elif args.codex_provider == "relay":
-        answer = ask_codex_relay(prompt)
+    prompt = build_answer_prompt(question, results)
+    if args.answer_provider == "openai":
+        answer = ask_openai(prompt, args.openai_model, args.openai_base_url, args.timeout)
     else:
         answer = ask_echo(question, results)
 

@@ -1,9 +1,8 @@
 """Cloud/REST smoke coverage for the research-agent example.
 
 This proves the example can be copied into and executed inside a REST-backed
-box. The tests intentionally avoid model API tokens in the box: one uses the
-deterministic echo provider, and one exercises the relay protocol with a
-synthetic Codex response.
+box. The default test uses the deterministic echo provider. An optional OpenAI
+test uses BoxLite secret substitution so the real API key stays host-side.
 """
 
 from __future__ import annotations
@@ -100,6 +99,44 @@ async def _create_research_box(rt, image):
     return box, box_image, out.strip().splitlines()[0]
 
 
+async def _create_openai_research_box(rt, image, api_key):
+    box_image = _research_image(image)
+    box = await rt.create(
+        boxlite.BoxOptions(
+            image=box_image,
+            auto_remove=True,
+            network=boxlite.NetworkSpec(
+                mode="enabled",
+                allow_net=["api.openai.com"],
+            ),
+            secrets=[
+                boxlite.Secret(
+                    name="openai_api_key",
+                    value=api_key,
+                    hosts=["api.openai.com"],
+                )
+            ],
+        )
+    )
+    ex = await box.exec(
+        "sh",
+        ["-lc", "command -v python3 || command -v python"],
+        None,
+    )
+    out, err = await drain(ex)
+    result = await asyncio.wait_for(ex.wait(), timeout=30)
+    if result.exit_code != 0:
+        try:
+            await rt.remove(box.id, force=True)
+        except Exception:
+            pass
+        pytest.skip(f"box image {box_image!r} has no python interpreter: {err!r}")
+
+    await box.copy_in(str(RESEARCH_AGENT), "/root/research_agent.py")
+    await box.copy_in(str(RESEARCH_FIXTURE), "/root/research_agent_fixture.json")
+    return box, box_image, out.strip().splitlines()[0]
+
+
 @pytest.mark.asyncio
 async def test_research_agent_example_runs_inside_rest_box(rt, image):
     box, box_image, python_bin = await _create_research_box(rt, image)
@@ -134,39 +171,40 @@ async def test_research_agent_example_runs_inside_rest_box(rt, image):
 
 
 @pytest.mark.asyncio
-async def test_research_agent_relay_provider_accepts_codex_response_in_rest_box(rt, image):
-    """The relay provider emits a Codex request and consumes a response.
+async def test_research_agent_openai_provider_uses_boxlite_secret_in_rest_box(rt, image):
+    """Run the agent against a real LLM API without putting the key in the VM."""
+    api_key = os.environ.get("BOXLITE_E2E_OPENAI_API_KEY")
+    if not api_key:
+        pytest.skip("BOXLITE_E2E_OPENAI_API_KEY is required for the real LLM e2e")
 
-    This pins the no-token-in-box interaction shape without depending on a real
-    LLM service in CI. The synthetic response stands in for the control plane's
-    Codex reply.
-    """
-    box, box_image, python_bin = await _create_research_box(rt, image)
+    box, box_image, python_bin = await _create_openai_research_box(rt, image, api_key)
     try:
-        response = json.dumps({
-            "type": "codex_response",
-            "answer": "Relay answer: this agent can search, ask Codex, and answer.",
-        })
-        command = (
-            f"printf '%s\\n' {response!r} | "
-            f"{python_bin} /root/research_agent.py "
-            "--search-provider fixture "
-            "--search-fixture /root/research_agent_fixture.json "
-            "--codex-provider relay "
-            "'What can this agent do?'"
+        ex = await box.exec(
+            python_bin,
+            [
+                "/root/research_agent.py",
+                "--search-provider",
+                "fixture",
+                "--search-fixture",
+                "/root/research_agent_fixture.json",
+                "--answer-provider",
+                "openai",
+                "--openai-model",
+                os.environ.get("BOXLITE_E2E_OPENAI_MODEL", "gpt-4.1-mini"),
+                "What can this agent do?",
+            ],
+            None,
         )
-        ex = await box.exec("sh", ["-lc", command], None)
         out, err = await drain(ex)
-        result = await asyncio.wait_for(ex.wait(), timeout=60)
+        result = await asyncio.wait_for(ex.wait(), timeout=120)
 
         assert result.exit_code == 0, (
-            f"research_agent.py relay mode failed in REST box image={box_image}: "
+            f"research_agent.py OpenAI mode failed in REST box image={box_image}: "
             f"stdout={out!r} stderr={err!r}"
         )
-        assert '"type": "codex_request"' in out
-        assert "Question:" in out
-        assert "What can this agent do?" in out
-        assert "Relay answer: this agent can search, ask Codex, and answer." in out
+        assert "BoxLite" in out or "sandbox" in out.lower()
+        assert "sk-" not in out
+        assert "<BOXLITE_SECRET:openai_api_key>" not in out
     finally:
         try:
             await rt.remove(box.id, force=True)

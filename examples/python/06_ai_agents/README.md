@@ -6,7 +6,7 @@ Using BoxLite as a sandbox for AI agent workflows.
 |------|-------------|
 | `drive_box_with_llm.py` | Let an LLM drive a SimpleBox via tool-use loop (OpenAI) |
 | `drive_box_with_minimax.py` | Let MiniMax M3 drive a SimpleBox via tool-use loop |
-| `research_agent.py` | Search the web, ask a Codex-compatible reasoner, and answer a question |
+| `research_agent.py` | Search the web, ask an LLM through host-side secret substitution, and answer a question |
 | `use_skillbox.py` | Run Claude Code CLI with skills inside a box |
 | `chat_with_claude.py` | Multi-turn Claude conversation via stdin JSON protocol |
 | `order_starbucks.py` | End-to-end agent: order Starbucks via browser automation |
@@ -24,11 +24,12 @@ OpenAI and [MiniMax](https://platform.minimax.io) (`MiniMax-M3`, `MiniMax-M2.7`,
 
 ## Research Agent
 
-`research_agent.py` is a minimal no-secrets research loop:
+`research_agent.py` is a minimal research loop that can use BoxLite secret
+substitution for LLM credentials:
 
 1. Accept a user question.
 2. Search the web with DuckDuckGo HTML search, or read fixture results for smoke tests.
-3. Send the search context to a Codex-compatible reasoner.
+3. Send the search context to an OpenAI-compatible chat completion endpoint.
 4. Print the final answer.
 
 The default `echo` provider is deterministic and needs no credentials:
@@ -40,15 +41,34 @@ python examples/python/06_ai_agents/research_agent.py \
   "What can this agent do?"
 ```
 
-To delegate synthesis to a local Codex-compatible command, set:
+Inside a BoxLite box, pass the real API key as a host-side secret and let the
+agent use only the placeholder env var:
 
-```bash
-RESEARCH_AGENT_CODEX_PROVIDER=command \
-RESEARCH_AGENT_CODEX_COMMAND="codex exec -" \
-python examples/python/06_ai_agents/research_agent.py "What is BoxLite?"
+```python
+box = runtime.create(
+    boxlite.BoxOptions(
+        image="python:3.12-slim",
+        network=boxlite.NetworkSpec(
+            mode="enabled",
+            allow_net=["api.openai.com"],
+        ),
+        secrets=[
+            boxlite.Secret(
+                name="openai_api_key",
+                value=os.environ["OPENAI_API_KEY"],
+                hosts=["api.openai.com"],
+            ),
+        ],
+    )
+)
 ```
 
-For a hosted control plane, use `--codex-provider relay`. In relay mode the
-agent emits a `codex_request` JSON line and waits for a `codex_response` JSON
-line on stdin, so the box only talks to a broker instead of holding a model API
-key.
+The container sees `BOXLITE_SECRET_OPENAI_API_KEY=<BOXLITE_SECRET:openai_api_key>`.
+When the agent calls `https://api.openai.com/v1/chat/completions`, gvproxy
+replaces that placeholder with the real key at the network boundary:
+
+```bash
+python /root/research_agent.py \
+  --answer-provider openai \
+  "What is BoxLite?"
+```
