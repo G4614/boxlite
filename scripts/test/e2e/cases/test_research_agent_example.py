@@ -179,6 +179,22 @@ async def test_research_agent_openai_provider_uses_boxlite_secret_in_rest_box(rt
 
     box, box_image, python_bin = await _create_openai_research_box(rt, image, api_key)
     try:
+        env_ex = await box.exec(
+            "sh",
+            ["-lc", "printenv BOXLITE_SECRET_OPENAI_API_KEY || true"],
+            None,
+        )
+        env_out, env_err = await drain(env_ex)
+        env_result = await asyncio.wait_for(env_ex.wait(), timeout=30)
+        assert env_result.exit_code == 0, (
+            f"failed to inspect secret placeholder env in REST box image={box_image}: "
+            f"stdout={env_out!r} stderr={env_err!r}"
+        )
+        assert env_out.strip() == "<BOXLITE_SECRET:openai_api_key>", (
+            "REST box did not receive the OpenAI secret placeholder env; "
+            f"stdout={env_out!r} stderr={env_err!r}"
+        )
+
         ex = await box.exec(
             python_bin,
             [
