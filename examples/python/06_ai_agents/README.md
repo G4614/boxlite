@@ -91,3 +91,60 @@ falls back to `~/.config/boxlite/e2e-openai.env` (`OPENAI_API_KEY` or
 The box receives `BOXLITE_SECRET_OPENAI_API_KEY=<BOXLITE_SECRET:openai_api_key>`;
 `codex login --with-api-key` stores that placeholder in the box, and gvproxy
 substitutes the real key only on outbound requests to `api.openai.com`.
+
+## 测试
+
+这些 agent 示例目前有两条尽量小的测试路径。
+
+### Research Agent
+
+单元测试完全在本地跑，结果是确定性的：
+
+```bash
+python -m unittest examples/python/06_ai_agents/test_research_agent.py
+```
+
+它会检查 DuckDuckGo HTML 解析、基于 fixture 的 prompt 构造，以及
+OpenAI 请求是否使用 BoxLite secret placeholder，而不是明文 API key。
+
+REST e2e 会把 `research_agent.py` 复制进一个真实的 REST-backed box，并在
+box 里执行：
+
+```bash
+python -m pytest \
+  scripts/test/e2e/cases/test_research_agent_example.py::test_research_agent_example_runs_inside_rest_box \
+  -vv -s
+```
+
+真实 LLM 版本不允许 skip。先在宿主机提供 key，再跑 OpenAI-backed case：
+
+```bash
+export BOXLITE_E2E_OPENAI_API_KEY="sk-..."
+python -m pytest \
+  scripts/test/e2e/cases/test_research_agent_example.py::test_research_agent_openai_provider_uses_boxlite_secret_in_rest_box \
+  -vv -s
+```
+
+这个 case 会先断言 box 里只能看到
+`<BOXLITE_SECRET:openai_api_key>`，然后通过 `api.openai.com` 问模型，最后
+确认 agent 输出里没有明文 key，也没有 placeholder。
+
+### Codex In Box
+
+`run_codex_in_box.py` 是一个手动 smoke test，用来验证真实 LLM-backed agent
+可以在 box 里跑起来：
+
+```bash
+export OPENAI_API_KEY="sk-..."
+python examples/python/06_ai_agents/run_codex_in_box.py \
+  "Reply exactly: codex inside box works"
+```
+
+如果不想每次都 export key，可以把 `OPENAI_API_KEY` 或
+`BOXLITE_E2E_OPENAI_API_KEY` 写进 `~/.config/boxlite/e2e-openai.env`，也可以
+通过 `--env-file` 指定其他文件。
+
+这条路径会创建一个 Node.js box，安装 `@openai/codex`，用
+`BOXLITE_SECRET_OPENAI_API_KEY` 登录，然后执行 `codex exec`。API key 留在宿主机；
+box 里只保存和发送 placeholder，真正发往 `api.openai.com` 时由 gvproxy 替换成真实
+key。

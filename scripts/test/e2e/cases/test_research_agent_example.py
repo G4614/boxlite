@@ -77,9 +77,9 @@ def _research_image(default_image: str) -> str:
     return default_image
 
 
-async def _create_research_box(rt, image):
+async def _create_research_box(rt, image, *, auto_remove=True):
     box_image = _research_image(image)
-    box = await rt.create(boxlite.BoxOptions(image=box_image, auto_remove=True))
+    box = await rt.create(boxlite.BoxOptions(image=box_image, auto_remove=auto_remove))
     ex = await box.exec(
         "sh",
         ["-lc", "command -v python3 || command -v python"],
@@ -137,6 +137,21 @@ async def _create_openai_research_box(rt, image, api_key):
     return box, box_image, out.strip().splitlines()[0]
 
 
+async def _start_after_stop(box, timeout=90):
+    deadline = asyncio.get_running_loop().time() + timeout
+    last_error = None
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            await box.start()
+            return
+        except Exception as exc:
+            last_error = exc
+            if "State change in progress" not in str(exc):
+                raise
+            await asyncio.sleep(2)
+    raise AssertionError(f"box did not become startable after stop within {timeout}s: {last_error!r}")
+
+
 @pytest.mark.asyncio
 async def test_research_agent_example_runs_inside_rest_box(rt, image):
     box, box_image, python_bin = await _create_research_box(rt, image)
@@ -163,6 +178,70 @@ async def test_research_agent_example_runs_inside_rest_box(rt, image):
         assert "Echo provider summary for: What can this agent do?" in out
         assert "BoxLite AI agent examples" in out
         assert "Codex tool-use loop" in out
+    finally:
+        try:
+            await rt.remove(box.id, force=True)
+        except Exception:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_research_agent_worklog_persists_after_stop_and_rerun(rt, image):
+    """Agent work written inside the box must survive stop/start and rerun."""
+    box, box_image, python_bin = await _create_research_box(rt, image, auto_remove=False)
+    worklog = "/root/.agent/worklog.txt"
+    try:
+        first_ex = await box.exec(
+            "sh",
+            [
+                "-lc",
+                (
+                    "set -eu\n"
+                    "mkdir -p /root/.agent\n"
+                    f"{python_bin} /root/research_agent.py "
+                    "--search-provider fixture "
+                    "--search-fixture /root/research_agent_fixture.json "
+                    "'What can this agent do?' > /tmp/agent-answer.txt\n"
+                    "printf 'run=first\\n' > /root/.agent/worklog.txt\n"
+                    "cat /tmp/agent-answer.txt >> /root/.agent/worklog.txt\n"
+                ),
+            ],
+            None,
+        )
+        first_out, first_err = await drain(first_ex)
+        first_result = await asyncio.wait_for(first_ex.wait(), timeout=60)
+        assert first_result.exit_code == 0, (
+            f"first research-agent run failed in REST box image={box_image}: "
+            f"stdout={first_out!r} stderr={first_err!r}"
+        )
+
+        await box.stop()
+        await _start_after_stop(box)
+
+        second_ex = await box.exec(
+            "sh",
+            [
+                "-lc",
+                (
+                    "set -eu\n"
+                    f"test -f {worklog}\n"
+                    "grep -q 'run=first' /root/.agent/worklog.txt\n"
+                    "grep -q 'Echo provider summary for: What can this agent do?' /root/.agent/worklog.txt\n"
+                    "printf 'run=second\\n' >> /root/.agent/worklog.txt\n"
+                    "cat /root/.agent/worklog.txt\n"
+                ),
+            ],
+            None,
+        )
+        second_out, second_err = await drain(second_ex)
+        second_result = await asyncio.wait_for(second_ex.wait(), timeout=60)
+        assert second_result.exit_code == 0, (
+            f"agent worklog did not survive stop/start in REST box image={box_image}: "
+            f"stdout={second_out!r} stderr={second_err!r}"
+        )
+        assert "run=first" in second_out
+        assert "run=second" in second_out
+        assert "BoxLite AI agent examples" in second_out
     finally:
         try:
             await rt.remove(box.id, force=True)
