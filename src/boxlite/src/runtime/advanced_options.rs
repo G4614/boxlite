@@ -560,17 +560,20 @@ impl SecurityOptionsBuilder {
 
 /// Advanced options for expert users.
 ///
-/// Entry-level users can ignore this — defaults are compatibility-focused.
+/// Entry-level users can ignore this — the defaults are secure and sensible.
 /// Only modify these if you understand the security implications.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AdvancedBoxOptions {
     /// Security isolation options (jailer, seccomp, namespaces, resource limits).
     ///
-    /// Defaults are compatibility-focused (jailer enabled on macOS, disabled on Linux/other
-    /// platforms; seccomp disabled). Use presets:
-    /// - `SecurityOptions::default()` — compatibility-focused defaults
-    /// - `SecurityOptions::enabled()` — full isolation (the default)
+    /// Secure by default: the default is the fully-enabled profile
+    /// (`SecurityOptions::default() == SecurityOptions::enabled()`) — on Linux
+    /// that is jailer + seccomp + new PID ns + chroot + unprivileged uid/gid; on
+    /// macOS, sandbox-exec. Named profiles:
+    /// - `SecurityOptions::enabled()` (== `default()`) — full isolation
     /// - `SecurityOptions::disabled()` — master switch off, all sub-protections off
+    ///
+    /// For anything in between, override individual fields on top of a profile.
     #[serde(default)]
     pub security: SecurityOptions,
 

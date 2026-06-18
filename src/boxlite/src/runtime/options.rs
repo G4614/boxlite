@@ -7,7 +7,7 @@ use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use crate::runtime::advanced_options::{AdvancedBoxOptions, SecurityOptions};
+use crate::runtime::advanced_options::AdvancedBoxOptions;
 use std::fmt;
 
 // ============================================================================
@@ -529,12 +529,6 @@ impl BoxOptions {
         }
         Ok(())
     }
-
-    /// Set security options (convenience for `advanced.security`).
-    pub fn with_security(mut self, security: SecurityOptions) -> Self {
-        self.advanced.security = security;
-        self
-    }
 }
 
 /// How to populate the box root filesystem.
@@ -719,7 +713,7 @@ pub struct CloneOptions {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::advanced_options::SecurityOptionsBuilder;
+    use crate::runtime::advanced_options::{SecurityOptions, SecurityOptionsBuilder};
 
     #[test]
     fn test_box_options_defaults() {
@@ -929,7 +923,6 @@ mod tests {
     // per-field serde defaults that disagree with `Default` flips this red.
     #[test]
     fn deserializing_empty_equals_default() {
-        use crate::runtime::advanced_options::SecurityOptions;
         let from_json: SecurityOptions = serde_json::from_str("{}").unwrap();
         assert_eq!(from_json, SecurityOptions::default());
     }
