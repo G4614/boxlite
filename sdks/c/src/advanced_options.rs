@@ -2,14 +2,16 @@
 //!
 //! Mirrors the core model: advanced knobs (security, mount isolation, health
 //! check) live under `BoxOptions.advanced`, never directly on the box. Build a
-//! `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`, attach a
-//! `CSecurityOptions` to it with `boxlite_advanced_options_set_security`, then
-//! apply it to a `CBoxliteOptions` via `boxlite_options_set_advanced`.
+//! `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`, toggle the
+//! sandbox with `boxlite_advanced_options_set_security_enabled`, then apply it
+//! to a `CBoxliteOptions` via `boxlite_options_set_advanced`.
 
-use boxlite::runtime::advanced_options::AdvancedBoxOptions;
+use std::os::raw::c_int;
 
+use boxlite::runtime::advanced_options::{AdvancedBoxOptions, SecurityOptions};
+
+use crate::CAdvancedBoxOptions;
 use crate::error::{BoxliteErrorCode, FFIError, null_pointer_error, write_error};
-use crate::{CAdvancedBoxOptions, CSecurityOptions};
 
 /// Opaque handle wrapping an `AdvancedBoxOptions`. Allocated via
 /// `boxlite_advanced_options_new`, freed via `boxlite_advanced_options_free`.
@@ -54,23 +56,24 @@ pub unsafe extern "C" fn boxlite_advanced_options_free(opts: *mut CAdvancedBoxOp
     }
 }
 
-/// Attach a fine-grained `CSecurityOptions` to a `CAdvancedBoxOptions`.
-/// Clones the security configuration into the advanced options — the caller
-/// retains ownership of `security_opts` and frees it via
-/// `boxlite_security_options_free`.
-///
-/// Either pointer being null is a no-op. Build the `CSecurityOptions` handle
-/// from a profile (`boxlite_security_options_new` / `_new_disabled`), tweak
-/// individual fields, then attach it here.
+/// Toggle the box's sandbox on the advanced options. `enabled` != 0 selects the
+/// fully-isolated profile (`SecurityOptions::enabled()`, also the default when
+/// this is never called); 0 selects `SecurityOptions::disabled()` (master
+/// switch off, every sub-protection off — for debugging or environments that
+/// genuinely can't sandbox). Null `opts` is a no-op.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_advanced_options_set_security(
+pub unsafe extern "C" fn boxlite_advanced_options_set_security_enabled(
     opts: *mut CAdvancedBoxOptions,
-    security_opts: *const CSecurityOptions,
+    enabled: c_int,
 ) {
-    if opts.is_null() || security_opts.is_null() {
+    if opts.is_null() {
         return;
     }
     unsafe {
-        (*opts).options.security = (*security_opts).options.clone();
+        (*opts).options.security = if enabled != 0 {
+            SecurityOptions::enabled()
+        } else {
+            SecurityOptions::disabled()
+        };
     }
 }

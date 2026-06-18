@@ -3,7 +3,7 @@ use crate::*;
 use boxlite::BoxliteError;
 use boxlite::runtime::BoxliteRuntime;
 use std::ffi::{CStr, CString};
-use std::os::raw::c_void;
+use std::os::raw::{c_int, c_void};
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::Arc;
@@ -376,12 +376,12 @@ fn create_box_rejects_null_callback() {
     let _ = std::fs::remove_dir_all(home_dir);
 }
 
-// Security is applied through the advanced layer: a `CSecurityOptions` handle
-// is attached to a `CAdvancedBoxOptions` via
-// `boxlite_advanced_options_set_security`, then `boxlite_options_set_advanced`
+// Security is toggled through the advanced layer:
+// `boxlite_advanced_options_set_security_enabled` selects the enabled/disabled
+// profile on a `CAdvancedBoxOptions`, then `boxlite_options_set_advanced`
 // clones the advanced options (security included) onto the box. This pins that
-// the disabled and enabled profile handles each land on `advanced.security` as
-// their respective profile; reverting either setter to a no-op flips it red.
+// each toggle lands on `advanced.security` as the matching profile; reverting
+// either setter to a no-op flips it red.
 #[test]
 fn set_advanced_applies_security_profile_to_options() {
     use boxlite::SecurityOptions;
@@ -395,42 +395,31 @@ fn set_advanced_applies_security_profile_to_options() {
 
     let handle = opts;
 
-    let apply_security = |security: *const CSecurityOptions| {
+    let apply_security = |enabled: c_int| {
         let mut advanced: *mut CAdvancedBoxOptions = ptr::null_mut();
         let mut advanced_error = FFIError::default();
         let code = unsafe {
             boxlite_advanced_options_new(&mut advanced as *mut _, &mut advanced_error as *mut _)
         };
         assert_eq!(code, BoxliteErrorCode::Ok);
-        unsafe { boxlite_advanced_options_set_security(advanced, security) };
+        unsafe { boxlite_advanced_options_set_security_enabled(advanced, enabled) };
         unsafe { boxlite_options_set_advanced(opts, advanced) };
         unsafe { boxlite_advanced_options_free(advanced) };
     };
 
-    let mut disabled: *mut CSecurityOptions = ptr::null_mut();
-    let code = unsafe {
-        boxlite_security_options_new_disabled(&mut disabled as *mut _, &mut error as *mut _)
-    };
-    assert_eq!(code, BoxliteErrorCode::Ok);
-    apply_security(disabled);
+    apply_security(0);
     assert_eq!(
         unsafe { &(*handle).options.advanced.security },
         &SecurityOptions::disabled(),
-        "set_advanced must apply the disabled profile handle"
+        "set_security_enabled(0) must apply the disabled profile"
     );
-    unsafe { boxlite_security_options_free(disabled) };
 
-    let mut enabled: *mut CSecurityOptions = ptr::null_mut();
-    let code =
-        unsafe { boxlite_security_options_new(&mut enabled as *mut _, &mut error as *mut _) };
-    assert_eq!(code, BoxliteErrorCode::Ok);
-    apply_security(enabled);
+    apply_security(1);
     assert_eq!(
         unsafe { &(*handle).options.advanced.security },
         &SecurityOptions::enabled(),
-        "set_advanced must apply the enabled (full) profile handle"
+        "set_security_enabled(non-zero) must apply the enabled (full) profile"
     );
-    unsafe { boxlite_security_options_free(enabled) };
 
     unsafe { boxlite_options_free(opts) };
 }

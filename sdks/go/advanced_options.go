@@ -1,16 +1,14 @@
 // AdvancedBoxOptions groups the box-level advanced knobs (currently the
-// security profile) under one handle, mirroring core `BoxOptions.advanced`.
+// security toggle) under one handle, mirroring core `BoxOptions.advanced`.
 //
-// Build it via `NewAdvancedBoxOptions`, attach a security profile with
-// `SetSecurity`, and pass it to `runtime.Create(..., WithAdvancedOptions(adv))`.
+// Build it via `NewAdvancedBoxOptions`, toggle the sandbox with
+// `SetSecurityEnabled`, and pass it to `runtime.Create(..., WithAdvancedOptions(adv))`.
 // Security is reached through this layer (never attached to the box directly),
 // matching the core `BoxOptions.advanced.security` model.
 //
 //	adv, _ := boxlite.NewAdvancedBoxOptions()
 //	defer adv.Close()
-//	sec, _ := boxlite.NewSecurityOptionsDisabled()
-//	defer sec.Close()
-//	adv.SetSecurity(sec)
+//	adv.SetSecurityEnabled(false) // opt out of the sandbox
 //	box, _ := runtime.Create(ctx, "alpine:latest", boxlite.WithAdvancedOptions(adv))
 
 package boxlite
@@ -43,14 +41,15 @@ func NewAdvancedBoxOptions() (*AdvancedBoxOptions, error) {
 	return a, nil
 }
 
-// SetSecurity attaches a SecurityOptions profile to the advanced options.
-// The caller retains ownership of `spec` (and must `Close` it); the advanced
-// options take their own copy. Nil receiver or spec is a no-op.
-func (a *AdvancedBoxOptions) SetSecurity(spec *SecurityOptions) {
-	if a == nil || a.handle == nil || spec == nil || spec.handle == nil {
+// SetSecurityEnabled toggles the box's sandbox. true selects the fully-isolated
+// profile (the default when never set); false selects the explicit opt-out
+// (master switch off, every sub-protection off — for debugging or environments
+// that genuinely can't sandbox). Nil receiver is a no-op.
+func (a *AdvancedBoxOptions) SetSecurityEnabled(enabled bool) {
+	if a == nil || a.handle == nil {
 		return
 	}
-	C.boxlite_advanced_options_set_security(a.handle, spec.handle)
+	C.boxlite_advanced_options_set_security_enabled(a.handle, boolToCInt(enabled))
 }
 
 // Close releases the underlying CAdvancedBoxOptions. Idempotent.

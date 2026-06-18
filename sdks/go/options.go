@@ -322,19 +322,17 @@ func buildAndFreeCOptions(image string, cfg *boxConfig) error {
 }
 
 // WithAdvancedOptions attaches advanced box options (currently the security
-// profile) to the box. Security is reached through this layer, mirroring the
+// toggle) to the box. Security is reached through this layer, mirroring the
 // core `BoxOptions.advanced.security` model.
 //
-// Build the handle via NewAdvancedBoxOptions and attach a profile with
-// SetSecurity. The caller retains ownership and must call `adv.Close()` after
-// the box has been created (or sooner, if discarded). If never called, the
-// box uses the defaults (the fully-isolated security profile).
+// Build the handle via NewAdvancedBoxOptions and toggle the sandbox with
+// SetSecurityEnabled. The caller retains ownership and must call `adv.Close()`
+// after the box has been created (or sooner, if discarded). If never called,
+// the box uses the defaults (the fully-isolated security profile).
 //
 //	adv, _ := boxlite.NewAdvancedBoxOptions()
 //	defer adv.Close()
-//	sec, _ := boxlite.NewSecurityOptionsDisabled() // or NewSecurityOptions()
-//	defer sec.Close()
-//	adv.SetSecurity(sec)
+//	adv.SetSecurityEnabled(false) // opt out of the sandbox
 //	box, _ := runtime.Create(ctx, "alpine:latest",
 //	    boxlite.WithAdvancedOptions(adv))
 func WithAdvancedOptions(adv *AdvancedBoxOptions) BoxOption {

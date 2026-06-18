@@ -8,27 +8,21 @@ import (
 	"testing"
 )
 
-// TestIntegrationAdvancedOptionsSecurityDisabled boots a box whose security
-// profile is attached through the advanced-options layer
-// (NewAdvancedBoxOptions -> SetSecurity -> WithAdvancedOptions ->
-// boxlite_options_set_advanced), exercising the full public API path end to
-// end and confirming the box runs. The disabled profile is the point of this
-// test (verify the opt-out path), not an environment shortcut.
+// TestIntegrationAdvancedOptionsSecurityDisabled boots a box whose sandbox is
+// toggled off through the advanced-options layer (NewAdvancedBoxOptions ->
+// SetSecurityEnabled(false) -> WithAdvancedOptions -> boxlite_options_set_advanced),
+// exercising the full public API path end to end and confirming the box runs.
+// The disabled profile is the point of this test (verify the opt-out path),
+// not an environment shortcut.
 func TestIntegrationAdvancedOptionsSecurityDisabled(t *testing.T) {
 	rt := newTestRuntime(t)
-
-	sec, err := NewSecurityOptionsDisabled()
-	if err != nil {
-		t.Fatalf("NewSecurityOptionsDisabled: %v", err)
-	}
-	defer sec.Close()
 
 	adv, err := NewAdvancedBoxOptions()
 	if err != nil {
 		t.Fatalf("NewAdvancedBoxOptions: %v", err)
 	}
 	defer adv.Close()
-	adv.SetSecurity(sec)
+	adv.SetSecurityEnabled(false)
 
 	box := createStartedBox(t, rt, "alpine:latest", WithAdvancedOptions(adv))
 

@@ -483,38 +483,26 @@ func TestBuildCOptions_MissingImageAndPath(t *testing.T) {
 // ============================================================================
 //
 // WithAdvancedOptions(adv) routes through `boxlite_options_set_advanced`;
-// security lives under AdvancedBoxOptions (attach a profile via
-// adv.SetSecurity). Both preset profiles must round-trip cleanly, and not
-// calling WithAdvancedOptions leaves the runtime default (enabled) in place.
+// security lives under AdvancedBoxOptions (toggle via adv.SetSecurityEnabled).
+// Both toggles must round-trip cleanly, and not calling WithAdvancedOptions
+// leaves the runtime default (enabled) in place.
 
 func TestBuildCOptions_SecurityEnabledDisabled(t *testing.T) {
-	cases := []struct {
-		name string
-		ctor func() (*SecurityOptions, error)
-	}{
-		{"enabled", NewSecurityOptions},
-		{"disabled", NewSecurityOptionsDisabled},
-	}
-	for _, tc := range cases {
-		spec, err := tc.ctor()
-		if err != nil {
-			t.Fatalf("%s: ctor failed: %v", tc.name, err)
-		}
+	for _, enabled := range []bool{true, false} {
 		adv, err := NewAdvancedBoxOptions()
 		if err != nil {
-			t.Fatalf("%s: NewAdvancedBoxOptions failed: %v", tc.name, err)
+			t.Fatalf("enabled=%v: NewAdvancedBoxOptions failed: %v", enabled, err)
 		}
-		adv.SetSecurity(spec)
+		adv.SetSecurityEnabled(enabled)
 		cfg := &boxConfig{}
 		WithAdvancedOptions(adv)(cfg)
 		if cfg.advanced != adv {
-			t.Fatalf("%s: WithAdvancedOptions must record the handle on the config", tc.name)
+			t.Fatalf("enabled=%v: WithAdvancedOptions must record the handle on the config", enabled)
 		}
 		if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
-			t.Fatalf("%s: buildCOptions must apply cleanly; got error: %v", tc.name, err)
+			t.Fatalf("enabled=%v: buildCOptions must apply cleanly; got error: %v", enabled, err)
 		}
 		adv.Close()
-		spec.Close()
 	}
 }
 

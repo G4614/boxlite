@@ -110,11 +110,6 @@ typedef struct RestOptionsHandle RestOptionsHandle;
 // per-runtime event queue used by the post-and-drain callback API.
 typedef struct RuntimeHandle RuntimeHandle;
 
-// Opaque handle wrapping a `SecurityOptions`. Allocated via
-// `boxlite_security_options_new` / `_new_disabled`, freed via
-// `boxlite_security_options_free`.
-typedef struct SecurityOptionsHandle SecurityOptionsHandle;
-
 typedef struct AdvancedBoxOptionsHandle CAdvancedBoxOptions;
 
 // Extended error information for C API.
@@ -127,8 +122,6 @@ typedef struct FFIError {
   // Detailed error message (NULL if none, caller must free with boxlite_error_free)
   char *message;
 } FFIError;
-
-typedef struct SecurityOptionsHandle CSecurityOptions;
 
 typedef struct RuntimeHandle CBoxliteRuntime;
 
@@ -334,16 +327,12 @@ enum BoxliteErrorCode boxlite_advanced_options_new(CAdvancedBoxOptions **out_opt
 // `boxlite_advanced_options_new`. Null is a no-op.
 void boxlite_advanced_options_free(CAdvancedBoxOptions *opts);
 
-// Attach a fine-grained `CSecurityOptions` to a `CAdvancedBoxOptions`.
-// Clones the security configuration into the advanced options — the caller
-// retains ownership of `security_opts` and frees it via
-// `boxlite_security_options_free`.
-//
-// Either pointer being null is a no-op. Build the `CSecurityOptions` handle
-// from a profile (`boxlite_security_options_new` / `_new_disabled`), tweak
-// individual fields, then attach it here.
-void boxlite_advanced_options_set_security(CAdvancedBoxOptions *opts,
-                                           const CSecurityOptions *security_opts);
+// Toggle the box's sandbox on the advanced options. `enabled` != 0 selects the
+// fully-isolated profile (`SecurityOptions::enabled()`, also the default when
+// this is never called); 0 selects `SecurityOptions::disabled()` (master
+// switch off, every sub-protection off — for debugging or environments that
+// genuinely can't sandbox). Null `opts` is a no-op.
+void boxlite_advanced_options_set_security_enabled(CAdvancedBoxOptions *opts, int enabled);
 
 enum BoxliteErrorCode boxlite_create_box(CBoxliteRuntime *runtime,
                                          CBoxliteOptions *opts,
@@ -583,7 +572,7 @@ void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 // Either pointer being null is a no-op. Security is reached through the
 // advanced layer, mirroring the core model (`BoxOptions.advanced.security`):
 // build the `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`,
-// attach a `CSecurityOptions` with `boxlite_advanced_options_set_security`,
+// toggle the sandbox with `boxlite_advanced_options_set_security_enabled`,
 // then apply it here.
 void boxlite_options_set_advanced(CBoxliteOptions *opts, const CAdvancedBoxOptions *advanced_opts);
 
@@ -715,27 +704,6 @@ void boxlite_runtime_free(CBoxliteRuntime *runtime);
 //
 // Returns the number of dispatched events, or `-1` on error.
 int boxlite_runtime_drain(CBoxliteRuntime *runtime, int timeout_ms, CBoxliteError *out_error);
-
-// Allocate a `CSecurityOptions` initialized to `SecurityOptions::enabled()`
-// (full host-isolation profile — jailer + seccomp + namespaces + chroot
-// where applicable).
-//
-// Sets `*out_opts` to the new handle on `Ok`. The caller owns the handle
-// and must release it via `boxlite_security_options_free` once it has
-// been attached to a `CAdvancedBoxOptions` via
-// `boxlite_advanced_options_set_security` (or if no longer needed).
-enum BoxliteErrorCode boxlite_security_options_new(CSecurityOptions **out_opts,
-                                                   struct FFIError *out_error);
-
-// Allocate a `CSecurityOptions` initialized to `SecurityOptions::disabled()`
-// (master switch off, every sub-protection off). Use only for debugging
-// or environments that genuinely can't sandbox.
-enum BoxliteErrorCode boxlite_security_options_new_disabled(CSecurityOptions **out_opts,
-                                                            struct FFIError *out_error);
-
-// Release a `CSecurityOptions` previously returned by
-// `boxlite_security_options_new` / `_new_disabled`. Null is a no-op.
-void boxlite_security_options_free(CSecurityOptions *opts);
 
 void boxlite_free_string(char *s);
 

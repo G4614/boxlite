@@ -155,7 +155,7 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
 /// Either pointer being null is a no-op. Security is reached through the
 /// advanced layer, mirroring the core model (`BoxOptions.advanced.security`):
 /// build the `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`,
-/// attach a `CSecurityOptions` with `boxlite_advanced_options_set_security`,
+/// toggle the sandbox with `boxlite_advanced_options_set_security_enabled`,
 /// then apply it here.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_advanced(
