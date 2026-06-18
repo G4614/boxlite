@@ -186,7 +186,7 @@ type boxConfig struct {
 	detach     *bool
 	network    *NetworkSpec
 	secrets    []Secret
-	security   *SecurityOptions // nil = runtime default (enabled); non-nil = caller-owned spec routed through AdvancedBoxOptions via boxlite_options_set_advanced
+	advanced   *AdvancedBoxOptions // nil = runtime defaults; non-nil = caller-owned advanced opts applied via boxlite_options_set_advanced
 }
 
 type volumeEntry struct {
@@ -321,30 +321,24 @@ func buildAndFreeCOptions(image string, cfg *boxConfig) error {
 	return nil
 }
 
-// WithSecurityOptions attaches a fine-grained SecurityOptions spec to
-// the box. Build the spec via NewSecurityOptions (the full host-
-// isolation profile — also the runtime default if WithSecurityOptions
-// is never called) or NewSecurityOptionsDisabled (master switch + all
-// sub-protections off), optionally tweak fields with its setters, then
-// pass it here. The caller retains ownership of `spec` and is
-// responsible for calling `spec.Close()` after the box has been
-// created (or sooner, if discarded).
+// WithAdvancedOptions attaches advanced box options (currently the security
+// profile) to the box. Security is reached through this layer, mirroring the
+// core `BoxOptions.advanced.security` model.
 //
-// Examples:
+// Build the handle via NewAdvancedBoxOptions and attach a profile with
+// SetSecurity. The caller retains ownership and must call `adv.Close()` after
+// the box has been created (or sooner, if discarded). If never called, the
+// box uses the defaults (the fully-isolated security profile).
 //
-//	// Equivalent of the old WithSecurity(true) — explicit, also the default.
-//	enabled, _ := boxlite.NewSecurityOptions()
-//	defer enabled.Close()
+//	adv, _ := boxlite.NewAdvancedBoxOptions()
+//	defer adv.Close()
+//	sec, _ := boxlite.NewSecurityOptionsDisabled() // or NewSecurityOptions()
+//	defer sec.Close()
+//	adv.SetSecurity(sec)
 //	box, _ := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurityOptions(enabled))
-//
-//	// Equivalent of the old WithSecurity(false) — opt out for debugging.
-//	disabled, _ := boxlite.NewSecurityOptionsDisabled()
-//	defer disabled.Close()
-//	box, _ := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurityOptions(disabled))
-func WithSecurityOptions(spec *SecurityOptions) BoxOption {
-	return func(c *boxConfig) { c.security = spec }
+//	    boxlite.WithAdvancedOptions(adv))
+func WithAdvancedOptions(adv *AdvancedBoxOptions) BoxOption {
+	return func(c *boxConfig) { c.advanced = adv }
 }
 
 func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
@@ -479,21 +473,11 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 	if cfg.detach != nil {
 		C.boxlite_options_set_detach(cOpts, boolToCInt(*cfg.detach))
 	}
-	if cfg.security != nil && cfg.security.handle != nil {
-		// Security routes through AdvancedBoxOptions, mirroring the core model
-		// (BoxOptions.advanced.security). Build a transient advanced handle,
-		// attach the caller-owned security spec, then clone the advanced options
-		// onto the box. The Go-side security handle stays caller-owned; the box
-		// has its own copy after set_advanced returns.
-		var advanced *C.CAdvancedBoxOptions
-		var advErr C.CBoxliteError
-		if code := C.boxlite_advanced_options_new(&advanced, &advErr); code != C.Ok {
-			C.boxlite_options_free(cOpts)
-			return nil, errorFromCError(&advErr)
-		}
-		C.boxlite_advanced_options_set_security(advanced, cfg.security.handle)
-		C.boxlite_options_set_advanced(cOpts, advanced)
-		C.boxlite_advanced_options_free(advanced)
+	if cfg.advanced != nil && cfg.advanced.handle != nil {
+		// Clone the caller-owned advanced options (security, …) onto the box.
+		// The Go-side handle stays caller-owned; the box has its own copy after
+		// set_advanced returns.
+		C.boxlite_options_set_advanced(cOpts, cfg.advanced.handle)
 	}
 	if cfg.entrypoint != nil {
 		cArgs, argc := toCStringArray(cfg.entrypoint)

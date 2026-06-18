@@ -1,21 +1,19 @@
 // SecurityOptions wrapper.
 //
-// `WithSecurityOptions(spec)` routes the spec through the C
-// `CAdvancedBoxOptions` layer (`boxlite_options_set_advanced`),
-// mirroring the core `BoxOptions.advanced.security` model — callers
-// pick a profile with `NewSecurityOptions` (= the fully-isolated
-// default) or `NewSecurityOptionsDisabled` (the explicit opt-out) and
-// pass it to `runtime.Create(..., boxlite.WithSecurityOptions(spec))`.
+// A SecurityOptions profile is reached through the advanced layer: pick a
+// profile with `NewSecurityOptions` (= the fully-isolated default) or
+// `NewSecurityOptionsDisabled` (the explicit opt-out), attach it to an
+// `AdvancedBoxOptions` via `SetSecurity`, then pass that to
+// `runtime.Create(..., boxlite.WithAdvancedOptions(adv))`. This mirrors the
+// core `BoxOptions.advanced.security` model.
 //
-// The lighter `WithSecurity(enabled bool)` shortcut was removed in
-// favor of this richer API. To get the equivalent of the old
-// `WithSecurity(true)` / `WithSecurity(false)` just construct one of
-// the presets and pass it through:
-//
-//	enabled, _  := boxlite.NewSecurityOptions()
-//	defer enabled.Close()
+//	adv, _ := boxlite.NewAdvancedBoxOptions()
+//	defer adv.Close()
+//	sec, _ := boxlite.NewSecurityOptionsDisabled()
+//	defer sec.Close()
+//	adv.SetSecurity(sec)
 //	box, _ := runtime.Create(ctx, "alpine:latest",
-//	    boxlite.WithSecurityOptions(enabled))
+//	    boxlite.WithAdvancedOptions(adv))
 
 package boxlite
 

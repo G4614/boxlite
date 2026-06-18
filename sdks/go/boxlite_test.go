@@ -482,12 +482,10 @@ func TestBuildCOptions_MissingImageAndPath(t *testing.T) {
 // Security preset
 // ============================================================================
 //
-// WithSecurityOptions(spec) routes through `boxlite_options_set_advanced`
-// (security lives under AdvancedBoxOptions) — the spec is built via
-// NewSecurityOptions / NewSecurityOptionsDisabled
-// (and optionally tweaked), then forwarded as a const handle. Both
-// preset entries must round-trip cleanly, and not calling
-// WithSecurityOptions leaves the runtime default (enabled) in place.
+// WithAdvancedOptions(adv) routes through `boxlite_options_set_advanced`;
+// security lives under AdvancedBoxOptions (attach a profile via
+// adv.SetSecurity). Both preset profiles must round-trip cleanly, and not
+// calling WithAdvancedOptions leaves the runtime default (enabled) in place.
 
 func TestBuildCOptions_SecurityEnabledDisabled(t *testing.T) {
 	cases := []struct {
@@ -502,26 +500,32 @@ func TestBuildCOptions_SecurityEnabledDisabled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: ctor failed: %v", tc.name, err)
 		}
+		adv, err := NewAdvancedBoxOptions()
+		if err != nil {
+			t.Fatalf("%s: NewAdvancedBoxOptions failed: %v", tc.name, err)
+		}
+		adv.SetSecurity(spec)
 		cfg := &boxConfig{}
-		WithSecurityOptions(spec)(cfg)
-		if cfg.security != spec {
-			t.Fatalf("%s: WithSecurityOptions must record the spec on the config", tc.name)
+		WithAdvancedOptions(adv)(cfg)
+		if cfg.advanced != adv {
+			t.Fatalf("%s: WithAdvancedOptions must record the handle on the config", tc.name)
 		}
 		if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
 			t.Fatalf("%s: buildCOptions must apply cleanly; got error: %v", tc.name, err)
 		}
+		adv.Close()
 		spec.Close()
 	}
 }
 
 func TestBuildCOptions_SecurityUnsetKeepsDefault(t *testing.T) {
-	// WithSecurityOptions never called → nil → leaves the runtime default in place.
+	// WithAdvancedOptions never called → nil → leaves the runtime default in place.
 	cfg := &boxConfig{}
-	if cfg.security != nil {
-		t.Fatal("security must be nil when WithSecurityOptions is not called")
+	if cfg.advanced != nil {
+		t.Fatal("advanced must be nil when WithAdvancedOptions is not called")
 	}
 	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
-		t.Fatalf("unset security must be a no-op; got error: %v", err)
+		t.Fatalf("unset advanced must be a no-op; got error: %v", err)
 	}
 }
 
