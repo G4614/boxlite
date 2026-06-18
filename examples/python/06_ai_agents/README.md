@@ -7,6 +7,7 @@ Using BoxLite as a sandbox for AI agent workflows.
 | `drive_box_with_llm.py` | Let an LLM drive a SimpleBox via tool-use loop (OpenAI) |
 | `drive_box_with_minimax.py` | Let MiniMax M3 drive a SimpleBox via tool-use loop |
 | `research_agent.py` | Search the web, ask an LLM through host-side secret substitution, and answer a question |
+| `run_codex_in_box.py` | Install and run OpenAI Codex CLI inside a BoxLite box |
 | `use_skillbox.py` | Run Claude Code CLI with skills inside a box |
 | `chat_with_claude.py` | Multi-turn Claude conversation via stdin JSON protocol |
 | `order_starbucks.py` | End-to-end agent: order Starbucks via browser automation |
@@ -72,3 +73,21 @@ python /root/research_agent.py \
   --answer-provider openai \
   "What is BoxLite?"
 ```
+
+## Codex CLI In A Box
+
+`run_codex_in_box.py` installs the real `@openai/codex` CLI in a Node.js box,
+logs in with a BoxLite secret-backed API key, and runs `codex exec`:
+
+```bash
+python examples/python/06_ai_agents/run_codex_in_box.py \
+  "Reply exactly: codex inside box works"
+```
+
+The script reads `OPENAI_API_KEY` from the current environment first, then
+falls back to `~/.config/boxlite/e2e-openai.env` (`OPENAI_API_KEY` or
+`BOXLITE_E2E_OPENAI_API_KEY`). Use `--env-file` to point at another file.
+
+The box receives `BOXLITE_SECRET_OPENAI_API_KEY=<BOXLITE_SECRET:openai_api_key>`;
+`codex login --with-api-key` stores that placeholder in the box, and gvproxy
+substitutes the real key only on outbound requests to `api.openai.com`.
