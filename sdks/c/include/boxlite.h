@@ -719,7 +719,7 @@ void boxlite_security_options_set_close_fds(CSecurityOptions *opts, int val);
 
 void boxlite_security_options_set_sanitize_env(CSecurityOptions *opts, int val);
 
-void boxlite_security_options_set_sandbox_network_enabled(CSecurityOptions *opts, int val);
+void boxlite_security_options_set_network_enabled(CSecurityOptions *opts, int val);
 
 void boxlite_security_options_set_uid(CSecurityOptions *opts, uint32_t uid);
 

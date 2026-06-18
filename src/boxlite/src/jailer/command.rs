@@ -173,7 +173,7 @@ mod tests {
 
         let security = SecurityOptions {
             jailer_enabled: true,
-            sandbox_network_enabled: false,
+            network_enabled: false,
             sandbox_profile: Some(PathBuf::from("/custom/profile.sbpl")),
             ..SecurityOptions::default()
         };

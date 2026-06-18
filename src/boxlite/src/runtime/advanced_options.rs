@@ -168,11 +168,9 @@ pub struct SecurityOptions {
     /// Allow network access inside the sandbox profile.
     ///
     /// Cross-platform: feeds the macOS seatbelt network policy and the Linux
-    /// landlock TCP rules (false = deny all TCP). Named `sandbox_network_*` to
-    /// avoid colliding with box-level `BoxOptions.network`.
+    /// landlock TCP rules (false = deny all TCP).
     /// Default: true (needed for gvproxy VM networking).
-    #[serde(alias = "network_enabled")]
-    pub sandbox_network_enabled: bool,
+    pub network_enabled: bool,
 }
 
 /// Resource limits for the jailed process.
@@ -207,7 +205,7 @@ fn default_chroot_base() -> PathBuf {
     PathBuf::from("/srv/boxlite")
 }
 
-fn default_sandbox_network_enabled() -> bool {
+fn default_network_enabled() -> bool {
     true
 }
 
@@ -237,7 +235,7 @@ impl Default for SecurityOptions {
                 max_cpu_time: None, // VM config handles this
             },
             sandbox_profile: None,
-            sandbox_network_enabled: default_sandbox_network_enabled(),
+            network_enabled: default_network_enabled(),
         }
     }
 }
@@ -268,7 +266,7 @@ impl SecurityOptions {
             env_allowlist: Vec::new(),
             resource_limits: ResourceLimits::default(),
             sandbox_profile: None,
-            sandbox_network_enabled: default_sandbox_network_enabled(),
+            network_enabled: default_network_enabled(),
         }
     }
 
@@ -539,8 +537,8 @@ impl SecurityOptionsBuilder {
 
     /// Allow or deny network access inside the sandbox profile (Linux landlock
     /// + macOS seatbelt).
-    pub fn sandbox_network_enabled(&mut self, enabled: bool) -> &mut Self {
-        self.inner.sandbox_network_enabled = enabled;
+    pub fn network_enabled(&mut self, enabled: bool) -> &mut Self {
+        self.inner.network_enabled = enabled;
         self
     }
 

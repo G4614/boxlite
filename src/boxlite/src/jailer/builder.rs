@@ -239,8 +239,8 @@ impl JailerBuilder {
 
     /// Allow / deny network access inside the sandbox profile (Linux landlock
     /// + macOS seatbelt). Default `true` because gvproxy networking needs it.
-    pub fn with_sandbox_network_enabled(mut self, enabled: bool) -> Self {
-        self.security.sandbox_network_enabled = enabled;
+    pub fn with_network_enabled(mut self, enabled: bool) -> Self {
+        self.security.network_enabled = enabled;
         self
     }
 
@@ -550,14 +550,14 @@ mod tests {
             .with_box_id("test-box")
             .with_layout(test_layout("/tmp/box"))
             .with_sandbox_profile(Some("/etc/box.sb".into()))
-            .with_sandbox_network_enabled(false)
+            .with_network_enabled(false)
             .build()
             .expect("should build");
         assert_eq!(
             jailer.security().sandbox_profile,
             Some(std::path::PathBuf::from("/etc/box.sb"))
         );
-        assert!(!jailer.security().sandbox_network_enabled);
+        assert!(!jailer.security().network_enabled);
     }
 
     #[test]

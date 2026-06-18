@@ -927,16 +927,6 @@ mod tests {
         assert_eq!(from_json, SecurityOptions::default());
     }
 
-    // The renamed `sandbox_network_enabled` field still accepts the old
-    // `network_enabled` JSON key via `#[serde(alias)]`, so existing configs
-    // keep deserializing.
-    #[test]
-    fn sandbox_network_enabled_accepts_legacy_alias() {
-        use crate::runtime::advanced_options::SecurityOptions;
-        let s: SecurityOptions = serde_json::from_str(r#"{"network_enabled": false}"#).unwrap();
-        assert!(!s.sandbox_network_enabled);
-    }
-
     // ===========================================================
     // SecurityOptions::from_preset — operator-surface contract
     //

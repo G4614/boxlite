@@ -70,7 +70,7 @@ impl From<JsSecurityOptions> for SecurityOptions {
         }
 
         if let Some(network_enabled) = js_opts.network_enabled {
-            opts.sandbox_network_enabled = network_enabled;
+            opts.network_enabled = network_enabled;
         }
 
         if let Some(close_fds) = js_opts.close_fds {
