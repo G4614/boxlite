@@ -175,7 +175,7 @@ async def test_research_agent_openai_provider_uses_boxlite_secret_in_rest_box(rt
     """Run the agent against a real LLM API without putting the key in the VM."""
     api_key = os.environ.get("BOXLITE_E2E_OPENAI_API_KEY")
     if not api_key:
-        pytest.skip("BOXLITE_E2E_OPENAI_API_KEY is required for the real LLM e2e")
+        pytest.fail("BOXLITE_E2E_OPENAI_API_KEY is required for the real LLM e2e")
 
     box, box_image, python_bin = await _create_openai_research_box(rt, image, api_key)
     try:
