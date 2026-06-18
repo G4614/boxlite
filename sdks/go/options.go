@@ -186,7 +186,7 @@ type boxConfig struct {
 	detach     *bool
 	network    *NetworkSpec
 	secrets    []Secret
-	security   *SecurityOptions // nil = runtime default (enabled); non-nil = caller-owned spec attached via boxlite_options_set_security
+	security   *SecurityOptions // nil = runtime default (enabled); non-nil = caller-owned spec routed through AdvancedBoxOptions via boxlite_options_set_advanced
 }
 
 type volumeEntry struct {
@@ -488,10 +488,20 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 		C.boxlite_options_set_detach(cOpts, boolToCInt(*cfg.detach))
 	}
 	if cfg.security != nil && cfg.security.handle != nil {
-		// Fine-grained spec — clones the spec's SecurityOptions into the
-		// box options. The Go-side handle stays caller-owned; the box
-		// has its own copy after this call returns.
-		C.boxlite_options_set_security(cOpts, cfg.security.handle)
+		// Security routes through AdvancedBoxOptions, mirroring the core model
+		// (BoxOptions.advanced.security). Build a transient advanced handle,
+		// attach the caller-owned security spec, then clone the advanced options
+		// onto the box. The Go-side security handle stays caller-owned; the box
+		// has its own copy after set_advanced returns.
+		var advanced *C.CAdvancedBoxOptions
+		var advErr C.CBoxliteError
+		if code := C.boxlite_advanced_options_new(&advanced, &advErr); code != C.Ok {
+			C.boxlite_options_free(cOpts)
+			return nil, errorFromCError(&advErr)
+		}
+		C.boxlite_advanced_options_set_security(advanced, cfg.security.handle)
+		C.boxlite_options_set_advanced(cOpts, advanced)
+		C.boxlite_advanced_options_free(advanced)
 	}
 	if cfg.entrypoint != nil {
 		cArgs, argc := toCStringArray(cfg.entrypoint)

@@ -1,8 +1,9 @@
 // Fine-grained SecurityOptions wrapper.
 //
-// `WithSecurityOptions(spec)` is the Go counterpart of the C
-// `boxlite_options_set_security` setter — callers build a
-// `*SecurityOptions` via `NewSecurityOptions` (= the fully-isolated
+// `WithSecurityOptions(spec)` routes the spec through the C
+// `CAdvancedBoxOptions` layer (`boxlite_options_set_advanced`),
+// mirroring the core `BoxOptions.advanced.security` model — callers
+// build a `*SecurityOptions` via `NewSecurityOptions` (= the fully-isolated
 // default) or `NewSecurityOptionsDisabled` (the explicit opt-out),
 // optionally tweak individual fields, and pass it to
 // `runtime.Create(..., boxlite.WithSecurityOptions(spec))`.

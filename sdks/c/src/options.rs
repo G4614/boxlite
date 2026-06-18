@@ -147,25 +147,26 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
     options_set_detach(opts, val)
 }
 
-/// Apply a fine-grained `CSecurityOptions` to a `CBoxliteOptions`.
-/// Clones the security configuration into the box options — the caller
-/// retains ownership of `security_opts` and is responsible for freeing
-/// it via `boxlite_security_options_free`.
+/// Apply a `CAdvancedBoxOptions` (security, mount isolation, health check) to a
+/// `CBoxliteOptions`. Clones the advanced configuration into the box options —
+/// the caller retains ownership of `advanced_opts` and is responsible for
+/// freeing it via `boxlite_advanced_options_free`.
 ///
-/// Either pointer being null is a no-op. Build the `CSecurityOptions` handle
-/// from a profile (`boxlite_security_options_new` / `_new_disabled`) or a
-/// preset, then tweak individual fields (`jailer_enabled`, `uid`,
-/// `chroot_base`, `resource_limits.max_open_files`, etc.) before applying.
+/// Either pointer being null is a no-op. Security is reached through the
+/// advanced layer, mirroring the core model (`BoxOptions.advanced.security`):
+/// build the `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`,
+/// attach a `CSecurityOptions` with `boxlite_advanced_options_set_security`,
+/// then apply it here.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_options_set_security(
+pub unsafe extern "C" fn boxlite_options_set_advanced(
     opts: *mut CBoxliteOptions,
-    security_opts: *const crate::CSecurityOptions,
+    advanced_opts: *const crate::CAdvancedBoxOptions,
 ) {
-    if opts.is_null() || security_opts.is_null() {
+    if opts.is_null() || advanced_opts.is_null() {
         return;
     }
     unsafe {
-        (*opts).options.advanced.security = (*security_opts).options.clone();
+        (*opts).options.advanced = (*advanced_opts).options.clone();
     }
 }
 

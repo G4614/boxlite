@@ -75,6 +75,10 @@ typedef enum BoxliteRegistryTransport {
   BoxliteRegistryTransportHttp = 1,
 } BoxliteRegistryTransport;
 
+// Opaque handle wrapping an `AdvancedBoxOptions`. Allocated via
+// `boxlite_advanced_options_new`, freed via `boxlite_advanced_options_free`.
+typedef struct AdvancedBoxOptionsHandle AdvancedBoxOptionsHandle;
+
 // Opaque handle to a running box.
 //
 // `handle` is wrapped in `Arc` so it can be cloned into Tokio tasks for
@@ -111,11 +115,7 @@ typedef struct RuntimeHandle RuntimeHandle;
 // `boxlite_security_options_free`.
 typedef struct SecurityOptionsHandle SecurityOptionsHandle;
 
-typedef struct RuntimeHandle CBoxliteRuntime;
-
-typedef struct OptionsHandle CBoxliteOptions;
-
-typedef struct BoxHandle CBoxHandle;
+typedef struct AdvancedBoxOptionsHandle CAdvancedBoxOptions;
 
 // Extended error information for C API.
 //
@@ -127,6 +127,14 @@ typedef struct FFIError {
   // Detailed error message (NULL if none, caller must free with boxlite_error_free)
   char *message;
 } FFIError;
+
+typedef struct SecurityOptionsHandle CSecurityOptions;
+
+typedef struct RuntimeHandle CBoxliteRuntime;
+
+typedef struct OptionsHandle CBoxliteOptions;
+
+typedef struct BoxHandle CBoxHandle;
 
 typedef struct FFIError CBoxliteError;
 
@@ -291,8 +299,6 @@ typedef struct CRuntimeMetrics {
 // Runtime metrics completion.
 typedef void (*CRuntimeMetricsCb)(struct CRuntimeMetrics*, CBoxliteError*, void*);
 
-typedef struct SecurityOptionsHandle CSecurityOptions;
-
 typedef struct CredentialHandle CBoxliteCredential;
 
 typedef struct RestOptionsHandle CBoxliteRestOptions;
@@ -313,6 +319,31 @@ typedef void (*CRuntimeShutdownCb)(CBoxliteError*, void*);
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+// Allocate a `CAdvancedBoxOptions` initialized to `AdvancedBoxOptions::default()`
+// (secure-by-default security profile, mount isolation off, no health check).
+//
+// Sets `*out_opts` to the new handle on `Ok`. The caller owns the handle and
+// must release it via `boxlite_advanced_options_free` once it has been applied
+// to a `CBoxliteOptions` via `boxlite_options_set_advanced` (or if no longer
+// needed).
+enum BoxliteErrorCode boxlite_advanced_options_new(CAdvancedBoxOptions **out_opts,
+                                                   struct FFIError *out_error);
+
+// Release a `CAdvancedBoxOptions` previously returned by
+// `boxlite_advanced_options_new`. Null is a no-op.
+void boxlite_advanced_options_free(CAdvancedBoxOptions *opts);
+
+// Attach a fine-grained `CSecurityOptions` to a `CAdvancedBoxOptions`.
+// Clones the security configuration into the advanced options — the caller
+// retains ownership of `security_opts` and frees it via
+// `boxlite_security_options_free`.
+//
+// Either pointer being null is a no-op. Build the `CSecurityOptions` handle
+// from a profile (`boxlite_security_options_new` / `_new_disabled`), tweak
+// individual fields, then attach it here.
+void boxlite_advanced_options_set_security(CAdvancedBoxOptions *opts,
+                                           const CSecurityOptions *security_opts);
 
 enum BoxliteErrorCode boxlite_create_box(CBoxliteRuntime *runtime,
                                          CBoxliteOptions *opts,
@@ -544,16 +575,17 @@ void boxlite_options_set_auto_remove(CBoxliteOptions *opts, int val);
 
 void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 
-// Apply a fine-grained `CSecurityOptions` to a `CBoxliteOptions`.
-// Clones the security configuration into the box options — the caller
-// retains ownership of `security_opts` and is responsible for freeing
-// it via `boxlite_security_options_free`.
+// Apply a `CAdvancedBoxOptions` (security, mount isolation, health check) to a
+// `CBoxliteOptions`. Clones the advanced configuration into the box options —
+// the caller retains ownership of `advanced_opts` and is responsible for
+// freeing it via `boxlite_advanced_options_free`.
 //
-// Either pointer being null is a no-op. Build the `CSecurityOptions` handle
-// from a profile (`boxlite_security_options_new` / `_new_disabled`) or a
-// preset, then tweak individual fields (`jailer_enabled`, `uid`,
-// `chroot_base`, `resource_limits.max_open_files`, etc.) before applying.
-void boxlite_options_set_security(CBoxliteOptions *opts, const CSecurityOptions *security_opts);
+// Either pointer being null is a no-op. Security is reached through the
+// advanced layer, mirroring the core model (`BoxOptions.advanced.security`):
+// build the `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`,
+// attach a `CSecurityOptions` with `boxlite_advanced_options_set_security`,
+// then apply it here.
+void boxlite_options_set_advanced(CBoxliteOptions *opts, const CAdvancedBoxOptions *advanced_opts);
 
 void boxlite_options_set_entrypoint(CBoxliteOptions *opts, const char *const *args, int argc);
 
@@ -690,8 +722,8 @@ int boxlite_runtime_drain(CBoxliteRuntime *runtime, int timeout_ms, CBoxliteErro
 //
 // Sets `*out_opts` to the new handle on `Ok`. The caller owns the handle
 // and must release it via `boxlite_security_options_free` once it has
-// been attached to a `CBoxliteOptions` via `boxlite_options_set_security`
-// (or if no longer needed).
+// been attached to a `CAdvancedBoxOptions` via
+// `boxlite_advanced_options_set_security` (or if no longer needed).
 enum BoxliteErrorCode boxlite_security_options_new(CSecurityOptions **out_opts,
                                                    struct FFIError *out_error);
 

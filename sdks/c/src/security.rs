@@ -2,7 +2,8 @@
 //!
 //! Mirrors the `CBoxliteOptions` shape: a single handle type the caller
 //! constructs, mutates via per-field setters, attaches to a box's
-//! options via `boxlite_options_set_security`, and frees with
+//! advanced options via `boxlite_advanced_options_set_security` (which is
+//! then applied with `boxlite_options_set_advanced`), and frees with
 //! `boxlite_security_options_free`. The setters return `void` and
 //! follow the same naming convention as the box-options setters
 //! (`boxlite_security_options_set_<field>`).
@@ -44,8 +45,8 @@ pub struct SecurityOptionsHandle {
 ///
 /// Sets `*out_opts` to the new handle on `Ok`. The caller owns the handle
 /// and must release it via `boxlite_security_options_free` once it has
-/// been attached to a `CBoxliteOptions` via `boxlite_options_set_security`
-/// (or if no longer needed).
+/// been attached to a `CAdvancedBoxOptions` via
+/// `boxlite_advanced_options_set_security` (or if no longer needed).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_security_options_new(
     out_opts: *mut *mut CSecurityOptions,

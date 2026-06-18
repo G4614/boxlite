@@ -482,8 +482,9 @@ func TestBuildCOptions_MissingImageAndPath(t *testing.T) {
 // Security preset
 // ============================================================================
 //
-// WithSecurityOptions(spec) routes through `boxlite_options_set_security` —
-// the spec is built via NewSecurityOptions / NewSecurityOptionsDisabled
+// WithSecurityOptions(spec) routes through `boxlite_options_set_advanced`
+// (security lives under AdvancedBoxOptions) — the spec is built via
+// NewSecurityOptions / NewSecurityOptionsDisabled
 // (and optionally tweaked), then forwarded as a const handle. Both
 // preset entries must round-trip cleanly, and not calling
 // WithSecurityOptions leaves the runtime default (enabled) in place.
