@@ -79,8 +79,8 @@ impl RestBox {
         stream: WsStream,
         wire_stdin: bool,
     ) -> Execution {
-        let (stdout_tx, stdout_rx) = mpsc::unbounded_channel::<String>();
-        let (stderr_tx, stderr_rx) = mpsc::unbounded_channel::<String>();
+        let (stdout_tx, stdout_rx) = mpsc::channel::<String>(64);
+        let (stderr_tx, stderr_rx) = mpsc::channel::<String>(64);
         let (result_tx, result_rx) = mpsc::unbounded_channel::<ExecResult>();
         let stdin = wire_stdin.then(mpsc::unbounded_channel::<Vec<u8>>);
         let (stdin_tx, stdin_rx) = match stdin {
@@ -153,8 +153,8 @@ impl BoxBackend for RestBox {
         let execution_id = resp.execution_id;
 
         // 2. Set up channels for stdout, stderr, stdin, and result
-        let (stdout_tx, stdout_rx) = mpsc::unbounded_channel::<String>();
-        let (stderr_tx, stderr_rx) = mpsc::unbounded_channel::<String>();
+        let (stdout_tx, stdout_rx) = mpsc::channel::<String>(64);
+        let (stderr_tx, stderr_rx) = mpsc::channel::<String>(64);
         let (stdin_tx, stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (result_tx, result_rx) = mpsc::unbounded_channel::<ExecResult>();
 
@@ -625,8 +625,8 @@ async fn attach_ws(
     box_id: &str,
     execution_id: &str,
     stdin_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-    stdout_tx: mpsc::UnboundedSender<String>,
-    stderr_tx: mpsc::UnboundedSender<String>,
+    stdout_tx: mpsc::Sender<String>,
+    stderr_tx: mpsc::Sender<String>,
     result_tx: mpsc::UnboundedSender<ExecResult>,
 ) {
     let path = format!("/boxes/{}/executions/{}/attach", box_id, execution_id);
@@ -680,8 +680,8 @@ async fn attach_ws_pump(
     initial_stream: WsStream,
     // `None` for a read-only attach: there is no writer, so no channel exists.
     mut stdin_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
-    stdout_tx: mpsc::UnboundedSender<String>,
-    stderr_tx: mpsc::UnboundedSender<String>,
+    stdout_tx: mpsc::Sender<String>,
+    stderr_tx: mpsc::Sender<String>,
     result_tx: mpsc::UnboundedSender<ExecResult>,
 ) {
     use futures::{SinkExt, StreamExt};
@@ -829,11 +829,11 @@ async fn attach_ws_pump(
                                 match *channel {
                                     0x01 => {
                                         tracing::trace!(len = text.len(), "WS attach: stdout frame");
-                                        let _ = stdout_tx.send(text);
+                                        let _ = stdout_tx.send(text).await;
                                     }
                                     0x02 => {
                                         tracing::trace!(len = text.len(), "WS attach: stderr frame");
-                                        let _ = stderr_tx.send(text);
+                                        let _ = stderr_tx.send(text).await;
                                     }
                                     other => {
                                         tracing::warn!(channel = other, "WS attach: unknown channel prefix");
