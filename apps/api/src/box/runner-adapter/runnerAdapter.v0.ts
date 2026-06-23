@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import axios, { AxiosError } from 'axios'
+import axios, { AxiosError, AxiosInstance } from 'axios'
 import axiosDebug from 'axios-debug-log'
 import axiosRetry from 'axios-retry'
 
@@ -22,6 +22,7 @@ import {
 import { Box } from '../entities/box.entity'
 import { BoxState } from '../enums/box-state.enum'
 import { RunnerApiError } from '../errors/runner-api-error'
+import { UpdateBoxSecretDto } from '../../boxlite-rest/dto/update-box-secrets.dto'
 
 const isDebugEnabled = process.env.DEBUG === 'true'
 
@@ -122,6 +123,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
   private readonly logger = new Logger(RunnerAdapterV0.name)
   private boxApiClient: BoxApi
   private runnerApiClient: DefaultApi
+  private axiosInstance!: AxiosInstance
 
   private convertBoxState(state: EnumsBoxState): BoxState {
     switch (state) {
@@ -223,6 +225,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
 
     this.boxApiClient = new BoxApi(new Configuration(), '', axiosInstance)
     this.runnerApiClient = new DefaultApi(new Configuration(), '', axiosInstance)
+    this.axiosInstance = axiosInstance
   }
 
   async healthCheck(signal?: AbortSignal): Promise<void> {
@@ -313,6 +316,10 @@ export class RunnerAdapterV0 implements RunnerAdapter {
     }
 
     await this.boxApiClient.updateNetworkSettings(boxId, updateNetworkSettingsDto)
+  }
+
+  async updateSecrets(boxId: string, secrets: UpdateBoxSecretDto[]): Promise<void> {
+    await this.axiosInstance.put(`/boxes/${encodeURIComponent(boxId)}/secrets`, { secrets })
   }
 
   async recoverBox(box: Box): Promise<void> {

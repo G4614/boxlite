@@ -42,6 +42,17 @@ type UpdateNetworkSettingsDTO struct {
 	NetworkLimitEgress *bool   `json:"networkLimitEgress,omitempty"`
 } //	@name	UpdateNetworkSettingsDTO
 
+type SecretDTO struct {
+	Name        string   `json:"name" validate:"required"`
+	Value       string   `json:"value" validate:"required"`
+	Hosts       []string `json:"hosts,omitempty"`
+	Placeholder string   `json:"placeholder" validate:"required"`
+} //	@name	SecretDTO
+
+type UpdateSecretsDTO struct {
+	Secrets []SecretDTO `json:"secrets" validate:"required"`
+} //	@name	UpdateSecretsDTO
+
 type RecoverBoxDTO struct {
 	FromVolumeId     string            `json:"fromVolumeId,omitempty"`
 	OsUser           string            `json:"osUser" validate:"required"`

@@ -74,6 +74,7 @@ import { BoxLookupCacheInvalidationService } from './box-lookup-cache-invalidati
 import { Region } from '../../region/entities/region.entity'
 import { BoxActivityService } from './box-activity.service'
 import { assertWithinPerBoxLimits } from './per-box-limits'
+import { UpdateBoxSecretDto } from '../../boxlite-rest/dto/update-box-secrets.dto'
 
 // TODO(image-rewrite): resource defaults previously came from the removed image subsystem;
 // these mirror the Box entity column defaults until image resolution is rebuilt.
@@ -1260,6 +1261,28 @@ export class BoxService {
     }
 
     return updatedBox
+  }
+
+  async updateSecrets(
+    boxIdOrName: string,
+    secrets: UpdateBoxSecretDto[],
+    organizationId?: string,
+  ): Promise<Box> {
+    const box = await this.findOneByIdOrName(boxIdOrName, organizationId)
+
+    if (!box.runnerId) {
+      throw new BadRequestError('Box is not assigned to a runner')
+    }
+
+    const runner = await this.runnerService.findOne(box.runnerId)
+    if (!runner) {
+      throw new NotFoundException(`Runner ${box.runnerId} not found`)
+    }
+
+    const runnerAdapter = await this.runnerAdapterFactory.create(runner)
+    await runnerAdapter.updateSecrets(box.id, secrets)
+
+    return box
   }
 
   // used by internal services to update the state of a box to resolve domain and runner state mismatch

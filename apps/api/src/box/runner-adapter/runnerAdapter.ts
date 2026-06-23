@@ -12,6 +12,7 @@ import { RunnerAdapterV2 } from './runnerAdapter.v2'
 import { Box } from '../entities/box.entity'
 import { BoxState } from '../enums/box-state.enum'
 import { RunnerServiceInfo } from '../common/runner-service-info'
+import { UpdateBoxSecretDto } from '../../boxlite-rest/dto/update-box-secrets.dto'
 
 export interface RunnerBoxInfo {
   state: BoxState
@@ -62,6 +63,8 @@ export interface RunnerAdapter {
     networkAllowList?: string,
     networkLimitEgress?: boolean,
   ): Promise<void>
+
+  updateSecrets(boxId: string, secrets: UpdateBoxSecretDto[]): Promise<void>
 
   recoverBox(box: Box): Promise<void>
 
