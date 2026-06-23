@@ -316,6 +316,14 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
    * desired state by transitioning ERROR -> STOPPED, which lets the normal start flow
    * issue an idempotent START_BOX (not a non-idempotent CREATE_BOX) on the existing box.
    *
+   * Eligibility is deliberately NOT gated on the box.recoverable flag: that flag is set true
+   * only for storage-expansion errors (the runner's sole recoverable pattern), whereas the
+   * split-brain errors this loop targets — "box already exists" from a late-failing CREATE,
+   * job timeouts — are reported recoverable=false. The safety net is not that pre-filter but
+   * the idempotent START_BOX plus the bounded retry below: a box that truly cannot start fails
+   * START_BOX up to MAX_RECOVER_ATTEMPTS times and is then left alone, while a box that is
+   * actually alive on the runner is recovered on the first retry.
+   *
    * Recovery is bounded by counting recent failed START_BOX jobs for the box so a genuinely
    * dead box is not retried forever; the count is derived from the job table, not stored state.
    */
@@ -339,7 +347,6 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
         .createQueryBuilder('box')
         .select(['box.id', 'box.runnerId'])
         .where('box.state = :state', { state: BoxState.ERROR })
-        .andWhere('box.recoverable = true')
         .andWhere('box.pending = false')
         .andWhere('box."desiredState"::text = :desired', { desired: BoxDesiredState.STARTED })
         .andWhere('box."updatedAt" < :settledBefore', { settledBefore })

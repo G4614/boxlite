@@ -31,6 +31,9 @@ function buildHarness(opts: {
     updateWhere,
   }
 
+  const collectQueryClauses = () =>
+    [...queryBuilder.where.mock.calls, ...queryBuilder.andWhere.mock.calls].map((call: any[]) => String(call[0]))
+
   const runnerService: any = {
     getRunnerApiVersion: jest.fn().mockResolvedValue(opts.apiVersion ?? '2'),
   }
@@ -55,7 +58,7 @@ function buildHarness(opts: {
     jobRepository,
   )
 
-  return { manager, updateWhere, runnerService, redisLockProvider, jobRepository }
+  return { manager, updateWhere, runnerService, redisLockProvider, jobRepository, collectQueryClauses }
 }
 
 describe('BoxManager.reconcileErroredBoxes', () => {
@@ -70,6 +73,29 @@ describe('BoxManager.reconcileErroredBoxes', () => {
 
     expect(updateWhere).toHaveBeenCalledTimes(1)
     expect(updateWhere).toHaveBeenCalledWith('box-1', {
+      updateData: { state: BoxState.STOPPED, errorReason: null },
+      whereCondition: { state: BoxState.ERROR },
+    })
+  })
+
+  it('does not gate eligibility on the storage-only recoverable flag, so split-brain ERROR boxes qualify', async () => {
+    const { manager, updateWhere, collectQueryClauses } = buildHarness({
+      // A split-brain box (CREATE failed late while the box exists on the runner)
+      // is reported with recoverable=false; it must still be eligible for reconcile.
+      candidates: [{ id: 'box-splitbrain', runnerId: 'runner-1' }],
+    })
+
+    await manager.reconcileErroredBoxes()
+
+    const clauses = collectQueryClauses()
+    // The errors #578 targets (split-brain, timeout) are recoverable=false. Pre-filtering on
+    // box.recoverable (set true only for storage-full) would make the loop recover nothing.
+    expect(clauses.some((clause) => clause.includes('recoverable'))).toBe(false)
+    // Eligibility is still scoped to ERROR boxes that want to be STARTED.
+    expect(clauses.some((clause) => clause.includes('box.state'))).toBe(true)
+    expect(clauses.some((clause) => clause.includes('desiredState'))).toBe(true)
+    // And such a (non-recoverable) box is still driven back toward STARTED.
+    expect(updateWhere).toHaveBeenCalledWith('box-splitbrain', {
       updateData: { state: BoxState.STOPPED, errorReason: null },
       whereCondition: { state: BoxState.ERROR },
     })
