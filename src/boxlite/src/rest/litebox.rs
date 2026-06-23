@@ -1615,8 +1615,8 @@ mod tests {
         });
 
         let client = client_for(port);
-        let (stdout_tx, mut stdout_rx) = mpsc::unbounded_channel::<String>();
-        let (stderr_tx, _stderr_rx) = mpsc::unbounded_channel::<String>();
+        let (stdout_tx, mut stdout_rx) = mpsc::channel::<String>(64);
+        let (stderr_tx, _stderr_rx) = mpsc::channel::<String>(64);
         let (stdin_tx, stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (result_tx, mut result_rx) = mpsc::unbounded_channel::<ExecResult>();
 
@@ -1682,8 +1682,8 @@ mod tests {
         });
 
         let client = client_for(port);
-        let (stdout_tx, _stdout_rx) = mpsc::unbounded_channel::<String>();
-        let (stderr_tx, _stderr_rx) = mpsc::unbounded_channel::<String>();
+        let (stdout_tx, _stdout_rx) = mpsc::channel::<String>(64);
+        let (stderr_tx, _stderr_rx) = mpsc::channel::<String>(64);
         let (_stdin_tx, stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (result_tx, mut result_rx) = mpsc::unbounded_channel::<ExecResult>();
 
@@ -1738,8 +1738,8 @@ mod tests {
         });
 
         let client = client_for(port);
-        let (stdout_tx, _stdout_rx) = mpsc::unbounded_channel::<String>();
-        let (stderr_tx, _stderr_rx) = mpsc::unbounded_channel::<String>();
+        let (stdout_tx, _stdout_rx) = mpsc::channel::<String>(64);
+        let (stderr_tx, _stderr_rx) = mpsc::channel::<String>(64);
         let (_stdin_tx, stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (result_tx, mut result_rx) = mpsc::unbounded_channel::<ExecResult>();
 
@@ -2181,8 +2181,8 @@ mod tests {
         });
 
         let client = client_for(port);
-        let (stdout_tx, _stdout_rx) = mpsc::unbounded_channel::<String>();
-        let (stderr_tx, _stderr_rx) = mpsc::unbounded_channel::<String>();
+        let (stdout_tx, _stdout_rx) = mpsc::channel::<String>(64);
+        let (stderr_tx, _stderr_rx) = mpsc::channel::<String>(64);
         let (_stdin_tx, stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (result_tx, mut result_rx) = mpsc::unbounded_channel::<ExecResult>();
 
