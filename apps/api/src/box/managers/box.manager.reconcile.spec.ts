@@ -6,6 +6,7 @@
 
 import { BoxManager } from './box.manager'
 import { BoxState } from '../enums/box-state.enum'
+import { BoxDesiredState } from '../enums/box-desired-state.enum'
 
 type Candidate = { id: string; runnerId: string | null }
 
@@ -74,7 +75,12 @@ describe('BoxManager.reconcileErroredBoxes', () => {
     expect(updateWhere).toHaveBeenCalledTimes(1)
     expect(updateWhere).toHaveBeenCalledWith('box-1', {
       updateData: { state: BoxState.STOPPED, errorReason: null },
-      whereCondition: { state: BoxState.ERROR },
+      whereCondition: {
+        state: BoxState.ERROR,
+        pending: false,
+        desiredState: BoxDesiredState.STARTED,
+        runnerId: 'runner-1',
+      },
     })
   })
 
@@ -97,7 +103,30 @@ describe('BoxManager.reconcileErroredBoxes', () => {
     // And such a (non-recoverable) box is still driven back toward STARTED.
     expect(updateWhere).toHaveBeenCalledWith('box-splitbrain', {
       updateData: { state: BoxState.STOPPED, errorReason: null },
-      whereCondition: { state: BoxState.ERROR },
+      whereCondition: {
+        state: BoxState.ERROR,
+        pending: false,
+        desiredState: BoxDesiredState.STARTED,
+        runnerId: 'runner-1',
+      },
+    })
+  })
+
+  it('guards the atomic transition with the same stable fields used for eligibility', async () => {
+    const { manager, updateWhere } = buildHarness({
+      candidates: [{ id: 'box-1', runnerId: 'runner-1' }],
+    })
+
+    await manager.reconcileErroredBoxes()
+
+    expect(updateWhere).toHaveBeenCalledWith('box-1', {
+      updateData: { state: BoxState.STOPPED, errorReason: null },
+      whereCondition: {
+        state: BoxState.ERROR,
+        pending: false,
+        desiredState: BoxDesiredState.STARTED,
+        runnerId: 'runner-1',
+      },
     })
   })
 

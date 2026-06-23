@@ -52,6 +52,34 @@ describe('JobStateHandlerService CREATE_BOX failure handling', () => {
     expect(updates[0].updateData.errorReason).toBeNull()
   })
 
+  it('also treats runner box ID collisions as split-brain create success', async () => {
+    const { service, updates } = buildHarness({
+      id: 'box-1',
+      state: BoxState.CREATING,
+      desiredState: BoxDesiredState.STARTED,
+    })
+
+    await service.handleJobCompletion(failedCreateJob('failed to create box: box box-1 already exists'))
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0].updateData.state).toBe(BoxState.STOPPED)
+    expect(updates[0].updateData.errorReason).toBeNull()
+  })
+
+  it('does not treat unrelated already-exists CREATE errors as box split-brain', async () => {
+    const { service, updates } = buildHarness({
+      id: 'box-1',
+      state: BoxState.CREATING,
+      desiredState: BoxDesiredState.STARTED,
+    })
+
+    await service.handleJobCompletion(failedCreateJob("failed to create box: volume with name 'box-1' already exists"))
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0].updateData.state).toBe(BoxState.ERROR)
+    expect(updates[0].updateData.errorReason).toContain('volume with name')
+  })
+
   it('still marks a genuine CREATE failure as ERROR', async () => {
     const { service, updates } = buildHarness({
       id: 'box-1',

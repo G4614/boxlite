@@ -17,10 +17,12 @@ import { RedisLockProvider } from '../common/redis-lock.provider'
 import { ResourceType } from '../enums/resource-type.enum'
 import { getStateChangeLockKey } from '../utils/lock-key.util'
 
-// The runner reports a name collision as "box with name '<id>' already exists" /
-// "box with this name already exists" (src/boxlite runtime). Both contain this substring,
-// which survives the runner's error wrapping and sanitizeBoxError unchanged.
-const BOX_ALREADY_EXISTS_PATTERN = /already exists/i
+// The runner reports box name/ID collisions as:
+// - "box with name '<id>' already exists"
+// - "box <id> already exists"
+// - "box with this name already exists"
+// The pattern intentionally avoids matching unrelated resource collisions.
+const BOX_ALREADY_EXISTS_PATTERN = /\bbox (?:with name ['"][^'"]+['"]|with this name|\S+) already exists\b/i
 
 function isBoxAlreadyExistsError(errorReason: string | undefined | null): boolean {
   return !!errorReason && BOX_ALREADY_EXISTS_PATTERN.test(errorReason)

@@ -396,7 +396,12 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
               state: BoxState.STOPPED,
               errorReason: null,
             },
-            whereCondition: { state: BoxState.ERROR },
+            whereCondition: {
+              state: BoxState.ERROR,
+              pending: false,
+              desiredState: BoxDesiredState.STARTED,
+              runnerId: candidate.runnerId,
+            },
           })
           this.logger.warn(
             `Reconcile: box ${candidate.id} ERROR -> STOPPED (attempt ${recentFailures + 1}/${MAX_RECOVER_ATTEMPTS}), letting start flow re-drive it`,
