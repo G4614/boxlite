@@ -21,6 +21,8 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 // Build.rs generates: pub const MANIFEST: &[(&str, u32, &[u8])] = &[...];
 include!(concat!(env!("OUT_DIR"), "/embedded_manifest.rs"));
 
+const RUNTIME_EXECUTABLES: &[&str] = &["boxlite-shim", "boxlite-guest", "bwrap"];
+
 /// Embedded runtime binary cache.
 ///
 /// Holds the path to the extracted cache directory. Created once via
@@ -103,10 +105,21 @@ impl EmbeddedRuntime {
         // Fast path: already extracted by this or a previous process.
         let stamp = dir.join(".complete");
         if stamp.exists() {
-            // Refresh mtime so stale cleanup measures "last used", not "first extracted"
-            let now = filetime::FileTime::now();
-            let _ = filetime::set_file_mtime(&stamp, now);
-            return Ok(Self { dir });
+            if Self::stamp_matches_current_manifest(&stamp) {
+                Self::ensure_runtime_permissions(&dir)?;
+                // Refresh mtime so stale cleanup measures "last used", not "first extracted"
+                let now = filetime::FileTime::now();
+                let _ = filetime::set_file_mtime(&stamp, now);
+                return Ok(Self { dir });
+            }
+
+            tracing::info!(
+                dir = %dir.display(),
+                manifest_hash = env!("BOXLITE_MANIFEST_HASH"),
+                "Refreshing embedded runtime cache"
+            );
+            std::fs::remove_dir_all(&dir)
+                .map_err(|e| BoxliteError::Storage(format!("remove {}: {}", dir.display(), e)))?;
         }
 
         // PID-scoped temp dir avoids collision between concurrent processes.
@@ -124,10 +137,15 @@ impl EmbeddedRuntime {
         }
 
         // Stamp marks extraction as complete — checked by the fast path above.
-        // Line 1: version (human-readable). Line 2: build profile, read back by
-        // `ttl_for_stamp` so each dir is pruned by the TTL of the profile that
-        // created it. `\n` separated; readers use `str::lines` (CRLF-tolerant).
-        let stamp_body = format!("{}\n{}\n", crate::VERSION, env!("BOXLITE_BUILD_PROFILE"));
+        // Line 1: version. Line 2: build profile. Line 3: manifest hash.
+        // The hash prevents release-profile dev builds with the same crate version from
+        // reusing stale runtime binaries left by an older embedded manifest.
+        let stamp_body = format!(
+            "{}\n{}\n{}\n",
+            crate::VERSION,
+            env!("BOXLITE_BUILD_PROFILE"),
+            env!("BOXLITE_MANIFEST_HASH")
+        );
         std::fs::write(tmp.join(".complete"), stamp_body)
             .map_err(|e| BoxliteError::Storage(format!("write stamp: {}", e)))?;
 
@@ -218,16 +236,61 @@ impl EmbeddedRuntime {
         Ok(dir)
     }
 
+    fn stamp_matches_current_manifest(stamp: &Path) -> bool {
+        let Ok(contents) = std::fs::read_to_string(stamp) else {
+            return false;
+        };
+        let mut lines = contents.lines();
+        let version = lines.next();
+        let profile = lines.next();
+        let manifest_hash = lines.next();
+
+        version == Some(crate::VERSION)
+            && profile == Some(env!("BOXLITE_BUILD_PROFILE"))
+            && manifest_hash == Some(env!("BOXLITE_MANIFEST_HASH"))
+    }
+
     #[cfg(unix)]
     fn set_permissions(path: &Path, mode: u32) -> BoxliteResult<()> {
         use std::os::unix::fs::PermissionsExt;
-        let mode = match mode & 0o777 {
+        let mut mode = match mode & 0o777 {
             0 => 0o644,
             mode => mode,
         };
+        if Self::is_runtime_executable(path) {
+            mode |= 0o755;
+        }
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).map_err(|e| {
             BoxliteError::Storage(format!("chmod {:o} {}: {}", mode, path.display(), e))
         })
+    }
+
+    #[cfg(unix)]
+    fn ensure_runtime_permissions(dir: &Path) -> BoxliteResult<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        for name in RUNTIME_EXECUTABLES {
+            let path = dir.join(name);
+            if !path.exists() {
+                continue;
+            }
+            let mode = std::fs::metadata(&path)
+                .map(|metadata| metadata.permissions().mode() & 0o777)
+                .unwrap_or(0o644);
+            Self::set_permissions(&path, mode)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn ensure_runtime_permissions(_dir: &Path) -> BoxliteResult<()> {
+        Ok(())
+    }
+
+    fn is_runtime_executable(path: &Path) -> bool {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| RUNTIME_EXECUTABLES.contains(&name))
     }
 }
 
@@ -303,6 +366,64 @@ mod tests {
             EmbeddedRuntime::STALE_TTL_RELEASE,
             "unreadable stamp must fall back to the long TTL"
         );
+    }
+
+    #[test]
+    fn stamp_matches_current_manifest_requires_hash() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stamp = tmp.path().join(".complete");
+
+        std::fs::write(
+            &stamp,
+            format!(
+                "{}\n{}\n{}\n",
+                crate::VERSION,
+                env!("BOXLITE_BUILD_PROFILE"),
+                env!("BOXLITE_MANIFEST_HASH")
+            ),
+        )
+        .unwrap();
+        assert!(EmbeddedRuntime::stamp_matches_current_manifest(&stamp));
+
+        std::fs::write(
+            &stamp,
+            format!("{}\n{}\n", crate::VERSION, env!("BOXLITE_BUILD_PROFILE")),
+        )
+        .unwrap();
+        assert!(
+            !EmbeddedRuntime::stamp_matches_current_manifest(&stamp),
+            "legacy stamps without manifest hash must be refreshed"
+        );
+
+        std::fs::write(
+            &stamp,
+            format!(
+                "{}\n{}\noldhash\n",
+                crate::VERSION,
+                env!("BOXLITE_BUILD_PROFILE")
+            ),
+        )
+        .unwrap();
+        assert!(
+            !EmbeddedRuntime::stamp_matches_current_manifest(&stamp),
+            "stamps for a different embedded manifest must be refreshed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_executable_permissions_are_enforced() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let shim = tmp.path().join("boxlite-shim");
+        std::fs::write(&shim, b"shim").unwrap();
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        EmbeddedRuntime::set_permissions(&shim, 0o644).unwrap();
+
+        let mode = std::fs::metadata(&shim).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
     }
 
     #[test]
