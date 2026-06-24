@@ -12,8 +12,10 @@ import { InMemoryWebStorage, WebStorageStateStore } from 'oidc-client-ts'
 import { ReactNode, useMemo } from 'react'
 import { AuthProvider, AuthProviderProps } from 'react-oidc-context'
 import { ConfigContext } from '../contexts/ConfigContext'
+import { MockAuthProvider } from '../mocks/MockAuthProvider'
 
 const apiUrl = (import.meta.env.VITE_BASE_API_URL ?? window.location.origin) + '/api'
+const isMocking = import.meta.env.VITE_ENABLE_MOCKING === 'true'
 
 type Props = {
   children: ReactNode
@@ -63,7 +65,11 @@ export function ConfigProvider(props: Props) {
 
   return (
     <ConfigContext.Provider value={{ ...config, apiUrl }}>
-      <AuthProvider {...oidcConfig}>{props.children}</AuthProvider>
+      {isMocking ? (
+        <MockAuthProvider>{props.children}</MockAuthProvider>
+      ) : (
+        <AuthProvider {...oidcConfig}>{props.children}</AuthProvider>
+      )}
     </ConfigContext.Provider>
   )
 }

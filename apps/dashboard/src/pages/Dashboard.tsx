@@ -9,6 +9,7 @@ import { Outlet } from 'react-router-dom'
 
 import { AnnouncementBanner } from '@/components/AnnouncementBanner'
 import { CommandPalette, useRegisterCommands, type CommandConfig } from '@/components/CommandPalette'
+import { OnboardingDialogHost } from '@/components/OnboardingDialogHost'
 import { Sidebar } from '@/components/Sidebar'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
@@ -22,7 +23,7 @@ import { useDocsSearchCommands } from '@/hooks/useDocsSearchCommands'
 import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import { useSuspensionBanner } from '@/hooks/useSuspensionBanner'
 import { cn } from '@/lib/utils'
-import { BookOpen, BookSearchIcon, MessageCircle, SunMoon } from 'lucide-react'
+import { BookOpen, BookSearchIcon, MessageCircle, SunMoon } from '@/components/ui/icon'
 
 function useDashboardCommands() {
   const { theme, setTheme } = useTheme()
@@ -143,6 +144,7 @@ const Dashboard: React.FC = () => {
             <CommandPalette />
           </div>
         </SidebarInset>
+        <OnboardingDialogHost />
         <Toaster />
         <VerifyEmailDialog open={showVerifyEmailDialog} onOpenChange={setShowVerifyEmailDialog} />
       </SidebarProvider>
