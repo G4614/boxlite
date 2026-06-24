@@ -68,7 +68,6 @@ type attachExec interface {
 	WriteStdin(data []byte) (int, error)
 	DoneCh() <-chan struct{}
 	ExitCodeValue() int
-	WasKilled() bool
 	IsTTY() bool
 	Resize(rows, cols int) error
 	Signal(sig int) error
@@ -258,32 +257,12 @@ func runAttachLoop(parentCtx context.Context, conn *websocket.Conn, exec attachE
 		runKeepalive(loopCtx, conn, &writeMu, fail)
 	}()
 
-	pumpsDone := make(chan struct{})
-	go func() {
-		pumpWg.Wait()
-		close(pumpsDone)
-	}()
-
-	// Wait for either Done, a killed execution whose streams were forcibly
-	// closed, or context cancellation. Done keeps the existing drain behavior;
-	// the killed path covers DELETE /executions/{id}, where the exec is evicted
-	// before Done necessarily reaches the attach handler.
+	// Wait for either Done (clean exit) or context cancellation (failure
+	// or disconnect). Done is the only path that sends an `exit` frame.
 	cleanExit := false
-	killedExit := false
 	select {
 	case <-exec.DoneCh():
 		cleanExit = true
-	case <-pumpsDone:
-		if exec.WasKilled() {
-			cleanExit = true
-			killedExit = true
-		} else {
-			select {
-			case <-exec.DoneCh():
-				cleanExit = true
-			case <-loopCtx.Done():
-			}
-		}
 	case <-loopCtx.Done():
 	}
 
@@ -294,6 +273,11 @@ func runAttachLoop(parentCtx context.Context, conn *websocket.Conn, exec attachE
 		// ensures all output is written before the exit frame.
 		unsubscribe()
 
+		pumpsDone := make(chan struct{})
+		go func() {
+			pumpWg.Wait()
+			close(pumpsDone)
+		}()
 		drained := false
 		select {
 		case <-pumpsDone:
@@ -302,13 +286,9 @@ func runAttachLoop(parentCtx context.Context, conn *websocket.Conn, exec attachE
 		}
 
 		if drained {
-			exitCode := exec.ExitCodeValue()
-			if killedExit {
-				exitCode = -9
-			}
 			_ = writeJSONFrame(conn, &writeMu, map[string]any{
 				"type":      "exit",
-				"exit_code": exitCode,
+				"exit_code": exec.ExitCodeValue(),
 			})
 			closeWS(websocket.CloseNormalClosure, "")
 		} else {
@@ -506,7 +486,6 @@ func (m managedExecAttach) Subscribe(bufSize int) (stdout, stderr <-chan []byte,
 func (m managedExecAttach) WriteStdin(data []byte) (int, error) { return m.me.AttachWriteStdin(data) }
 func (m managedExecAttach) DoneCh() <-chan struct{}             { return m.me.Done }
 func (m managedExecAttach) ExitCodeValue() int                  { return m.me.ExitCode }
-func (m managedExecAttach) WasKilled() bool                     { return m.me.WasKilled() }
 func (m managedExecAttach) IsTTY() bool                         { return m.me.TTY }
 func (m managedExecAttach) Resize(rows, cols int) error         { return m.me.AttachResize(rows, cols) }
 func (m managedExecAttach) Signal(sig int) error                { return m.me.AttachSignal(sig) }
