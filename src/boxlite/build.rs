@@ -899,6 +899,12 @@ impl EmbeddedManifest {
             &profile,
             Self::find_prebuilt_guest,
         );
+        self.copy_prebuilt_binary(
+            workspace_root,
+            "libboxlite_landlock.so",
+            &profile,
+            Self::find_prebuilt_seal,
+        );
 
         let entries = self.scan_entries();
         Self::emit_manifest(&manifest_path, &entries);
@@ -977,6 +983,31 @@ impl EmbeddedManifest {
                 .join(format!("{}-unknown-linux-gnu", arch))
                 .join(profile)
                 .join("boxlite-shim");
+            if gnu.is_file() {
+                return Some(gnu);
+            }
+        }
+
+        None
+    }
+
+    /// Find the pre-built `libboxlite_landlock.so` preload library.
+    ///
+    /// cdylib built by `cargo build -p boxlite-landlock`. bwrap LD_PRELOADs it
+    /// into the shim. Mirrors the shim search (native first, then linux-gnu).
+    fn find_prebuilt_seal(workspace_root: &Path, profile: &str) -> Option<PathBuf> {
+        let target_dir = workspace_root.join("target");
+
+        let native = target_dir.join(profile).join("libboxlite_landlock.so");
+        if native.is_file() {
+            return Some(native);
+        }
+
+        for arch in Self::preferred_arches() {
+            let gnu = target_dir
+                .join(format!("{}-unknown-linux-gnu", arch))
+                .join(profile)
+                .join("libboxlite_landlock.so");
             if gnu.is_file() {
                 return Some(gnu);
             }

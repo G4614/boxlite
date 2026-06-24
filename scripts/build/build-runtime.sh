@@ -200,6 +200,31 @@ build_guest() {
     fi
 }
 
+# Build the Landlock preload library (libboxlite_landlock.so)
+# cdylib that bwrap LD_PRELOADs into the shim; its constructor applies Landlock
+# in the shim's process after bwrap's mounts, so the shim binary carries no
+# Landlock code and no extra exec wrapper sits in front of the VMM.
+build_seal() {
+    echo ""
+    print_section "Building libboxlite_landlock.so preload library..."
+
+    local seal_path="$PROJECT_ROOT/target/$PROFILE/libboxlite_landlock.so"
+    local build_flag=""
+    if [ "$PROFILE" = "release" ]; then
+        build_flag="--release"
+    fi
+
+    (cd "$PROJECT_ROOT" && cargo build $build_flag -p boxlite-landlock --lib)
+
+    if [ -f "$seal_path" ]; then
+        SEAL_BINARY="$seal_path"
+        print_success "Built: $seal_path"
+    else
+        print_error "Failed to build libboxlite_landlock.so"
+        exit 1
+    fi
+}
+
 # Find and collect FFI libraries
 collect_libraries() {
     # If caller provided libs directory, use it
@@ -283,6 +308,10 @@ assemble_runtime() {
         print_step "Copying boxlite-guest... "
         cp "$GUEST_BINARY" "$DEST_DIR/"
         echo "✓"
+
+        print_step "Copying libboxlite_landlock.so... "
+        cp "$SEAL_BINARY" "$DEST_DIR/"
+        echo "✓"
     else
         # Separate destination — full copy
         rm -rf "$DEST_DIR"
@@ -295,6 +324,10 @@ assemble_runtime() {
 
         print_step "Copying boxlite-guest... "
         cp "$GUEST_BINARY" "$DEST_DIR/"
+        echo "✓"
+
+        print_step "Copying libboxlite_landlock.so... "
+        cp "$SEAL_BINARY" "$DEST_DIR/"
         echo "✓"
 
         # Copy all libraries (preserve symlinks)
@@ -350,6 +383,7 @@ main() {
     detect_platform
     build_shim
     build_guest
+    build_seal
     collect_libraries
 
     # Resolve default destination after collect_libraries discovers RUNTIME_LIBS_DIR

@@ -104,7 +104,50 @@ pub fn copy_shim_to_box(shim_path: &Path, box_dir: &Path) -> BoxliteResult<PathB
         copy_libkrunfw(shim_dir, &bin_dir)?;
     }
 
+    // Copy the Landlock preload library next to the copied shim. bwrap derives
+    // its LD_PRELOAD path from the shim's own directory, so the library must
+    // travel with the shim into the jail; otherwise the box fails closed.
+    #[cfg(target_os = "linux")]
+    if let Some(shim_dir) = shim_path.parent() {
+        copy_preload_lib(shim_dir, &bin_dir)?;
+    }
+
     Ok(dest_shim)
+}
+
+/// Copy the Landlock preload library (`libboxlite_landlock.so`) from the shim's
+/// runtime directory into `dest_dir`, alongside the copied shim.
+#[cfg(target_os = "linux")]
+fn copy_preload_lib(src_dir: &Path, dest_dir: &Path) -> BoxliteResult<()> {
+    let name = crate::jailer::landlock::SEAL_PRELOAD_LIB;
+    let src_path = src_dir.join(name);
+    if !src_path.exists() {
+        // Not fatal here: bwrap fails closed at launch if the library is absent.
+        tracing::warn!(
+            src = %src_path.display(),
+            "Landlock preload library not found next to shim; box will fail closed"
+        );
+        return Ok(());
+    }
+
+    let dest_path = dest_dir.join(name);
+    let copied = copy_if_newer(&src_path, &dest_path).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Failed to copy Landlock preload library {} to {}: {}",
+            src_path.display(),
+            dest_path.display(),
+            e
+        ))
+    })?;
+
+    if copied {
+        tracing::debug!(
+            src = %src_path.display(),
+            dst = %dest_path.display(),
+            "Copied Landlock preload library to box directory"
+        );
+    }
+    Ok(())
 }
 
 /// Copy libkrunfw from the shim's directory to `dest_dir`.

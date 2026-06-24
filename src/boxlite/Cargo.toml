@@ -33,6 +33,7 @@ test-support = []                                            # Expose internal c
 
 [dependencies]
 boxlite-shared.workspace = true
+boxlite-landlock.workspace = true
 
 e2fsprogs-sys = { workspace = true, optional = true }
 libgvproxy-sys = { workspace = true, optional = true }
@@ -101,7 +102,6 @@ fuse-backend-rs = { version = "0.12", features = ["fusedev"] }
 seccompiler = "0.4"  # Generate seccomp BPF filters for jailer
 bincode = "2.0"     # Deserialize compiled BPF filters
 displaydoc = "0.2"  # Display derive macro for error types
-landlock = "0.4"    # Landlock LSM filesystem/network restrictions (defense-in-depth)
 pathrs = "0.2"      # openat2(RESOLVE_IN_ROOT) safe path resolution for OCI extraction (GHSA-f396-4rp4-7v2j)
 
 [build-dependencies]

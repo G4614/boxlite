@@ -6,6 +6,7 @@
 use super::{Sandbox, SandboxContext};
 use crate::jailer::{bwrap, cgroup};
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
+use std::path::Path;
 use std::process::Command;
 
 /// Linux sandbox using bubblewrap for namespace isolation.
@@ -114,6 +115,38 @@ impl Sandbox for BwrapSandbox {
             .setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
             .setenv("HOME", "/root");
 
+        if let Some(binary_dir) = Path::new(&binary).parent() {
+            bwrap_cmd.setenv("LD_LIBRARY_PATH", ld_library_path_for_binary(binary_dir));
+            tracing::debug!(
+                binary_dir = %binary_dir.display(),
+                "bwrap: set LD_LIBRARY_PATH with command binary directory first"
+            );
+        }
+
+        match crate::jailer::landlock::serialize_rules_for_env(&ctx.paths) {
+            Ok(rules) => {
+                bwrap_cmd
+                    .setenv(crate::jailer::landlock::LANDLOCK_RULES_ENV, rules)
+                    .setenv(
+                        crate::jailer::landlock::LANDLOCK_NETWORK_ENABLED_ENV,
+                        crate::jailer::landlock::network_enabled_env_value(ctx.network_enabled),
+                    );
+                tracing::debug!("bwrap: pass Landlock rules to shim");
+            }
+            Err(e) => {
+                // Serializing Landlock rules is effectively infallible, but if it
+                // ever fails we must NOT start the shim un-sandboxed. `apply()`
+                // can't return an error (Sandbox trait), so inject a sentinel that
+                // the shim's `apply_rules_from_env` rejects (invalid JSON) — the
+                // shim then fails closed instead of silently skipping Landlock.
+                tracing::error!(error = %e, "bwrap: failed to serialize Landlock rules; failing closed");
+                bwrap_cmd.setenv(
+                    crate::jailer::landlock::LANDLOCK_RULES_ENV,
+                    "__boxlite_landlock_serialization_failed__",
+                );
+            }
+        }
+
         // Preserve debugging environment variables
         if let Ok(rust_log) = std::env::var("RUST_LOG") {
             bwrap_cmd.setenv("RUST_LOG", rust_log);
@@ -124,8 +157,45 @@ impl Sandbox for BwrapSandbox {
 
         bwrap_cmd.chdir("/");
 
-        // Replace the command with bwrap-wrapped version.
-        *cmd = bwrap_cmd.build(std::path::Path::new(&binary), &args);
+        // Apply Landlock to the shim via an LD_PRELOAD constructor, NOT an exec
+        // wrapper. bwrap itself must run un-Landlocked — a filesystem Landlock
+        // domain denies every mount syscall, so applying it before bwrap finishes
+        // would EPERM bwrap's own `mount(MS_SLAVE, "/")`. Instead bwrap sets
+        // LD_PRELOAD (and the seal marker) ONLY in the child's env via `--setenv`.
+        // When bwrap exec's the shim, the loader runs the preload library's
+        // `.init_array` constructor, which applies Landlock in the shim's process
+        // AFTER all of bwrap's mounts and BEFORE the shim's `main()`. No extra
+        // exec hop, no shim source change.
+        //
+        // The library is co-located with the shim in the runtime bundle; the
+        // ruleset whitelists the shim's own directory (read+exec) so child exec's
+        // can reload it. If it's missing the runtime is corrupt: fail closed by
+        // pointing bwrap at a path that can't exec, so the box never starts
+        // un-sandboxed.
+        let preload_lib = Path::new(&binary)
+            .parent()
+            .map(|dir| dir.join(crate::jailer::landlock::SEAL_PRELOAD_LIB));
+        match preload_lib {
+            Some(lib) if lib.exists() => {
+                bwrap_cmd
+                    .setenv("LD_PRELOAD", lib.to_string_lossy().into_owned())
+                    .setenv(crate::jailer::landlock::SEAL_MARKER_ENV, "1");
+                *cmd = bwrap_cmd.build(Path::new(&binary), &args);
+            }
+            other => {
+                let missing = other
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "<no parent dir>".to_string());
+                tracing::error!(
+                    lib = %missing,
+                    "bwrap: Landlock preload library missing; failing closed (box will not start)"
+                );
+                *cmd = bwrap_cmd.build(
+                    Path::new("/nonexistent/boxlite-landlock-preload-missing"),
+                    &args,
+                );
+            }
+        }
 
         // Add cgroup join as a pre_exec hook (async-signal-safe).
         if let Some(cgroup_procs) = cgroup::build_cgroup_procs_path(ctx.id) {
@@ -141,5 +211,68 @@ impl Sandbox for BwrapSandbox {
 
     fn name(&self) -> &'static str {
         "bwrap"
+    }
+}
+
+fn ld_library_path_for_binary(binary_dir: &Path) -> String {
+    let mut paths = vec![binary_dir.to_string_lossy().to_string()];
+    if let Ok(existing) = std::env::var("LD_LIBRARY_PATH")
+        && !existing.is_empty()
+    {
+        paths.push(existing);
+    }
+    paths.join(":")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ld_library_path_prioritizes_command_binary_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let binary_dir = tmp.path().join("boxes").join("box-id").join("bin");
+        let path = ld_library_path_for_binary(&binary_dir);
+        let expected = binary_dir.to_string_lossy().to_string();
+        assert_eq!(path.split(':').next(), Some(expected.as_str()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_bwrap_passes_landlock_rules_to_shim_env() {
+        if !BwrapSandbox::new().is_available() {
+            eprintln!("bwrap not available, skipping");
+            return;
+        }
+
+        let limits = Box::leak(Box::new(
+            crate::runtime::advanced_options::ResourceLimits::default(),
+        ));
+        let ctx = SandboxContext {
+            id: "test",
+            paths: vec![crate::jailer::sandbox::PathAccess {
+                path: std::path::PathBuf::from("/tmp"),
+                writable: true,
+            }],
+            resource_limits: limits,
+            network_enabled: false,
+            sandbox_profile: None,
+        };
+        let mut cmd = Command::new("/bin/true");
+
+        BwrapSandbox::new().apply(&ctx, &mut cmd);
+
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.windows(2).any(|window| {
+            window[0] == "--setenv" && window[1] == crate::jailer::landlock::LANDLOCK_RULES_ENV
+        }));
+        assert!(args.windows(3).any(|window| {
+            window[0] == "--setenv"
+                && window[1] == crate::jailer::landlock::LANDLOCK_NETWORK_ENABLED_ENV
+                && window[2] == "0"
+        }));
     }
 }

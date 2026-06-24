@@ -397,6 +397,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bincode 2.0.1",
+ "boxlite-landlock",
  "boxlite-shared",
  "boxlite-test-utils",
  "bubblewrap-sys",
@@ -414,7 +415,6 @@ dependencies = [
  "hex",
  "hyper-util",
  "inventory",
- "landlock",
  "libc",
  "libgvproxy-sys",
  "libkrun-sys",
@@ -545,6 +545,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "boxlite-landlock"
+version = "0.9.5"
+dependencies = [
+ "landlock",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

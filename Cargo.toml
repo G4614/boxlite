@@ -3,6 +3,7 @@ members = [
     "src/boxlite",
     "src/cli",
     "src/shared",
+    "src/landlock",
     "src/guest",
     "src/shim",
     "src/test-utils",
@@ -21,6 +22,7 @@ resolver = "2"
 [workspace.dependencies]
 boxlite = { path = "src/boxlite", version = "0.9.5" }
 boxlite-shared = { path = "src/shared", version = "0.9.5" }
+boxlite-landlock = { path = "src/landlock", version = "0.9.5" }
 bubblewrap-sys = { path = "src/deps/bubblewrap-sys", version = "0.9.5" }
 e2fsprogs-sys = { path = "src/deps/e2fsprogs-sys", version = "0.9.5" }
 libgvproxy-sys = { path = "src/deps/libgvproxy-sys", version = "0.9.5" }

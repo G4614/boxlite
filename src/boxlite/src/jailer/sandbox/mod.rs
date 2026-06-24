@@ -10,8 +10,7 @@
 //!
 //! | Sandbox | Platform | Mechanism |
 //! |---------|----------|-----------|
-//! | [`BwrapSandbox`] | Linux | bubblewrap namespaces + cgroups |
-//! | [`LandlockSandbox`] | Linux | Landlock filesystem/network ACL |
+//! | [`BwrapSandbox`] | Linux | bubblewrap namespaces + cgroups + LD_PRELOAD Landlock |
 //! | [`SeatbeltSandbox`] | macOS | sandbox-exec SBPL |
 //! | [`CompositeSandbox`] | any | chains multiple sandboxes |
 //! | [`NoopSandbox`] | any | passthrough (no isolation) |
@@ -20,32 +19,32 @@
 //!
 //! Sandboxes compose naturally via [`CompositeSandbox`]:
 //! ```ignore
-//! let sandbox = CompositeSandbox::new(vec![
-//!     Box::new(BwrapSandbox::new()),
-//!     Box::new(LandlockSandbox::new()),
-//! ]);
+//! let sandbox = CompositeSandbox::new(vec![Box::new(BwrapSandbox::new())]);
 //! ```
 //! Each child's `apply()` is called in order on the same `Command`.
+//!
+//! The default Linux stack uses bwrap for namespace setup. bwrap passes the
+//! Landlock rules through the environment and `LD_PRELOAD`s
+//! `libboxlite_landlock.so` into the shim (via `--setenv`); the library's
+//! `.init_array` constructor applies Landlock after bwrap's mounts and before
+//! the shim's `main()` — so the bwrap wrapper is never restricted before it
+//! finishes, and the VM-running shim never jails itself.
 
 #[cfg(target_os = "linux")]
 mod bwrap;
 mod composite;
-#[cfg(target_os = "linux")]
-mod landlock;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 
 #[cfg(target_os = "linux")]
 pub use bwrap::BwrapSandbox;
 pub use composite::CompositeSandbox;
-#[cfg(target_os = "linux")]
-pub use landlock::LandlockSandbox;
 #[cfg(target_os = "macos")]
 pub use seatbelt::SeatbeltSandbox;
 
 use crate::runtime::advanced_options::ResourceLimits;
 use boxlite_shared::errors::BoxliteResult;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 // ============================================================================
@@ -92,15 +91,14 @@ pub trait Sandbox: Send + Sync {
 /// Pre-computed by the [`Jailer`](super::Jailer) from system directories
 /// and user volumes. Sandbox implementations translate these to
 /// platform-specific mechanisms:
-/// - bwrap: `--bind` (writable) or `--ro-bind` (read-only)
+/// - bwrap: `--bind` (writable) or `--ro-bind` (read-only), plus the Landlock
+///   rules handed to the preload library
 /// - seatbelt: `file-read*` + `file-write*` subpath rules
-#[derive(Debug, Clone)]
-pub struct PathAccess {
-    /// Host filesystem path.
-    pub path: PathBuf,
-    /// Whether write access is required.
-    pub writable: bool,
-}
+///
+/// Defined in `boxlite-landlock` and re-exported here so the host (which
+/// serializes these into the env) and the preload library (which deserializes
+/// them) share one type.
+pub use boxlite_landlock::PathAccess;
 
 // ============================================================================
 // SandboxContext
@@ -145,7 +143,7 @@ impl SandboxContext<'_> {
 
 /// The sandbox for the current platform.
 ///
-/// On Linux: [`CompositeSandbox`] combining bwrap (namespaces) + Landlock (filesystem ACL).
+/// On Linux: [`CompositeSandbox`] using bwrap for namespace isolation.
 /// On macOS: [`SeatbeltSandbox`] (sandbox-exec).
 /// On other: [`NoopSandbox`] (passthrough).
 #[cfg(target_os = "linux")]
