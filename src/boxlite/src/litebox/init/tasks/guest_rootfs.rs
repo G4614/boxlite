@@ -13,6 +13,7 @@ use crate::runtime::layout::BoxFilesystemLayout;
 use crate::runtime::rt_impl::SharedRuntimeImpl;
 use async_trait::async_trait;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
+use std::path::Path;
 
 pub struct GuestRootfsTask;
 
@@ -94,41 +95,27 @@ fn create_or_reuse_cow_disk(
     let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
 
     if reuse_rootfs && guest_rootfs_disk_path.exists() {
-        // Validate backing chain is intact before reusing.
-        // A broken chain (e.g. from a failed migration or deleted cache) would cause
-        // a cryptic hypervisor failure — catch it early with a clear error.
-        if let Ok(Some(backing)) =
-            crate::disk::qcow2::read_backing_file_path(&guest_rootfs_disk_path)
-            && !std::path::Path::new(&backing).exists()
-        {
-            return Err(BoxliteError::Storage(format!(
-                "Guest rootfs {} has missing backing file: {}. \
-                 This may indicate a broken migration or deleted cache file. \
-                 The box cannot start until the backing file is restored.",
-                guest_rootfs_disk_path.display(),
-                backing
-            )));
+        if validate_reusable_guest_rootfs_disk(&guest_rootfs_disk_path)? {
+            // Restart: reuse existing COW disk
+            tracing::info!(
+                disk_path = %guest_rootfs_disk_path.display(),
+                "Restart mode: reusing existing guest rootfs disk"
+            );
+
+            // Open existing disk as persistent
+            let disk = Disk::new(guest_rootfs_disk_path.clone(), DiskFormat::Qcow2, true);
+
+            // Update guest_rootfs with the COW disk path
+            let mut updated = guest_rootfs.clone();
+            if let Strategy::Disk { ref disk_path, .. } = guest_rootfs.strategy {
+                updated.strategy = Strategy::Disk {
+                    disk_path: disk_path.clone(), // Keep base path reference
+                    device_path: None,            // Will be set by VmmSpawnTask
+                };
+            }
+
+            return Ok((updated, Some(disk)));
         }
-
-        // Restart: reuse existing COW disk
-        tracing::info!(
-            disk_path = %guest_rootfs_disk_path.display(),
-            "Restart mode: reusing existing guest rootfs disk"
-        );
-
-        // Open existing disk as persistent
-        let disk = Disk::new(guest_rootfs_disk_path.clone(), DiskFormat::Qcow2, true);
-
-        // Update guest_rootfs with the COW disk path
-        let mut updated = guest_rootfs.clone();
-        if let Strategy::Disk { ref disk_path, .. } = guest_rootfs.strategy {
-            updated.strategy = Strategy::Disk {
-                disk_path: disk_path.clone(), // Keep base path reference
-                device_path: None,            // Will be set by VmmSpawnTask
-            };
-        }
-
-        return Ok((updated, Some(disk)));
     } else if reuse_rootfs {
         // Guest rootfs disk missing (e.g., clone or snapshot-restore).
         // Fall through to create a fresh COW overlay from the shared cache.
@@ -181,6 +168,38 @@ fn create_or_reuse_cow_disk(
     }
 }
 
+fn validate_reusable_guest_rootfs_disk(guest_rootfs_disk_path: &Path) -> BoxliteResult<bool> {
+    // Validate backing chain is intact before reusing.
+    // A broken chain (e.g. from a failed migration or deleted cache) would cause
+    // a cryptic hypervisor failure — catch it early with a clear error.
+    match crate::disk::qcow2::read_backing_file_path(guest_rootfs_disk_path) {
+        Ok(Some(backing)) if !Path::new(&backing).exists() => Err(BoxliteError::Storage(format!(
+            "Guest rootfs {} has missing backing file: {}. \
+                 This may indicate a broken migration or deleted cache file. \
+                 The box cannot start until the backing file is restored.",
+            guest_rootfs_disk_path.display(),
+            backing
+        ))),
+        Ok(_) => Ok(true),
+        Err(err) => {
+            tracing::warn!(
+                disk_path = %guest_rootfs_disk_path.display(),
+                error = %err,
+                "Discarding invalid guest rootfs COW overlay and recreating from cache"
+            );
+            std::fs::remove_file(guest_rootfs_disk_path).map_err(|remove_err| {
+                BoxliteError::Storage(format!(
+                    "Failed to remove invalid guest rootfs {} after qcow2 validation failed ({}): {}",
+                    guest_rootfs_disk_path.display(),
+                    err,
+                    remove_err
+                ))
+            })?;
+            Ok(false)
+        }
+    }
+}
+
 /// Prepare guest rootfs as a versioned disk image.
 ///
 /// Uses the two-stage pipeline:
@@ -229,4 +248,94 @@ async fn extract_env_from_image(
     };
 
     Ok(env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::layout::FsLayoutConfig;
+    use std::fs::File;
+    use tempfile::TempDir;
+
+    fn test_guest_rootfs(base_disk_path: std::path::PathBuf) -> GuestRootfs {
+        GuestRootfs {
+            path: base_disk_path
+                .parent()
+                .expect("base disk has parent")
+                .to_path_buf(),
+            strategy: Strategy::Disk {
+                disk_path: base_disk_path,
+                device_path: None,
+            },
+            kernel: None,
+            initrd: None,
+            env: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_reuse_recreates_invalid_guest_rootfs_overlay() {
+        let dir = TempDir::new().unwrap();
+        let base_disk_path = dir.path().join("guest-rootfs-base.ext4");
+        File::create(&base_disk_path)
+            .unwrap()
+            .set_len(1024 * 1024)
+            .unwrap();
+
+        let layout = BoxFilesystemLayout::new(
+            dir.path().join("boxes").join("box-1"),
+            FsLayoutConfig::without_bind_mount(),
+            false,
+        );
+        std::fs::create_dir_all(layout.disks_dir()).unwrap();
+        let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
+        std::fs::write(&guest_rootfs_disk_path, vec![0u8; 256 * 1024]).unwrap();
+
+        let guest_rootfs = test_guest_rootfs(base_disk_path.clone());
+        let (_updated, disk) = create_or_reuse_cow_disk(&guest_rootfs, &layout, true).unwrap();
+
+        assert_eq!(disk.unwrap().path(), guest_rootfs_disk_path);
+        let backing = crate::disk::qcow2::read_backing_file_path(&guest_rootfs_disk_path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            backing,
+            base_disk_path.canonicalize().unwrap().display().to_string()
+        );
+    }
+
+    #[test]
+    fn test_reuse_reports_missing_guest_rootfs_backing() {
+        let dir = TempDir::new().unwrap();
+        let base_disk_path = dir.path().join("guest-rootfs-base.ext4");
+        File::create(&base_disk_path)
+            .unwrap()
+            .set_len(1024 * 1024)
+            .unwrap();
+        let layout = BoxFilesystemLayout::new(
+            dir.path().join("boxes").join("box-1"),
+            FsLayoutConfig::without_bind_mount(),
+            false,
+        );
+        std::fs::create_dir_all(layout.disks_dir()).unwrap();
+        let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
+        Qcow2Helper::create_cow_child_disk(
+            &base_disk_path,
+            BackingFormat::Raw,
+            &guest_rootfs_disk_path,
+            1024 * 1024,
+        )
+        .unwrap()
+        .leak();
+        std::fs::remove_file(&base_disk_path).unwrap();
+
+        let guest_rootfs = test_guest_rootfs(base_disk_path);
+        let err = match create_or_reuse_cow_disk(&guest_rootfs, &layout, true) {
+            Ok(_) => panic!("expected missing backing file error"),
+            Err(err) => err,
+        };
+
+        assert!(format!("{err}").contains("has missing backing file"));
+        assert!(guest_rootfs_disk_path.exists());
+    }
 }
