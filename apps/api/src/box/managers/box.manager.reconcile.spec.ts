@@ -7,6 +7,7 @@
 import { BoxManager } from './box.manager'
 import { BoxState } from '../enums/box-state.enum'
 import { BoxDesiredState } from '../enums/box-desired-state.enum'
+import { Box } from '../entities/box.entity'
 
 type Candidate = { id: string; runnerId: string | null }
 
@@ -82,6 +83,21 @@ describe('BoxManager.reconcileErroredBoxes', () => {
         runnerId: 'runner-1',
       },
     })
+  })
+
+  it('keeps reconciled boxes pending because STOPPED is only a recovery waypoint toward STARTED', () => {
+    const box = new Box('us-east-1', 'box-1')
+    box.state = BoxState.ERROR
+    box.desiredState = BoxDesiredState.STARTED
+    box.pending = false
+
+    Object.assign(box, { state: BoxState.STOPPED, errorReason: null, recoverable: false })
+    const invariantChanges = box.enforceInvariants()
+
+    expect(invariantChanges.pending).toBe(true)
+    expect(box.pending).toBe(true)
+    expect(box.state).toBe(BoxState.STOPPED)
+    expect(box.desiredState).toBe(BoxDesiredState.STARTED)
   })
 
   it('does not gate eligibility on the storage-only recoverable flag, so split-brain ERROR boxes qualify', async () => {
