@@ -85,7 +85,6 @@ type ExecutionOptions struct {
 // Memory overhead is bounded: each execution adds one map entry plus the
 // state struct (a few writers, two atomics, and a mutex).
 type executionStreamState struct {
-	mu       sync.Mutex
 	stdout   io.Writer
 	stderr   io.Writer
 	onStdout func([]byte)
@@ -103,57 +102,152 @@ type executionStreamState struct {
 	// buffer. The fold happens at the SDK boundary; the C-side Wait
 	// task stays decoupled from streams.
 	drained chan struct{}
+
+	// Stream callbacks arrive on the single per-Runtime drain goroutine. Do not
+	// call user-provided Writers inline there: one blocked sink would wedge the
+	// shared drain and prevent unrelated exec completions from being dispatched.
+	qmu         sync.Mutex
+	qcond       *sync.Cond
+	queue       []streamChunk
+	exited      bool
+	stopped     bool
+	drainedOnce sync.Once
+
+	queuedBytes int
+	paused      bool
+	pause       func(bool)
 }
 
-func newExecutionStreamState(opts ExecutionOptions) *executionStreamState {
-	return &executionStreamState{
+const (
+	streamQueueHighWater = 4 << 20 // 4 MiB
+	streamQueueLowWater  = 1 << 20 // 1 MiB
+)
+
+type streamChunk struct {
+	stderr bool
+	data   []byte
+}
+
+func newExecutionStreamState(opts ExecutionOptions, setPaused func(bool)) *executionStreamState {
+	s := &executionStreamState{
 		stdout:   opts.Stdout,
 		stderr:   opts.Stderr,
 		onStdout: opts.OnStdout,
 		onStderr: opts.OnStderr,
 		drained:  make(chan struct{}),
 	}
+	s.qcond = sync.NewCond(&s.qmu)
+	if setPaused != nil {
+		s.pause = func(paused bool) {
+			s.qmu.Lock()
+			if !s.stopped {
+				setPaused(paused)
+			}
+			s.qmu.Unlock()
+		}
+	}
+	go s.deliverLoop()
+	return s
 }
 
-func (s *executionStreamState) deliverStdout(data []byte) {
-	if s.released.Load() {
-		return
-	}
-	s.mu.Lock()
-	stdout := s.stdout
-	cb := s.onStdout
-	s.mu.Unlock()
-	if cb != nil {
-		cb(data)
-	}
-	if stdout != nil {
-		_, _ = stdout.Write(data)
-	}
-}
-
+func (s *executionStreamState) deliverStdout(data []byte) { s.enqueue(streamChunk{data: data}) }
 func (s *executionStreamState) deliverStderr(data []byte) {
+	s.enqueue(streamChunk{stderr: true, data: data})
+}
+
+func (s *executionStreamState) enqueue(chunk streamChunk) {
 	if s.released.Load() {
 		return
 	}
-	s.mu.Lock()
-	stderr := s.stderr
-	cb := s.onStderr
-	s.mu.Unlock()
-	if cb != nil {
-		cb(data)
+	doPause := false
+	s.qmu.Lock()
+	if !s.exited && !s.stopped {
+		s.queue = append(s.queue, chunk)
+		s.queuedBytes += len(chunk.data)
+		if s.queuedBytes > streamQueueHighWater && !s.paused {
+			s.paused = true
+			doPause = true
+		}
+		s.qcond.Signal()
 	}
-	if stderr != nil {
-		_, _ = stderr.Write(data)
+	s.qmu.Unlock()
+	if doPause && s.pause != nil {
+		s.pause(true)
 	}
 }
 
 func (s *executionStreamState) deliverExit(_ int) {
 	s.released.Store(true)
-	close(s.drained)
+	s.qmu.Lock()
+	s.exited = true
+	s.qcond.Signal()
+	s.qmu.Unlock()
 }
 
 func (s *executionStreamState) markReleased() {
 	s.released.Store(true)
+	s.qmu.Lock()
+	s.stopped = true
+	s.qcond.Signal()
+	s.qmu.Unlock()
+}
+
+func (s *executionStreamState) deliverLoop() {
+	defer s.closeDrained()
+	for {
+		s.qmu.Lock()
+		for len(s.queue) == 0 && !s.exited && !s.stopped {
+			s.qcond.Wait()
+		}
+		queue := s.queue
+		s.queue = nil
+		done := s.exited || s.stopped
+		s.qmu.Unlock()
+
+		batch := 0
+		for _, chunk := range queue {
+			s.writeChunk(chunk)
+			batch += len(chunk.data)
+		}
+
+		doResume := false
+		s.qmu.Lock()
+		s.queuedBytes -= batch
+		if s.paused && !done && s.queuedBytes < streamQueueLowWater {
+			s.paused = false
+			doResume = true
+		}
+		s.qmu.Unlock()
+		if doResume && s.pause != nil {
+			s.pause(false)
+		}
+
+		if done {
+			return
+		}
+	}
+}
+
+func (s *executionStreamState) writeChunk(chunk streamChunk) {
+	if chunk.stderr {
+		if s.onStderr != nil {
+			s.onStderr(chunk.data)
+		}
+		if s.stderr != nil {
+			_, _ = s.stderr.Write(chunk.data)
+		}
+		return
+	}
+	if s.onStdout != nil {
+		s.onStdout(chunk.data)
+	}
+	if s.stdout != nil {
+		_, _ = s.stdout.Write(chunk.data)
+	}
+}
+
+func (s *executionStreamState) closeDrained() {
+	s.drainedOnce.Do(func() { close(s.drained) })
 }
 
 // Execution is a handle to a running command.
@@ -249,7 +343,10 @@ func (b *Box) StartExecution(_ context.Context, name string, args []string, opts
 		return nil, freeError(&cerr)
 	}
 
-	state := newExecutionStreamState(cfg)
+	state := newExecutionStreamState(cfg, func(paused bool) {
+		var cerr C.CBoxliteError
+		C.boxlite_execution_set_stream_paused(handle, boolToCInt(paused), &cerr)
+	})
 	streamHandle := cgo.NewHandle(state)
 
 	if err := registerExecutionCallbacks(handle, streamHandle); err != nil {
