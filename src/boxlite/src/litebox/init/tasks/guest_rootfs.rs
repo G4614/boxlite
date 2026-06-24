@@ -255,7 +255,27 @@ mod tests {
     use super::*;
     use crate::runtime::layout::FsLayoutConfig;
     use std::fs::File;
+    use std::io::Write;
     use tempfile::TempDir;
+
+    fn test_layout(dir: &TempDir) -> BoxFilesystemLayout {
+        let layout = BoxFilesystemLayout::new(
+            dir.path().join("boxes").join("box-1"),
+            FsLayoutConfig::without_bind_mount(),
+            false,
+        );
+        std::fs::create_dir_all(layout.disks_dir()).unwrap();
+        layout
+    }
+
+    fn create_base_disk(dir: &TempDir) -> std::path::PathBuf {
+        let base_disk_path = dir.path().join("guest-rootfs-base.ext4");
+        File::create(&base_disk_path)
+            .unwrap()
+            .set_len(1024 * 1024)
+            .unwrap();
+        base_disk_path
+    }
 
     fn test_guest_rootfs(base_disk_path: std::path::PathBuf) -> GuestRootfs {
         GuestRootfs {
@@ -273,21 +293,68 @@ mod tests {
         }
     }
 
+    fn create_guest_overlay(
+        base_disk_path: &std::path::Path,
+        guest_rootfs_disk_path: &std::path::Path,
+    ) {
+        Qcow2Helper::create_cow_child_disk(
+            base_disk_path,
+            BackingFormat::Raw,
+            guest_rootfs_disk_path,
+            1024 * 1024,
+        )
+        .unwrap()
+        .leak();
+    }
+
+    fn read_guest_overlay_backing(guest_rootfs_disk_path: &std::path::Path) -> String {
+        crate::disk::qcow2::read_backing_file_path(guest_rootfs_disk_path)
+            .unwrap()
+            .unwrap()
+    }
+
+    fn write_qcow2_with_backing_bytes(
+        guest_rootfs_disk_path: &std::path::Path,
+        backing_bytes: &[u8],
+    ) {
+        let mut buf = vec![0u8; 1024];
+        buf[0..4].copy_from_slice(&0x514649fbu32.to_be_bytes());
+        buf[4..8].copy_from_slice(&3u32.to_be_bytes());
+        buf[8..16].copy_from_slice(&512u64.to_be_bytes());
+        buf[16..20].copy_from_slice(&(backing_bytes.len() as u32).to_be_bytes());
+        buf[512..512 + backing_bytes.len()].copy_from_slice(backing_bytes);
+
+        let mut file = File::create(guest_rootfs_disk_path).unwrap();
+        file.write_all(&buf).unwrap();
+    }
+
+    #[test]
+    fn test_reuse_keeps_valid_guest_rootfs_overlay() {
+        let dir = TempDir::new().unwrap();
+        let base_disk_path = create_base_disk(&dir);
+        let layout = test_layout(&dir);
+        let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
+        create_guest_overlay(&base_disk_path, &guest_rootfs_disk_path);
+        let before = std::fs::metadata(&guest_rootfs_disk_path).unwrap();
+
+        let guest_rootfs = test_guest_rootfs(base_disk_path.clone());
+        let (_updated, disk) = create_or_reuse_cow_disk(&guest_rootfs, &layout, true).unwrap();
+
+        assert_eq!(disk.unwrap().path(), guest_rootfs_disk_path);
+        let after = std::fs::metadata(&guest_rootfs_disk_path).unwrap();
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after.modified().unwrap(), before.modified().unwrap());
+        assert_eq!(
+            read_guest_overlay_backing(&guest_rootfs_disk_path),
+            base_disk_path.canonicalize().unwrap().display().to_string()
+        );
+    }
+
     #[test]
     fn test_reuse_recreates_invalid_guest_rootfs_overlay() {
         let dir = TempDir::new().unwrap();
-        let base_disk_path = dir.path().join("guest-rootfs-base.ext4");
-        File::create(&base_disk_path)
-            .unwrap()
-            .set_len(1024 * 1024)
-            .unwrap();
-
-        let layout = BoxFilesystemLayout::new(
-            dir.path().join("boxes").join("box-1"),
-            FsLayoutConfig::without_bind_mount(),
-            false,
-        );
-        std::fs::create_dir_all(layout.disks_dir()).unwrap();
+        let base_disk_path = create_base_disk(&dir);
+        let layout = test_layout(&dir);
         let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
         std::fs::write(&guest_rootfs_disk_path, vec![0u8; 256 * 1024]).unwrap();
 
@@ -295,38 +362,68 @@ mod tests {
         let (_updated, disk) = create_or_reuse_cow_disk(&guest_rootfs, &layout, true).unwrap();
 
         assert_eq!(disk.unwrap().path(), guest_rootfs_disk_path);
-        let backing = crate::disk::qcow2::read_backing_file_path(&guest_rootfs_disk_path)
-            .unwrap()
-            .unwrap();
         assert_eq!(
-            backing,
+            read_guest_overlay_backing(&guest_rootfs_disk_path),
             base_disk_path.canonicalize().unwrap().display().to_string()
         );
     }
 
     #[test]
+    fn test_reuse_recreates_too_short_guest_rootfs_overlay() {
+        let dir = TempDir::new().unwrap();
+        let base_disk_path = create_base_disk(&dir);
+        let layout = test_layout(&dir);
+        let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
+        std::fs::write(&guest_rootfs_disk_path, [0u8; 10]).unwrap();
+
+        let guest_rootfs = test_guest_rootfs(base_disk_path.clone());
+        create_or_reuse_cow_disk(&guest_rootfs, &layout, true).unwrap();
+
+        assert_eq!(
+            read_guest_overlay_backing(&guest_rootfs_disk_path),
+            base_disk_path.canonicalize().unwrap().display().to_string()
+        );
+    }
+
+    #[test]
+    fn test_reuse_recreates_guest_rootfs_overlay_with_invalid_utf8_backing_path() {
+        let dir = TempDir::new().unwrap();
+        let base_disk_path = create_base_disk(&dir);
+        let layout = test_layout(&dir);
+        let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
+        write_qcow2_with_backing_bytes(&guest_rootfs_disk_path, &[0xff, 0xfe, 0xfd]);
+
+        let guest_rootfs = test_guest_rootfs(base_disk_path.clone());
+        create_or_reuse_cow_disk(&guest_rootfs, &layout, true).unwrap();
+
+        assert_eq!(
+            read_guest_overlay_backing(&guest_rootfs_disk_path),
+            base_disk_path.canonicalize().unwrap().display().to_string()
+        );
+    }
+
+    #[test]
+    fn test_reuse_reports_remove_failure_for_invalid_guest_rootfs_overlay() {
+        let dir = TempDir::new().unwrap();
+        let guest_rootfs_disk_path = dir.path().join("guest-rootfs.qcow2");
+        std::fs::create_dir(&guest_rootfs_disk_path).unwrap();
+
+        let err = match validate_reusable_guest_rootfs_disk(&guest_rootfs_disk_path) {
+            Ok(_) => panic!("expected remove failure"),
+            Err(err) => err,
+        };
+
+        assert!(format!("{err}").contains("Failed to remove invalid guest rootfs"));
+        assert!(guest_rootfs_disk_path.exists());
+    }
+
+    #[test]
     fn test_reuse_reports_missing_guest_rootfs_backing() {
         let dir = TempDir::new().unwrap();
-        let base_disk_path = dir.path().join("guest-rootfs-base.ext4");
-        File::create(&base_disk_path)
-            .unwrap()
-            .set_len(1024 * 1024)
-            .unwrap();
-        let layout = BoxFilesystemLayout::new(
-            dir.path().join("boxes").join("box-1"),
-            FsLayoutConfig::without_bind_mount(),
-            false,
-        );
-        std::fs::create_dir_all(layout.disks_dir()).unwrap();
+        let base_disk_path = create_base_disk(&dir);
+        let layout = test_layout(&dir);
         let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
-        Qcow2Helper::create_cow_child_disk(
-            &base_disk_path,
-            BackingFormat::Raw,
-            &guest_rootfs_disk_path,
-            1024 * 1024,
-        )
-        .unwrap()
-        .leak();
+        create_guest_overlay(&base_disk_path, &guest_rootfs_disk_path);
         std::fs::remove_file(&base_disk_path).unwrap();
 
         let guest_rootfs = test_guest_rootfs(base_disk_path);
