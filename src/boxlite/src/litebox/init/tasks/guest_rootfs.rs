@@ -172,7 +172,8 @@ fn validate_reusable_guest_rootfs_disk(guest_rootfs_disk_path: &Path) -> Boxlite
     // Validate backing chain is intact before reusing.
     // A broken chain (e.g. from a failed migration or deleted cache) would cause
     // a cryptic hypervisor failure — catch it early with a clear error.
-    match crate::disk::qcow2::read_backing_file_path(guest_rootfs_disk_path) {
+    use crate::disk::qcow2::Qcow2HeaderError;
+    match crate::disk::qcow2::read_backing_file_path_checked(guest_rootfs_disk_path) {
         Ok(Some(backing)) if !Path::new(&backing).exists() => Err(BoxliteError::Storage(format!(
             "Guest rootfs {} has missing backing file: {}. \
                  This may indicate a broken migration or deleted cache file. \
@@ -181,22 +182,31 @@ fn validate_reusable_guest_rootfs_disk(guest_rootfs_disk_path: &Path) -> Boxlite
             backing
         ))),
         Ok(_) => Ok(true),
-        Err(err) => {
+        // Structurally corrupt overlay: its data is already unreadable, so discard
+        // it and recreate a fresh COW from the shared cache.
+        Err(Qcow2HeaderError::Corrupt(reason)) => {
             tracing::warn!(
                 disk_path = %guest_rootfs_disk_path.display(),
-                error = %err,
-                "Discarding invalid guest rootfs COW overlay and recreating from cache"
+                reason = %reason,
+                "Discarding corrupt guest rootfs COW overlay and recreating from cache"
             );
             std::fs::remove_file(guest_rootfs_disk_path).map_err(|remove_err| {
                 BoxliteError::Storage(format!(
-                    "Failed to remove invalid guest rootfs {} after qcow2 validation failed ({}): {}",
+                    "Failed to remove corrupt guest rootfs {} ({}): {}",
                     guest_rootfs_disk_path.display(),
-                    err,
+                    reason,
                     remove_err
                 ))
             })?;
             Ok(false)
         }
+        // Transient/system I/O fault: we cannot tell whether the overlay is intact,
+        // so do NOT delete it — surface the error and let the start be retried.
+        Err(Qcow2HeaderError::Io(io)) => Err(BoxliteError::Storage(format!(
+            "Cannot read guest rootfs {} to validate its backing chain (I/O error: {io}); \
+             refusing to discard a possibly-intact overlay",
+            guest_rootfs_disk_path.display()
+        ))),
     }
 }
 
@@ -403,18 +413,28 @@ mod tests {
     }
 
     #[test]
-    fn test_reuse_reports_remove_failure_for_invalid_guest_rootfs_overlay() {
+    fn test_io_error_does_not_discard_guest_rootfs_overlay() {
+        // A directory at the overlay path makes the header read fail with an I/O
+        // error (EISDIR) — not EOF — i.e. a transient/system fault, NOT proof of
+        // corruption. validate must surface the error WITHOUT deleting the path,
+        // so a momentary I/O blip never destroys a possibly-intact overlay.
         let dir = TempDir::new().unwrap();
         let guest_rootfs_disk_path = dir.path().join("guest-rootfs.qcow2");
         std::fs::create_dir(&guest_rootfs_disk_path).unwrap();
 
         let err = match validate_reusable_guest_rootfs_disk(&guest_rootfs_disk_path) {
-            Ok(_) => panic!("expected remove failure"),
+            Ok(_) => panic!("expected an I/O error, not a reuse/discard decision"),
             Err(err) => err,
         };
 
-        assert!(format!("{err}").contains("Failed to remove invalid guest rootfs"));
-        assert!(guest_rootfs_disk_path.exists());
+        assert!(
+            format!("{err}").contains("refusing to discard"),
+            "I/O failures must not be treated as corruption: {err}"
+        );
+        assert!(
+            guest_rootfs_disk_path.exists(),
+            "overlay must not be deleted on an I/O error"
+        );
     }
 
     #[test]
