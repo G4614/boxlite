@@ -327,7 +327,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
    * Recovery is bounded by counting recent failed START_BOX jobs for the box so a genuinely
    * dead box is not retried forever; the count is derived from the job table, not stored state.
    */
-  @Cron(CronExpression.EVERY_30_SECONDS, { name: 'reconcile-errored' })
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'reconcile-errored' })
   @TrackJobExecution()
   @WithInstrumentation()
   @LogExecution('reconcile-errored')
