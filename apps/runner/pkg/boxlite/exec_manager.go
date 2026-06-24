@@ -128,6 +128,7 @@ type ManagedExec struct {
 	SignaledHUP      bool
 	SignaledTERM     bool
 	ReapingKill      bool
+	Killed           bool
 	// Escalating is true while the reaper is delivering a cooperative signal
 	// (HUP/TERM). MarkConnected() rejects while set, closing the TOCTOU gap
 	// between tryEscalate releasing attachMu and Signal() reaching the process.
@@ -477,6 +478,7 @@ func (m *ExecManager) Kill(id string) error {
 
 	e.attachMu.Lock()
 	e.ReapingKill = true
+	e.Killed = true
 	e.attachMu.Unlock()
 
 	e.handleMu.Lock()
@@ -738,6 +740,9 @@ func (m *ExecManager) killAndEvict(e *ManagedExec) {
 	if !stillTracked {
 		return
 	}
+	e.attachMu.Lock()
+	e.Killed = true
+	e.attachMu.Unlock()
 
 	e.handleMu.Lock()
 	if !e.closed && e.execution != nil {
@@ -844,6 +849,12 @@ func (e *ManagedExec) MarkDisconnected() {
 	defer e.attachMu.Unlock()
 	e.Connected = false
 	e.LastDisconnectAt = time.Now()
+}
+
+func (e *ManagedExec) WasKilled() bool {
+	e.attachMu.Lock()
+	defer e.attachMu.Unlock()
+	return e.Killed
 }
 
 // AttachWriteStdin writes stdin bytes under handleMu so it cannot race

@@ -32,6 +32,7 @@ type stubAttachExec struct {
 	done       chan struct{}
 	exitCode   int
 	tty        bool
+	killed     atomic.Bool
 	connected  atomic.Bool
 	disconnect atomic.Int32
 
@@ -103,8 +104,8 @@ func (s *stubAttachExec) Subscribe(bufSize int) (stdout, stderr <-chan []byte, c
 				}
 			}
 			s.subMu.Unlock()
-			close(outCh)
-			close(errCh)
+			safeCloseBytes(outCh)
+			safeCloseBytes(errCh)
 		})
 	}
 	return outCh, errCh, cancel
@@ -134,9 +135,23 @@ func (s *stubAttachExec) broadcastPipe(r *io.PipeReader, isStdout bool) {
 			s.subMu.Unlock()
 		}
 		if err != nil {
+			s.subMu.Lock()
+			for _, sub := range s.subs {
+				if isStdout {
+					safeCloseBytes(sub.stdout)
+				} else {
+					safeCloseBytes(sub.stderr)
+				}
+			}
+			s.subMu.Unlock()
 			return
 		}
 	}
+}
+
+func safeCloseBytes(ch chan []byte) {
+	defer func() { _ = recover() }()
+	close(ch)
 }
 
 func (s *stubAttachExec) WriteStdin(data []byte) (int, error) {
@@ -147,6 +162,7 @@ func (s *stubAttachExec) WriteStdin(data []byte) (int, error) {
 }
 func (s *stubAttachExec) DoneCh() <-chan struct{} { return s.done }
 func (s *stubAttachExec) ExitCodeValue() int      { return s.exitCode }
+func (s *stubAttachExec) WasKilled() bool         { return s.killed.Load() }
 func (s *stubAttachExec) IsTTY() bool             { return s.tty }
 func (s *stubAttachExec) Resize(rows, cols int) error {
 	s.mu.Lock()
@@ -330,6 +346,51 @@ func TestBoxliteExecAttach_StdinAndExit(t *testing.T) {
 	if stub.disconnect.Load() == 0 {
 		t.Fatal("expected MarkDisconnected to be called")
 	}
+}
+
+func TestBoxliteExecAttach_KilledStreamsClosedWithoutDoneSendsExit(t *testing.T) {
+	stub := newStubAttachExec()
+	cleanup := withStubExec(t, "exec-killed", stub)
+	defer cleanup()
+
+	srv := newAttachServer(t)
+	defer srv.Close()
+
+	conn, _, err := dialAttach(t, srv, "exec-killed")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	stub.killed.Store(true)
+	_ = stub.stdoutW.Close()
+	_ = stub.stderrW.Close()
+	// Deliberately do not close stub.done. This matches the DELETE/Kill path
+	// where the runner closes attach streams after eviction before the SDK Wait
+	// goroutine necessarily reports Done to the handler.
+
+	deadline := time.Now().Add(3 * time.Second)
+	_ = conn.SetReadDeadline(deadline)
+	for time.Now().Before(deadline) {
+		mt, payload, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read before killed exit frame: %v", err)
+		}
+		switch mt {
+		case websocket.TextMessage:
+			var ev map[string]interface{}
+			if err := json.Unmarshal(payload, &ev); err != nil {
+				t.Fatalf("bad json: %v", err)
+			}
+			if ev["type"] == "exit" {
+				if got, want := int(ev["exit_code"].(float64)), -9; got != want {
+					t.Fatalf("expected exit_code %d, got %d", want, got)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("did not receive killed exit frame")
 }
 
 func TestBoxliteExecAttach_SingleAttach409(t *testing.T) {
