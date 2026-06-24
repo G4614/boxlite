@@ -134,9 +134,10 @@ export class JobStateHandlerService {
           updateData.state = BoxState.STOPPED
           updateData.errorReason = null
         } else {
-          this.logger.error(`CREATE_BOX job ${job.id} failed for box ${boxId}: ${job.errorMessage}`)
+          const sanitizedErrorReason = errorReason || 'Failed to create box'
+          this.logger.error(`CREATE_BOX job ${job.id} failed for box ${boxId}: ${sanitizedErrorReason}`)
           updateData.state = BoxState.ERROR
-          updateData.errorReason = errorReason || 'Failed to create box'
+          updateData.errorReason = sanitizedErrorReason
           updateData.recoverable = recoverable
         }
       }

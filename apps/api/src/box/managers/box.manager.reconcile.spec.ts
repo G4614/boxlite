@@ -74,7 +74,7 @@ describe('BoxManager.reconcileErroredBoxes', () => {
 
     expect(updateWhere).toHaveBeenCalledTimes(1)
     expect(updateWhere).toHaveBeenCalledWith('box-1', {
-      updateData: { state: BoxState.STOPPED, errorReason: null },
+      updateData: { state: BoxState.STOPPED, errorReason: null, recoverable: false },
       whereCondition: {
         state: BoxState.ERROR,
         pending: false,
@@ -102,7 +102,7 @@ describe('BoxManager.reconcileErroredBoxes', () => {
     expect(clauses.some((clause) => clause.includes('desiredState'))).toBe(true)
     // And such a (non-recoverable) box is still driven back toward STARTED.
     expect(updateWhere).toHaveBeenCalledWith('box-splitbrain', {
-      updateData: { state: BoxState.STOPPED, errorReason: null },
+      updateData: { state: BoxState.STOPPED, errorReason: null, recoverable: false },
       whereCondition: {
         state: BoxState.ERROR,
         pending: false,
@@ -120,7 +120,7 @@ describe('BoxManager.reconcileErroredBoxes', () => {
     await manager.reconcileErroredBoxes()
 
     expect(updateWhere).toHaveBeenCalledWith('box-1', {
-      updateData: { state: BoxState.STOPPED, errorReason: null },
+      updateData: { state: BoxState.STOPPED, errorReason: null, recoverable: false },
       whereCondition: {
         state: BoxState.ERROR,
         pending: false,

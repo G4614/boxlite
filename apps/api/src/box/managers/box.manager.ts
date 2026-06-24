@@ -395,6 +395,7 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
             updateData: {
               state: BoxState.STOPPED,
               errorReason: null,
+              recoverable: false,
             },
             whereCondition: {
               state: BoxState.ERROR,
