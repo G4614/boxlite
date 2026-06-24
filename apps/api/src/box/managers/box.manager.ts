@@ -491,6 +491,35 @@ export class BoxManager implements TrackableJobExecutions, OnApplicationShutdown
 
           const { recoverable, errorReason } = sanitizeBoxError(error)
 
+          // A START_BOX attempt can throw before runnerAdapter.startBox() ever
+          // persists its START_BOX job (e.g. a synchronous runner lookup or
+          // adapter-creation failure). The reconcile retry ceiling counts FAILED
+          // START_BOX jobs, so without a record here it would keep flipping this
+          // box out of ERROR indefinitely. Record a terminal FAILED START_BOX job
+          // so the ceiling counts this attempt — best-effort, never blocking the
+          // ERROR transition. completedAt is set so the row stays outside the
+          // "one incomplete job per box" partial-unique index.
+          if (box.desiredState === BoxDesiredState.STARTED && box.runnerId) {
+            try {
+              await this.jobRepository.insert(
+                new Job({
+                  type: JobType.START_BOX,
+                  runnerId: box.runnerId,
+                  resourceType: ResourceType.BOX,
+                  resourceId: boxId,
+                  status: JobStatus.FAILED,
+                  errorMessage: errorReason ?? null,
+                  completedAt: new Date(),
+                }),
+              )
+            } catch (jobError) {
+              this.logger.error(
+                `Failed to record FAILED START_BOX job for box ${boxId}; retry ceiling may undercount`,
+                jobError,
+              )
+            }
+          }
+
           const updateData: Partial<Box> = {
             state: BoxState.ERROR,
             errorReason,
