@@ -168,21 +168,17 @@ fn write_deny_boxes_profile(home_dir: &std::path::Path) -> std::path::PathBuf {
 // DEFAULT CONFIGURATION TESTS
 // ============================================================================
 
-/// Verify SecurityOptions::default() enables the jailer on macOS only.
+/// Verify SecurityOptions::default() enables the jailer (secure by default).
+///
+/// Since #652 the default profile is fully enabled on every supported
+/// platform, so `jailer_enabled` is `true` on both macOS and Linux.
 #[test]
 fn default_security_options_enable_jailer_on_supported_platforms() {
     let opts = SecurityOptions::default();
 
-    #[cfg(target_os = "macos")]
     assert!(
         opts.jailer_enabled,
-        "Jailer should be enabled by default on macOS"
-    );
-
-    #[cfg(not(target_os = "macos"))]
-    assert!(
-        !opts.jailer_enabled,
-        "Jailer should be disabled by default on Linux and unsupported platforms"
+        "Jailer should be enabled by default (secure by default)"
     );
 }
 
