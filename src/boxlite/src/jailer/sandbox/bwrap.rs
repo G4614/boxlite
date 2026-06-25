@@ -109,26 +109,25 @@ impl Sandbox for BwrapSandbox {
         // =====================================================================
         // Environment sanitization
         // =====================================================================
+        // The statically-linked shim dlopen's libkrunfw via LD_LIBRARY_PATH (its
+        // `$ORIGIN` rpath is ineffective), and `--clearenv` wipes it — without
+        // this the VM fails to start ("Couldn't find or load libkrunfw.so.5",
+        // libkrun status=-2). Prefer the value `configure_library_env`
+        // precomputed for the parent (the bound runtime dir holding every
+        // bundled library); fall back to the shim's own directory (`<box>/bin`,
+        // also bound and holding the copied libkrunfw) when nothing was inherited.
+        let ld_library_path = std::env::var("LD_LIBRARY_PATH").unwrap_or_else(|_| {
+            std::path::Path::new(&binary)
+                .parent()
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        });
+
         bwrap_cmd
             .with_clearenv()
             .setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-            .setenv("HOME", "/root");
-
-        // libkrun `dlopen`s libkrunfw.so.5 during `krun_start_enter`. The shim
-        // is statically linked, so its `$ORIGIN` rpath is ineffective for
-        // dlopen, and `--clearenv` above wiped the `LD_LIBRARY_PATH` the shim
-        // would otherwise inherit — without it the VM fails to start with
-        // "Couldn't find or load libkrunfw.so.5" (libkrun status=-2).
-        //
-        // Prefer the value `configure_library_env` precomputed for the parent
-        // (it points at the bound runtime dir holding every bundled library);
-        // fall back to the shim's own directory (`<box>/bin`, also bound and
-        // holding the copied libkrunfw) when nothing was inherited.
-        if let Ok(ld_library_path) = std::env::var("LD_LIBRARY_PATH") {
-            bwrap_cmd.setenv("LD_LIBRARY_PATH", ld_library_path);
-        } else if let Some(shim_dir) = std::path::Path::new(&binary).parent() {
-            bwrap_cmd.setenv("LD_LIBRARY_PATH", shim_dir.to_string_lossy().into_owned());
-        }
+            .setenv("HOME", "/root")
+            .setenv("LD_LIBRARY_PATH", ld_library_path);
 
         // Preserve debugging environment variables
         if let Ok(rust_log) = std::env::var("RUST_LOG") {
