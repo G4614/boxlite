@@ -183,18 +183,19 @@ impl ImageObject {
 
         // Empty diff_ids is only legitimate for the LocalBundle path —
         // local OCI bundles can be loaded without a config.json and so
-        // carry no diff_ids list. A remote (Store) pull, by contrast,
-        // ALWAYS goes through a config-download that populates
-        // rootfs.diff_ids; an empty list there means either the config
-        // was tampered / dropped or the parser failed silently, and
-        // skipping verification turns the chain of trust into a no-op.
-        // Fail closed in the Store case; keep the LocalBundle skip.
+        // carry no diff_ids list. A remote (Store) pull resolves its
+        // diff_ids from a digest-verified config, and the loader
+        // (`load_diff_ids_from_config`) now errors instead of yielding an
+        // empty list when that config can't be read or parsed — so an empty
+        // list here means the config genuinely declared no DiffIDs, leaving
+        // the layers unverifiable. Fail closed in the Store case; keep the
+        // LocalBundle skip.
         if diff_ids.is_empty() {
             return match self.blob_source {
                 BlobSource::LocalBundle(_) => Ok(()),
                 BlobSource::Store(_) => Err(BoxliteError::Image(
-                    "rootfs.diff_ids is empty on a remote-pulled image; refusing to use image \
-                     without DiffID verification (config tampering / parse failure)"
+                    "rootfs.diff_ids is empty for a remote-pulled image; refusing to use image \
+                     without DiffID verification (config declared no DiffIDs)"
                         .to_string(),
                 )),
             };
@@ -215,10 +216,6 @@ impl ImageObject {
 
         for (i, (layer, diff_id)) in layers.iter().zip(diff_ids.iter()).enumerate() {
             let tarball_path = self.blob_source.layer_tarball_path(&layer.digest);
-            // A malformed diff_id in the list (wrong algorithm prefix,
-            // empty hash, etc.) means the config is tampered or
-            // malformed. Skipping that one layer's verification turned
-            // into a targetable per-layer bypass — fail closed.
             // A malformed diff_id in the list (wrong algorithm prefix,
             // empty hash, etc.) means the config is tampered or
             // malformed. Skipping that one layer's verification turned
@@ -428,9 +425,9 @@ mod tests {
             vec![],
             store_blob_source(&tmp),
         );
-        let err = obj.verify_diff_ids().expect_err(
-            "empty diff_ids on a remote-pulled (Store) image must fail closed",
-        );
+        let err = obj
+            .verify_diff_ids()
+            .expect_err("empty diff_ids on a remote-pulled (Store) image must fail closed");
         let msg = format!("{}", err);
         assert!(
             msg.contains("empty"),
