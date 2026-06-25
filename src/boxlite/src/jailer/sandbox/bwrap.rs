@@ -82,7 +82,16 @@ impl Sandbox for BwrapSandbox {
             .ro_bind_if_exists("/lib", "/lib")
             .ro_bind_if_exists("/lib64", "/lib64")
             .ro_bind_if_exists("/bin", "/bin")
-            .ro_bind_if_exists("/sbin", "/sbin");
+            .ro_bind_if_exists("/sbin", "/sbin")
+            // DNS resolver config: gvproxy resolves `allow_net` hostnames
+            // host-side (it runs in this shim) via the Go resolver, which reads
+            // these. Without them the sandbox has no /etc/resolv.conf, every
+            // lookup in buildAllowNetDNSZones fails, and allow-listed hosts
+            // sinkhole to 0.0.0.0 — the allowlist silently blocks everything
+            // whenever the jailer is enabled (#645).
+            .ro_bind_if_exists("/etc/resolv.conf", "/etc/resolv.conf")
+            .ro_bind_if_exists("/etc/hosts", "/etc/hosts")
+            .ro_bind_if_exists("/etc/nsswitch.conf", "/etc/nsswitch.conf");
 
         // =====================================================================
         // Devices and special mounts
