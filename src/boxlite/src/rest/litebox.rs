@@ -452,6 +452,17 @@ const WS_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(45);
 #[cfg(test)]
 const WS_WATCHDOG: std::time::Duration = std::time::Duration::from_millis(300);
 
+/// Client-side keepalive interval for long-running idle interactive execs.
+///
+/// The runner already sends server-side pings, but some proxy paths can drop
+/// idle client-to-server traffic or fail to forward WS control frames reliably.
+/// Sending a client ping after the first server frame keeps both directions
+/// active without masking the first-frame fail-fast timeout.
+#[cfg(not(test))]
+const WS_CLIENT_PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+#[cfg(test)]
+const WS_CLIENT_PING_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Time to wait for the *first* server frame after the WS upgrade
 /// completes. A freshly-attached exec that produces no frame in this
 /// window is almost certainly dead (missing box/exec, server upgraded
@@ -589,6 +600,9 @@ async fn attach_ws_pump(
             None => unreachable!("stream populated at top of loop"),
         };
         let (mut sink, mut read) = stream.split();
+        let mut client_ping = tokio::time::interval(WS_CLIENT_PING_INTERVAL);
+        client_ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        client_ping.tick().await;
 
         // If the user closed stdin during a previous attach, propagate the
         // EOF to this fresh server-side handler immediately. Best-effort.
@@ -627,6 +641,13 @@ async fn attach_ws_pump(
                             // Continue reading — server still owes us an exit frame.
                         }
                     }
+                }
+                _ = client_ping.tick(), if first_frame_seen => {
+                    if sink.send(Message::Ping(Vec::new())).await.is_err() {
+                        disconnect_cause = "client keepalive ping failed (sink closed)".to_string();
+                        break;
+                    }
+                    tracing::trace!("WS attach: client keepalive ping sent");
                 }
                 next = tokio::time::timeout(
                     if first_frame_seen { WS_WATCHDOG } else { WS_FIRST_FRAME_TIMEOUT },
@@ -709,7 +730,7 @@ async fn attach_ws_pump(
                             });
                             break;
                         }
-                        // Pings are auto-replied by tungstenite; pongs/frames just reset the watchdog.
+                        // Pings are auto-replied by tungstenite; pongs/frames reset the watchdog.
                         Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
                     }
                 }
@@ -1400,23 +1421,31 @@ mod tests {
     // ─── ws_watchdog_fires_when_idle ─────────────────────────────────────
     //
     // Server accepts the upgrade and then goes silent. The cfg(test)
-    // override keeps WS_WATCHDOG short (~300 ms) so this test finishes
-    // promptly. The emitted ExecResult must name the watchdog as cause —
-    // otherwise we've regressed the silent-stall protection.
+    // overrides keep WS_WATCHDOG and reconnect budget short so this test
+    // exercises the real reconnect path without taking minutes. The emitted
+    // ExecResult must name the watchdog as cause — otherwise we've regressed
+    // the silent-stall protection.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn ws_watchdog_fires_when_idle() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let state: SharedState = Arc::new(Mutex::new(ServerState::default()));
+        let status_body =
+            r#"{"execution_id":"exec1","status":"running","exit_code":null}"#.to_string();
         let state_clone = state.clone();
         let server = tokio::spawn(async move {
-            run_server(listener, state_clone, None, |ws, _state| async move {
-                // Hold the connection open without sending anything.
-                // Wait long enough for the client watchdog to fire and
-                // close the WS from its side.
-                let _kept_alive = ws;
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            })
+            run_server(
+                listener,
+                state_clone,
+                Some(status_body),
+                |ws, _state| async move {
+                    // Hold the connection open without sending anything.
+                    // Wait long enough for the client watchdog to fire and
+                    // close the WS from its side.
+                    let _kept_alive = ws;
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                },
+            )
             .await;
         });
 
@@ -1433,13 +1462,83 @@ mod tests {
             .await;
         });
 
-        let res = tokio::time::timeout(Duration::from_secs(3), result_rx.recv())
+        let res = tokio::time::timeout(Duration::from_secs(8), result_rx.recv())
             .await
             .expect("watchdog never fired")
             .expect("result channel closed without value");
         assert_eq!(res.exit_code, -1);
         let msg = res.error_message.expect("expected diagnostic message");
         assert!(msg.contains("watchdog"), "unexpected diagnostic: {:?}", msg);
+
+        attach.await.unwrap();
+        server.abort();
+    }
+
+    // ─── ws_client_ping_keeps_idle_attach_alive ─────────────────────────
+    //
+    // After the first server frame, an interactive session can sit idle at a
+    // prompt for longer than WS_WATCHDOG. Client pings should keep the WS
+    // active via server pongs so the watchdog does not fire.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ws_client_ping_keeps_idle_attach_alive() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let state: SharedState = Arc::new(Mutex::new(ServerState::default()));
+        let state_clone = state.clone();
+        let server = tokio::spawn(async move {
+            run_server(listener, state_clone, None, |mut ws, _state| async move {
+                ws.send(Message::Binary(vec![0x01, b'>'])).await.unwrap();
+
+                let exit_after = tokio::time::sleep(WS_WATCHDOG * 3);
+                tokio::pin!(exit_after);
+                loop {
+                    tokio::select! {
+                        msg = ws.next() => {
+                            match msg {
+                                Some(Ok(Message::Ping(payload))) => {
+                                    ws.send(Message::Pong(payload)).await.unwrap();
+                                }
+                                Some(Ok(_)) => {}
+                                _ => break,
+                            }
+                        }
+                        _ = &mut exit_after => {
+                            ws.send(Message::Text(r#"{"type":"exit","exit_code":0}"#.into()))
+                                .await
+                                .unwrap();
+                            break;
+                        }
+                    }
+                }
+            })
+            .await;
+        });
+
+        let client = client_for(port);
+        let (stdout_tx, mut stdout_rx) = mpsc::unbounded_channel::<String>();
+        let (stderr_tx, _stderr_rx) = mpsc::unbounded_channel::<String>();
+        let (_stdin_tx, stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (result_tx, mut result_rx) = mpsc::unbounded_channel::<ExecResult>();
+
+        let attach = tokio::spawn(async move {
+            attach_ws(
+                &client, "box1", "exec1", stdin_rx, stdout_tx, stderr_tx, result_tx,
+            )
+            .await;
+        });
+
+        let out = tokio::time::timeout(Duration::from_secs(1), stdout_rx.recv())
+            .await
+            .expect("stdout timed out")
+            .expect("stdout channel closed");
+        assert_eq!(out, ">");
+
+        let res = tokio::time::timeout(Duration::from_secs(3), result_rx.recv())
+            .await
+            .expect("result channel timed out")
+            .expect("result channel closed without value");
+        assert_eq!(res.exit_code, 0);
+        assert!(res.error_message.is_none());
 
         attach.await.unwrap();
         server.abort();
