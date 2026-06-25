@@ -338,8 +338,10 @@ async fn jailer_disabled_with_same_profile_still_starts() {
 /// descendant left the host namespace, i.e. isolation genuinely failed.
 #[cfg(target_os = "linux")]
 fn isolated_descendant(root: u32, host: &std::path::Path) -> Option<u32> {
+    // A failure to read /proc is a broken test environment, not "no isolation";
+    // fail fast with the real cause rather than reporting an isolation failure.
     let procs: Vec<(u32, u32)> = std::fs::read_dir("/proc")
-        .ok()?
+        .expect("read /proc to walk the process tree")
         .flatten()
         .filter_map(|e| {
             let pid = e.file_name().to_str()?.parse::<u32>().ok()?;

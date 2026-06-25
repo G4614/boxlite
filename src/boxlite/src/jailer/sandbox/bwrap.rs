@@ -117,11 +117,16 @@ impl Sandbox for BwrapSandbox {
         // libkrun `dlopen`s libkrunfw.so.5 during `krun_start_enter`. The shim
         // is statically linked, so its `$ORIGIN` rpath is ineffective for
         // dlopen, and `--clearenv` above wiped the `LD_LIBRARY_PATH` the shim
-        // would otherwise inherit from the spawning process. The shim's own
-        // directory (`<box>/bin`) holds the copied libkrunfw and is bound into
-        // the sandbox, so point the loader there — without this the VM fails to
-        // start with "Couldn't find or load libkrunfw.so.5" (libkrun status=-2).
-        if let Some(shim_dir) = std::path::Path::new(&binary).parent() {
+        // would otherwise inherit — without it the VM fails to start with
+        // "Couldn't find or load libkrunfw.so.5" (libkrun status=-2).
+        //
+        // Prefer the value `configure_library_env` precomputed for the parent
+        // (it points at the bound runtime dir holding every bundled library);
+        // fall back to the shim's own directory (`<box>/bin`, also bound and
+        // holding the copied libkrunfw) when nothing was inherited.
+        if let Ok(ld_library_path) = std::env::var("LD_LIBRARY_PATH") {
+            bwrap_cmd.setenv("LD_LIBRARY_PATH", ld_library_path);
+        } else if let Some(shim_dir) = std::path::Path::new(&binary).parent() {
             bwrap_cmd.setenv("LD_LIBRARY_PATH", shim_dir.to_string_lossy().into_owned());
         }
 
@@ -196,10 +201,12 @@ mod tests {
             .windows(3)
             .position(|w| w[0] == "--setenv" && w[1] == "LD_LIBRARY_PATH")
             .expect("bwrap must --setenv LD_LIBRARY_PATH so the static shim can dlopen libkrunfw");
-        assert_eq!(
-            args[pos + 2],
-            "/var/lib/boxlite/boxes/abc/bin",
-            "LD_LIBRARY_PATH must point at the shim's own directory (where libkrunfw is copied)"
+        // The value is either the inherited LD_LIBRARY_PATH or the shim dir
+        // fallback; both are non-empty. (We can't assert the exact value: the
+        // test process may itself have LD_LIBRARY_PATH set, which wins.)
+        assert!(
+            !args[pos + 2].is_empty(),
+            "LD_LIBRARY_PATH must be set to a non-empty search path"
         );
     }
 }
