@@ -23,6 +23,7 @@ import { Box } from '../entities/box.entity'
 import { BoxState } from '../enums/box-state.enum'
 import { RunnerApiError } from '../errors/runner-api-error'
 import { UpdateBoxSecretDto } from '../../boxlite-rest/dto/update-box-secrets.dto'
+import { CreateBoxSecretDto } from '../dto/create-box.dto'
 
 const isDebugEnabled = process.env.DEBUG === 'true'
 
@@ -30,6 +31,8 @@ const isDebugEnabled = process.env.DEBUG === 'true'
 const RETRYABLE_NETWORK_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT']
 const RUNNER_NON_JSON_ERROR_CODE = 'runner_non_json_error'
 const NON_JSON_SNIPPET_MAX_LENGTH = 180
+
+type RunnerCreateBoxDTO = Parameters<BoxApi['create']>[0] & { secrets?: CreateBoxSecretDto[] }
 
 function statusCodeFrom(error: AxiosError): number | undefined {
   return error.response?.status || (error as any).status
@@ -252,8 +255,12 @@ export class RunnerAdapterV0 implements RunnerAdapter {
     }
   }
 
-  async createBox(box: Box, metadata?: { [key: string]: string }): Promise<StartBoxResponse | undefined> {
-    const response = await this.boxApiClient.create({
+  async createBox(
+    box: Box,
+    metadata?: { [key: string]: string },
+    secrets: CreateBoxSecretDto[] = [],
+  ): Promise<StartBoxResponse | undefined> {
+    const createBoxDto: RunnerCreateBoxDTO = {
       id: box.id,
       image: box.image ?? '',
       osUser: box.osUser,
@@ -262,13 +269,16 @@ export class RunnerAdapterV0 implements RunnerAdapter {
       memoryQuota: box.mem,
       storageQuota: box.disk,
       env: box.env,
+      secrets,
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
       metadata,
       authToken: box.authToken,
       organizationId: box.organizationId,
       regionId: box.region,
-    })
+    }
+
+    const response = await this.boxApiClient.create(createBoxDto)
 
     if (!response?.data?.daemonVersion) {
       return undefined

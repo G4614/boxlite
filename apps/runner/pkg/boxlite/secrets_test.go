@@ -79,3 +79,31 @@ func TestGvproxyAdminSocketPathUsesInternalBoxID(t *testing.T) {
 		t.Fatalf("socket path = %q, want %q", got, want)
 	}
 }
+
+func TestBoxliteSecretsPreserveSecretSubstitutionRules(t *testing.T) {
+	secrets := boxliteSecrets([]dto.SecretDTO{
+		{
+			Name:        "openai_api_key",
+			Value:       "sk-test",
+			Hosts:       []string{"api.openai.com"},
+			Placeholder: "<BOXLITE_SECRET:openai_api_key>",
+		},
+	})
+
+	if len(secrets) != 1 {
+		t.Fatalf("expected one secret, got %d", len(secrets))
+	}
+	got := secrets[0]
+	if got.Name != "openai_api_key" {
+		t.Fatalf("name = %q, want openai_api_key", got.Name)
+	}
+	if got.Value != "sk-test" {
+		t.Fatalf("value = %q, want sk-test", got.Value)
+	}
+	if got.Placeholder != "<BOXLITE_SECRET:openai_api_key>" {
+		t.Fatalf("placeholder = %q", got.Placeholder)
+	}
+	if len(got.Hosts) != 1 || got.Hosts[0] != "api.openai.com" {
+		t.Fatalf("hosts = %#v", got.Hosts)
+	}
+}

@@ -14,6 +14,7 @@ type CreateBoxDTO struct {
 	MemoryQuota      int64             `json:"memoryQuota" validate:"min=1"`
 	StorageQuota     int64             `json:"storageQuota" validate:"min=1"`
 	Env              map[string]string `json:"env,omitempty"`
+	Secrets          []SecretDTO       `json:"secrets,omitempty"`
 	Registry         *RegistryDTO      `json:"registry,omitempty"`
 	Entrypoint       []string          `json:"entrypoint,omitempty"`
 	Volumes          []VolumeDTO       `json:"volumes,omitempty"`

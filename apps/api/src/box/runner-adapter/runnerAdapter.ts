@@ -13,6 +13,7 @@ import { Box } from '../entities/box.entity'
 import { BoxState } from '../enums/box-state.enum'
 import { RunnerServiceInfo } from '../common/runner-service-info'
 import { UpdateBoxSecretDto } from '../../boxlite-rest/dto/update-box-secrets.dto'
+import { CreateBoxSecretDto } from '../dto/create-box.dto'
 
 export interface RunnerBoxInfo {
   state: BoxState
@@ -47,7 +48,11 @@ export interface RunnerAdapter {
   runnerInfo(signal?: AbortSignal): Promise<RunnerInfo>
 
   boxInfo(boxId: string): Promise<RunnerBoxInfo>
-  createBox(box: Box, metadata?: { [key: string]: string }): Promise<StartBoxResponse | undefined>
+  createBox(
+    box: Box,
+    metadata?: { [key: string]: string },
+    secrets?: CreateBoxSecretDto[],
+  ): Promise<StartBoxResponse | undefined>
   startBox(
     boxId: string,
     authToken: string,
