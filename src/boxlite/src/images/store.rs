@@ -510,27 +510,44 @@ impl ImageStore {
     ///
     /// Returns the DiffIDs the config declares — possibly an empty list, if the
     /// config genuinely declares none. Returns `Err` when the config blob can't
-    /// be read or parsed: a read/parse failure must NOT be silently mapped to an
-    /// empty list, because downstream `ImageObject::verify_diff_ids` treats an
-    /// empty list as "nothing to verify" and would skip DiffID verification
-    /// entirely — disabling the integrity check on a config we simply failed to
-    /// load. Distinguishing "config says none" from "we couldn't read the
-    /// config" keeps that decision honest.
+    /// be read, fails its digest check, or can't be parsed: none of these may be
+    /// silently mapped to an empty list, because downstream
+    /// `ImageObject::verify_diff_ids` treats an empty list as "nothing to verify"
+    /// and would skip DiffID verification entirely — disabling the integrity
+    /// check on a config we never actually trusted. Distinguishing "config says
+    /// none" from "we couldn't load/trust the config" keeps that decision honest.
     fn load_diff_ids_from_config(
         &self,
         inner: &ImageStoreInner,
         config_digest: &str,
     ) -> BoxliteResult<Vec<String>> {
+        use sha2::{Digest, Sha256};
+
         let config_path = inner.storage.config_path(config_digest);
-        let config_json = std::fs::read_to_string(&config_path).map_err(|e| {
+        let config_bytes = std::fs::read(&config_path).map_err(|e| {
             BoxliteError::Storage(format!(
                 "failed to read image config {} for diff_ids: {}",
                 config_digest, e
             ))
         })?;
 
-        let image_config: oci_spec::image::ImageConfiguration = serde_json::from_str(&config_json)
-            .map_err(|e| {
+        // The config blob is content-addressed by config_digest, but
+        // download_config takes an existence-only fast path and the cache-hit
+        // path never re-downloads — so re-verify the bytes here before trusting
+        // their DiffIDs. Otherwise a corrupted / tampered cached config could
+        // supply attacker-chosen rootfs.diff_ids and defeat layer verification.
+        let computed = format!("sha256:{:x}", Sha256::digest(&config_bytes));
+        if computed != config_digest {
+            return Err(BoxliteError::Storage(format!(
+                "image config digest mismatch: expected {}, computed {} ({} bytes)",
+                config_digest,
+                computed,
+                config_bytes.len()
+            )));
+        }
+
+        let image_config: oci_spec::image::ImageConfiguration =
+            serde_json::from_slice(&config_bytes).map_err(|e| {
                 BoxliteError::Storage(format!(
                     "failed to parse image config {} for diff_ids: {}",
                     config_digest, e
@@ -584,9 +601,9 @@ impl ImageStore {
         self.download_config(&client, reference, &image_manifest.config_digest)
             .await?;
 
-        // Step 5b: Parse diff_ids from config for DiffID verification. The
-        // config was just downloaded and digest-verified, so a read/parse
-        // failure here is a genuine fault (not tampering) and fails the pull.
+        // Step 5b: Parse diff_ids from config for DiffID verification.
+        // load_diff_ids_from_config re-verifies the config digest, so a
+        // read/digest/parse failure here is a genuine fault and fails the pull.
         {
             let inner = self.inner.read().await;
             image_manifest.diff_ids =
@@ -1614,30 +1631,72 @@ mod tests {
         ImageStore::new(temp_dir.join("images"), db, vec![]).unwrap()
     }
 
-    // A config blob that exists but isn't valid JSON must surface as an error,
-    // not an empty diff_ids list. The old code logged at debug and returned
-    // Vec::new(), which downstream `verify_diff_ids` would treat as "nothing to
-    // verify" — silently disabling DiffID verification for a config we merely
-    // failed to parse. With the fix reverted to `return Vec::new()` this returns
-    // Ok(empty) and `expect_err` panics.
+    /// Store `bytes` as a content-addressed config blob and return the digest
+    /// they hash to — mirrors how a real (untampered) config is stored, so
+    /// `load_diff_ids_from_config`'s digest check passes.
+    fn write_config_blob(inner: &ImageStoreInner, bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = format!("sha256:{:x}", Sha256::digest(bytes));
+        let path = inner.storage.config_path(&digest);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        digest
+    }
+
+    // A config blob whose bytes hash to its digest but aren't valid JSON must
+    // surface as an error, not an empty diff_ids list. The old code logged at
+    // debug and returned Vec::new(), which downstream `verify_diff_ids` would
+    // treat as "nothing to verify" — silently disabling DiffID verification for
+    // a config we merely failed to parse. With the fix reverted to
+    // `return Vec::new()` this returns Ok(empty) and `expect_err` panics.
     #[tokio::test]
     async fn load_diff_ids_from_config_errors_on_unparseable_config() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = store_with_tmp(temp_dir.path());
-        let config_digest =
-            "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 
         let inner = store.inner.read().await;
-        let config_path = inner.storage.config_path(config_digest);
-        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        std::fs::write(&config_path, b"{ not valid json").unwrap();
+        // Honestly-stored bytes (digest matches) that aren't valid JSON, so the
+        // failure is the parse step rather than the digest check.
+        let config_digest = write_config_blob(&inner, b"{ not valid json");
 
         let err = store
-            .load_diff_ids_from_config(&inner, config_digest)
+            .load_diff_ids_from_config(&inner, &config_digest)
             .expect_err("unparseable config must error, not yield empty diff_ids");
         assert!(
             err.to_string().contains("parse"),
             "error should name the parse failure, got: {err}"
+        );
+    }
+
+    // A config whose on-disk bytes do NOT hash to the requested digest must be
+    // rejected — a corrupted/tampered cache blob must not supply DiffIDs.
+    // Without the digest check the valid JSON parses fine and returns Ok, so
+    // `expect_err` panics.
+    #[tokio::test]
+    async fn load_diff_ids_from_config_errors_on_digest_mismatch() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = store_with_tmp(temp_dir.path());
+        let wrong_digest =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        let inner = store.inner.read().await;
+        // Valid config bytes deliberately stored under a digest they don't hash to.
+        let path = inner.storage.config_path(wrong_digest);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            image_config_with_diff_ids(&[
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ]),
+        )
+        .unwrap();
+
+        let err = store
+            .load_diff_ids_from_config(&inner, wrong_digest)
+            .expect_err("config whose bytes don't match its digest must be rejected");
+        assert!(
+            err.to_string().contains("digest mismatch"),
+            "error should name the digest mismatch, got: {err}"
         );
     }
 
@@ -1661,26 +1720,22 @@ mod tests {
     }
 
     // The happy path: a valid config's declared diff_ids round-trip back through
-    // the JSON read + oci_spec parse (the value crosses a real boundary, not
+    // the digest check + oci_spec parse (the value crosses a real boundary, not
     // built by the test body).
     #[tokio::test]
     async fn load_diff_ids_from_config_returns_declared_diff_ids() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = store_with_tmp(temp_dir.path());
-        let config_digest =
-            "sha256:3333333333333333333333333333333333333333333333333333333333333333";
         let want = [
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         ];
 
         let inner = store.inner.read().await;
-        let config_path = inner.storage.config_path(config_digest);
-        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        std::fs::write(&config_path, image_config_with_diff_ids(&want)).unwrap();
+        let config_digest = write_config_blob(&inner, image_config_with_diff_ids(&want).as_bytes());
 
         let got = store
-            .load_diff_ids_from_config(&inner, config_digest)
+            .load_diff_ids_from_config(&inner, &config_digest)
             .unwrap();
         let want: Vec<String> = want.iter().map(|s| s.to_string()).collect();
         assert_eq!(got, want);
@@ -1688,21 +1743,17 @@ mod tests {
 
     // A config that genuinely declares no DiffIDs parses successfully and yields
     // an empty list — Ok, NOT Err. This is the distinction the fix preserves:
-    // "config says none" stays lenient, only "couldn't read/parse" fails.
+    // "config says none" stays lenient, only "couldn't read/verify/parse" fails.
     #[tokio::test]
     async fn load_diff_ids_from_config_allows_genuinely_empty() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = store_with_tmp(temp_dir.path());
-        let config_digest =
-            "sha256:4444444444444444444444444444444444444444444444444444444444444444";
 
         let inner = store.inner.read().await;
-        let config_path = inner.storage.config_path(config_digest);
-        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        std::fs::write(&config_path, image_config_with_diff_ids(&[])).unwrap();
+        let config_digest = write_config_blob(&inner, image_config_with_diff_ids(&[]).as_bytes());
 
         let got = store
-            .load_diff_ids_from_config(&inner, config_digest)
+            .load_diff_ids_from_config(&inner, &config_digest)
             .unwrap();
         assert!(
             got.is_empty(),

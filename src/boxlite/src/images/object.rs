@@ -155,6 +155,10 @@ impl ImageObject {
     /// // extracted[2] = /images/extracted/sha256:ghi.../  (layer 2)
     /// ```
     pub async fn layer_extracted(&self) -> BoxliteResult<Vec<PathBuf>> {
+        // Reject a malformed/tampered manifest (empty-on-Store / count mismatch)
+        // before doing any extraction work or writing to the layer cache.
+        self.validate_diff_id_count()?;
+
         let digests: Vec<String> = self
             .manifest
             .layers
@@ -164,19 +168,17 @@ impl ImageObject {
 
         let extracted = self.blob_source.extract_layers(&digests).await?;
 
-        // Verify DiffIDs if available
+        // Full per-layer DiffID hashing (re-runs the cheap count check).
         self.verify_diff_ids()?;
 
         Ok(extracted)
     }
 
-    /// Verify layer DiffIDs against the image config's rootfs.diff_ids.
-    ///
-    /// DiffIDs are SHA256 hashes of the uncompressed layer tar content.
-    /// This ensures the decompressed filesystem content matches what the
-    /// image author intended.
-    fn verify_diff_ids(&self) -> BoxliteResult<()> {
-        use crate::images::archive::LayerVerifier;
+    /// Cheap structural check of `rootfs.diff_ids` against the layer list — no
+    /// I/O. Run before layer extraction so a malformed/tampered manifest is
+    /// rejected before any layer is decompressed or written to the cache, and
+    /// again inside [`verify_diff_ids`](Self::verify_diff_ids) for direct callers.
+    fn validate_diff_id_count(&self) -> BoxliteResult<()> {
         use crate::images::blob_source::BlobSource;
 
         let diff_ids = &self.manifest.diff_ids;
@@ -185,13 +187,13 @@ impl ImageObject {
         // local OCI bundles can be loaded without a config.json and so
         // carry no diff_ids list. A remote (Store) pull resolves its
         // diff_ids from a digest-verified config, and the loader
-        // (`load_diff_ids_from_config`) now errors instead of yielding an
-        // empty list when that config can't be read or parsed — so an empty
-        // list here means the config genuinely declared no DiffIDs, leaving
-        // the layers unverifiable. Fail closed in the Store case; keep the
-        // LocalBundle skip.
+        // (`load_diff_ids_from_config`) errors instead of yielding an empty
+        // list when that config can't be read, verified, or parsed — so an
+        // empty list here means the config genuinely declared no DiffIDs,
+        // leaving the layers unverifiable. Fail closed in the Store case;
+        // keep the LocalBundle skip.
         if diff_ids.is_empty() {
-            return match self.blob_source {
+            return match &self.blob_source {
                 BlobSource::LocalBundle(_) => Ok(()),
                 BlobSource::Store(_) => Err(BoxliteError::Image(
                     "rootfs.diff_ids is empty for a remote-pulled image; refusing to use image \
@@ -201,12 +203,12 @@ impl ImageObject {
             };
         }
 
+        // OCI requires exactly one diff_id per layer. A non-matching count is a
+        // malformed or tampered manifest, so fail closed instead of silently
+        // skipping verification (which would let an attacker disable DiffID
+        // checks by supplying a short list).
         let layers = &self.manifest.layers;
         if diff_ids.len() != layers.len() {
-            // The config declares rootfs.diff_ids; OCI requires exactly one per
-            // layer. A non-matching count is a malformed or tampered manifest, so
-            // fail closed instead of silently skipping verification (which would
-            // let an attacker disable DiffID checks by supplying a short list).
             return Err(BoxliteError::Image(format!(
                 "DiffID count ({}) does not match layer count ({}); refusing to use image with inconsistent rootfs.diff_ids",
                 diff_ids.len(),
@@ -214,6 +216,23 @@ impl ImageObject {
             )));
         }
 
+        Ok(())
+    }
+
+    /// Verify layer DiffIDs against the image config's rootfs.diff_ids.
+    ///
+    /// DiffIDs are SHA256 hashes of the uncompressed layer tar content.
+    /// This ensures the decompressed filesystem content matches what the
+    /// image author intended.
+    fn verify_diff_ids(&self) -> BoxliteResult<()> {
+        use crate::images::archive::LayerVerifier;
+
+        self.validate_diff_id_count()?;
+
+        // Empty diff_ids (LocalBundle) returned Ok above, so this zip runs zero
+        // times; otherwise the counts are equal and every layer is checked.
+        let diff_ids = &self.manifest.diff_ids;
+        let layers = &self.manifest.layers;
         for (i, (layer, diff_id)) in layers.iter().zip(diff_ids.iter()).enumerate() {
             let tarball_path = self.blob_source.layer_tarball_path(&layer.digest);
             // A malformed diff_id in the list (wrong algorithm prefix,
@@ -388,6 +407,25 @@ mod tests {
         assert!(
             obj.verify_diff_ids().is_err(),
             "expected count-mismatch diff_ids to be rejected"
+        );
+
+        // Inverse direction: a SHORT diff_ids list (fewer entries than layers)
+        // must also be rejected — otherwise an attacker could disable the check
+        // for the unlisted layers by truncating rootfs.diff_ids.
+        let obj = object_with(
+            vec![
+                layer("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                layer("sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"),
+            ],
+            vec![
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
+            ],
+            local_bundle_blob_source(),
+        );
+        assert!(
+            obj.verify_diff_ids().is_err(),
+            "expected short diff_ids list to be rejected"
         );
     }
 
