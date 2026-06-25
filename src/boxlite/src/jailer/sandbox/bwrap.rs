@@ -112,22 +112,19 @@ impl Sandbox for BwrapSandbox {
         // The statically-linked shim dlopen's libkrunfw via LD_LIBRARY_PATH (its
         // `$ORIGIN` rpath is ineffective), and `--clearenv` wipes it — without
         // this the VM fails to start ("Couldn't find or load libkrunfw.so.5",
-        // libkrun status=-2). Prefer the value `configure_library_env`
-        // precomputed for the parent (the bound runtime dir holding every
-        // bundled library); fall back to the shim's own directory (`<box>/bin`,
-        // also bound and holding the copied libkrunfw) when nothing was inherited.
-        let ld_library_path = std::env::var("LD_LIBRARY_PATH").unwrap_or_else(|_| {
-            std::path::Path::new(&binary)
-                .parent()
-                .map(|dir| dir.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        });
+        // libkrun status=-2). Point it at the shim's own directory (`<box>/bin`),
+        // which is bound into the sandbox and is exactly where `copy_libkrunfw`
+        // placed the library the shim loads.
+        let shim_dir = std::path::Path::new(&binary)
+            .parent()
+            .map(|dir| dir.to_string_lossy().into_owned())
+            .unwrap_or_default();
 
         bwrap_cmd
             .with_clearenv()
             .setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
             .setenv("HOME", "/root")
-            .setenv("LD_LIBRARY_PATH", ld_library_path);
+            .setenv("LD_LIBRARY_PATH", shim_dir);
 
         // Preserve debugging environment variables
         if let Ok(rust_log) = std::env::var("RUST_LOG") {
@@ -200,12 +197,10 @@ mod tests {
             .windows(3)
             .position(|w| w[0] == "--setenv" && w[1] == "LD_LIBRARY_PATH")
             .expect("bwrap must --setenv LD_LIBRARY_PATH so the static shim can dlopen libkrunfw");
-        // The value is either the inherited LD_LIBRARY_PATH or the shim dir
-        // fallback; both are non-empty. (We can't assert the exact value: the
-        // test process may itself have LD_LIBRARY_PATH set, which wins.)
-        assert!(
-            !args[pos + 2].is_empty(),
-            "LD_LIBRARY_PATH must be set to a non-empty search path"
+        assert_eq!(
+            args[pos + 2],
+            "/var/lib/boxlite/boxes/abc/bin",
+            "LD_LIBRARY_PATH must point at the shim's own directory (where libkrunfw is copied)"
         );
     }
 }
