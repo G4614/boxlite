@@ -13,12 +13,19 @@ export FAIL_FAST
 # go: regex, pytest -k / vitest -t: expression/substring).
 export FILTER
 
-NEXTEST_FILTER   = $(if $(FILTER),-E 'test(~$(FILTER))',)
+# Advanced nextest-only filter expression. Use this for CI-specific exclusions
+# that cannot be expressed as a simple positive FILTER pattern.
+export NEXTEST_FILTER_EXPR
+
+NEXTEST_FILTER   = $(if $(NEXTEST_FILTER_EXPR),-E '$(NEXTEST_FILTER_EXPR)',$(if $(FILTER),-E 'test(~$(FILTER))',))
+NEXTEST_CLI_FILTER = $(if $(NEXTEST_FILTER_EXPR),-E '$(NEXTEST_FILTER_EXPR)',$(if $(FILTER),-E 'test(~$(FILTER))',-E 'not binary(stress_disk)'))
 CARGOTEST_FILTER = $(if $(FILTER),$(FILTER),)
 PYTEST_FILTER    = $(if $(FILTER),-k '$(FILTER)',)
 VITEST_FILTER    = $(if $(FILTER),-t '$(FILTER)',)
 CTEST_FILTER     = $(if $(FILTER),-R '$(FILTER)',)
 GOTEST_FILTER    = $(if $(FILTER),-run '$(FILTER)',)
+
+CLI_INTEGRATION_TESTS = $(basename $(notdir $(filter-out src/cli/tests/stress_disk.rs,$(wildcard src/cli/tests/*.rs))))
 
 # $(call run_suites,<space-separated make targets>)
 # Runs each target via a recursive $(MAKE). With FAIL_FAST=false the loop
@@ -153,6 +160,13 @@ test\:integration:
 	@echo ""
 	@echo "✅ Integration test matrix passed"
 
+# Stress suites: intentionally excluded from the default integration matrix.
+test\:stress:
+	@echo "── Stress tests ──"
+	$(call run_integration_suites,test:stress:disk)
+	@echo ""
+	@echo "✅ Stress test matrix passed"
+
 # Core unit suites: Rust unit + FFI unit.
 test\:unit\:core:
 	@echo "── Core unit suites (rust, ffi) ──"
@@ -231,9 +245,23 @@ test\:integration\:cli: $(if $(SETUP_DONE),,runtime\:debug)
 	@echo "🧪 Running CLI integration tests..."
 	@if command -v cargo-nextest >/dev/null 2>&1; then \
 		cargo nextest run -p boxlite-cli --tests --profile vm --no-fail-fast \
+		$(NEXTEST_CLI_FILTER); \
+	else \
+		rc=0; \
+		for test_name in $(CLI_INTEGRATION_TESTS); do \
+			cargo test -p boxlite-cli --test $$test_name --no-fail-fast -- --test-threads=4 \
+			$(CARGOTEST_FILTER) || rc=$$?; \
+		done; \
+		exit $$rc; \
+	fi
+
+test\:stress\:disk: $(if $(SETUP_DONE),,runtime\:debug)
+	@echo "🧪 Running disk pressure stress tests..."
+	@if command -v cargo-nextest >/dev/null 2>&1; then \
+		cargo nextest run -p boxlite-cli --test stress_disk --profile vm --no-fail-fast \
 		$(NEXTEST_FILTER); \
 	else \
-		cargo test -p boxlite-cli --tests --no-fail-fast -- --test-threads=4 \
+		cargo test -p boxlite-cli --test stress_disk --no-fail-fast -- --test-threads=1 \
 		$(CARGOTEST_FILTER); \
 	fi
 
