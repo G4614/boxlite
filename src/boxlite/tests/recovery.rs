@@ -24,6 +24,26 @@ fn pid_file_path(home_dir: &Path, box_id: &str) -> PathBuf {
     home_dir.join("boxes").join(box_id).join("shim.pid")
 }
 
+/// Reaps a deliberately-stranded shim on drop (pass *or* panic).
+///
+/// `recovery_with_{missing,corrupted}_pid_file` strand a live detached shim by
+/// destroying its `shim.pid` to exercise recovery's `Absent` path. Once
+/// recovery clears the box's pid, the teardown `remove(force)` has no pid to
+/// signal, so the shim would leak (a real, on-pass orphan — and `shim.pid` is
+/// gone, so `PerTestBoxHome`'s leak guard can't even see it). These tests
+/// capture the pid *before* destroying the file and hand it here; SIGKILL on
+/// the recorded (outer bwrap) pid tears down the box's pid namespace and the
+/// whole VM tree.
+struct ShimReaper(Option<u32>);
+
+impl Drop for ShimReaper {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0 {
+            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        }
+    }
+}
+
 // ============================================================================
 // RECOVERY WITH PROCESS STATE (P0)
 // ============================================================================
@@ -158,6 +178,8 @@ async fn recovery_with_dead_process() {
 async fn recovery_with_missing_pid_file() {
     let home = boxlite_test_utils::home::PerTestBoxHome::new();
     let box_id: String;
+    // Reaps the shim stranded below so the test doesn't leak it (see ShimReaper).
+    let mut reaper = ShimReaper(None);
 
     // Create box and delete PID file
     {
@@ -181,8 +203,11 @@ async fn recovery_with_missing_pid_file() {
         let _ = handle.exec(BoxCommand::new("sleep").args(["300"])).await;
         box_id = handle.id().to_string();
 
-        // Manually delete PID file
+        // Capture the live shim PID before deleting its file — recovery will
+        // then clear the box's pid, so the teardown `remove(force)` can't reap
+        // it. The reaper kills it on drop.
         let pf = pid_file_path(&home.path, &box_id);
+        reaper.0 = PidFileReader::at(&pf).read().ok().map(|r| r.pid);
         std::fs::remove_file(&pf).unwrap();
     }
 
@@ -215,6 +240,8 @@ async fn recovery_with_missing_pid_file() {
 async fn recovery_with_corrupted_pid_file() {
     let home = boxlite_test_utils::home::PerTestBoxHome::new();
     let box_id: String;
+    // Reaps the shim stranded below so the test doesn't leak it (see ShimReaper).
+    let mut reaper = ShimReaper(None);
 
     // Create box and corrupt PID file
     {
@@ -238,8 +265,11 @@ async fn recovery_with_corrupted_pid_file() {
         let _ = handle.exec(BoxCommand::new("sleep").args(["300"])).await;
         box_id = handle.id().to_string();
 
-        // Corrupt PID file
+        // Capture the live shim PID before corrupting its file — recovery will
+        // then clear the box's pid, so the teardown `remove(force)` can't reap
+        // it. The reaper kills it on drop.
         let pf = pid_file_path(&home.path, &box_id);
+        reaper.0 = PidFileReader::at(&pf).read().ok().map(|r| r.pid);
         std::fs::write(&pf, "not-a-valid-pid").unwrap();
     }
 

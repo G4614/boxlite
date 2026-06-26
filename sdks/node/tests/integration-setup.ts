@@ -12,14 +12,7 @@ import { getJsBoxlite } from "../lib/native.js";
 
 // Use /tmp/ (not os.tmpdir()) to keep Unix socket paths under macOS
 // 104-char SUN_LEN limit. Same pattern as test-utils/PerTestBoxHome.
-//
-// `make test:integration:node` sets BOXLITE_TEST_HOME_BASE to a per-run temp
-// dir it also sweeps via `scripts/test/reap_boxes.sh` on `trap ... EXIT` — the
-// only cleanup that survives a vitest hang / VM timeout (which kills the
-// process before `afterAll` can run). Honor it so leaked shims land under a
-// root the recipe reaps; fall back to a fresh dir for standalone `npm` runs.
-const testHome =
-  process.env.BOXLITE_TEST_HOME_BASE ?? mkdtempSync("/tmp/boxlite-test-node-");
+const testHome = mkdtempSync("/tmp/boxlite-test-node-");
 const testRegistries = [
   { host: "docker.m.daocloud.io", search: true },
   { host: "docker.xuanyuan.me", search: true },
