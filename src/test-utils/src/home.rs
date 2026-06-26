@@ -43,6 +43,21 @@ impl Default for PerTestBoxHome {
     }
 }
 
+/// Base directory for per-test homes.
+///
+/// Defaults to `/tmp` (short Unix-socket paths for the macOS 104-char
+/// `SUN_LEN` limit). The `make test:integration:*` recipes override this
+/// with `BOXLITE_TEST_HOME_BASE=<per-run temp dir>` so every test home for
+/// a suite lands under one root that `scripts/test/reap_boxes.sh` can sweep
+/// on the recipe's `trap ... EXIT` — the only cleanup that survives a
+/// nextest `--profile vm` timeout SIGKILL (which bypasses every in-process
+/// Drop/teardown). The base must already exist; the recipe `mktemp -d`s it.
+fn home_base() -> std::path::PathBuf {
+    std::env::var_os("BOXLITE_TEST_HOME_BASE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+}
+
 impl PerTestBoxHome {
     /// Create a new per-test home with shared cache.
     ///
@@ -50,7 +65,7 @@ impl PerTestBoxHome {
     /// (image pull, rootfs warm-up). This is the primary constructor.
     pub fn new() -> Self {
         let cache = SharedResources::global();
-        let temp = TempDir::new_in("/tmp").expect("create temp dir");
+        let temp = TempDir::new_in(home_base()).expect("create temp dir");
         let path = temp.path().to_path_buf();
         let linked = cache.link_into(&path);
         Self {
@@ -65,7 +80,7 @@ impl PerTestBoxHome {
     /// For non-VM tests (locking behavior, config validation, shutdown tests).
     /// Does not trigger image pulls or rootfs builds.
     pub fn isolated() -> Self {
-        let temp = TempDir::new_in("/tmp").expect("create temp dir");
+        let temp = TempDir::new_in(home_base()).expect("create temp dir");
         let path = temp.path().to_path_buf();
         Self {
             path,
@@ -185,8 +200,9 @@ mod tests {
         let home = PerTestBoxHome::isolated();
         assert!(home.path.exists(), "home dir should exist");
         assert!(
-            home.path.starts_with("/tmp"),
-            "should be under /tmp: {:?}",
+            home.path.starts_with(home_base()),
+            "should be under the home base {:?}: {:?}",
+            home_base(),
             home.path
         );
     }

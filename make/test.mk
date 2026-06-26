@@ -223,7 +223,10 @@ test\:warm-cache\:rust: $(if $(SETUP_DONE),,runtime\:debug)
 # FILTER works here and on every test target, e.g. make test:integration:rust FILTER=copy
 test\:integration\:rust: $(if $(SETUP_DONE),,runtime\:debug test\:warm-cache\:rust)
 	@echo "🧪 Running Rust integration tests (requires VM)..."
-	@if command -v cargo-nextest >/dev/null 2>&1; then \
+	@RUN_HOME=$$(mktemp -d /tmp/boxlite-it-rust-XXXXXX); \
+	export BOXLITE_TEST_HOME_BASE=$$RUN_HOME; \
+	trap 'bash $(CURDIR)/scripts/test/reap_boxes.sh "$$RUN_HOME"; rm -rf "$$RUN_HOME"' EXIT; \
+	if command -v cargo-nextest >/dev/null 2>&1; then \
 		cargo nextest run -p boxlite --features krun,gvproxy --test '*' --no-fail-fast --profile vm \
 			$(NEXTEST_FILTER); \
 	else \
@@ -243,7 +246,10 @@ test\:unit\:ffi:
 # CLI integration tests.
 test\:integration\:cli: $(if $(SETUP_DONE),,runtime\:debug)
 	@echo "🧪 Running CLI integration tests..."
-	@if command -v cargo-nextest >/dev/null 2>&1; then \
+	@RUN_HOME=$$(mktemp -d /tmp/boxlite-it-cli-XXXXXX); \
+	export BOXLITE_TEST_HOME_BASE=$$RUN_HOME; \
+	trap 'bash $(CURDIR)/scripts/test/reap_boxes.sh "$$RUN_HOME"; rm -rf "$$RUN_HOME"' EXIT; \
+	if command -v cargo-nextest >/dev/null 2>&1; then \
 		cargo nextest run -p boxlite-cli --tests --profile vm --no-fail-fast \
 		$(NEXTEST_CLI_FILTER); \
 	else \
@@ -257,7 +263,10 @@ test\:integration\:cli: $(if $(SETUP_DONE),,runtime\:debug)
 
 test\:stress\:disk: $(if $(SETUP_DONE),,runtime\:debug)
 	@echo "🧪 Running disk pressure stress tests..."
-	@if command -v cargo-nextest >/dev/null 2>&1; then \
+	@RUN_HOME=$$(mktemp -d /tmp/boxlite-it-stress-XXXXXX); \
+	export BOXLITE_TEST_HOME_BASE=$$RUN_HOME; \
+	trap 'bash $(CURDIR)/scripts/test/reap_boxes.sh "$$RUN_HOME"; rm -rf "$$RUN_HOME"' EXIT; \
+	if command -v cargo-nextest >/dev/null 2>&1; then \
 		cargo nextest run -p boxlite-cli --test stress_disk --profile vm --no-fail-fast \
 		$(NEXTEST_FILTER); \
 	else \
@@ -275,7 +284,7 @@ test\:integration\:python:
 	@$(MAKE) dev:python
 	@echo "🧪 Running Python SDK integration tests..."
 	@BOXLITE_HOME=$$(mktemp -d /tmp/boxlite-test-python-XXXXXX) && \
-	 trap "rm -rf $$BOXLITE_HOME" EXIT && \
+	 trap 'bash $(CURDIR)/scripts/test/reap_boxes.sh "$$BOXLITE_HOME"; rm -rf "$$BOXLITE_HOME"' EXIT && \
 	 . .venv/bin/activate && cd sdks/python && BOXLITE_HOME=$$BOXLITE_HOME python -m pytest tests/ -v -m "integration" $(PYTEST_FILTER)
 
 # Python SDK full suite.
@@ -291,7 +300,10 @@ test\:unit\:node: _ensure-node-deps
 test\:integration\:node:
 	@$(MAKE) dev:node
 	@echo "🧪 Running Node.js SDK integration tests (requires VM)..."
-	@cd sdks/node && npm run test:integration -- $(VITEST_FILTER)
+	@RUN_HOME=$$(mktemp -d /tmp/boxlite-it-node-XXXXXX); \
+	export BOXLITE_TEST_HOME_BASE=$$RUN_HOME; \
+	trap 'bash $(CURDIR)/scripts/test/reap_boxes.sh "$$RUN_HOME"; rm -rf "$$RUN_HOME"' EXIT; \
+	cd sdks/node && npm run test:integration -- $(VITEST_FILTER)
 
 # Node.js SDK full suite.
 test\:all\:node:
