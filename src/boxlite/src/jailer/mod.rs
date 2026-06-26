@@ -556,8 +556,27 @@ mod tests {
 
         let paths = build_path_access(&layout, &[]);
 
-        // Empty box dir: no subdirectories exist yet, so no paths
-        assert!(paths.is_empty(), "No paths for empty box dir");
+        let existing_ca_paths: Vec<_> = system_ca_paths()
+            .into_iter()
+            .filter(|p| p.exists())
+            .collect();
+
+        assert_eq!(
+            paths.len(),
+            existing_ca_paths.len(),
+            "empty box dir should only include existing system CA paths"
+        );
+        for ca_path in existing_ca_paths {
+            let entry = paths
+                .iter()
+                .find(|p| p.path == ca_path)
+                .unwrap_or_else(|| panic!("missing CA path {}", ca_path.display()));
+            assert!(
+                !entry.writable,
+                "CA path must be read-only: {}",
+                ca_path.display()
+            );
+        }
     }
 
     #[test]
