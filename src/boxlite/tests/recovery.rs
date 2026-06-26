@@ -56,6 +56,9 @@ async fn recovery_with_live_process() {
     let home = boxlite_test_utils::home::PerTestBoxHome::new();
     let box_id: String;
     let original_pid: u32;
+    // Detached box: the teardown `remove(force)` only signals the recorded
+    // outer bwrap, leaving the inner pid-ns tree alive (see ShimReaper).
+    let mut reaper = ShimReaper(None);
 
     // Create box with detach=true
     {
@@ -78,6 +81,7 @@ async fn recovery_with_live_process() {
 
         let _ = handle.exec(BoxCommand::new("sleep").args(["300"])).await;
         box_id = handle.id().to_string();
+        reaper.0 = Some(box_id.clone());
 
         let pf = pid_file_path(&home.path, &box_id);
         original_pid = PidFileReader::at(&pf).read().map(|r| r.pid).unwrap();
@@ -109,6 +113,9 @@ async fn recovery_with_live_process() {
 async fn recovery_with_dead_process() {
     let home = boxlite_test_utils::home::PerTestBoxHome::new();
     let box_id: String;
+    // Detached box: SIGKILLing the recorded outer bwrap below leaves the inner
+    // pid-ns tree alive; the reaper kills it by id on drop (see ShimReaper).
+    let mut reaper = ShimReaper(None);
 
     // Create box
     {
@@ -131,6 +138,7 @@ async fn recovery_with_dead_process() {
 
         let _ = handle.exec(BoxCommand::new("sleep").args(["300"])).await;
         box_id = handle.id().to_string();
+        reaper.0 = Some(box_id.clone());
 
         let pf = pid_file_path(&home.path, &box_id);
         let original_pid = PidFileReader::at(&pf).read().map(|r| r.pid).unwrap();
