@@ -832,9 +832,22 @@ impl RuntimeImpl {
         if let Some((config, state)) = self.box_manager.box_by_id(id)? {
             // Box exists in database - handle as before
             let mut state = state;
+            // Reap the box's whole process tree by its cgroup before anything
+            // else. `kill_process` (below) only signals the recorded pid — the
+            // outer bwrap launcher — and a detached box's inner pid-ns tree
+            // (inner bwrap + shim + VM) survives that, since #851 stopped
+            // applying `--die-with-parent` to detached boxes. The cgroup holds
+            // every box process, so killing it by id reaps the tree atomically,
+            // even after recovery has cleared `state.pid`. No-op when the cgroup
+            // is gone/empty (genuinely-stopped box) or absent (jailer off /
+            // macOS seatbelt).
+            if force {
+                crate::jailer::cgroup::kill_cgroup(id.as_str());
+            }
             if state.status.is_active() || state.pid.is_some() {
                 if force {
-                    // Force mode: kill the process directly
+                    // Fallback for hosts without the cgroup jailer (disabled /
+                    // macOS seatbelt), where the tree is a single shim process.
                     if let Some(pid) = state.pid {
                         tracing::info!(box_id = %id, pid = pid, "Force killing box process");
                         crate::util::kill_process(pid);

@@ -138,6 +138,24 @@ pub fn cgroup_path(box_id: &str) -> PathBuf {
     get_cgroup_base().join(BOXLITE_CGROUP).join(box_id)
 }
 
+/// Kill every process in a box's cgroup via cgroup v2 `cgroup.kill`.
+///
+/// Reaps the box's *entire* process tree atomically — the outer bwrap launcher,
+/// the inner pid-namespace bwrap, the shim, and the VM — regardless of
+/// pid-namespace or process-group structure. A single-pid `SIGKILL` of the
+/// recorded pid only hits the outer bwrap; a detached box's inner tree survives
+/// it, since #851 stopped applying `--die-with-parent` to detached boxes. The
+/// whole tree lives in the box's cgroup, so killing the cgroup by id reaps it
+/// even after `state.pid` has been cleared.
+///
+/// Best-effort and idempotent: a no-op if the cgroup is gone, already empty, or
+/// `cgroup.kill` is unavailable (kernel < 5.14 / cgroup v1 / no jailer). Returns
+/// `true` if the kill file was written.
+pub fn kill_cgroup(box_id: &str) -> bool {
+    let kill_file = cgroup_path(box_id).join("cgroup.kill");
+    std::fs::write(&kill_file, "1").is_ok()
+}
+
 /// Setup cgroup for a box.
 ///
 /// Creates the cgroup directory and configures resource limits.
@@ -423,6 +441,18 @@ mod tests {
     fn test_cgroup_v2_detection() {
         let available = is_cgroup_v2_available();
         println!("Cgroup v2 available: {}", available);
+    }
+
+    #[test]
+    fn kill_cgroup_absent_is_noop() {
+        // No cgroup exists for this id, so `cgroup.kill` can't be written:
+        // kill_cgroup must report `false` and not panic. This locks the
+        // best-effort/idempotent contract relied on by the no-jailer and
+        // macOS-seatbelt paths (where there is no box cgroup to kill).
+        assert!(
+            !kill_cgroup("nonexistent-box-000000000000"),
+            "kill_cgroup must be a no-op (false) when the box has no cgroup"
+        );
     }
 
     #[test]

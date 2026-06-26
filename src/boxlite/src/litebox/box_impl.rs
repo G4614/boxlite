@@ -391,6 +391,14 @@ impl BoxImpl {
             ),
         }
 
+        // Reap any process still in the box's cgroup. Graceful shutdown above
+        // should have torn the VM down, but for a detached box the recorded pid
+        // is the outer bwrap and the inner pid-ns tree (inner bwrap + shim + VM)
+        // can survive `handler.stop()` — since #851, detached boxes don't get
+        // `--die-with-parent`. cgroup.kill reaps the whole tree by id; a no-op
+        // once the box has exited (or when there is no cgroup: jailer off / macOS).
+        crate::jailer::cgroup::kill_cgroup(self.config.id.as_str());
+
         // Check if box was persisted
         let was_persisted = self.state.read().lock_id.is_some();
 
