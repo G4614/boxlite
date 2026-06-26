@@ -386,3 +386,93 @@ async fn prepare_disk_rootfs(
         disk_size,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Seek, SeekFrom, Write};
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    const CLUSTER_SIZE: u64 = 1 << 16; // boxlite qcow2 uses 64 KiB clusters
+
+    /// Build a real boxlite container COW overlay (via production code), then tear
+    /// it the exact way a host crash tore the prod overlays: an L2 entry maps a
+    /// virtual cluster to a host offset at the file's physical end, so the data
+    /// cluster it references was never written. Returns the torn overlay path.
+    fn write_torn_container_overlay(dir: &std::path::Path) -> PathBuf {
+        let base = dir.join("base.raw");
+        std::fs::write(&base, vec![0u8; (CLUSTER_SIZE * 2) as usize]).unwrap();
+
+        let overlay = dir.join("disk.qcow2");
+        let disk = Qcow2Helper::create_cow_child_disk(
+            &base,
+            BackingFormat::Raw,
+            &overlay,
+            CLUSTER_SIZE * 2,
+        )
+        .unwrap();
+        disk.leak(); // keep the file on disk past Drop
+
+        // Append a fresh L2 table cluster, point L1[0] at it, and point L2[0] at
+        // the (new) end of file — a data cluster that physically does not exist.
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&overlay)
+            .unwrap();
+        let mut hdr = [0u8; 48];
+        f.read_exact(&mut hdr).unwrap();
+        let cluster_bits = u32::from_be_bytes(hdr[20..24].try_into().unwrap());
+        let cluster_size = 1u64 << cluster_bits;
+        let l1_offset = u64::from_be_bytes(hdr[40..48].try_into().unwrap());
+
+        let l2_table_off = f.metadata().unwrap().len();
+        f.seek(SeekFrom::Start(l2_table_off)).unwrap();
+        f.write_all(&vec![0u8; cluster_size as usize]).unwrap();
+        let torn_data_off = f.metadata().unwrap().len(); // == EOF; data never written
+
+        const COPIED: u64 = 1 << 63;
+        f.seek(SeekFrom::Start(l1_offset)).unwrap();
+        f.write_all(&(l2_table_off | COPIED).to_be_bytes()).unwrap();
+        f.seek(SeekFrom::Start(l2_table_off)).unwrap();
+        f.write_all(&(torn_data_off | COPIED).to_be_bytes())
+            .unwrap();
+        f.sync_all().unwrap();
+
+        overlay
+    }
+
+    #[test]
+    fn test_reuse_discards_torn_container_overlay_so_it_rebuilds() {
+        let dir = TempDir::new().unwrap();
+        let overlay = write_torn_container_overlay(dir.path());
+        assert!(overlay.exists());
+
+        // The death-loop site. Before this fix the restart path did no validation
+        // and would reopen the torn overlay, looping on EBADMSG forever. The fix
+        // detects the dangling cluster, removes the file, and returns false so the
+        // caller rebuilds a fresh COW from the image base.
+        let reused = reuse_intact_container_rootfs(&overlay).unwrap();
+        assert!(!reused, "torn overlay must be discarded, not reused");
+        assert!(
+            !overlay.exists(),
+            "torn overlay must be removed so a fresh COW is rebuilt"
+        );
+    }
+
+    #[test]
+    fn test_reuse_keeps_intact_container_overlay() {
+        let dir = TempDir::new().unwrap();
+        let base = dir.path().join("base.raw");
+        std::fs::write(&base, vec![0u8; (CLUSTER_SIZE * 2) as usize]).unwrap();
+        let overlay = dir.path().join("disk.qcow2");
+        Qcow2Helper::create_cow_child_disk(&base, BackingFormat::Raw, &overlay, CLUSTER_SIZE * 2)
+            .unwrap()
+            .leak();
+
+        let reused = reuse_intact_container_rootfs(&overlay).unwrap();
+        assert!(reused, "an intact overlay must be reused");
+        assert!(overlay.exists(), "intact overlay must be kept");
+    }
+}
