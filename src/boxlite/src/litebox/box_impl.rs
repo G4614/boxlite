@@ -396,7 +396,8 @@ impl BoxImpl {
         // is the outer bwrap and the inner pid-ns tree (inner bwrap + shim + VM)
         // can survive `handler.stop()` — since #851, detached boxes don't get
         // `--die-with-parent`. cgroup.kill reaps the whole tree by id; a no-op
-        // once the box has exited (or when there is no cgroup: jailer off / macOS).
+        // once the box has exited (or when there is no cgroup: jailer off).
+        #[cfg(target_os = "linux")]
         crate::jailer::cgroup::kill_cgroup(self.config.id.as_str());
 
         // Check if box was persisted

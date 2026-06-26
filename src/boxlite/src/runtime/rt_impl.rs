@@ -841,6 +841,7 @@ impl RuntimeImpl {
             // even after recovery has cleared `state.pid`. No-op when the cgroup
             // is gone/empty (genuinely-stopped box) or absent (jailer off /
             // macOS seatbelt).
+            #[cfg(target_os = "linux")]
             if force {
                 crate::jailer::cgroup::kill_cgroup(id.as_str());
             }
