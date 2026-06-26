@@ -242,6 +242,26 @@ fn validate_reusable_guest_rootfs_contents(guest_rootfs_disk_path: &Path) -> Box
         Ok(false)
     };
 
+    // First, a structural self-consistency check of the overlay itself: every
+    // cluster its L1/L2 tables reference must physically exist in the file. A
+    // crash can persist an L2 mapping whose data cluster was never written,
+    // leaving a dangling reference past the file's end. The superblock probe
+    // below only inspects virtual cluster 0 and misses a tear deeper in the
+    // image (e.g. the inode table holding the journal inode) — which the guest
+    // kernel reads as zeros, failing the mount with EBADMSG on every restart.
+    // A dangling cluster is purely overlay damage, so discard + rebuild.
+    match crate::disk::qcow2::probe_overlay_cluster_integrity(guest_rootfs_disk_path) {
+        Ok(()) => {}
+        Err(Qcow2HeaderError::Corrupt(reason)) => return discard(&reason),
+        Err(Qcow2HeaderError::Io(io)) => {
+            return Err(BoxliteError::Storage(format!(
+                "Cannot read guest rootfs {} to validate overlay cluster integrity \
+                 (I/O error: {io}); refusing to discard a possibly-intact overlay",
+                guest_rootfs_disk_path.display()
+            )));
+        }
+    }
+
     match crate::disk::qcow2::probe_assembled_ext4_superblock(guest_rootfs_disk_path) {
         // Filesystem still recognizes itself — reuse as-is.
         Ok(probe) if probe.magic_ok => Ok(true),

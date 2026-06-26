@@ -100,7 +100,7 @@ async fn run_container_rootfs(
 ) -> BoxliteResult<(ContainerImageConfig, Disk)> {
     let disk_path = layout.disk_path();
 
-    // For restart, reuse existing COW disk
+    // For restart, reuse existing COW disk — but only if it is still intact.
     if reuse_rootfs {
         tracing::info!(
             disk_path = %disk_path.display(),
@@ -114,40 +114,48 @@ async fn run_container_rootfs(
             )));
         }
 
-        let disk = Disk::new(disk_path.clone(), DiskFormat::Qcow2, true);
+        // A host crash can tear the COW overlay: an L2 mapping persists while its
+        // data cluster was never written, so the guest reads zeros and the ext4
+        // mount fails with EBADMSG on every restart — a death loop, because we
+        // previously reopened the torn overlay blindly. Validate cluster
+        // integrity first; on damage, discard it and fall through to rebuild a
+        // fresh COW from the image base.
+        if reuse_intact_container_rootfs(&disk_path)? {
+            let disk = Disk::new(disk_path.clone(), DiskFormat::Qcow2, true);
 
-        // Load container config
-        let image = match rootfs_spec {
-            RootfsSpec::Image(r) => pull_image(runtime, r).await?,
-            RootfsSpec::RootfsPath(path) => {
-                let bundle_dir = std::path::Path::new(path);
+            // Load container config
+            let image = match rootfs_spec {
+                RootfsSpec::Image(r) => pull_image(runtime, r).await?,
+                RootfsSpec::RootfsPath(path) => {
+                    let bundle_dir = std::path::Path::new(path);
 
-                if !bundle_dir.exists() {
-                    return Err(BoxliteError::Storage(format!(
-                        "Rootfs path does not exist: {}",
-                        path
-                    )));
+                    if !bundle_dir.exists() {
+                        return Err(BoxliteError::Storage(format!(
+                            "Rootfs path does not exist: {}",
+                            path
+                        )));
+                    }
+
+                    runtime
+                        .image_manager
+                        .load_from_local(bundle_dir.to_path_buf(), format!("local:{}", path))
+                        .await?
                 }
-
-                runtime
-                    .image_manager
-                    .load_from_local(bundle_dir.to_path_buf(), format!("local:{}", path))
-                    .await?
+            };
+            let image_config = image.load_config().await?;
+            let mut container_image_config = ContainerImageConfig::from_oci_config(&image_config)?;
+            if !env.is_empty() {
+                container_image_config.merge_env(env.to_vec());
             }
-        };
-        let image_config = image.load_config().await?;
-        let mut container_image_config = ContainerImageConfig::from_oci_config(&image_config)?;
-        if !env.is_empty() {
-            container_image_config.merge_env(env.to_vec());
-        }
-        apply_user_overrides(
-            &mut container_image_config,
-            entrypoint_override,
-            cmd_override,
-            user_override,
-        );
+            apply_user_overrides(
+                &mut container_image_config,
+                entrypoint_override,
+                cmd_override,
+                user_override,
+            );
 
-        return Ok((container_image_config, disk));
+            return Ok((container_image_config, disk));
+        }
     }
 
     // Fresh start: pull or load image
@@ -197,6 +205,42 @@ async fn run_container_rootfs(
     let disk = create_cow_disk(&rootfs_result, layout, disk_size_gb)?;
 
     Ok((container_image_config, disk))
+}
+
+/// Decide whether an existing container rootfs COW overlay can be reused on
+/// restart, or must be discarded and rebuilt from the image base.
+///
+/// Returns `Ok(true)` to reuse as-is, `Ok(false)` after removing a structurally
+/// torn overlay (the caller rebuilds a fresh COW), or `Err` when reuse must be
+/// refused without deleting anything — a transient I/O fault that proves nothing
+/// about the overlay's contents.
+fn reuse_intact_container_rootfs(disk_path: &std::path::Path) -> BoxliteResult<bool> {
+    use crate::disk::qcow2::Qcow2HeaderError;
+
+    match crate::disk::qcow2::probe_overlay_cluster_integrity(disk_path) {
+        Ok(()) => Ok(true),
+        Err(Qcow2HeaderError::Corrupt(reason)) => {
+            tracing::warn!(
+                disk_path = %disk_path.display(),
+                reason = %reason,
+                "Discarding torn container rootfs COW overlay and rebuilding from image base"
+            );
+            std::fs::remove_file(disk_path).map_err(|remove_err| {
+                BoxliteError::Storage(format!(
+                    "Failed to remove torn container rootfs {} ({}): {}",
+                    disk_path.display(),
+                    reason,
+                    remove_err
+                ))
+            })?;
+            Ok(false)
+        }
+        Err(Qcow2HeaderError::Io(io)) => Err(BoxliteError::Storage(format!(
+            "Cannot read container rootfs {} to validate overlay cluster integrity \
+             (I/O error: {io}); refusing to discard a possibly-intact overlay",
+            disk_path.display()
+        ))),
+    }
 }
 
 /// Create COW disk from base rootfs.
