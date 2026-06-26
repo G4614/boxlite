@@ -945,6 +945,159 @@ pub fn read_backing_file_path(path: &Path) -> BoxliteResult<Option<String>> {
     })
 }
 
+/// On-disk ext4 layout: the primary superblock starts 1024 bytes into the
+/// filesystem and its `s_magic` field (`0xEF53`, stored little-endian) sits 0x38
+/// bytes into the superblock. A qcow2 cluster is at least 64 KiB, so the whole
+/// superblock lives inside the first virtual cluster.
+const EXT4_MAGIC_OFFSET: u64 = 1024 + 0x38;
+const EXT4_SUPER_MAGIC: u16 = 0xEF53;
+
+/// Bits 9..55 of a qcow2 L1/L2 entry hold the referenced cluster's host offset.
+const QCOW2_OFFSET_MASK: u64 = 0x00FF_FFFF_FFFF_FE00;
+
+/// Where the guest ext4 superblock magic was found when probing an assembled
+/// qcow2 overlay — see [`probe_assembled_ext4_superblock`].
+pub struct AssembledExt4Probe {
+    /// The ext4 `s_magic` field matched `0xEF53`.
+    pub magic_ok: bool,
+    /// The superblock bytes came from an overlay-allocated cluster (a per-box
+    /// write) rather than falling through to the shared backing file. Lets the
+    /// caller tell a torn per-box overlay (safe to discard and rebuild) from a
+    /// damaged shared base (discarding the overlay would not help).
+    pub from_overlay: bool,
+}
+
+/// Probe the ext4 superblock magic of the filesystem seen through a qcow2 overlay
+/// assembled over its raw backing file, *without* booting a VM.
+///
+/// The guest rootfs is a raw ext4 image used as the qcow2 backing file; each box
+/// gets its own COW overlay on top. A host crash can tear the overlay's in-flight
+/// writes, leaving the assembled filesystem unmountable while the qcow2 *header*
+/// still parses cleanly. This resolves the single cluster holding the superblock
+/// through the overlay's L1/L2 tables (overlay data wins; a hole falls through to
+/// the backing file) and reports whether ext4 still recognizes it — letting
+/// callers detect that class of damage that header validation alone misses.
+///
+/// Reads stay within the one cluster that contains the superblock, which is safe
+/// because the superblock starts at byte 1024 and qcow2 clusters are >= 64 KiB.
+///
+/// Failures are classified as transient [`Io`](Qcow2HeaderError::Io) (the file
+/// could not be read; proves nothing about its contents) vs structural
+/// [`Corrupt`](Qcow2HeaderError::Corrupt) (the overlay's own metadata is torn),
+/// so the caller never discards an overlay on a momentary I/O blip.
+pub fn probe_assembled_ext4_superblock(
+    overlay_path: &Path,
+) -> Result<AssembledExt4Probe, Qcow2HeaderError> {
+    use std::io::{ErrorKind, Read, Seek, SeekFrom};
+
+    fn on_read(path: &Path, e: std::io::Error, what: &str) -> Qcow2HeaderError {
+        if e.kind() == ErrorKind::UnexpectedEof {
+            Qcow2HeaderError::Corrupt(format!("qcow2 {} is truncated ({what})", path.display()))
+        } else {
+            Qcow2HeaderError::Io(e)
+        }
+    }
+
+    let mut file = std::fs::File::open(overlay_path).map_err(Qcow2HeaderError::Io)?;
+
+    // Header prefix: magic (0..4) through l1_table_offset (40..48).
+    let mut hdr = [0u8; 48];
+    file.read_exact(&mut hdr)
+        .map_err(|e| on_read(overlay_path, e, "header"))?;
+
+    let magic = u32::from_be_bytes(hdr[0..4].try_into().unwrap());
+    if magic != QCOW2_MAGIC {
+        return Err(Qcow2HeaderError::Corrupt(format!(
+            "Invalid qcow2 magic in {}: 0x{:08x}",
+            overlay_path.display(),
+            magic
+        )));
+    }
+
+    let backing_offset = u64::from_be_bytes(hdr[8..16].try_into().unwrap());
+    let backing_size = u32::from_be_bytes(hdr[16..20].try_into().unwrap());
+    let cluster_bits = u32::from_be_bytes(hdr[20..24].try_into().unwrap());
+    let l1_size = u32::from_be_bytes(hdr[36..40].try_into().unwrap());
+    let l1_offset = u64::from_be_bytes(hdr[40..48].try_into().unwrap());
+
+    if !(9..=30).contains(&cluster_bits) {
+        return Err(Qcow2HeaderError::Corrupt(format!(
+            "qcow2 {} has an implausible cluster_bits {cluster_bits}",
+            overlay_path.display()
+        )));
+    }
+
+    // Resolve virtual cluster 0 through the overlay's L1/L2 tables. The superblock
+    // lives in cluster 0 (offset 1024 < cluster size), so l1_idx == l2_idx == 0.
+    let mut overlay_data_offset = 0u64;
+    if l1_size > 0 && l1_offset != 0 {
+        file.seek(SeekFrom::Start(l1_offset))
+            .map_err(Qcow2HeaderError::Io)?;
+        let mut l1_buf = [0u8; 8];
+        file.read_exact(&mut l1_buf)
+            .map_err(|e| on_read(overlay_path, e, "L1 entry"))?;
+        let l2_table_offset = u64::from_be_bytes(l1_buf) & QCOW2_OFFSET_MASK;
+        if l2_table_offset != 0 {
+            file.seek(SeekFrom::Start(l2_table_offset))
+                .map_err(Qcow2HeaderError::Io)?;
+            let mut l2_buf = [0u8; 8];
+            file.read_exact(&mut l2_buf)
+                .map_err(|e| on_read(overlay_path, e, "L2 entry"))?;
+            let l2_entry = u64::from_be_bytes(l2_buf);
+            // Bit 62: compressed cluster — we can't cheaply validate it, and a
+            // freshly-created COW overlay never compresses, so treat it as torn.
+            if l2_entry & (1 << 62) != 0 {
+                return Err(Qcow2HeaderError::Corrupt(format!(
+                    "qcow2 {} uses a compressed cluster for the guest superblock",
+                    overlay_path.display()
+                )));
+            }
+            overlay_data_offset = l2_entry & QCOW2_OFFSET_MASK;
+        }
+    }
+
+    let mut magic_bytes = [0u8; 2];
+    let from_overlay = overlay_data_offset != 0;
+    if from_overlay {
+        // The overlay wrote this cluster: read its superblock magic directly.
+        file.seek(SeekFrom::Start(overlay_data_offset + EXT4_MAGIC_OFFSET))
+            .map_err(Qcow2HeaderError::Io)?;
+        file.read_exact(&mut magic_bytes)
+            .map_err(|e| on_read(overlay_path, e, "overlay superblock"))?;
+    } else {
+        // Hole: fall through to the raw backing file (virtual offset == file offset).
+        if backing_offset == 0 || backing_size == 0 {
+            return Err(Qcow2HeaderError::Corrupt(format!(
+                "qcow2 {} has no data for the guest superblock and no backing file",
+                overlay_path.display()
+            )));
+        }
+        file.seek(SeekFrom::Start(backing_offset))
+            .map_err(Qcow2HeaderError::Io)?;
+        let mut backing_buf = vec![0u8; backing_size as usize];
+        file.read_exact(&mut backing_buf)
+            .map_err(|e| on_read(overlay_path, e, "backing path"))?;
+        let backing_path = String::from_utf8(backing_buf).map_err(|e| {
+            Qcow2HeaderError::Corrupt(format!(
+                "Invalid UTF-8 in backing file path of {}: {e}",
+                overlay_path.display()
+            ))
+        })?;
+        let mut backing = std::fs::File::open(&backing_path).map_err(Qcow2HeaderError::Io)?;
+        backing
+            .seek(SeekFrom::Start(EXT4_MAGIC_OFFSET))
+            .map_err(Qcow2HeaderError::Io)?;
+        backing
+            .read_exact(&mut magic_bytes)
+            .map_err(|e| on_read(Path::new(&backing_path), e, "backing superblock"))?;
+    }
+
+    Ok(AssembledExt4Probe {
+        magic_ok: u16::from_le_bytes(magic_bytes) == EXT4_SUPER_MAGIC,
+        from_overlay,
+    })
+}
+
 /// Overwrite the backing file path in a qcow2 header.
 ///
 /// Updates the backing file reference to point at `new_backing`. The file at
