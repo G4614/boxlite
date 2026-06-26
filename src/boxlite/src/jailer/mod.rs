@@ -286,6 +286,18 @@ fn build_path_access(layout: &BoxFilesystemLayout, volumes: &[VolumeSpec]) -> Ve
         });
     }
 
+    // The in-shim network backend may validate upstream TLS certificates
+    // (for example secret-substitution MITM forwarding). Keep host trust
+    // stores readable inside the sandbox without granting broader /etc access.
+    for path in system_ca_paths() {
+        if path.exists() {
+            paths.push(PathAccess {
+                path,
+                writable: false,
+            });
+        }
+    }
+
     // User volumes
     for vol in volumes {
         let p = PathBuf::from(&vol.host_path);
@@ -298,6 +310,18 @@ fn build_path_access(layout: &BoxFilesystemLayout, volumes: &[VolumeSpec]) -> Ve
     }
 
     paths
+}
+
+fn system_ca_paths() -> [PathBuf; 7] {
+    [
+        PathBuf::from("/etc/ssl/certs"),
+        PathBuf::from("/etc/pki/tls/certs"),
+        PathBuf::from("/etc/ca-certificates"),
+        PathBuf::from("/etc/ssl/cert.pem"),
+        PathBuf::from("/etc/ssl/certs/ca-certificates.crt"),
+        PathBuf::from("/etc/pki/tls/certs/ca-bundle.crt"),
+        PathBuf::from("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"),
+    ]
 }
 
 /// Jailer provides process isolation for boxlite-shim.
@@ -660,6 +684,34 @@ mod tests {
         let bases_paths: Vec<_> = paths.iter().filter(|p| p.path == bases_dir).collect();
         assert_eq!(bases_paths.len(), 1, "Should include home_dir/bases/");
         assert!(!bases_paths[0].writable);
+    }
+
+    #[test]
+    fn test_build_path_access_includes_system_ca_paths_readonly() {
+        let dir = tempdir().unwrap();
+        let layout = test_layout(dir.path().to_path_buf());
+        let existing_ca_paths: Vec<_> = system_ca_paths()
+            .into_iter()
+            .filter(|p| p.exists())
+            .collect();
+
+        if existing_ca_paths.is_empty() {
+            return;
+        }
+
+        let paths = build_path_access(&layout, &[]);
+
+        for ca_path in existing_ca_paths {
+            let entry = paths
+                .iter()
+                .find(|p| p.path == ca_path)
+                .unwrap_or_else(|| panic!("missing CA path {}", ca_path.display()));
+            assert!(
+                !entry.writable,
+                "CA path must be read-only: {}",
+                ca_path.display()
+            );
+        }
     }
 
     #[test]
