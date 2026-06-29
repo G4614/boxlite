@@ -159,7 +159,11 @@ pub fn cgroup_path(box_id: &str) -> PathBuf {
 /// that — its charset (`[A-Za-z0-9_-]`) excludes `/`, `\`, and `.`, so `..`/`.`
 /// and path separators are unrepresentable. The type carries the guarantee, so
 /// no per-call traversal check is needed (or could drift) here.
-pub fn kill_cgroup(box_id: &BoxID) -> bool {
+///
+/// `pub(super)` on purpose: this is the cgroup *mechanism*, reached only through
+/// the jailer's [`super::reap_sandbox`] facade. Layers above the jailer (box,
+/// runtime) reap by box semantics and never name cgroups.
+pub(super) fn kill_cgroup(box_id: &BoxID) -> bool {
     let kill_file = cgroup_path(box_id.as_str()).join("cgroup.kill");
     std::fs::write(&kill_file, "1").is_ok()
 }

@@ -88,6 +88,28 @@ pub use sandbox::{
     CompositeSandbox, NoopSandbox, PathAccess, PlatformSandbox, Sandbox, SandboxContext,
 };
 
+// ============================================================================
+// Teardown facade
+// ============================================================================
+
+/// Reap any OS processes still belonging to a box's sandbox (best-effort).
+///
+/// The semantic teardown entry for the isolation layer: callers name the
+/// *box*, not the mechanism, so nothing above the jailer has to know how a box
+/// is confined. On Linux the box's whole process tree lives in its cgroup, so
+/// this reaps it by id; on platforms with no host-side sandbox tree it is a
+/// no-op. Idempotent — safe on an already-stopped or never-started box.
+#[cfg(target_os = "linux")]
+pub(crate) fn reap_sandbox(box_id: &crate::runtime::id::BoxID) -> bool {
+    cgroup::kill_cgroup(box_id)
+}
+
+/// See the Linux variant. No host-side sandbox process tree to reap here.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn reap_sandbox(_box_id: &crate::runtime::id::BoxID) -> bool {
+    false
+}
+
 // Volume specification (convenience re-export)
 pub use crate::runtime::options::VolumeSpec;
 

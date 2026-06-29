@@ -825,6 +825,15 @@ impl RuntimeImpl {
     /// # Errors
     /// - Box not found
     /// - Box is active and force=false
+    /// Reap any OS processes still belonging to a box (best-effort).
+    ///
+    /// Delegates to the isolation layer by box id, so it works even when no
+    /// live handler or recorded pid remains (e.g. after recovery). The box
+    /// lifecycle asks the runtime for this; neither layer names the mechanism.
+    pub(crate) fn reap_box_processes(&self, id: &BoxID) {
+        crate::jailer::reap_sandbox(id);
+    }
+
     pub(crate) fn remove_box(&self, id: &BoxID, force: bool) -> BoxliteResult<()> {
         tracing::debug!(box_id = %id, force = force, "RuntimeInnerImpl::remove_box called");
 
@@ -832,18 +841,15 @@ impl RuntimeImpl {
         if let Some((config, state)) = self.box_manager.box_by_id(id)? {
             // Box exists in database - handle as before
             let mut state = state;
-            // Reap the box's whole process tree by its cgroup before anything
-            // else. `kill_process` (below) only signals the recorded pid — the
-            // outer bwrap launcher — and a detached box's inner pid-ns tree
-            // (inner bwrap + shim + VM) survives that, since #851 stopped
-            // applying `--die-with-parent` to detached boxes. The cgroup holds
-            // every box process, so killing it by id reaps the tree atomically,
-            // even after recovery has cleared `state.pid`. No-op when the cgroup
-            // is gone/empty (genuinely-stopped box) or absent (jailer off /
-            // macOS seatbelt).
-            #[cfg(target_os = "linux")]
+            // Reap the box's whole process tree through the isolation layer
+            // before anything else. `kill_process` (below) only signals the
+            // recorded pid — the launcher — and a detached box's inner process
+            // tree survives that, since #851 stopped tying detached boxes to the
+            // launcher's lifetime. Reaping by box id tears the whole tree down
+            // atomically, even after recovery has cleared `state.pid`. Best
+            // -effort and idempotent — a no-op on a genuinely-stopped box.
             if force {
-                crate::jailer::cgroup::kill_cgroup(id);
+                self.reap_box_processes(id);
             }
             if state.status.is_active() || state.pid.is_some() {
                 if force {
