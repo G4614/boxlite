@@ -100,13 +100,13 @@ pub use sandbox::{
 /// this reaps it by id; on platforms with no host-side sandbox tree it is a
 /// no-op. Idempotent — safe on an already-stopped or never-started box.
 #[cfg(target_os = "linux")]
-pub(crate) fn reap_sandbox(box_id: &crate::runtime::id::BoxID) -> bool {
+pub(crate) fn reap_box(box_id: &crate::runtime::id::BoxID) -> bool {
     cgroup::kill_cgroup(box_id)
 }
 
 /// See the Linux variant. No host-side sandbox process tree to reap here.
 #[cfg(not(target_os = "linux"))]
-pub(crate) fn reap_sandbox(_box_id: &crate::runtime::id::BoxID) -> bool {
+pub(crate) fn reap_box(_box_id: &crate::runtime::id::BoxID) -> bool {
     false
 }
 

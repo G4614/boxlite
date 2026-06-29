@@ -161,7 +161,7 @@ pub fn cgroup_path(box_id: &str) -> PathBuf {
 /// no per-call traversal check is needed (or could drift) here.
 ///
 /// `pub(super)` on purpose: this is the cgroup *mechanism*, reached only through
-/// the jailer's [`super::reap_sandbox`] facade. Layers above the jailer (box,
+/// the jailer's [`super::reap_box`] facade. Layers above the jailer (box,
 /// runtime) reap by box semantics and never name cgroups.
 pub(super) fn kill_cgroup(box_id: &BoxID) -> bool {
     let kill_file = cgroup_path(box_id.as_str()).join("cgroup.kill");

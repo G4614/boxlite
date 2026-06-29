@@ -181,7 +181,7 @@ impl VmmHandlerTrait for ShimHandler {
         // buffers first (a cgroup kill is a hard kill; reaping mid-flush risks
         // qcow2 corruption). Best-effort and idempotent.
         let result = self.graceful_stop();
-        crate::jailer::reap_sandbox(&self.box_id);
+        crate::jailer::reap_box(&self.box_id);
         result
     }
 
