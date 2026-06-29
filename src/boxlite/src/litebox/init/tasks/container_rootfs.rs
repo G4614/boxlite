@@ -505,7 +505,14 @@ mod tests {
     fn test_reuse_keeps_intact_container_overlay() {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("base.raw");
-        std::fs::write(&base, vec![0u8; (CLUSTER_SIZE * 2) as usize]).unwrap();
+        // The reuse path now probes the assembled ext4 superblock, so the base
+        // must carry the `0xEF53` magic that an intact (un-torn) overlay falls
+        // through to read — a zero-filled base reads as magic 0 and is refused.
+        let mut base_file = std::fs::File::create(&base).unwrap();
+        base_file.set_len(CLUSTER_SIZE * 2).unwrap();
+        base_file.seek(SeekFrom::Start(1024 + 0x38)).unwrap();
+        base_file.write_all(&0xEF53u16.to_le_bytes()).unwrap();
+        base_file.sync_all().unwrap();
         let overlay = dir.path().join("disk.qcow2");
         Qcow2Helper::create_cow_child_disk(&base, BackingFormat::Raw, &overlay, CLUSTER_SIZE * 2)
             .unwrap()

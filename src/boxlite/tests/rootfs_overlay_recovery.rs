@@ -46,12 +46,72 @@ fn tear_overlay(path: &Path) {
         "overlay {} is too small to tear (size={size})",
         path.display()
     );
-    let f = std::fs::OpenOptions::new()
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
         .write(true)
         .open(path)
         .unwrap_or_else(|e| panic!("open overlay {}: {e}", path.display()));
     f.set_len(leave)
         .unwrap_or_else(|e| panic!("truncate overlay {}: {e}", path.display()));
+
+    // The 45% cut is a heuristic: prove it actually severed a referenced cluster
+    // (an L2 table or data cluster now past EOF), so a torn-overlay test can never
+    // silently pass on an overlay that stayed reusable. This walks the L1/L2 tree
+    // the same way the production probe does — replicated here because that probe
+    // is `pub(crate)` and unreachable from this integration-test crate.
+    assert_truncation_tore(&mut f, path, leave);
+}
+
+/// Fail unless truncating to `leave` left at least one L1-referenced L2 table or
+/// L2-referenced data cluster whose end lies past the new EOF.
+fn assert_truncation_tore(f: &mut std::fs::File, path: &Path, leave: u64) {
+    use std::io::{Read, Seek, SeekFrom};
+    const CLUSTER: u64 = 1 << 16; // qcow2 CLUSTER_BITS == 16
+    const OFFSET_MASK: u64 = 0x00FF_FFFF_FFFF_FE00; // L1/L2 entry host-offset bits
+
+    let dangles = |off: u64| off != 0 && off + CLUSTER > leave;
+
+    let mut hdr = [0u8; 48];
+    f.seek(SeekFrom::Start(0)).unwrap();
+    f.read_exact(&mut hdr).unwrap();
+    let l1_size = u64::from(u32::from_be_bytes(hdr[36..40].try_into().unwrap()));
+    let l1_offset = u64::from_be_bytes(hdr[40..48].try_into().unwrap());
+    assert!(
+        l1_size > 0 && l1_offset != 0,
+        "overlay {} has no L1 table to tear",
+        path.display()
+    );
+
+    // The L1 table itself sliced off is already a definitive tear.
+    if l1_offset + l1_size * 8 > leave {
+        return;
+    }
+    f.seek(SeekFrom::Start(l1_offset)).unwrap();
+    let mut l1 = vec![0u8; (l1_size * 8) as usize];
+    f.read_exact(&mut l1).unwrap();
+    for l1_entry in l1.chunks_exact(8) {
+        let l2_off = u64::from_be_bytes(l1_entry.try_into().unwrap()) & OFFSET_MASK;
+        if l2_off == 0 {
+            continue;
+        }
+        if dangles(l2_off) {
+            return; // L2 table now past EOF.
+        }
+        f.seek(SeekFrom::Start(l2_off)).unwrap();
+        let mut l2 = vec![0u8; CLUSTER as usize];
+        f.read_exact(&mut l2).unwrap();
+        if l2
+            .chunks_exact(8)
+            .any(|e| dangles(u64::from_be_bytes(e.try_into().unwrap()) & OFFSET_MASK))
+        {
+            return; // a data cluster now past EOF.
+        }
+    }
+    panic!(
+        "tear_overlay({}) truncated to {leave} but left no referenced cluster past EOF — \
+         the fixture would not exercise rebuild",
+        path.display()
+    );
 }
 
 /// Corrupt a qcow2 overlay's ext4 superblock *in place* — repoint virtual
