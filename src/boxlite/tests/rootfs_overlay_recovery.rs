@@ -54,6 +54,49 @@ fn tear_overlay(path: &Path) {
         .unwrap_or_else(|e| panic!("truncate overlay {}: {e}", path.display()));
 }
 
+/// Corrupt a qcow2 overlay's ext4 superblock *in place* — repoint virtual
+/// cluster 0 at a freshly-appended zero-filled cluster so `s_magic` reads as
+/// `0x0000` instead of `0xEF53`, while every referenced cluster stays *within*
+/// the file. This is the in-bounds tear that the structural L1/L2-EOF probe
+/// cannot see; only the assembled-ext4-superblock probe catches it. (Mirrors the
+/// unit-test corruption in `guest_rootfs.rs`.)
+fn corrupt_overlay_superblock(path: &Path) {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    const CLUSTER: u64 = 1 << 16; // qcow2 CLUSTER_BITS == 16
+
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .unwrap_or_else(|e| panic!("open overlay {}: {e}", path.display()));
+
+    let mut hdr = [0u8; 48];
+    f.read_exact(&mut hdr).unwrap();
+    let l1_offset = u64::from_be_bytes(hdr[40..48].try_into().unwrap());
+
+    // The writer emits whole clusters, so EOF is already cluster-aligned.
+    let len = f.metadata().unwrap().len();
+    assert_eq!(
+        len % CLUSTER,
+        0,
+        "overlay {} must be cluster-aligned",
+        path.display()
+    );
+    let l2_table_offset = len;
+    let data_offset = l2_table_offset + CLUSTER;
+    f.set_len(data_offset + CLUSTER).unwrap(); // append a new L2 + zero (bad-magic) data cluster
+
+    // L2[0] -> the zero data cluster (bit 63 = "used"; the reader masks it off).
+    f.seek(SeekFrom::Start(l2_table_offset)).unwrap();
+    f.write_all(&(data_offset | (1u64 << 63)).to_be_bytes())
+        .unwrap();
+    // L1[0] -> the new L2 table.
+    f.seek(SeekFrom::Start(l1_offset)).unwrap();
+    f.write_all(&(l2_table_offset | (1u64 << 63)).to_be_bytes())
+        .unwrap();
+    f.sync_all().unwrap();
+}
+
 /// `disk.qcow2` is the container rootfs (`/dev/vda`) — the overlay behind the
 /// `Failed to mount /dev/vda ... EBADMSG` symptom this fix targets.
 fn container_overlay(home: &Path, box_id: &str) -> std::path::PathBuf {
@@ -161,6 +204,49 @@ async fn torn_guest_overlay_is_rebuilt_and_box_reboots() {
         .start()
         .await
         .expect("box must boot after the torn guest overlay is rebuilt from base");
+
+    let info = runtime.get_info(&box_id).await.unwrap().unwrap();
+    assert_eq!(
+        info.status,
+        BoxStatus::Running,
+        "box should be Running after rebuild"
+    );
+
+    handle.stop().await.ok();
+    runtime.remove(&box_id, true).await.unwrap();
+}
+
+/// An in-bounds torn ext4 superblock (every cluster present, but the superblock
+/// magic is gone) is invisible to the structural EOF probe — only the assembled
+/// ext4-superblock probe catches it. Verified two-sided as root: without that
+/// probe the box fails to start; with it the overlay is discarded, rebuilt from
+/// the base, and the box boots. Guards against removing the superblock probe.
+#[tokio::test]
+async fn torn_guest_superblock_is_rebuilt_and_box_reboots() {
+    let home = boxlite_test_utils::home::PerTestBoxHome::new();
+    let runtime = new_runtime(&home.path);
+
+    let handle = runtime.create(common::alpine_opts(), None).await.unwrap();
+    handle.start().await.expect("initial boot");
+    let box_id = handle.id().to_string();
+
+    let exec = handle
+        .exec(BoxCommand::new("sh").args(["-c", "sync"]))
+        .await
+        .expect("sync exec");
+    assert_eq!(exec.wait().await.expect("sync").exit_code, 0);
+    handle.stop().await.expect("clean stop");
+
+    // In-bounds superblock tear: the structural EOF probe passes (no dangling
+    // cluster), so only the superblock probe can flag this. The truncation tests
+    // above exercise the structural probe; this exercises the superblock probe.
+    corrupt_overlay_superblock(&guest_overlay(&home.path, &box_id));
+
+    let handle = runtime.get(&box_id).await.unwrap().expect("recovered box");
+    handle
+        .start()
+        .await
+        .expect("box must boot after the torn-superblock guest overlay is rebuilt from base");
 
     let info = runtime.get_info(&box_id).await.unwrap().unwrap();
     assert_eq!(
