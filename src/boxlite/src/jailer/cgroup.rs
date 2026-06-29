@@ -33,6 +33,7 @@
 use super::common;
 use super::error::JailerError;
 use crate::runtime::advanced_options::ResourceLimits;
+use crate::runtime::id::BoxID;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -151,16 +152,15 @@ pub fn cgroup_path(box_id: &str) -> PathBuf {
 /// Best-effort and idempotent: a no-op if the cgroup is gone, already empty, or
 /// `cgroup.kill` is unavailable (kernel < 5.14 / cgroup v1 / no jailer). Returns
 /// `true` if the kill file was written.
-pub fn kill_cgroup(box_id: &str) -> bool {
-    if box_id.is_empty()
-        || box_id == "."
-        || box_id == ".."
-        || box_id.bytes().any(|b| matches!(b, b'/' | b'\\'))
-    {
-        return false;
-    }
-
-    let kill_file = cgroup_path(box_id).join("cgroup.kill");
+///
+/// Takes a [`BoxID`] rather than a raw `&str` on purpose: this writes to a path
+/// derived from the id, so it must be a safe single path component. `BoxID`'s
+/// constructor ([`BoxID::parse`]/mint) is the one choke point that guarantees
+/// that — its charset (`[A-Za-z0-9_-]`) excludes `/`, `\`, and `.`, so `..`/`.`
+/// and path separators are unrepresentable. The type carries the guarantee, so
+/// no per-call traversal check is needed (or could drift) here.
+pub fn kill_cgroup(box_id: &BoxID) -> bool {
+    let kill_file = cgroup_path(box_id.as_str()).join("cgroup.kill");
     std::fs::write(&kill_file, "1").is_ok()
 }
 
@@ -457,21 +457,18 @@ mod tests {
         // kill_cgroup must report `false` and not panic. This locks the
         // best-effort/idempotent contract relied on by the no-jailer and
         // macOS-seatbelt paths (where there is no box cgroup to kill).
+        let box_id = BoxID::parse("nonexistentbox000000000000").expect("valid id");
         assert!(
-            !kill_cgroup("nonexistent-box-000000000000"),
+            !kill_cgroup(&box_id),
             "kill_cgroup must be a no-op (false) when the box has no cgroup"
         );
     }
 
-    #[test]
-    fn kill_cgroup_rejects_non_component_box_ids() {
-        for box_id in ["", ".", "..", "../escape", "nested/box", r"nested\box"] {
-            assert!(
-                !kill_cgroup(box_id),
-                "kill_cgroup must reject non-component box id {box_id:?}"
-            );
-        }
-    }
+    // Note: there is no `kill_cgroup_rejects_non_component_box_ids` test anymore.
+    // The path-traversal guard moved into the type: `kill_cgroup` takes a
+    // `BoxID`, and `BoxID::parse` already rejects `/`, `\`, `.`, `..`, and empty
+    // ids (see `id::tests::test_parse_rejects_unsafe_characters`). A non-component
+    // id is now unrepresentable at this call site, not merely rejected at runtime.
 
     #[test]
     fn test_cgroup_config_from_limits() {

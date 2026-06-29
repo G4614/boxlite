@@ -843,7 +843,7 @@ impl RuntimeImpl {
             // macOS seatbelt).
             #[cfg(target_os = "linux")]
             if force {
-                crate::jailer::cgroup::kill_cgroup(id.as_str());
+                crate::jailer::cgroup::kill_cgroup(id);
             }
             if state.status.is_active() || state.pid.is_some() {
                 if force {

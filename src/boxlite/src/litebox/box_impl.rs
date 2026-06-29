@@ -398,7 +398,7 @@ impl BoxImpl {
         // `--die-with-parent`. cgroup.kill reaps the whole tree by id; a no-op
         // once the box has exited (or when there is no cgroup: jailer off).
         #[cfg(target_os = "linux")]
-        crate::jailer::cgroup::kill_cgroup(self.config.id.as_str());
+        crate::jailer::cgroup::kill_cgroup(&self.config.id);
 
         // Check if box was persisted
         let was_persisted = self.state.read().lock_id.is_some();
