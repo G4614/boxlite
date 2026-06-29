@@ -239,45 +239,11 @@ fn reuse_intact_container_rootfs(disk_path: &std::path::Path) -> BoxliteResult<b
     // file end — the guest reads it as zeros and the mount fails with EBADMSG on
     // every restart. A dangling cluster is purely overlay damage: discard + rebuild.
     match crate::disk::qcow2::probe_overlay_cluster_integrity(disk_path) {
-        Ok(()) => {}
-        Err(Qcow2HeaderError::Corrupt(reason)) => return discard(&reason),
-        Err(Qcow2HeaderError::Io(io)) => {
-            return Err(BoxliteError::Storage(format!(
-                "Cannot read container rootfs {} to validate overlay cluster integrity \
-                 (I/O error: {io}); refusing to discard a possibly-intact overlay",
-                disk_path.display()
-            )));
-        }
-    }
-
-    // Content: an in-bounds tear can leave the qcow2 header + L1/L2 tables intact
-    // but a garbage ext4 superblock (bad magic) — invisible to the structural
-    // probe above, yet it fails the guest's `/dev/vda` mount with EINVAL on every
-    // restart. Mirror the guest rootfs check (`guest_rootfs.rs`).
-    match crate::disk::qcow2::probe_assembled_ext4_superblock(disk_path) {
-        // Filesystem still recognizes itself — reuse as-is.
-        Ok(probe) if probe.magic_ok => Ok(true),
-        // Superblock is gone and lives in an overlay-written cluster: the per-box
-        // overlay is torn (a crash lost its in-flight writes). Discard + rebuild.
-        Ok(probe) if probe.from_overlay => {
-            discard("container ext4 superblock in per-box overlay is invalid")
-        }
-        // Superblock is bad but comes from the shared base, not this overlay.
-        // Rebuilding the overlay would not repair the base and would loop on
-        // every restart, so refuse to reuse and surface the deeper problem.
-        Ok(_) => Err(BoxliteError::Storage(format!(
-            "Container rootfs {} has an invalid ext4 superblock that originates from the \
-             shared base image, not the per-box overlay; refusing to discard the overlay \
-             because rebuilding it would not repair the base",
-            disk_path.display()
-        ))),
-        // Overlay metadata itself is structurally torn: its data is unreadable.
+        Ok(()) => Ok(true),
         Err(Qcow2HeaderError::Corrupt(reason)) => discard(&reason),
-        // Transient/system I/O fault: proves nothing about the contents — keep
-        // the overlay and let the start be retried.
         Err(Qcow2HeaderError::Io(io)) => Err(BoxliteError::Storage(format!(
-            "Cannot read container rootfs {} to validate its contents (I/O error: {io}); \
-             refusing to discard a possibly-intact overlay",
+            "Cannot read container rootfs {} to validate overlay cluster integrity \
+             (I/O error: {io}); refusing to discard a possibly-intact overlay",
             disk_path.display()
         ))),
     }
@@ -505,13 +471,8 @@ mod tests {
     fn test_reuse_keeps_intact_container_overlay() {
         let dir = TempDir::new().unwrap();
         let base = dir.path().join("base.raw");
-        // The reuse path now probes the assembled ext4 superblock, so the base
-        // must carry the `0xEF53` magic that an intact (un-torn) overlay falls
-        // through to read — a zero-filled base reads as magic 0 and is refused.
-        let mut base_file = std::fs::File::create(&base).unwrap();
+        let base_file = std::fs::File::create(&base).unwrap();
         base_file.set_len(CLUSTER_SIZE * 2).unwrap();
-        base_file.seek(SeekFrom::Start(1024 + 0x38)).unwrap();
-        base_file.write_all(&0xEF53u16.to_le_bytes()).unwrap();
         base_file.sync_all().unwrap();
         let overlay = dir.path().join("disk.qcow2");
         Qcow2Helper::create_cow_child_disk(&base, BackingFormat::Raw, &overlay, CLUSTER_SIZE * 2)

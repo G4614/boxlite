@@ -215,13 +215,11 @@ fn validate_reusable_guest_rootfs_disk(guest_rootfs_disk_path: &Path) -> Boxlite
     }
 }
 
-/// Probe the assembled guest filesystem (overlay over shared base) and decide
-/// whether the per-box overlay can be reused.
+/// Probe the per-box guest rootfs overlay and decide whether it can be reused.
 ///
 /// Returns `Ok(true)` to reuse, `Ok(false)` to discard + recreate a fresh overlay
 /// from the shared base, or `Err` when reuse must be refused without deleting
-/// anything (a transient I/O fault, or damage that originates in the shared base
-/// where discarding the overlay would not help and could loop forever).
+/// anything (a transient I/O fault).
 fn validate_reusable_guest_rootfs_contents(guest_rootfs_disk_path: &Path) -> BoxliteResult<bool> {
     use crate::disk::qcow2::Qcow2HeaderError;
 
@@ -242,51 +240,18 @@ fn validate_reusable_guest_rootfs_contents(guest_rootfs_disk_path: &Path) -> Box
         Ok(false)
     };
 
-    // First, a structural self-consistency check of the overlay itself: every
-    // cluster its L1/L2 tables reference must physically exist in the file. A
-    // crash can persist an L2 mapping whose data cluster was never written,
-    // leaving a dangling reference past the file's end. The superblock probe
-    // below only inspects virtual cluster 0 and misses a tear deeper in the
-    // image (e.g. the inode table holding the journal inode) — which the guest
-    // kernel reads as zeros, failing the mount with EBADMSG on every restart.
-    // A dangling cluster is purely overlay damage, so discard + rebuild.
+    // A structural self-consistency check of the overlay itself: every cluster
+    // its L1/L2 tables reference must physically exist in the file. A crash can
+    // persist an L2 mapping whose data cluster was never written, leaving a
+    // dangling reference past the file's end. libkrun reads that as zeros, so
+    // the guest kernel fails the mount with EBADMSG on every restart. A dangling
+    // cluster is purely overlay damage, so discard + rebuild.
     match crate::disk::qcow2::probe_overlay_cluster_integrity(guest_rootfs_disk_path) {
-        Ok(()) => {}
-        Err(Qcow2HeaderError::Corrupt(reason)) => return discard(&reason),
-        Err(Qcow2HeaderError::Io(io)) => {
-            return Err(BoxliteError::Storage(format!(
-                "Cannot read guest rootfs {} to validate overlay cluster integrity \
-                 (I/O error: {io}); refusing to discard a possibly-intact overlay",
-                guest_rootfs_disk_path.display()
-            )));
-        }
-    }
-
-    match crate::disk::qcow2::probe_assembled_ext4_superblock(guest_rootfs_disk_path) {
-        // Filesystem still recognizes itself — reuse as-is.
-        Ok(probe) if probe.magic_ok => Ok(true),
-        // Superblock is gone and it lives in an overlay-written cluster: the per-box
-        // overlay is torn (e.g. a crash lost its in-flight writes). Discard + rebuild.
-        Ok(probe) if probe.from_overlay => {
-            discard("guest ext4 superblock in per-box overlay is invalid")
-        }
-        // Superblock is bad but it comes from the shared base, not this overlay.
-        // Discarding the overlay would not fix it and would loop on every restart,
-        // so refuse to reuse and surface the deeper problem instead.
-        Ok(_) => Err(BoxliteError::Storage(format!(
-            "Guest rootfs {} has an invalid ext4 superblock that originates from the \
-             shared base image, not the per-box overlay; refusing to discard the overlay \
-             because rebuilding it would not repair the base",
-            guest_rootfs_disk_path.display()
-        ))),
-        // Overlay metadata itself is structurally torn (bad magic, truncated, a
-        // compressed/garbage L2 entry): its data is already unreadable, so discard.
+        Ok(()) => Ok(true),
         Err(Qcow2HeaderError::Corrupt(reason)) => discard(&reason),
-        // Transient/system I/O fault: proves nothing about the contents — keep the
-        // overlay and let the start be retried.
         Err(Qcow2HeaderError::Io(io)) => Err(BoxliteError::Storage(format!(
-            "Cannot read guest rootfs {} to validate its contents (I/O error: {io}); \
-             refusing to discard a possibly-intact overlay",
+            "Cannot read guest rootfs {} to validate overlay cluster integrity \
+             (I/O error: {io}); refusing to discard a possibly-intact overlay",
             guest_rootfs_disk_path.display()
         ))),
     }
@@ -360,66 +325,12 @@ mod tests {
         layout
     }
 
-    /// ext4 `s_magic` (`0xEF53`, little-endian) at byte 1024 + 0x38 of the fs.
-    const EXT4_MAGIC_OFFSET: u64 = 1024 + 0x38;
-
     fn create_base_disk(dir: &TempDir) -> std::path::PathBuf {
-        create_base_disk_with_ext4_magic(dir, true)
-    }
-
-    /// Create a raw base "rootfs" image. When `valid` is true it carries a real
-    /// ext4 superblock magic so the assembled-content probe accepts it; otherwise
-    /// the magic is absent (simulating a damaged shared base).
-    fn create_base_disk_with_ext4_magic(dir: &TempDir, valid: bool) -> std::path::PathBuf {
-        use std::io::{Seek, SeekFrom, Write};
         let base_disk_path = dir.path().join("guest-rootfs-base.ext4");
-        let mut file = File::create(&base_disk_path).unwrap();
+        let file = File::create(&base_disk_path).unwrap();
         file.set_len(1024 * 1024).unwrap();
-        if valid {
-            file.seek(SeekFrom::Start(EXT4_MAGIC_OFFSET)).unwrap();
-            file.write_all(&0xEF53u16.to_le_bytes()).unwrap();
-        }
         file.sync_all().unwrap();
         base_disk_path
-    }
-
-    /// Allocate virtual cluster 0 in an existing COW overlay and fill it with a
-    /// torn superblock (zeroed magic) — modelling a per-box write that a host
-    /// crash left corrupt while the qcow2 header stayed intact.
-    fn corrupt_overlay_superblock_cluster(guest_rootfs_disk_path: &std::path::Path) {
-        use std::io::{Read, Seek, SeekFrom, Write};
-        let cluster_size: u64 = 1 << 16; // CLUSTER_BITS == 16
-
-        let mut file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(guest_rootfs_disk_path)
-            .unwrap();
-
-        let mut hdr = [0u8; 48];
-        file.read_exact(&mut hdr).unwrap();
-        let l1_offset = u64::from_be_bytes(hdr[40..48].try_into().unwrap());
-
-        // The writer emits whole clusters, so EOF is already cluster-aligned.
-        let len = file.metadata().unwrap().len();
-        assert_eq!(
-            len % cluster_size,
-            0,
-            "overlay file must be cluster-aligned"
-        );
-        let l2_table_offset = len;
-        let data_offset = l2_table_offset + cluster_size;
-        file.set_len(data_offset + cluster_size).unwrap(); // zero-fills (bad magic)
-
-        // L2[0] -> data cluster (bit 63 = "used"; the reader masks it off).
-        file.seek(SeekFrom::Start(l2_table_offset)).unwrap();
-        file.write_all(&(data_offset | (1u64 << 63)).to_be_bytes())
-            .unwrap();
-        // L1[0] -> L2 table.
-        file.seek(SeekFrom::Start(l1_offset)).unwrap();
-        file.write_all(&(l2_table_offset | (1u64 << 63)).to_be_bytes())
-            .unwrap();
-        file.sync_all().unwrap();
     }
 
     fn test_guest_rootfs(base_disk_path: std::path::PathBuf) -> GuestRootfs {
@@ -589,64 +500,5 @@ mod tests {
 
         assert!(format!("{err}").contains("has missing backing file"));
         assert!(guest_rootfs_disk_path.exists());
-    }
-
-    #[test]
-    fn test_reuse_recreates_overlay_with_torn_guest_superblock() {
-        // A header-valid overlay whose assembled ext4 superblock was torn by a
-        // crashed per-box write must be discarded and rebuilt from the intact base
-        // — not reused forever (the production incident this fix targets).
-        let dir = TempDir::new().unwrap();
-        let base_disk_path = create_base_disk(&dir);
-        let layout = test_layout(&dir);
-        let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
-        create_guest_overlay(&base_disk_path, &guest_rootfs_disk_path);
-        corrupt_overlay_superblock_cluster(&guest_rootfs_disk_path);
-
-        // Precondition: the assembled superblock really is unreadable right now.
-        let before =
-            crate::disk::qcow2::probe_assembled_ext4_superblock(&guest_rootfs_disk_path).unwrap();
-        assert!(before.from_overlay && !before.magic_ok);
-
-        let guest_rootfs = test_guest_rootfs(base_disk_path.clone());
-        let (_updated, disk) = create_or_reuse_cow_disk(&guest_rootfs, &layout, true).unwrap();
-
-        assert_eq!(disk.unwrap().path(), guest_rootfs_disk_path);
-        // After the rebuild the overlay is fresh: the superblock now reads through
-        // to the intact base and ext4 recognizes it again.
-        let after =
-            crate::disk::qcow2::probe_assembled_ext4_superblock(&guest_rootfs_disk_path).unwrap();
-        assert!(after.magic_ok && !after.from_overlay);
-        assert_eq!(
-            read_guest_overlay_backing(&guest_rootfs_disk_path),
-            base_disk_path.canonicalize().unwrap().display().to_string()
-        );
-    }
-
-    #[test]
-    fn test_invalid_base_superblock_does_not_discard_overlay() {
-        // If the assembled superblock is bad but the badness comes from the shared
-        // base (an empty overlay falls through to it), discarding + rebuilding the
-        // overlay cannot help and would loop on every restart. Refuse to reuse
-        // WITHOUT deleting the overlay, and surface the real problem.
-        let dir = TempDir::new().unwrap();
-        let base_disk_path = create_base_disk_with_ext4_magic(&dir, false);
-        let layout = test_layout(&dir);
-        let guest_rootfs_disk_path = layout.guest_rootfs_disk_path();
-        create_guest_overlay(&base_disk_path, &guest_rootfs_disk_path);
-
-        let err = match validate_reusable_guest_rootfs_disk(&guest_rootfs_disk_path) {
-            Ok(_) => panic!("expected a refusal, not a reuse/discard decision"),
-            Err(err) => err,
-        };
-
-        assert!(
-            format!("{err}").contains("originates from the shared base"),
-            "base-side corruption must not be blamed on the overlay: {err}"
-        );
-        assert!(
-            guest_rootfs_disk_path.exists(),
-            "overlay must not be deleted when the base is the culprit"
-        );
     }
 }
