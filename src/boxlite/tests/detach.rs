@@ -358,3 +358,53 @@ async fn detached_box_force_remove_reaps_whole_tree() {
          (outer + inner bwrap + shim + VM), not just the recorded pid"
     );
 }
+
+/// `box.stop()` on a detached box must reap the full process tree while
+/// preserving the box record and disk state for a later start.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn detached_box_stop_reaps_whole_tree_and_keeps_box() {
+    let home = boxlite_test_utils::home::PerTestBoxHome::new();
+    let runtime = BoxliteRuntime::new(BoxliteOptions {
+        home_dir: home.path.clone(),
+        image_registries: common::test_registries(),
+    })
+    .expect("create runtime");
+
+    let handle = runtime
+        .create(
+            boxlite::runtime::options::BoxOptions {
+                detach: true,
+                ..common::alpine_opts()
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let _ = handle.exec(BoxCommand::new("sleep").args(["300"])).await;
+    let box_id = handle.id().to_string();
+
+    assert!(
+        box_proc_count(&box_id) > 0,
+        "detached box should have a live process tree after start"
+    );
+
+    handle.stop().await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    assert_eq!(
+        box_proc_count(&box_id),
+        0,
+        "stop must reap the whole detached box tree \
+         (outer + inner bwrap + shim + VM), not just the recorded pid"
+    );
+
+    let info = runtime
+        .get_info(&box_id)
+        .await
+        .unwrap()
+        .expect("stopped box should still exist");
+    assert_eq!(info.status, BoxStatus::Stopped);
+
+    runtime.remove(&box_id, false).await.unwrap();
+}
