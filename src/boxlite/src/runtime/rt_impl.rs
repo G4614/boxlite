@@ -810,6 +810,15 @@ impl RuntimeImpl {
             .ok_or_else(|| BoxliteError::NotFound(id_or_name.to_string()))
     }
 
+    /// Reap any OS processes still belonging to a box (best-effort).
+    ///
+    /// Delegates to the isolation layer by box id, so it works even when no
+    /// live handler or recorded pid remains (e.g. after recovery). The box
+    /// lifecycle asks the runtime for this; neither layer names the mechanism.
+    pub(crate) fn reap_box_processes(&self, id: &BoxID) {
+        crate::jailer::reap_sandbox(id);
+    }
+
     /// Remove a box from the runtime (internal implementation).
     ///
     /// This is the internal implementation called by both `BoxliteRuntime::remove()`
@@ -825,15 +834,6 @@ impl RuntimeImpl {
     /// # Errors
     /// - Box not found
     /// - Box is active and force=false
-    /// Reap any OS processes still belonging to a box (best-effort).
-    ///
-    /// Delegates to the isolation layer by box id, so it works even when no
-    /// live handler or recorded pid remains (e.g. after recovery). The box
-    /// lifecycle asks the runtime for this; neither layer names the mechanism.
-    pub(crate) fn reap_box_processes(&self, id: &BoxID) {
-        crate::jailer::reap_sandbox(id);
-    }
-
     pub(crate) fn remove_box(&self, id: &BoxID, force: bool) -> BoxliteResult<()> {
         tracing::debug!(box_id = %id, force = force, "RuntimeInnerImpl::remove_box called");
 
