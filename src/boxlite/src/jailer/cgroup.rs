@@ -152,6 +152,14 @@ pub fn cgroup_path(box_id: &str) -> PathBuf {
 /// `cgroup.kill` is unavailable (kernel < 5.14 / cgroup v1 / no jailer). Returns
 /// `true` if the kill file was written.
 pub fn kill_cgroup(box_id: &str) -> bool {
+    if box_id.is_empty()
+        || box_id == "."
+        || box_id == ".."
+        || box_id.bytes().any(|b| matches!(b, b'/' | b'\\'))
+    {
+        return false;
+    }
+
     let kill_file = cgroup_path(box_id).join("cgroup.kill");
     std::fs::write(&kill_file, "1").is_ok()
 }
@@ -453,6 +461,16 @@ mod tests {
             !kill_cgroup("nonexistent-box-000000000000"),
             "kill_cgroup must be a no-op (false) when the box has no cgroup"
         );
+    }
+
+    #[test]
+    fn kill_cgroup_rejects_non_component_box_ids() {
+        for box_id in ["", ".", "..", "../escape", "nested/box", r"nested\box"] {
+            assert!(
+                !kill_cgroup(box_id),
+                "kill_cgroup must reject non-component box id {box_id:?}"
+            );
+        }
     }
 
     #[test]

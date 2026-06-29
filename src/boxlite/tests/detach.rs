@@ -51,6 +51,19 @@ fn box_proc_count(box_id: &str) -> usize {
     count
 }
 
+#[cfg(target_os = "linux")]
+async fn wait_for_box_proc_count_zero(box_id: &str) -> usize {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut count = box_proc_count(box_id);
+
+    while count != 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        count = box_proc_count(box_id);
+    }
+
+    count
+}
+
 // ============================================================================
 // DETACH MODE TESTS
 // ============================================================================
@@ -339,7 +352,10 @@ async fn detached_box_force_remove_reaps_whole_tree() {
         )
         .await
         .unwrap();
-    let _ = handle.exec(BoxCommand::new("sleep").args(["300"])).await;
+    handle
+        .exec(BoxCommand::new("sleep").args(["300"]))
+        .await
+        .expect("start detached sleep workload");
     let box_id = handle.id().to_string();
 
     assert!(
@@ -349,11 +365,10 @@ async fn detached_box_force_remove_reaps_whole_tree() {
 
     // Production reap path.
     runtime.remove(&box_id, true).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let proc_count = wait_for_box_proc_count_zero(&box_id).await;
 
     assert_eq!(
-        box_proc_count(&box_id),
-        0,
+        proc_count, 0,
         "force remove must reap the whole detached box tree \
          (outer + inner bwrap + shim + VM), not just the recorded pid"
     );
@@ -381,7 +396,10 @@ async fn detached_box_stop_reaps_whole_tree_and_keeps_box() {
         )
         .await
         .unwrap();
-    let _ = handle.exec(BoxCommand::new("sleep").args(["300"])).await;
+    handle
+        .exec(BoxCommand::new("sleep").args(["300"]))
+        .await
+        .expect("start detached sleep workload");
     let box_id = handle.id().to_string();
 
     assert!(
@@ -390,11 +408,10 @@ async fn detached_box_stop_reaps_whole_tree_and_keeps_box() {
     );
 
     handle.stop().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let proc_count = wait_for_box_proc_count_zero(&box_id).await;
 
     assert_eq!(
-        box_proc_count(&box_id),
-        0,
+        proc_count, 0,
         "stop must reap the whole detached box tree \
          (outer + inner bwrap + shim + VM), not just the recorded pid"
     );
