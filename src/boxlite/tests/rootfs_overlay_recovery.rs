@@ -258,3 +258,55 @@ async fn torn_guest_superblock_is_rebuilt_and_box_reboots() {
     handle.stop().await.ok();
     runtime.remove(&box_id, true).await.unwrap();
 }
+
+/// Same in-bounds superblock tear on the **container** overlay (`/dev/vda`).
+/// Without the container-path superblock probe this fails the `/dev/vda` mount
+/// with EINVAL on every restart (the structural probe can't see it); the probe
+/// discards + rebuilds so the box boots, and the pre-tear per-box files are gone.
+#[tokio::test]
+async fn torn_container_superblock_is_rebuilt_and_box_reboots() {
+    let home = boxlite_test_utils::home::PerTestBoxHome::new();
+    let runtime = new_runtime(&home.path);
+
+    let handle = runtime.create(common::alpine_opts(), None).await.unwrap();
+    handle.start().await.expect("initial boot");
+    let box_id = handle.id().to_string();
+
+    let exec = handle
+        .exec(BoxCommand::new("sh").args([
+            "-c",
+            "for i in $(seq 1 200); do echo x > /root/f$i; done; sync",
+        ]))
+        .await
+        .expect("metadata write exec");
+    assert_eq!(exec.wait().await.expect("write").exit_code, 0);
+    handle.stop().await.expect("clean stop");
+
+    corrupt_overlay_superblock(&container_overlay(&home.path, &box_id));
+
+    let handle = runtime.get(&box_id).await.unwrap().expect("recovered box");
+    handle
+        .start()
+        .await
+        .expect("box must boot after the torn-superblock container overlay is rebuilt from base");
+
+    let info = runtime.get_info(&box_id).await.unwrap().unwrap();
+    assert_eq!(
+        info.status,
+        BoxStatus::Running,
+        "box should be Running after rebuild"
+    );
+
+    let exec = handle
+        .exec(BoxCommand::new("sh").args(["-c", "test ! -e /root/f1"]))
+        .await
+        .expect("post-rebuild exec");
+    assert_eq!(
+        exec.wait().await.expect("check").exit_code,
+        0,
+        "rebuilt overlay must not contain pre-tear per-box files"
+    );
+
+    handle.stop().await.ok();
+    runtime.remove(&box_id, true).await.unwrap();
+}
