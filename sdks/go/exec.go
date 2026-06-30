@@ -272,6 +272,45 @@ func (b *Box) StartExecution(_ context.Context, name string, args []string, opts
 	return execution, nil
 }
 
+// AttachExecution re-attaches to an already-running execution by its id and
+// returns a fresh streaming handle.
+//
+// boxlite_box_attach_execution is synchronous on the C side; once it returns,
+// we register stream callbacks exactly as StartExecution does. The guest
+// replays recent scrollback then tails live output, so a reconnecting client
+// (e.g. after a runner update dropped the original session) resumes an
+// interactive process without killing it.
+func (b *Box) AttachExecution(_ context.Context, execID string) (*Execution, error) {
+	b.runtime.ensureDrainRunning()
+
+	cExecID := toCString(execID)
+	defer C.free(unsafe.Pointer(cExecID))
+
+	var handle *C.CExecutionHandle
+	var cerr C.CBoxliteError
+	code := C.boxlite_box_attach_execution(b.handle, cExecID, &handle, &cerr)
+	if code != C.Ok {
+		return nil, freeError(&cerr)
+	}
+
+	state := newExecutionStreamState(ExecutionOptions{})
+	streamHandle := cgo.NewHandle(state)
+
+	if err := registerExecutionCallbacks(handle, streamHandle); err != nil {
+		state.markReleased()
+		C.boxlite_execution_free(handle)
+		return nil, err
+	}
+
+	execution := &Execution{
+		handle:      handle,
+		streamState: state,
+		closing:     b.runtime.closing,
+	}
+	execution.Stdin = &executionStdin{execution: execution}
+	return execution, nil
+}
+
 // registerExecutionCallbacks wires stdout, stderr, and exit on the C side
 // using a single shared cgo.Handle so the exit callback (dispatched last)
 // can Delete it without racing the stream callbacks.
