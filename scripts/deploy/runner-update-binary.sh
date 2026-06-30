@@ -163,6 +163,8 @@ REMOTE_SHA_URL="$REMOTE_TARBALL_URL.sha256"
 echo "==> Uploading local artifact to $RUNNER_ARTIFACT_S3_URI"
 aws s3 cp --region "$AWS_REGION" "$LOCAL_TARBALL" "$REMOTE_TARBALL_URL"
 aws s3 cp --region "$AWS_REGION" "$LOCAL_SHA" "$REMOTE_SHA_URL"
+PRESIGNED_TARBALL_URL=$(aws s3 presign --region "$AWS_REGION" "$REMOTE_TARBALL_URL" --expires-in 3600)
+PRESIGNED_SHA_URL=$(aws s3 presign --region "$AWS_REGION" "$REMOTE_SHA_URL" --expires-in 3600)
 
 # Remote upgrade script. Mirrors the boot user-data's integrity policy and adds a
 # rollback: download + checksum-verify BEFORE stopping the unit (so a failed or
@@ -461,8 +463,8 @@ echo "hot rollout: captured \$(wc -l < "\$HOT_SNAPSHOT" | tr -d ' ') live detach
 
 WORK=\$(mktemp -d)
 trap 'rm -rf "\$WORK"; rm -f "\$HOT_SNAPSHOT"' EXIT
-aws s3 cp --region "${AWS_REGION}" "${REMOTE_TARBALL_URL}" "\$WORK/runner.tar.gz"
-if aws s3 cp --region "${AWS_REGION}" "${REMOTE_SHA_URL}" "\$WORK/runner.sha256"; then
+curl -fsSL "${PRESIGNED_TARBALL_URL}" -o "\$WORK/runner.tar.gz"
+if curl -fsSL "${PRESIGNED_SHA_URL}" -o "\$WORK/runner.sha256"; then
   EXPECTED=\$(awk '{print \$1}' "\$WORK/runner.sha256")
   ACTUAL=\$(sha256sum "\$WORK/runner.tar.gz" | awk '{print \$1}')
   [ "\$EXPECTED" = "\$ACTUAL" ] || { echo "FATAL: checksum mismatch (want \$EXPECTED got \$ACTUAL)" >&2; exit 1; }
