@@ -800,11 +800,26 @@ impl EmbeddedManifest {
         let hash = format!("{:x}", hasher.finalize());
         let prefix = &hash[..12];
         println!("cargo:rustc-env=BOXLITE_MANIFEST_HASH={}", prefix);
+        Self::emit_build_metadata();
+        println!("cargo:warning=Embedded manifest hash: {}", prefix);
+    }
+
+    fn emit_build_metadata() {
+        println!("cargo:rerun-if-env-changed=BOXLITE_RUNTIME_CACHE_SUFFIX");
+        println!("cargo:rerun-if-env-changed=BOXLITE_RUNTIME_CACHE_VERSION");
+        println!(
+            "cargo:rustc-env=BOXLITE_RUNTIME_CACHE_VERSION={}",
+            env::var("BOXLITE_RUNTIME_CACHE_VERSION")
+                .unwrap_or_else(|_| env::var("CARGO_PKG_VERSION").unwrap())
+        );
+        println!(
+            "cargo:rustc-env=BOXLITE_RUNTIME_CACHE_SUFFIX={}",
+            env::var("BOXLITE_RUNTIME_CACHE_SUFFIX").unwrap_or_default()
+        );
         println!(
             "cargo:rustc-env=BOXLITE_BUILD_PROFILE={}",
             env::var("PROFILE").unwrap()
         );
-        println!("cargo:warning=Embedded manifest hash: {}", prefix);
     }
 
     /// Log the generated embedded runtime size summary.
@@ -853,6 +868,8 @@ impl EmbeddedManifest {
 
         if !enabled {
             Self::write_manifest_rs(&manifest_path, &[]);
+            Self::emit_build_metadata();
+            println!("cargo:rustc-env=BOXLITE_MANIFEST_HASH=empty");
             return;
         }
 
