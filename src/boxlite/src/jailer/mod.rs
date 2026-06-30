@@ -524,6 +524,16 @@ impl<S: Sandbox> Jailer<S> {
         if !self.security.jailer_enabled {
             return None;
         }
+
+        // Any UID drop needs CAP_SETUID, which in practice means root. A
+        // non-root runner can't `setresuid` into a foreign UID — and it is
+        // already non-root — so keep its UID and rely on cgroup pids.max. This
+        // gate is FIRST, before honoring `security.uid`: attempting the drop
+        // unprivileged would fail the pre_exec hook with EPERM and abort spawn.
+        if !uid_alloc::UidAllocator::is_supported() {
+            return None;
+        }
+
         // Device groups the dropped UID keeps: kvm (libkrun opens /dev/kvm,
         // root:kvm 0660). /dev/net/tun is world-accessible (0666), needs none.
         let groups: Vec<u32> = uid_alloc::group_gid("kvm").into_iter().collect();
@@ -531,12 +541,6 @@ impl<S: Sandbox> Jailer<S> {
         // Explicit override from SecurityOptions.
         if let Some(uid) = self.security.uid {
             return Some((uid, self.security.gid.unwrap_or(uid), groups));
-        }
-
-        // A non-root runner is already non-root; setresuid into a foreign UID
-        // needs CAP_SETUID anyway. Keep the UID, rely on cgroup pids.max.
-        if !uid_alloc::UidAllocator::is_supported() {
-            return None;
         }
 
         // Root runner: must drop to a non-root UID. Prefer a dedicated one.
