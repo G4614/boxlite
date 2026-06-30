@@ -170,6 +170,24 @@ impl PoolLock {
     }
 }
 
+/// Resolve a local group's GID by name from `/etc/group`.
+///
+/// The dropped box process keeps a few device groups as supplementary groups so
+/// it can still open group-gated host devices (notably `/dev/kvm`, `root:kvm`).
+/// `/etc/group` is parsed directly — thread-safe (unlike `getgrnam`) and the
+/// relevant groups (`kvm`) are always local. Returns `None` if absent.
+pub fn group_gid(name: &str) -> Option<u32> {
+    let contents = fs::read_to_string("/etc/group").ok()?;
+    for line in contents.lines() {
+        let mut fields = line.split(':');
+        if fields.next() == Some(name) {
+            // group:passwd:GID:members
+            return fields.nth(1).and_then(|g| g.trim().parse::<u32>().ok());
+        }
+    }
+    None
+}
+
 /// Recursively `lchown` `root` and everything under it to `uid:gid`.
 ///
 /// The box process drops to the dedicated UID, so its private working tree
