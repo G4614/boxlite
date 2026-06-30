@@ -352,7 +352,34 @@ prepare_release_target() {
   local release_dir="\$RELEASES_DIR/\$release_id"
   mkdir -p "\$release_dir"
   install -m 0755 "\$source_binary" "\$release_dir/boxlite-runner"
+  sha256sum "\$release_dir/boxlite-runner" | awk '{print \$1}' > "\$release_dir/boxlite-runner.sha256"
   printf '%s\n' "\$release_dir/boxlite-runner"
+}
+
+verify_release_target() {
+  local target="\$1"
+  local label="\$2"
+  local expected actual sha_file
+
+  if [ ! -x "\$target" ]; then
+    echo "FATAL: \$label runner target is not executable: \$target" >&2
+    return 1
+  fi
+
+  sha_file="\$(dirname "\$target")/boxlite-runner.sha256"
+  actual=\$(sha256sum "\$target" | awk '{print \$1}')
+  if [ -f "\$sha_file" ]; then
+    expected=\$(awk '{print \$1}' "\$sha_file")
+    if [ "\$expected" != "\$actual" ]; then
+      echo "FATAL: \$label runner target hash mismatch: \$target (expected=\${expected:0:12} actual=\${actual:0:12})" >&2
+      return 1
+    fi
+  else
+    echo "\$actual" > "\$sha_file"
+    echo "WARNING: \$label runner target had no hash sidecar; recorded current hash \${actual:0:12}" >&2
+  fi
+
+  echo "\$label runner target verified: \${actual:0:12} (\$target)"
 }
 
 current_runner_target() {
@@ -362,6 +389,7 @@ current_runner_target() {
     local legacy_dir="\$RELEASES_DIR/legacy-\$(date +%Y%m%d%H%M%S)"
     mkdir -p "\$legacy_dir"
     cp -a "\$RUNNER_BIN" "\$legacy_dir/boxlite-runner"
+    sha256sum "\$legacy_dir/boxlite-runner" | awk '{print \$1}' > "\$legacy_dir/boxlite-runner.sha256"
     printf '%s\n' "\$legacy_dir/boxlite-runner"
   fi
 }
@@ -438,8 +466,10 @@ fi
 
 CURRENT_TARGET=\$(current_runner_target)
 NEW_TARGET=\$(prepare_release_target "\$WORK/boxlite-runner" "v${VERSION}")
+verify_release_target "\$NEW_TARGET" "new" || exit 1
 echo "install target: \$NEW_TARGET"
 if [ -n "\$CURRENT_TARGET" ]; then
+  verify_release_target "\$CURRENT_TARGET" "rollback" || exit 1
   echo "rollback target: \$CURRENT_TARGET"
 else
   echo "rollback target: none"
