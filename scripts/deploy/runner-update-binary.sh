@@ -15,7 +15,7 @@
 #
 # Usage:
 #   scripts/deploy/runner-update-binary.sh                  # version from Cargo.toml
-#   scripts/deploy/runner-update-binary.sh 0.9.5            # explicit version
+#   scripts/deploy/runner-update-binary.sh 0.9.7-dev-123-58d8f01bcd02
 #   AWS_REGION=us-west-2 scripts/deploy/runner-update-binary.sh
 #   STAGE=production scripts/deploy/runner-update-binary.sh
 #   RUNNER_INSTANCE_ID=i-0123456789abcdef0 scripts/deploy/runner-update-binary.sh
@@ -102,6 +102,7 @@ ASSET_BASE="https://github.com/boxlite-ai/boxlite/releases/download/v${VERSION}"
 ASSET_TARBALL="boxlite-runner-v${VERSION}-linux-amd64.tar.gz"
 TARBALL_URL="${ASSET_BASE}/${ASSET_TARBALL}"
 SHA_URL="${TARBALL_URL}.sha256"
+RUNTIME_CACHE_VERSION="${VERSION%%-dev-*}"
 
 echo "==> Upgrading boxlite-runner from release v$VERSION on stage=$STAGE region=$AWS_REGION"
 
@@ -232,7 +233,7 @@ verify_runner_health_samples() {
 }
 
 runtime_cache_dirs() {
-  local version_dir="\${RUNTIME_CACHE_DIR_NAME:-v${VERSION}}"
+  local version_dir="\${RUNTIME_CACHE_DIR_NAME:-v${RUNTIME_CACHE_VERSION}}"
   local -a data_roots=()
   local svc_user svc_home env_value
 
@@ -450,16 +451,16 @@ fi
 if [ -f "\$WORK/boxlite-runner.runtime-suffix" ]; then
   RUNTIME_SUFFIX=\$(tr -dc 'A-Za-z0-9._-' < "\$WORK/boxlite-runner.runtime-suffix")
   if [ -n "\$RUNTIME_SUFFIX" ]; then
-    RUNTIME_CACHE_DIR_NAME="v${VERSION}-\$RUNTIME_SUFFIX"
+    RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}-\$RUNTIME_SUFFIX"
     RUNTIME_CACHE_REQUIRED=true
     echo "runner runtime cache key: \$RUNTIME_CACHE_DIR_NAME"
   else
-    RUNTIME_CACHE_DIR_NAME="v${VERSION}"
+    RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}"
     RUNTIME_CACHE_REQUIRED=false
     echo "WARNING: runtime suffix sidecar is empty; using \$RUNTIME_CACHE_DIR_NAME" >&2
   fi
 else
-  RUNTIME_CACHE_DIR_NAME="v${VERSION}"
+  RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}"
   RUNTIME_CACHE_REQUIRED=false
   echo "runner runtime cache key: \$RUNTIME_CACHE_DIR_NAME"
 fi

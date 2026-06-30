@@ -5,9 +5,10 @@
 #   git checkout main
 #   git pull --ff-only origin main
 #   scripts/deploy/build-runner-binary.sh --output-dir dist
-# The generated tarball is intentionally named `v{VERSION}-{GUEST_HASH}`. This
-# script is for non-published builds, so the embedded runtime cache must not
-# share the official release directory `v{VERSION}`.
+# The generated tarball is intentionally named
+# `v{VERSION}-dev-{BUILD_SEQUENCE}-{GUEST_HASH}`. This script is for
+# non-published builds, so the embedded runtime cache must not share the
+# official release directory `v{VERSION}`.
 #
 # The runner is a cgo binary that links libboxlite.a. Build the embedded runtime
 # inputs first (boxlite-shim + boxlite-guest), force boxlite's build.rs to rerun
@@ -16,7 +17,7 @@
 # Usage:
 #   scripts/deploy/build-runner-binary.sh
 #   scripts/deploy/build-runner-binary.sh --output-dir /tmp
-#   scripts/deploy/build-runner-binary.sh --base-version 0.9.6
+#   BOXLITE_RUNNER_BUILD_NUMBER=123 scripts/deploy/build-runner-binary.sh
 #   scripts/deploy/build-runner-binary.sh --skip-setup
 
 set -euo pipefail
@@ -24,15 +25,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/dist"
 RUN_SETUP=1
-BASE_VERSION="${BOXLITE_RUNNER_BASE_VERSION:-}"
-RELEASE_REPO="${BOXLITE_RUNNER_RELEASE_REPO:-boxlite-ai/boxlite}"
+BUILD_SEQUENCE="${BOXLITE_RUNNER_BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-}}"
 
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
   cat <<'EOF'
 Options:
   --output-dir DIR   Directory for the runner tarball. Default: ./dist
-  --base-version VER Base semver for non-release artifacts. Default: latest vX.Y.Z tag.
+  --build-number ID  Ordered dev build sequence. Default: BOXLITE_RUNNER_BUILD_NUMBER,
+                     GITHUB_RUN_NUMBER, or current UTC timestamp.
   --skip-setup       Skip `make setup:build`.
   -h, --help         Show this help.
 EOF
@@ -45,9 +46,9 @@ while [[ $# -gt 0 ]]; do
       OUTPUT_DIR="$2"
       shift 2
       ;;
-    --base-version)
-      [[ $# -ge 2 ]] || { echo "error: --base-version requires a value" >&2; exit 1; }
-      BASE_VERSION="${2#v}"
+    --build-number)
+      [[ $# -ge 2 ]] || { echo "error: --build-number requires a value" >&2; exit 1; }
+      BUILD_SEQUENCE="$2"
       shift 2
       ;;
     --skip-setup)
@@ -78,25 +79,6 @@ require_cmd make
 require_cmd sha256sum
 require_cmd tar
 
-refresh_version_tags() {
-  local remote="${BOXLITE_RUNNER_TAG_REMOTE:-origin}"
-  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    return 0
-  fi
-  if ! git remote get-url "$remote" >/dev/null 2>&1; then
-    echo "warning: git remote '$remote' not found; using locally available version tags" >&2
-    return 0
-  fi
-  echo "==> Refreshing version tags from $remote"
-  git fetch --quiet --force "$remote" 'refs/tags/v*:refs/tags/v*'
-}
-
-latest_published_release_version() {
-  command -v gh >/dev/null 2>&1 || return 0
-  gh release list --repo "$RELEASE_REPO" --limit 100 2>/dev/null \
-    | awk '$1 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ { sub(/^v/, "", $1); print $1; exit }'
-}
-
 if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
   echo "error: runner tarball build currently requires a Linux x86_64 builder" >&2
   exit 1
@@ -108,21 +90,12 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
-if [[ -z "$BASE_VERSION" ]]; then
-  BASE_VERSION="$(latest_published_release_version)"
+if [[ -z "$BUILD_SEQUENCE" ]]; then
+  BUILD_SEQUENCE="$(date -u +%Y%m%d%H%M%S)"
 fi
-if [[ -z "$BASE_VERSION" ]]; then
-  echo "warning: could not read published GitHub releases from $RELEASE_REPO; falling back to git tags" >&2
-  refresh_version_tags
-  BASE_VERSION="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname \
-    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-    | head -1 \
-    | sed 's/^v//')"
-fi
-if [[ -z "$BASE_VERSION" ]]; then
-  echo "error: could not determine latest published version tag" >&2
-  exit 1
-fi
+BUILD_SEQUENCE="$(printf '%s' "$BUILD_SEQUENCE" | tr -c 'A-Za-z0-9._-' '-')"
+BUILD_SEQUENCE="${BUILD_SEQUENCE#v}"
+[[ -n "$BUILD_SEQUENCE" ]] || { echo "error: build sequence cannot be empty" >&2; exit 1; }
 
 TMP_DIR="$(mktemp -d)"
 GO_WORK_BACKUP="$TMP_DIR/go.work.backup"
@@ -174,7 +147,7 @@ use (
 EOF
 
 echo "==> Building boxlite-runner from package v$VERSION at $(git rev-parse --short HEAD)"
-echo "==> Non-release artifact base version: v$BASE_VERSION"
+echo "==> Non-release artifact version prefix: v${VERSION}-dev-${BUILD_SEQUENCE}"
 
 echo "==> Cleaning runner build artifacts"
 cargo clean -p boxlite -p boxlite-c -p boxlite-shim -p boxlite-guest
@@ -197,11 +170,12 @@ GUEST_BIN="$ROOT_DIR/target/x86_64-unknown-linux-musl/release/boxlite-guest"
 [[ -x "$GUEST_BIN" ]] || { echo "error: guest binary not found after build: $GUEST_BIN" >&2; exit 1; }
 GUEST_SHA256="$(sha256sum "$GUEST_BIN" | awk '{print $1}')"
 RUNTIME_SUFFIX="${GUEST_SHA256:0:12}"
-RUNNER_VERSION="${BASE_VERSION}-${RUNTIME_SUFFIX}"
+RUNTIME_CACHE_SUFFIX="dev-${BUILD_SEQUENCE}-${RUNTIME_SUFFIX}"
+RUNNER_VERSION="${VERSION}-${RUNTIME_CACHE_SUFFIX}"
 
 echo "==> Building libboxlite with runtime cache key v${RUNNER_VERSION}"
-BOXLITE_RUNTIME_CACHE_VERSION="$BASE_VERSION" \
-  BOXLITE_RUNTIME_CACHE_SUFFIX="$RUNTIME_SUFFIX" \
+BOXLITE_RUNTIME_CACHE_VERSION="$VERSION" \
+  BOXLITE_RUNTIME_CACHE_SUFFIX="$RUNTIME_CACHE_SUFFIX" \
   make dist:c
 cp "$ROOT_DIR/target/release/libboxlite.a" "$ROOT_DIR/sdks/go/libboxlite.a"
 
@@ -215,7 +189,7 @@ CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -C apps \
   -o "$RUNNER_BIN" ./runner/cmd/runner
 printf '%s  boxlite-guest\n' "$GUEST_SHA256" > "$TMP_DIR/boxlite-runner.guest.sha256"
 echo "==> Wrote guest hash sidecar ${GUEST_SHA256:0:12}"
-printf '%s\n' "$RUNTIME_SUFFIX" > "$TMP_DIR/boxlite-runner.runtime-suffix"
+printf '%s\n' "$RUNTIME_CACHE_SUFFIX" > "$TMP_DIR/boxlite-runner.runtime-suffix"
 echo "==> Runtime cache directory: v${RUNNER_VERSION}"
 
 mkdir -p "$OUTPUT_DIR"
