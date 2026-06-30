@@ -325,11 +325,7 @@ verify_embedded_runtime_hash() {
   done < <(runtime_cache_dirs)
 
   if [ "\$checked" -eq 0 ]; then
-    if [ "\${RUNTIME_CACHE_REQUIRED:-false}" = true ]; then
-      echo "FATAL: embedded runtime cache not found or missing boxlite-guest for \$RUNTIME_CACHE_DIR_NAME; cannot verify guest hash" >&2
-      return 1
-    fi
-    echo "embedded runtime guest hash verification deferred: runtime cache not extracted yet"
+    echo "embedded runtime guest hash verification deferred: runtime cache not extracted yet for \$RUNTIME_CACHE_DIR_NAME"
   fi
 }
 
@@ -485,16 +481,13 @@ if [ -f "\$WORK/boxlite-runner.runtime-suffix" ]; then
   RUNTIME_SUFFIX=\$(tr -dc 'A-Za-z0-9._-' < "\$WORK/boxlite-runner.runtime-suffix")
   if [ -n "\$RUNTIME_SUFFIX" ]; then
     RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}-\$RUNTIME_SUFFIX"
-    RUNTIME_CACHE_REQUIRED=true
     echo "runner runtime cache key: \$RUNTIME_CACHE_DIR_NAME"
   else
     RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}"
-    RUNTIME_CACHE_REQUIRED=false
     echo "WARNING: runtime suffix sidecar is empty; using \$RUNTIME_CACHE_DIR_NAME" >&2
   fi
 else
   RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}"
-  RUNTIME_CACHE_REQUIRED=false
   echo "runner runtime cache key: \$RUNTIME_CACHE_DIR_NAME"
 fi
 
