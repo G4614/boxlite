@@ -5,8 +5,9 @@
 # /usr/local/bin/boxlite-runner at it, restarts the systemd unit, and verifies
 # that detached box shims that were alive before the restart are still alive and
 # can be re-attached by the new runner. The EC2 instance itself is not replaced;
-# box state under /var/lib/boxlite is preserved. By default it installs a GitHub
-# Release asset.
+# box state under /var/lib/boxlite is preserved. It uploads the locally built
+# runner tarball to a temporary S3 location, then asks SSM to install it on the
+# target runner.
 #
 # Pair with the `ignoreChanges: ["ami", "userDataBase64"]` setting on the
 # Runner resource in apps/infra/sst.config.ts — that prevents `sst deploy`
@@ -16,6 +17,7 @@
 # Usage:
 #   scripts/deploy/runner-update-binary.sh                  # version from Cargo.toml
 #   scripts/deploy/runner-update-binary.sh 0.9.7-dev-123-58d8f01bcd02
+#   scripts/deploy/runner-update-binary.sh --output-dir /tmp/dist 0.9.7-dev-123-58d8f01bcd02
 #   AWS_REGION=us-west-2 scripts/deploy/runner-update-binary.sh
 #   STAGE=production scripts/deploy/runner-update-binary.sh
 #   RUNNER_INSTANCE_ID=i-0123456789abcdef0 scripts/deploy/runner-update-binary.sh
@@ -34,6 +36,8 @@ AWS_REGION="${AWS_REGION:-}"
 RUNNER_INSTANCE_NAME="${RUNNER_INSTANCE_NAME:-}"
 RUNNER_INSTANCE_ID="${RUNNER_INSTANCE_ID:-}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ARTIFACT_DIR="${RUNNER_ARTIFACT_DIR:-$REPO_ROOT/dist}"
+RUNNER_ARTIFACT_S3_URI="${RUNNER_ARTIFACT_S3_URI:-}"
 VERSION=""
 
 usage() {
@@ -42,6 +46,11 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --output-dir|--artifact-dir)
+      [[ $# -ge 2 ]] || { echo "error: $1 requires a value" >&2; exit 1; }
+      ARTIFACT_DIR="$2"
+      shift 2
+      ;;
     --version)
       [[ $# -ge 2 ]] || { echo "error: --version requires a value" >&2; exit 1; }
       VERSION="$2"
@@ -67,6 +76,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+command -v aws >/dev/null 2>&1 || { echo "error: required command not found: aws" >&2; exit 1; }
 
 case "$STAGE" in
   dev|production) ;;
@@ -98,13 +109,23 @@ if [[ -z "$VERSION" ]]; then
   fi
 fi
 
-ASSET_BASE="https://github.com/boxlite-ai/boxlite/releases/download/v${VERSION}"
 ASSET_TARBALL="boxlite-runner-v${VERSION}-linux-amd64.tar.gz"
-TARBALL_URL="${ASSET_BASE}/${ASSET_TARBALL}"
-SHA_URL="${TARBALL_URL}.sha256"
+LOCAL_TARBALL="$ARTIFACT_DIR/$ASSET_TARBALL"
+LOCAL_SHA="$LOCAL_TARBALL.sha256"
 RUNTIME_CACHE_VERSION="${VERSION%%-dev-*}"
 
-echo "==> Upgrading boxlite-runner from release v$VERSION on stage=$STAGE region=$AWS_REGION"
+if [[ ! -f "$LOCAL_TARBALL" ]]; then
+  echo "error: local runner tarball not found: $LOCAL_TARBALL" >&2
+  echo "       run scripts/deploy/build-runner-binary.sh first, or set --output-dir/RUNNER_ARTIFACT_DIR" >&2
+  exit 1
+fi
+if [[ ! -f "$LOCAL_SHA" ]]; then
+  echo "error: local runner checksum not found: $LOCAL_SHA" >&2
+  echo "       run scripts/deploy/build-runner-binary.sh first" >&2
+  exit 1
+fi
+
+echo "==> Upgrading boxlite-runner from local artifact v$VERSION on stage=$STAGE region=$AWS_REGION"
 
 if [[ -n "$RUNNER_INSTANCE_ID" ]]; then
   INSTANCE_ID="$RUNNER_INSTANCE_ID"
@@ -132,6 +153,16 @@ else
   INSTANCE_ID="${INSTANCE_IDS[0]}"
 fi
 echo "    instance: $INSTANCE_ID"
+
+if [[ -z "$RUNNER_ARTIFACT_S3_URI" ]]; then
+  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+  RUNNER_ARTIFACT_S3_URI="s3://boxlite-${STAGE}-runner-builds/tmp/runner-rollouts/${ACCOUNT_ID}/${VERSION}/$(date -u +%Y%m%dT%H%M%SZ)"
+fi
+REMOTE_TARBALL_URL="${RUNNER_ARTIFACT_S3_URI%/}/$ASSET_TARBALL"
+REMOTE_SHA_URL="$REMOTE_TARBALL_URL.sha256"
+echo "==> Uploading local artifact to $RUNNER_ARTIFACT_S3_URI"
+aws s3 cp --region "$AWS_REGION" "$LOCAL_TARBALL" "$REMOTE_TARBALL_URL"
+aws s3 cp --region "$AWS_REGION" "$LOCAL_SHA" "$REMOTE_SHA_URL"
 
 # Remote upgrade script. Mirrors the boot user-data's integrity policy and adds a
 # rollback: download + checksum-verify BEFORE stopping the unit (so a failed or
@@ -430,8 +461,8 @@ echo "hot rollout: captured \$(wc -l < "\$HOT_SNAPSHOT" | tr -d ' ') live detach
 
 WORK=\$(mktemp -d)
 trap 'rm -rf "\$WORK"; rm -f "\$HOT_SNAPSHOT"' EXIT
-curl -fsSL "${TARBALL_URL}" -o "\$WORK/runner.tar.gz"
-if curl -fsSL "${SHA_URL}" -o "\$WORK/runner.sha256"; then
+aws s3 cp --region "${AWS_REGION}" "${REMOTE_TARBALL_URL}" "\$WORK/runner.tar.gz"
+if aws s3 cp --region "${AWS_REGION}" "${REMOTE_SHA_URL}" "\$WORK/runner.sha256"; then
   EXPECTED=\$(awk '{print \$1}' "\$WORK/runner.sha256")
   ACTUAL=\$(sha256sum "\$WORK/runner.tar.gz" | awk '{print \$1}')
   [ "\$EXPECTED" = "\$ACTUAL" ] || { echo "FATAL: checksum mismatch (want \$EXPECTED got \$ACTUAL)" >&2; exit 1; }
