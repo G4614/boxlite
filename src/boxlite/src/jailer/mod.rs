@@ -75,6 +75,8 @@ pub(crate) mod credentials;
 pub mod landlock;
 #[cfg(target_os = "linux")]
 pub mod seccomp;
+#[cfg(target_os = "linux")]
+pub(crate) mod uid_alloc;
 
 // ============================================================================
 // Public re-exports
@@ -473,10 +475,21 @@ impl<S: Sandbox> Jail for Jailer<S> {
             tracing::info!("Jailer disabled, running shim without sandbox isolation");
         }
 
-        // Pre-exec hook: FD preservation, FD cleanup, rlimits, PID file.
+        // Per-box dedicated UID. When privileged, allocate one and chown the box
+        // dir to it; the pre_exec hook then `setresuid`s into it so RLIMIT_NPROC
+        // is charged against this clean per-box UID instead of the shared runner
+        // UID. When not privileged (no dedicated UID), drop the per-box NPROC —
+        // applying it to the shared runner UID is exactly what broke spawn on a
+        // busy host; the cgroup `pids.max` cap still bounds the box.
+        let drop_to = self.resolve_box_credentials();
+        let mut resource_limits = self.security.resource_limits.clone();
+        if drop_to.is_none() {
+            resource_limits.max_processes = None;
+        }
+
+        // Pre-exec hook: FD preservation, FD cleanup, rlimits, PID file, UID drop.
         // Sandbox-specific pre_exec hooks (cgroup, Landlock) are already added
         // by sandbox.apply() above — Command supports multiple pre_exec closures.
-        let resource_limits = self.security.resource_limits.clone();
         let pid_writer = self.pid_file_writer();
         pre_exec::add_pre_exec_hook(
             &mut cmd,
@@ -484,12 +497,59 @@ impl<S: Sandbox> Jail for Jailer<S> {
             pid_writer,
             self.preserved_fds.clone(),
             self.detach,
+            drop_to,
         );
         cmd
     }
 }
 
 impl<S: Sandbox> Jailer<S> {
+    /// Resolve the per-box `(uid, gid)` the child should `setresuid` into, or
+    /// `None` to run as the spawning UID.
+    ///
+    /// `Some` only when privileged: an explicit `security.uid`, or an
+    /// auto-allocated dedicated UID (then the box dir is chowned to it so the
+    /// dropped process can reach its own disks/sockets/shim). Rootless callers
+    /// get `None` and rely on cgroup `pids.max` alone.
+    #[cfg(target_os = "linux")]
+    fn resolve_box_credentials(&self) -> Option<(u32, u32)> {
+        if !self.security.jailer_enabled {
+            return None;
+        }
+        if let Some(uid) = self.security.uid {
+            return Some((uid, self.security.gid.unwrap_or(uid)));
+        }
+        if !uid_alloc::UidAllocator::is_supported() {
+            return None;
+        }
+        let box_dir = self.layout.root();
+        let boxes_dir = box_dir.parent()?.to_path_buf();
+        let allocator =
+            uid_alloc::UidAllocator::new(boxes_dir.clone(), boxes_dir.join(".uidpool.lock"));
+        let creds = match allocator.allocate(box_dir) {
+            Ok(creds) => creds,
+            Err(e) => {
+                tracing::warn!(error = %e, "per-box UID allocation failed; running without a dedicated UID");
+                return None;
+            }
+        };
+        if let Err(e) = uid_alloc::chown_tree(box_dir, creds.uid, creds.gid) {
+            tracing::warn!(error = %e, uid = creds.uid, "chown box dir to dedicated UID failed; running without a dedicated UID");
+            return None;
+        }
+        tracing::info!(
+            uid = creds.uid,
+            gid = creds.gid,
+            "box will drop to its dedicated host UID"
+        );
+        Some((creds.uid, creds.gid))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn resolve_box_credentials(&self) -> Option<(u32, u32)> {
+        None
+    }
+
     /// Get the security options.
     pub fn security(&self) -> &SecurityOptions {
         &self.security
