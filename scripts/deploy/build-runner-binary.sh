@@ -25,6 +25,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/dist"
 RUN_SETUP=1
 BASE_VERSION="${BOXLITE_RUNNER_BASE_VERSION:-}"
+RELEASE_REPO="${BOXLITE_RUNNER_RELEASE_REPO:-boxlite-ai/boxlite}"
 
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -77,6 +78,25 @@ require_cmd make
 require_cmd sha256sum
 require_cmd tar
 
+refresh_version_tags() {
+  local remote="${BOXLITE_RUNNER_TAG_REMOTE:-origin}"
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! git remote get-url "$remote" >/dev/null 2>&1; then
+    echo "warning: git remote '$remote' not found; using locally available version tags" >&2
+    return 0
+  fi
+  echo "==> Refreshing version tags from $remote"
+  git fetch --quiet --force "$remote" 'refs/tags/v*:refs/tags/v*'
+}
+
+latest_published_release_version() {
+  command -v gh >/dev/null 2>&1 || return 0
+  gh release list --repo "$RELEASE_REPO" --limit 100 2>/dev/null \
+    | awk '$1 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ { sub(/^v/, "", $1); print $1; exit }'
+}
+
 if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
   echo "error: runner tarball build currently requires a Linux x86_64 builder" >&2
   exit 1
@@ -89,6 +109,11 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 if [[ -z "$BASE_VERSION" ]]; then
+  BASE_VERSION="$(latest_published_release_version)"
+fi
+if [[ -z "$BASE_VERSION" ]]; then
+  echo "warning: could not read published GitHub releases from $RELEASE_REPO; falling back to git tags" >&2
+  refresh_version_tags
   BASE_VERSION="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname \
     | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
     | head -1 \
