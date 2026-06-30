@@ -503,50 +503,77 @@ impl<S: Sandbox> Jail for Jailer<S> {
     }
 }
 
+/// Fail-closed UID for a root runner that can't get a dedicated one: the box
+/// drops to `nobody` rather than ever staying root.
+#[cfg(target_os = "linux")]
+const NOBODY_UID: u32 = 65534;
+
 impl<S: Sandbox> Jailer<S> {
-    /// Resolve the per-box `(uid, gid)` the child should `setresuid` into, or
-    /// `None` to run as the spawning UID.
+    /// Resolve the `(uid, gid, supplementary_gids)` the child should
+    /// `setresuid`/`setgroups` into, or `None` to keep the (already non-root)
+    /// spawning UID.
     ///
-    /// `Some` only when privileged: an explicit `security.uid`, or an
-    /// auto-allocated dedicated UID (then the box dir is chowned to it so the
-    /// dropped process can reach its own disks/sockets/shim). Rootless callers
-    /// get `None` and rely on cgroup `pids.max` alone.
+    /// Invariant: **the box never runs as root.** A privileged (root) runner
+    /// therefore *always* drops — to a dedicated per-box UID when one can be
+    /// allocated, otherwise to `nobody` as a fail-closed fallback (never back to
+    /// root). A non-root runner already satisfies the invariant, so it keeps its
+    /// UID (`None`) and relies on cgroup `pids.max`. Supplementary groups carry
+    /// the device groups the box still needs (kvm).
     #[cfg(target_os = "linux")]
-    fn resolve_box_credentials(&self) -> Option<(u32, u32)> {
+    fn resolve_box_credentials(&self) -> Option<(u32, u32, Vec<u32>)> {
         if !self.security.jailer_enabled {
             return None;
         }
+        // Device groups the dropped UID keeps: kvm (libkrun opens /dev/kvm,
+        // root:kvm 0660). /dev/net/tun is world-accessible (0666), needs none.
+        let groups: Vec<u32> = uid_alloc::group_gid("kvm").into_iter().collect();
+
+        // Explicit override from SecurityOptions.
         if let Some(uid) = self.security.uid {
-            return Some((uid, self.security.gid.unwrap_or(uid)));
+            return Some((uid, self.security.gid.unwrap_or(uid), groups));
         }
+
+        // A non-root runner is already non-root; setresuid into a foreign UID
+        // needs CAP_SETUID anyway. Keep the UID, rely on cgroup pids.max.
         if !uid_alloc::UidAllocator::is_supported() {
             return None;
         }
+
+        // Root runner: must drop to a non-root UID. Prefer a dedicated one.
         let box_dir = self.layout.root();
-        let boxes_dir = box_dir.parent()?.to_path_buf();
-        let allocator =
-            uid_alloc::UidAllocator::new(boxes_dir.clone(), boxes_dir.join(".uidpool.lock"));
-        let creds = match allocator.allocate(box_dir) {
-            Ok(creds) => creds,
-            Err(e) => {
-                tracing::warn!(error = %e, "per-box UID allocation failed; running without a dedicated UID");
-                return None;
-            }
+        let creds = box_dir
+            .parent()
+            .map(|boxes_dir| {
+                uid_alloc::UidAllocator::new(
+                    boxes_dir.to_path_buf(),
+                    boxes_dir.join(".uidpool.lock"),
+                )
+            })
+            .and_then(|allocator| match allocator.allocate(box_dir) {
+                Ok(creds) => Some(creds),
+                Err(e) => {
+                    tracing::warn!(error = %e, "per-box UID allocation failed; box will drop to nobody");
+                    None
+                }
+            });
+
+        // Fail closed to `nobody` (65534) rather than ever leaving the box root.
+        let (uid, gid) = match creds {
+            Some(c) => (c.uid, c.gid),
+            None => (NOBODY_UID, NOBODY_UID),
         };
-        if let Err(e) = uid_alloc::chown_tree(box_dir, creds.uid, creds.gid) {
-            tracing::warn!(error = %e, uid = creds.uid, "chown box dir to dedicated UID failed; running without a dedicated UID");
-            return None;
+
+        // Best-effort: the dropped UID must own its working tree to use it. A
+        // failure here breaks the box, but the box still drops (never root).
+        if let Err(e) = uid_alloc::chown_tree(box_dir, uid, gid) {
+            tracing::warn!(error = %e, uid, "chown box dir to dropped UID failed");
         }
-        tracing::info!(
-            uid = creds.uid,
-            gid = creds.gid,
-            "box will drop to its dedicated host UID"
-        );
-        Some((creds.uid, creds.gid))
+        tracing::info!(uid, gid, "box will drop to a non-root host UID");
+        Some((uid, gid, groups))
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn resolve_box_credentials(&self) -> Option<(u32, u32)> {
+    fn resolve_box_credentials(&self) -> Option<(u32, u32, Vec<u32>)> {
         None
     }
 

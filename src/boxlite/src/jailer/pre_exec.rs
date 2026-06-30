@@ -63,7 +63,7 @@ pub fn add_pre_exec_hook(
     pid_writer: Option<PidFileWriter>,
     preserved_fds: Vec<(RawFd, i32)>,
     detach: bool,
-    drop_to: Option<(u32, u32)>,
+    drop_to: Option<(u32, u32, Vec<u32>)>,
 ) {
     use std::os::unix::process::CommandExt;
 
@@ -122,11 +122,16 @@ pub fn add_pre_exec_hook(
             // then uid (so CAP_SETGID/CAP_SETUID are dropped last). All three
             // are async-signal-safe.
             #[cfg(target_os = "linux")]
-            if let Some((uid, gid)) = drop_to {
+            if let Some((uid, gid, ref groups)) = drop_to {
                 if libc::setresgid(gid, gid, gid) != 0 {
                     return Err(std::io::Error::last_os_error());
                 }
-                if libc::setgroups(0, std::ptr::null()) != 0 {
+                // Set the supplementary groups to exactly `groups` (device
+                // groups like kvm, so the dropped UID can still open /dev/kvm);
+                // empty list clears all. `as_ptr()` on an empty Vec is unused
+                // because the count is 0.
+                let (n, ptr) = (groups.len() as libc::size_t, groups.as_ptr());
+                if libc::setgroups(n, ptr) != 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 if libc::setresuid(uid, uid, uid) != 0 {
@@ -134,7 +139,7 @@ pub fn add_pre_exec_hook(
                 }
             }
             #[cfg(not(target_os = "linux"))]
-            let _ = drop_to;
+            let _ = &drop_to;
 
             // 5. Detach=true → setsid: child becomes a session leader,
             // detaching from the parent's controlling terminal. Without
@@ -203,7 +208,7 @@ mod tests {
             max_processes: Some(100),
             ..Default::default()
         };
-        add_pre_exec_hook(&mut cmd, limits, None, vec![], false, Some((uid, uid)));
+        add_pre_exec_hook(&mut cmd, limits, None, vec![], false, Some((uid, uid, vec![])));
 
         let out = cmd.output().expect("spawn /bin/sh");
         let report = String::from_utf8_lossy(&out.stdout);
