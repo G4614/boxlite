@@ -93,3 +93,35 @@ describe('CreateBoxDto network validation', () => {
     expect(JSON.stringify(errors)).toContain('isIn')
   })
 })
+
+describe('CreateBoxDto port validation', () => {
+  it('accepts published port mappings', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        ports: [{ hostPort: 39082, guestPort: 8080 }],
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
+  })
+
+  it('rejects a published port without a guestPort', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        ports: [{ hostPort: 39082 }],
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('guestPort')
+  })
+
+  it('rejects out-of-range published ports', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        ports: [{ hostPort: 39082, guestPort: 70000 }],
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('max')
+  })
+})

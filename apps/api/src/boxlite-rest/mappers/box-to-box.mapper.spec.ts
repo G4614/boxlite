@@ -44,6 +44,14 @@ describe('box-to-box mapper', () => {
     expect(dto.disk).toBe(8)
   })
 
+  it('maps published ports to the internal create dto', () => {
+    const dto = createBoxToCreateBox({
+      ports: [{ hostPort: 39082, guestPort: 8080 }],
+    })
+
+    expect(dto.ports).toEqual([{ hostPort: 39082, guestPort: 8080 }])
+  })
+
   it('maps disabled network onto the internal create dto', () => {
     const dto = createBoxToCreateBox({
       network: { mode: 'disabled' },
