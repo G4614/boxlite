@@ -5,9 +5,9 @@
 # /usr/local/bin/boxlite-runner at it, restarts the systemd unit, and verifies
 # that detached box shims that were alive before the restart are still alive and
 # can be re-attached by the new runner. The EC2 instance itself is not replaced;
-# box state under /var/lib/boxlite is preserved. It uploads the locally built
-# runner tarball to a temporary S3 location, then asks SSM to install it on the
-# target runner.
+# box state under /var/lib/boxlite is preserved. Official versions are fetched
+# directly from GitHub Releases by the target runner; dev builds upload the
+# locally built runner tarball to a temporary S3 location first.
 #
 # Pair with the `ignoreChanges: ["ami", "userDataBase64"]` setting on the
 # Runner resource in apps/infra/sst.config.ts — that prevents `sst deploy`
@@ -16,6 +16,7 @@
 #
 # Usage:
 #   scripts/deploy/runner-update-binary.sh                  # version from Cargo.toml
+#   scripts/deploy/runner-update-binary.sh 0.9.7            # official GitHub release
 #   scripts/deploy/runner-update-binary.sh 0.9.7-dev-123-58d8f01bcd02
 #   scripts/deploy/runner-update-binary.sh --output-dir /tmp/dist 0.9.7-dev-123-58d8f01bcd02
 #   AWS_REGION=us-west-2 scripts/deploy/runner-update-binary.sh
@@ -113,19 +114,29 @@ ASSET_TARBALL="boxlite-runner-v${VERSION}-linux-amd64.tar.gz"
 LOCAL_TARBALL="$ARTIFACT_DIR/$ASSET_TARBALL"
 LOCAL_SHA="$LOCAL_TARBALL.sha256"
 RUNTIME_CACHE_VERSION="${VERSION%%-dev-*}"
-
-if [[ ! -f "$LOCAL_TARBALL" ]]; then
-  echo "error: local runner tarball not found: $LOCAL_TARBALL" >&2
-  echo "       run scripts/deploy/build-runner-binary.sh first, or set --output-dir/RUNNER_ARTIFACT_DIR" >&2
-  exit 1
-fi
-if [[ ! -f "$LOCAL_SHA" ]]; then
-  echo "error: local runner checksum not found: $LOCAL_SHA" >&2
-  echo "       run scripts/deploy/build-runner-binary.sh first" >&2
-  exit 1
+IS_DEV_VERSION=0
+if [[ "$VERSION" == *-dev-* ]]; then
+  IS_DEV_VERSION=1
 fi
 
-echo "==> Upgrading boxlite-runner from local artifact v$VERSION on stage=$STAGE region=$AWS_REGION"
+if [[ "$IS_DEV_VERSION" -eq 1 ]]; then
+  if [[ ! -f "$LOCAL_TARBALL" ]]; then
+    echo "error: local dev runner tarball not found: $LOCAL_TARBALL" >&2
+    echo "       run scripts/deploy/build-runner-binary.sh first, or set --output-dir/RUNNER_ARTIFACT_DIR" >&2
+    exit 1
+  fi
+  if [[ ! -f "$LOCAL_SHA" ]]; then
+    echo "error: local dev runner checksum not found: $LOCAL_SHA" >&2
+    echo "       run scripts/deploy/build-runner-binary.sh first" >&2
+    exit 1
+  fi
+fi
+
+if [[ "$IS_DEV_VERSION" -eq 1 ]]; then
+  echo "==> Upgrading boxlite-runner from local dev artifact v$VERSION on stage=$STAGE region=$AWS_REGION"
+else
+  echo "==> Upgrading boxlite-runner from GitHub release v$VERSION on stage=$STAGE region=$AWS_REGION"
+fi
 
 if [[ -n "$RUNNER_INSTANCE_ID" ]]; then
   INSTANCE_ID="$RUNNER_INSTANCE_ID"
@@ -154,17 +165,26 @@ else
 fi
 echo "    instance: $INSTANCE_ID"
 
-if [[ -z "$RUNNER_ARTIFACT_S3_URI" ]]; then
-  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-  RUNNER_ARTIFACT_S3_URI="s3://boxlite-${STAGE}-runner-builds/tmp/runner-rollouts/${ACCOUNT_ID}/${VERSION}/$(date -u +%Y%m%dT%H%M%SZ)"
+if [[ "$IS_DEV_VERSION" -eq 1 ]]; then
+  if [[ -z "$RUNNER_ARTIFACT_S3_URI" ]]; then
+    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    RUNNER_ARTIFACT_S3_URI="s3://boxlite-${STAGE}-runner-builds/tmp/runner-rollouts/${ACCOUNT_ID}/${VERSION}/$(date -u +%Y%m%dT%H%M%SZ)"
+  fi
+  REMOTE_TARBALL_URL="${RUNNER_ARTIFACT_S3_URI%/}/$ASSET_TARBALL"
+  REMOTE_SHA_URL="$REMOTE_TARBALL_URL.sha256"
+  echo "==> Uploading local artifact to $RUNNER_ARTIFACT_S3_URI"
+  aws s3 cp --region "$AWS_REGION" "$LOCAL_TARBALL" "$REMOTE_TARBALL_URL"
+  aws s3 cp --region "$AWS_REGION" "$LOCAL_SHA" "$REMOTE_SHA_URL"
+  DOWNLOAD_TARBALL_URL=$(aws s3 presign --region "$AWS_REGION" "$REMOTE_TARBALL_URL" --expires-in 3600)
+  DOWNLOAD_SHA_URL=$(aws s3 presign --region "$AWS_REGION" "$REMOTE_SHA_URL" --expires-in 3600)
+else
+  RELEASE_REPOSITORY="${BOXLITE_RELEASE_REPOSITORY:-boxlite-ai/boxlite}"
+  RELEASE_TAG="${BOXLITE_RELEASE_TAG:-v${VERSION}}"
+  RELEASE_BASE_URL="https://github.com/${RELEASE_REPOSITORY}/releases/download/${RELEASE_TAG}"
+  DOWNLOAD_TARBALL_URL="$RELEASE_BASE_URL/$ASSET_TARBALL"
+  DOWNLOAD_SHA_URL="$DOWNLOAD_TARBALL_URL.sha256"
+  echo "==> Target runner will download $DOWNLOAD_TARBALL_URL"
 fi
-REMOTE_TARBALL_URL="${RUNNER_ARTIFACT_S3_URI%/}/$ASSET_TARBALL"
-REMOTE_SHA_URL="$REMOTE_TARBALL_URL.sha256"
-echo "==> Uploading local artifact to $RUNNER_ARTIFACT_S3_URI"
-aws s3 cp --region "$AWS_REGION" "$LOCAL_TARBALL" "$REMOTE_TARBALL_URL"
-aws s3 cp --region "$AWS_REGION" "$LOCAL_SHA" "$REMOTE_SHA_URL"
-PRESIGNED_TARBALL_URL=$(aws s3 presign --region "$AWS_REGION" "$REMOTE_TARBALL_URL" --expires-in 3600)
-PRESIGNED_SHA_URL=$(aws s3 presign --region "$AWS_REGION" "$REMOTE_SHA_URL" --expires-in 3600)
 
 # Remote upgrade script. Mirrors the boot user-data's integrity policy and adds a
 # rollback: download + checksum-verify BEFORE stopping the unit (so a failed or
@@ -459,8 +479,8 @@ echo "hot rollout: captured \$(wc -l < "\$HOT_SNAPSHOT" | tr -d ' ') live detach
 
 WORK=\$(mktemp -d)
 trap 'rm -rf "\$WORK"; rm -f "\$HOT_SNAPSHOT"' EXIT
-curl -fsSL "${PRESIGNED_TARBALL_URL}" -o "\$WORK/runner.tar.gz"
-if curl -fsSL "${PRESIGNED_SHA_URL}" -o "\$WORK/runner.sha256"; then
+curl -fsSL "${DOWNLOAD_TARBALL_URL}" -o "\$WORK/runner.tar.gz"
+if curl -fsSL "${DOWNLOAD_SHA_URL}" -o "\$WORK/runner.sha256"; then
   EXPECTED=\$(awk '{print \$1}' "\$WORK/runner.sha256")
   ACTUAL=\$(sha256sum "\$WORK/runner.tar.gz" | awk '{print \$1}')
   [ "\$EXPECTED" = "\$ACTUAL" ] || { echo "FATAL: checksum mismatch (want \$EXPECTED got \$ACTUAL)" >&2; exit 1; }
