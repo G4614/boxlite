@@ -229,7 +229,7 @@ impl ExecProtocol {
         use boxlite_shared::TtyConfig;
 
         ExecRequest {
-            execution_id: None,
+            execution_id: command.execution_id.clone(),
             program: command.command.clone(),
             args: command.args.clone(),
             env: command

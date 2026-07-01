@@ -469,13 +469,18 @@ func (m *ExecManager) Start(ctx context.Context, bx *boxlite.Box, boxID string, 
 	// captures into the bounded backlog AND fans out to live subscribers
 	// in one mutex-guarded operation. Subscribers attached before any
 	// Write observe the backlog snapshot on Subscribe.
+	// Pin the guest execution id to our own id so the same value keys the
+	// registry map, the persisted record, and a later AttachExecution after a
+	// restart. Without this the guest would mint its own uuid and recovery
+	// could never find the process to reattach.
 	execution, err := bx.StartExecution(ctx, opts.Command, opts.Args, &boxlite.ExecutionOptions{
-		TTY:        opts.TTY,
-		Stdout:     exec.stdoutBus,
-		Stderr:     exec.stderrBus,
-		Env:        opts.Env,
-		WorkingDir: opts.WorkingDir,
-		Timeout:    opts.Timeout,
+		TTY:         opts.TTY,
+		Stdout:      exec.stdoutBus,
+		Stderr:      exec.stderrBus,
+		Env:         opts.Env,
+		WorkingDir:  opts.WorkingDir,
+		Timeout:     opts.Timeout,
+		ExecutionID: id,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to start execution: %w", err)

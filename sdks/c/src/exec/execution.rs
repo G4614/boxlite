@@ -977,6 +977,7 @@ mod tests {
             user: ptr::null(),
             timeout_secs: 0.0,
             tty: 1,
+            execution_id: ptr::null(),
         };
         let mut execution: *mut ExecutionHandle = ptr::null_mut();
         let mut error = FFIError::default();

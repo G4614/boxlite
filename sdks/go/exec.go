@@ -69,6 +69,12 @@ type ExecutionOptions struct {
 	// means no timeout (the C side treats `timeout_secs <= 0` as
 	// unbounded — see `sdks/c/src/exec/command.rs`).
 	Timeout time.Duration
+	// ExecutionID pins the guest-side execution id instead of letting the
+	// guest mint a uuid. Empty lets the guest choose. Supply a stable id
+	// when you must reattach to this exec later via AttachExecution (e.g.
+	// the runner persists it to reconnect after a restart) — the same id
+	// then keys the guest registry, your bookkeeping, and the later attach.
+	ExecutionID string
 }
 
 // executionStreamState holds the user-provided sinks for streaming output
@@ -230,6 +236,12 @@ func (b *Box) StartExecution(_ context.Context, name string, args []string, opts
 		defer C.free(unsafe.Pointer(cWorkdir))
 	}
 
+	var cExecID *C.char
+	if cfg.ExecutionID != "" {
+		cExecID = toCString(cfg.ExecutionID)
+		defer C.free(unsafe.Pointer(cExecID))
+	}
+
 	cCommand := C.BoxliteCommand{
 		command:      cCmd,
 		args:         cArgs,
@@ -240,6 +252,7 @@ func (b *Box) StartExecution(_ context.Context, name string, args []string, opts
 		user:         nil,
 		timeout_secs: C.double(cfg.Timeout.Seconds()),
 		tty:          boolToCInt(cfg.TTY),
+		execution_id: cExecID,
 	}
 
 	var handle *C.CExecutionHandle

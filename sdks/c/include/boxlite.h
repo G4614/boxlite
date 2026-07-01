@@ -176,6 +176,11 @@ typedef struct BoxliteCommand {
   double timeout_secs;
   // Enable TTY mode for interactive programs.
   int tty;
+  // Pin the execution id instead of letting the guest mint one. NULL/empty
+  // = guest mints a uuid. Supply a stable id when the caller must reattach
+  // to this exec later by the same id (e.g. `boxlite_box_attach_execution`
+  // after a runner restart).
+  const char *execution_id;
 } BoxliteCommand;
 
 typedef struct ExecutionHandle CExecutionHandle;
