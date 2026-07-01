@@ -7,12 +7,14 @@
 import { Type } from 'class-transformer'
 import {
   ArrayMaxSize,
+  IsInt,
   IsOptional,
   IsString,
   IsNumber,
   IsBoolean,
   IsObject,
   IsArray,
+  Max,
   Min,
   IsIn,
   Validate,
@@ -43,6 +45,19 @@ export class NetworkSpecDto {
   @IsString({ each: true })
   @Validate(IsNetworkAllowEntryConstraint, { each: true })
   allow_net?: string[]
+}
+
+export class PortSpecDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  hostPort?: number
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  guestPort: number
 }
 
 export class CreateBoxDto {
@@ -99,6 +114,12 @@ export class CreateBoxDto {
   @IsOptional()
   @IsBoolean()
   detach?: boolean
+
+  @IsOptional()
+  @Type(() => PortSpecDto)
+  @ValidateNested({ each: true })
+  @IsArray()
+  ports?: PortSpecDto[]
 
   @IsOptional()
   @ValidateNested()

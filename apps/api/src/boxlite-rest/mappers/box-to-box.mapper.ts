@@ -33,6 +33,7 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   createDto.cpu = dto.cpus
   createDto.memory = dto.memory_mib ? Math.ceil(dto.memory_mib / 1024) : undefined
   createDto.disk = dto.disk_size_gb
+  createDto.ports = dto.ports
   createDto.target = target
   if (dto.network) {
     const allowNet = dto.network.allow_net?.map((entry) => entry.trim()).filter(Boolean)

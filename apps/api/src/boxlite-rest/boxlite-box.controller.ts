@@ -77,6 +77,7 @@ export class BoxliteBoxController {
         cmd: req.body?.cmd,
         auto_remove: req.body?.auto_remove,
         detach: req.body?.detach,
+        ports: req.body?.ports,
       }),
     },
   })
