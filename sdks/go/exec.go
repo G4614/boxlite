@@ -280,7 +280,12 @@ func (b *Box) StartExecution(_ context.Context, name string, args []string, opts
 // replays recent scrollback then tails live output, so a reconnecting client
 // (e.g. after a runner update dropped the original session) resumes an
 // interactive process without killing it.
-func (b *Box) AttachExecution(_ context.Context, execID string) (*Execution, error) {
+//
+// opts supplies the Stdout/Stderr sinks (and TTY flag) for the reconnected
+// stream, mirroring StartExecution — a caller that omits them silently drops
+// the replayed and live output. Command/Args/Env/WorkingDir/Timeout in opts
+// are ignored: the process already exists, so only the output wiring applies.
+func (b *Box) AttachExecution(_ context.Context, execID string, opts *ExecutionOptions) (*Execution, error) {
 	b.runtime.ensureDrainRunning()
 
 	cExecID := toCString(execID)
@@ -293,7 +298,11 @@ func (b *Box) AttachExecution(_ context.Context, execID string) (*Execution, err
 		return nil, freeError(&cerr)
 	}
 
-	state := newExecutionStreamState(ExecutionOptions{})
+	cfg := ExecutionOptions{}
+	if opts != nil {
+		cfg = *opts
+	}
+	state := newExecutionStreamState(cfg)
 	streamHandle := cgo.NewHandle(state)
 
 	if err := registerExecutionCallbacks(handle, streamHandle); err != nil {
