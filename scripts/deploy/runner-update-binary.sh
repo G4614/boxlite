@@ -39,6 +39,11 @@ RUNNER_INSTANCE_ID="${RUNNER_INSTANCE_ID:-}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ARTIFACT_DIR="${RUNNER_ARTIFACT_DIR:-$REPO_ROOT/dist}"
 RUNNER_ARTIFACT_S3_URI="${RUNNER_ARTIFACT_S3_URI:-}"
+RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="${RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-15}"
+RUNNER_DOWNLOAD_MAX_TIME_SECONDS="${RUNNER_DOWNLOAD_MAX_TIME_SECONDS:-600}"
+RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS="${RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS:-120}"
+SSM_WAIT_TIMEOUT_SECONDS="${SSM_WAIT_TIMEOUT_SECONDS:-1800}"
+SSM_WAIT_POLL_SECONDS="${SSM_WAIT_POLL_SECONDS:-10}"
 VERSION=""
 
 usage() {
@@ -479,8 +484,16 @@ echo "hot rollout: captured \$(wc -l < "\$HOT_SNAPSHOT" | tr -d ' ') live detach
 
 WORK=\$(mktemp -d)
 trap 'rm -rf "\$WORK"; rm -f "\$HOT_SNAPSHOT"' EXIT
-curl -fsSL "${DOWNLOAD_TARBALL_URL}" -o "\$WORK/runner.tar.gz"
-if curl -fsSL "${DOWNLOAD_SHA_URL}" -o "\$WORK/runner.sha256"; then
+curl -fL --show-error --silent \
+  --retry 5 --retry-delay 2 --retry-connrefused \
+  --connect-timeout "${RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" \
+  --max-time "${RUNNER_DOWNLOAD_MAX_TIME_SECONDS}" \
+  "${DOWNLOAD_TARBALL_URL}" -o "\$WORK/runner.tar.gz"
+if curl -fL --show-error --silent \
+  --retry 3 --retry-delay 2 --retry-connrefused \
+  --connect-timeout "${RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" \
+  --max-time "${RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS}" \
+  "${DOWNLOAD_SHA_URL}" -o "\$WORK/runner.sha256"; then
   EXPECTED=\$(awk '{print \$1}' "\$WORK/runner.sha256")
   ACTUAL=\$(sha256sum "\$WORK/runner.tar.gz" | awk '{print \$1}')
   [ "\$EXPECTED" = "\$ACTUAL" ] || { echo "FATAL: checksum mismatch (want \$EXPECTED got \$ACTUAL)" >&2; exit 1; }
@@ -554,10 +567,28 @@ CMD_ID=$(aws ssm send-command --region "$AWS_REGION" \
   --query 'Command.CommandId' --output text)
 
 echo "    command:  $CMD_ID"
-echo "==> Waiting for SSM command to finish..."
+echo "==> Waiting for SSM command to finish (timeout=${SSM_WAIT_TIMEOUT_SECONDS}s)..."
 
-aws ssm wait command-executed --region "$AWS_REGION" \
-  --command-id "$CMD_ID" --instance-id "$INSTANCE_ID"
+STATUS=""
+DEADLINE=$((SECONDS + SSM_WAIT_TIMEOUT_SECONDS))
+while true; do
+  STATUS=$(aws ssm get-command-invocation --region "$AWS_REGION" \
+    --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+    --query 'Status' --output text 2>/dev/null || true)
+
+  case "$STATUS" in
+    Success|Failed|Cancelled|TimedOut|Cancelling)
+      break
+      ;;
+  esac
+
+  if (( SECONDS >= DEADLINE )); then
+    echo "error: SSM command still ${STATUS:-unknown} after ${SSM_WAIT_TIMEOUT_SECONDS}s" >&2
+    exit 1
+  fi
+
+  sleep "$SSM_WAIT_POLL_SECONDS"
+done
 
 STATUS=$(aws ssm get-command-invocation --region "$AWS_REGION" \
   --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
