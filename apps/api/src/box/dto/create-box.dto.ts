@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { IsEnum, IsObject, IsOptional, IsString, IsNumber, IsBoolean, IsArray } from 'class-validator'
+import { IsEnum, IsObject, IsOptional, IsString, IsNumber, IsBoolean, IsArray, ValidateNested } from 'class-validator'
 import { ApiPropertyOptional, ApiSchema } from '@nestjs/swagger'
+import { Type } from 'class-transformer'
 import { BoxClass } from '../enums/box-class.enum'
-import { BoxVolume } from './box.dto'
+import { BoxPort, BoxVolume } from './box.dto'
 
 @ApiSchema({ name: 'CreateBox' })
 export class CreateBoxDto {
@@ -159,4 +160,15 @@ export class CreateBoxDto {
   @IsOptional()
   @IsArray()
   volumes?: BoxVolume[]
+
+  @ApiPropertyOptional({
+    description: 'Ports to publish from the box guest to the runner host',
+    type: [BoxPort],
+    example: [{ hostPort: 8000, guestPort: 8000 }],
+  })
+  @IsOptional()
+  @Type(() => BoxPort)
+  @ValidateNested({ each: true })
+  @IsArray()
+  ports?: BoxPort[]
 }

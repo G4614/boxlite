@@ -2,6 +2,7 @@ export * from './box-info-response';
 export * from './build-snapshot-request-dto';
 export * from './create-backup-dto';
 export * from './create-box-dto';
+export * from './dto-port-dto';
 export * from './dto-volume-dto';
 export * from './enums-backup-state';
 export * from './enums-box-state';

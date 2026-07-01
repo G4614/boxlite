@@ -106,6 +106,8 @@ pub(crate) struct CreateBoxRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network: Option<CreateBoxNetworkSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ports: Option<Vec<CreateBoxPort>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cmd: Option<Vec<String>>,
@@ -142,6 +144,11 @@ impl CreateBoxRequest {
         } else {
             Some(options.secrets.iter().map(CreateBoxSecret::from).collect())
         };
+        let ports = if options.ports.is_empty() {
+            None
+        } else {
+            Some(options.ports.iter().map(CreateBoxPort::from).collect())
+        };
 
         // SecurityOptions is intentionally NOT carried on the wire.
         // Sandbox security is the operator's policy and is set
@@ -161,6 +168,7 @@ impl CreateBoxRequest {
             working_dir: options.working_dir.clone(),
             env,
             network: Some(CreateBoxNetworkSpec::from(&options.network)),
+            ports,
             entrypoint: options.entrypoint.clone(),
             cmd: options.cmd.clone(),
             user: options.user.clone(),
@@ -188,6 +196,23 @@ impl From<&crate::runtime::options::NetworkSpec> for CreateBoxNetworkSpec {
         Self {
             mode: mode.to_string(),
             allow_net: config.allow_net,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateBoxPort {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_port: Option<u16>,
+    pub guest_port: u16,
+}
+
+impl From<&crate::runtime::options::PortSpec> for CreateBoxPort {
+    fn from(port: &crate::runtime::options::PortSpec) -> Self {
+        Self {
+            host_port: port.host_port,
+            guest_port: port.guest_port,
         }
     }
 }
@@ -491,6 +516,10 @@ mod tests {
                 mode: "enabled".into(),
                 allow_net: vec!["api.openai.com".into()],
             }),
+            ports: Some(vec![CreateBoxPort {
+                host_port: Some(18080),
+                guest_port: 8080,
+            }]),
             entrypoint: None,
             cmd: None,
             user: None,
@@ -510,6 +539,7 @@ mod tests {
         assert!(
             json.contains("\"network\":{\"mode\":\"enabled\",\"allow_net\":[\"api.openai.com\"]}")
         );
+        assert!(json.contains("\"ports\":[{\"hostPort\":18080,\"guestPort\":8080}]"));
         assert!(json.contains("\"secrets\""));
         // None fields should be skipped
         assert!(!json.contains("rootfs_path"));
@@ -554,6 +584,7 @@ mod tests {
             req.secrets.as_ref().unwrap()[0].placeholder,
             "<BOXLITE_SECRET:openai>"
         );
+        assert!(req.ports.is_none());
     }
 
     #[test]

@@ -8,6 +8,7 @@ package boxlite
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,6 +30,7 @@ type Client struct {
 	homeDir            string
 	mu                 sync.RWMutex
 	boxes              map[string]*boxlite.Box
+	publishedPorts     map[string]map[int]int
 	awsRegion          string
 	awsEndpointUrl     string
 	awsAccessKeyId     string
@@ -173,6 +175,7 @@ func NewClient(ctx context.Context, config ClientConfig) (*Client, error) {
 		logger:             logger,
 		homeDir:            config.HomeDir,
 		boxes:              make(map[string]*boxlite.Box),
+		publishedPorts:     make(map[string]map[int]int),
 		awsRegion:          config.AWSRegion,
 		awsEndpointUrl:     config.AWSEndpointUrl,
 		awsAccessKeyId:     config.AWSAccessKeyId,
@@ -255,6 +258,16 @@ func (c *Client) Create(ctx context.Context, boxDto dto.CreateBoxDTO) (string, s
 	for _, vol := range volumeMounts {
 		opts = append(opts, boxlite.WithVolume(vol.hostPath, vol.mountPath))
 	}
+	for _, port := range boxDto.Ports {
+		hostPort := port.HostPort
+		if hostPort == 0 {
+			hostPort = port.GuestPort
+		}
+		opts = append(opts, boxlite.WithPort(boxlite.PortSpec{
+			Host:  hostPort,
+			Guest: port.GuestPort,
+		}))
+	}
 
 	if len(volumeMounts) > 0 {
 		if err := c.recordBoxVolumeMounts(ctx, boxDto.Id, volumeMounts); err != nil {
@@ -284,6 +297,7 @@ func (c *Client) Create(ctx context.Context, boxDto dto.CreateBoxDTO) (string, s
 
 	c.mu.Lock()
 	c.boxes[boxDto.Id] = bx
+	c.recordPublishedPortsLocked(boxDto.Id, portSetFromDTO(boxDto.Ports))
 	c.mu.Unlock()
 
 	c.logger.Info(
@@ -313,6 +327,7 @@ func (c *Client) Start(ctx context.Context, boxId string, authToken *string, met
 	if err := c.ensureVolumeMountsFromMetadata(ctx, boxId, metadata); err != nil {
 		c.logger.ErrorContext(ctx, "failed to ensure volume FUSE mounts", "error", err)
 	}
+	c.recordPublishedPortsFromMetadata(boxId, metadata)
 
 	bx, err := c.getOrFetchBox(ctx, boxId)
 	if err != nil {
@@ -346,6 +361,7 @@ func (c *Client) Destroy(ctx context.Context, boxId string) error {
 		bx.Close()
 		delete(c.boxes, boxId)
 	}
+	delete(c.publishedPorts, boxId)
 	c.mu.Unlock()
 
 	if err := c.runtime.ForceRemove(ctx, boxId); err != nil {
@@ -470,6 +486,63 @@ func (c *Client) BoxMetrics(ctx context.Context, boxId string) (*boxlite.BoxMetr
 // ListInfo returns info for all boxes managed by this runtime.
 func (c *Client) ListInfo(ctx context.Context) ([]boxlite.BoxInfo, error) {
 	return c.runtime.ListInfo(ctx)
+}
+
+// PublishedHostPort returns the runner-local host port for a published guest
+// port. It intentionally checks only ports declared on box create or replayed
+// via start metadata, so the public proxy cannot expose arbitrary runner-local
+// services.
+func (c *Client) PublishedHostPort(boxId string, guestPort int) (int, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	ports, ok := c.publishedPorts[boxId]
+	if !ok {
+		return 0, false
+	}
+	hostPort, ok := ports[guestPort]
+	return hostPort, ok
+}
+
+func (c *Client) recordPublishedPortsFromMetadata(boxId string, metadata map[string]string) {
+	if metadata == nil {
+		return
+	}
+	portsJSON, ok := metadata["ports"]
+	if !ok || portsJSON == "" {
+		return
+	}
+
+	var ports []dto.PortDTO
+	if err := json.Unmarshal([]byte(portsJSON), &ports); err != nil {
+		c.logger.Warn("failed to parse box port metadata", "box", boxId, "error", err)
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.recordPublishedPortsLocked(boxId, portSetFromDTO(ports))
+}
+
+func (c *Client) recordPublishedPortsLocked(boxId string, ports map[int]int) {
+	if len(ports) == 0 {
+		return
+	}
+	c.publishedPorts[boxId] = ports
+}
+
+func portSetFromDTO(ports []dto.PortDTO) map[int]int {
+	out := make(map[int]int)
+	for _, port := range ports {
+		hostPort := port.HostPort
+		if hostPort == 0 {
+			hostPort = port.GuestPort
+		}
+		if port.GuestPort > 0 && port.GuestPort <= 65535 && hostPort > 0 && hostPort <= 65535 {
+			out[port.GuestPort] = hostPort
+		}
+	}
+	return out
 }
 
 // GetBox retrieves a box handle from cache or fetches it from the runtime.

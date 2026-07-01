@@ -3,7 +3,9 @@
 
 package controllers
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestIsTerminalToolboxPath(t *testing.T) {
 	tests := []struct {
@@ -27,5 +29,23 @@ func TestIsTerminalToolboxPath(t *testing.T) {
 				t.Fatalf("isTerminalToolboxPath(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPublicPortProxyTarget(t *testing.T) {
+	targetPath, port, err := publicPortProxyTarget("/proxy/8080/hello/world")
+	if err != nil {
+		t.Fatalf("publicPortProxyTarget returned error: %v", err)
+	}
+	if port != 8080 {
+		t.Fatalf("port = %d, want 8080", port)
+	}
+
+	if targetPath != "/hello/world" {
+		t.Fatalf("targetPath = %q, want /hello/world", targetPath)
+	}
+	target := publicPortTargetURL(18080, targetPath)
+	if target.String() != "http://127.0.0.1:18080/hello/world" {
+		t.Fatalf("target = %q, want %q", target.String(), "http://127.0.0.1:18080/hello/world")
 	}
 }

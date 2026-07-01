@@ -6,12 +6,16 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	commonproxy "github.com/boxlite-ai/common-go/pkg/proxy"
 	"github.com/boxlite-ai/runner/pkg/runner"
 	"github.com/boxlite-ai/runner/pkg/shellutil"
 	"github.com/gin-gonic/gin"
@@ -41,22 +45,21 @@ const (
 // endpoints are no longer available because boxes do not run the old daemon.
 func ProxyRequest(logger *slog.Logger) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		r, err := runner.GetInstance(nil)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
 		boxId := ctx.Param("boxId")
 		path := normalizeToolboxPath(ctx.Param("path"))
 
 		if strings.EqualFold(ctx.Request.Header.Get("Upgrade"), "websocket") {
 			if isTerminalToolboxPath(path) {
+				r, err := runner.GetInstance(nil)
+				if err != nil {
+					ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
 				handleWebSocketTerminal(ctx, r, boxId, logger)
 				return
 			}
 
-			legacyToolboxUnavailable(ctx, logger, boxId, path)
+			proxyPublicPort(ctx, logger, boxId, path)
 			return
 		}
 
@@ -65,7 +68,7 @@ func ProxyRequest(logger *slog.Logger) gin.HandlerFunc {
 			return
 		}
 
-		legacyToolboxUnavailable(ctx, logger, boxId, path)
+		proxyPublicPort(ctx, logger, boxId, path)
 	}
 }
 
@@ -84,11 +87,60 @@ func isTerminalToolboxPath(path string) bool {
 	return path == "/" || path == "/proxy/22222" || strings.HasPrefix(path, "/proxy/22222/")
 }
 
-func legacyToolboxUnavailable(ctx *gin.Context, logger *slog.Logger, boxId string, path string) {
-	logger.InfoContext(ctx.Request.Context(), "legacy toolbox proxy request rejected", "box", boxId, "path", path)
-	ctx.JSON(http.StatusGone, gin.H{
-		"error": "legacy toolbox proxy is no longer available; use the BoxLite REST API or terminal preview",
-	})
+func proxyPublicPort(ctx *gin.Context, logger *slog.Logger, boxId string, path string) {
+	r, err := runner.GetInstance(nil)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	targetPath, guestPort, err := publicPortProxyTarget(path)
+	if err != nil {
+		logger.InfoContext(ctx.Request.Context(), "public port proxy request rejected", "box", boxId, "path", path, "error", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	hostPort, ok := r.Boxlite.PublishedHostPort(boxId, guestPort)
+	if !ok {
+		logger.InfoContext(ctx.Request.Context(), "public port proxy request forbidden", "box", boxId, "port", guestPort)
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "port is not published for this box"})
+		return
+	}
+	target := publicPortTargetURL(hostPort, targetPath)
+
+	commonproxy.NewProxyRequestHandler(func(*gin.Context) (*url.URL, map[string]string, error) {
+		return target, map[string]string{}, nil
+	}, nil)(ctx)
+}
+
+func publicPortProxyTarget(path string) (string, int, error) {
+	path = normalizeToolboxPath(path)
+	if !strings.HasPrefix(path, "/proxy/") {
+		return "", 0, errors.New("public port proxy path must start with /proxy/<port>")
+	}
+
+	rest := strings.TrimPrefix(path, "/proxy/")
+	portString, targetPath, _ := strings.Cut(rest, "/")
+	port, err := strconv.ParseUint(portString, 10, 16)
+	if err != nil || port == 0 {
+		return "", 0, errors.New("public port proxy path contains an invalid port")
+	}
+
+	if targetPath == "" {
+		targetPath = "/"
+	} else {
+		targetPath = "/" + targetPath
+	}
+
+	return targetPath, int(port), nil
+}
+
+func publicPortTargetURL(hostPort int, targetPath string) *url.URL {
+	return &url.URL{
+		Scheme: "http",
+		Host:   "127.0.0.1:" + strconv.Itoa(hostPort),
+		Path:   targetPath,
+	}
 }
 
 const terminalHTML = `<!DOCTYPE html>

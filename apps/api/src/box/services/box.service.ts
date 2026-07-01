@@ -172,7 +172,7 @@ export class BoxService {
       if (createBoxDto.volumes && createBoxDto.volumes.length > 0) {
         const volumeIdOrNames = createBoxDto.volumes.map((v) => v.volumeId)
         await this.volumeService.validateVolumes(organization.id, volumeIdOrNames)
-      } else if (image) {
+      } else if (image && !createBoxDto.ports?.length) {
         //  No volumes requested — try to claim a pre-warmed box matching this image/spec
         //  before creating a fresh one.
         const skipWarmPool = (await this.redis.exists(`warm-pool:skip:${image}`)) === 1
@@ -239,6 +239,9 @@ export class BoxService {
 
       if (createBoxDto.volumes !== undefined) {
         box.volumes = this.resolveVolumes(createBoxDto.volumes)
+      }
+      if (createBoxDto.ports !== undefined) {
+        box.ports = createBoxDto.ports
       }
 
       box.runnerId = runner.id
@@ -672,18 +675,27 @@ export class BoxService {
     return box.region
   }
 
+  private assertPreviewPortIsPublished(box: Box, port: number): void {
+    if (port === TERMINAL_PREVIEW_PORT) {
+      return
+    }
+
+    const published = box.ports?.some((p) => p.guestPort === port)
+    if (!published) {
+      throw new BadRequestError(`Port ${port} is not published for this box`)
+    }
+  }
+
   async getPortPreviewUrl(boxIdOrName: string, organizationId: string, port: number): Promise<PortPreviewUrlDto> {
     if (port < 1 || port > 65535) {
       throw new BadRequestError('Invalid port')
-    }
-    if (port !== TERMINAL_PREVIEW_PORT) {
-      throw new BadRequestError(`Port preview is only supported for terminal port ${TERMINAL_PREVIEW_PORT}`)
     }
 
     const proxyDomain = this.configService.getOrThrow('proxy.domain')
     const proxyProtocol = this.configService.getOrThrow('proxy.protocol')
 
     const box = await this.findOneByIdOrName(boxIdOrName, organizationId)
+    this.assertPreviewPortIsPublished(box, port)
 
     let url = `${proxyProtocol}://${port}-${box.id}.${proxyDomain}`
 
@@ -709,9 +721,6 @@ export class BoxService {
     if (port < 1 || port > 65535) {
       throw new BadRequestError('Invalid port')
     }
-    if (port !== TERMINAL_PREVIEW_PORT) {
-      throw new BadRequestError(`Signed port preview is only supported for terminal port ${TERMINAL_PREVIEW_PORT}`)
-    }
 
     if (expiresInSeconds < 1 || expiresInSeconds > 60 * 60 * 24) {
       throw new BadRequestError('expiresInSeconds must be between 1 second and 24 hours')
@@ -721,6 +730,7 @@ export class BoxService {
     const proxyProtocol = this.configService.getOrThrow('proxy.protocol')
 
     const box = await this.findOneByIdOrName(boxIdOrName, organizationId)
+    this.assertPreviewPortIsPublished(box, port)
 
     const token = customNanoid(urlAlphabet.replace('_', '').replace('-', ''))(16).toLocaleLowerCase()
 

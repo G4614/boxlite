@@ -6,7 +6,7 @@
 
 import { ApiProperty, ApiPropertyOptional, ApiSchema } from '@nestjs/swagger'
 import { BoxState } from '../enums/box-state.enum'
-import { IsEnum, IsOptional } from 'class-validator'
+import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator'
 import { Box } from '../entities/box.entity'
 import { BoxDesiredState } from '../enums/box-desired-state.enum'
 import { BoxClass } from '../enums/box-class.enum'
@@ -31,6 +31,28 @@ export class BoxVolume {
     example: 'users/alice',
   })
   subpath?: string
+}
+
+@ApiSchema({ name: 'BoxPort' })
+export class BoxPort {
+  @ApiPropertyOptional({
+    description: 'The host-side port. Defaults to guestPort when omitted.',
+    example: 8000,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  hostPort?: number
+
+  @ApiProperty({
+    description: 'The box guest-side port.',
+    example: 8000,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  guestPort: number
 }
 
 @ApiSchema({ name: 'Box' })
@@ -195,6 +217,14 @@ export class BoxDto {
   volumes?: BoxVolume[]
 
   @ApiPropertyOptional({
+    description: 'Array of ports published from the box guest to the runner host.',
+    type: [BoxPort],
+    required: false,
+  })
+  @IsOptional()
+  ports?: BoxPort[]
+
+  @ApiPropertyOptional({
     description: 'The creation timestamp of the box',
     example: '2024-10-01T12:00:00Z',
     required: false,
@@ -261,6 +291,7 @@ export class BoxDto {
       networkAllowList: box.networkAllowList,
       labels: box.labels,
       volumes: box.volumes,
+      ports: box.ports,
       state: this.getBoxState(box),
       desiredState: box.desiredState,
       errorReason: box.errorReason,

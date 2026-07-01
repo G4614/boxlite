@@ -259,6 +259,10 @@ export class RunnerAdapterV0 implements RunnerAdapter {
       memoryQuota: box.mem,
       storageQuota: box.disk,
       env: box.env,
+      ports: box.ports?.map((port) => ({
+        hostPort: port.hostPort,
+        guestPort: port.guestPort,
+      })),
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
       metadata,

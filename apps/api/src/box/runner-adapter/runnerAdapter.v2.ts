@@ -133,6 +133,10 @@ export class RunnerAdapterV2 implements RunnerAdapter {
         mountPath: volume.mountPath,
         subpath: volume.subpath,
       })),
+      ports: box.ports?.map((port) => ({
+        hostPort: port.hostPort,
+        guestPort: port.guestPort,
+      })),
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
       metadata,

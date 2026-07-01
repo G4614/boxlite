@@ -17,6 +17,7 @@ type CreateBoxDTO struct {
 	Registry         *RegistryDTO      `json:"registry,omitempty"`
 	Entrypoint       []string          `json:"entrypoint,omitempty"`
 	Volumes          []VolumeDTO       `json:"volumes,omitempty"`
+	Ports            []PortDTO         `json:"ports,omitempty"`
 	NetworkBlockAll  *bool             `json:"networkBlockAll,omitempty"`
 	NetworkAllowList *string           `json:"networkAllowList,omitempty"`
 	Metadata         map[string]string `json:"metadata,omitempty"`
@@ -28,6 +29,11 @@ type CreateBoxDTO struct {
 	OrganizationId *string `json:"organizationId,omitempty"`
 	RegionId       *string `json:"regionId,omitempty"`
 } //	@name	CreateBoxDTO
+
+type PortDTO struct {
+	HostPort  int `json:"hostPort,omitempty" validate:"omitempty,min=1,max=65535"`
+	GuestPort int `json:"guestPort" validate:"required,min=1,max=65535"`
+} //	@name	PortDTO
 
 type ResizeBoxDTO struct {
 	Cpu    int64 `json:"cpu,omitempty" validate:"omitempty,min=1"`

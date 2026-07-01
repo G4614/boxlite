@@ -18,6 +18,9 @@
 import type { DtoVolumeDTO } from './dto-volume-dto';
 // May contain unused imports in some cases
 // @ts-ignore
+import type { DtoPortDTO } from './dto-port-dto';
+// May contain unused imports in some cases
+// @ts-ignore
 import type { RegistryDTO } from './registry-dto';
 
 export interface CreateBoxDTO {
@@ -43,6 +46,6 @@ export interface CreateBoxDTO {
     'skipStart'?: boolean;
     'image': string;
     'storageQuota'?: number;
+    'ports'?: Array<DtoPortDTO>;
     'volumes'?: Array<DtoVolumeDTO>;
 }
-
