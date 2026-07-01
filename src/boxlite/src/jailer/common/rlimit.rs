@@ -73,6 +73,13 @@ pub fn apply_limits_raw(limits: &ResourceLimits) -> Result<(), i32> {
     // non-bypassable fork-bomb cap is the cgroup `pids.max` (set from
     // `max_processes` in jailer::cgroup), so RLIMIT_NPROC is left at its
     // inherited value here.
+    //
+    // Previous behaviour, kept for reference (do not re-enable without moving
+    // the drop-to-per-box-UID before this point — see PR #891):
+    //   if let Some(max_procs) = limits.max_processes {
+    //       // Note: Ignore errors for NPROC on macOS (works differently)
+    //       let _ = set_rlimit_raw(libc::RLIMIT_NPROC, max_procs);
+    //   }
 
     if let Some(max_mem) = limits.max_memory {
         set_rlimit_raw(libc::RLIMIT_AS, max_mem)?;
