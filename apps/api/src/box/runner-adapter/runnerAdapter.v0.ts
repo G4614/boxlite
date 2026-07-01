@@ -32,7 +32,10 @@ const RETRYABLE_NETWORK_ERROR_CODES = ['ECONNRESET', 'ETIMEDOUT']
 const RUNNER_NON_JSON_ERROR_CODE = 'runner_non_json_error'
 const NON_JSON_SNIPPET_MAX_LENGTH = 180
 
-type RunnerCreateBoxDTO = Parameters<BoxApi['create']>[0] & { secrets?: CreateBoxSecretDto[] }
+type RunnerCreateBoxDTO = Parameters<BoxApi['create']>[0] & {
+  secrets?: CreateBoxSecretDto[]
+  enableSecretSubstitution?: boolean
+}
 
 function statusCodeFrom(error: AxiosError): number | undefined {
   return error.response?.status || (error as any).status
@@ -259,6 +262,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
     box: Box,
     metadata?: { [key: string]: string },
     secrets: CreateBoxSecretDto[] = [],
+    enableSecretSubstitution = false,
   ): Promise<StartBoxResponse | undefined> {
     const createBoxDto: RunnerCreateBoxDTO = {
       id: box.id,
@@ -270,6 +274,7 @@ export class RunnerAdapterV0 implements RunnerAdapter {
       storageQuota: box.disk,
       env: box.env,
       secrets,
+      enableSecretSubstitution,
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
       metadata,

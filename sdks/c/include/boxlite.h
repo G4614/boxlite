@@ -564,6 +564,11 @@ void boxlite_options_set_auto_remove(CBoxliteOptions *opts, int val);
 
 void boxlite_options_set_detach(CBoxliteOptions *opts, int val);
 
+// Pre-provision secret substitution (box CA + MITM proxy) at create time even
+// when no secrets are supplied, so secrets can be added later on a running box.
+// `val != 0` enables it. No-op on a null handle.
+void boxlite_options_set_secret_substitution(CBoxliteOptions *opts, int val);
+
 // Apply a `CAdvancedBoxOptions` (security, mount isolation, health check) to a
 // `CBoxliteOptions`. Clones the advanced configuration into the box options —
 // the caller retains ownership of `advanced_opts` and is responsible for

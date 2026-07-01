@@ -5,25 +5,28 @@
 package dto
 
 type CreateBoxDTO struct {
-	Id               string            `json:"id" validate:"required"`
-	FromVolumeId     string            `json:"fromVolumeId,omitempty"`
-	Image            string            `json:"image" validate:"required"`
-	OsUser           string            `json:"osUser" validate:"required"`
-	CpuQuota         int64             `json:"cpuQuota" validate:"min=1"`
-	GpuQuota         int64             `json:"gpuQuota" validate:"min=0"`
-	MemoryQuota      int64             `json:"memoryQuota" validate:"min=1"`
-	StorageQuota     int64             `json:"storageQuota" validate:"min=1"`
-	Env              map[string]string `json:"env,omitempty"`
-	Secrets          []SecretDTO       `json:"secrets,omitempty"`
-	Registry         *RegistryDTO      `json:"registry,omitempty"`
-	Entrypoint       []string          `json:"entrypoint,omitempty"`
-	Volumes          []VolumeDTO       `json:"volumes,omitempty"`
-	NetworkBlockAll  *bool             `json:"networkBlockAll,omitempty"`
-	NetworkAllowList *string           `json:"networkAllowList,omitempty"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
-	AuthToken        *string           `json:"authToken,omitempty"`
-	OtelEndpoint     *string           `json:"otelEndpoint,omitempty"`
-	SkipStart        *bool             `json:"skipStart,omitempty"`
+	Id           string            `json:"id" validate:"required"`
+	FromVolumeId string            `json:"fromVolumeId,omitempty"`
+	Image        string            `json:"image" validate:"required"`
+	OsUser       string            `json:"osUser" validate:"required"`
+	CpuQuota     int64             `json:"cpuQuota" validate:"min=1"`
+	GpuQuota     int64             `json:"gpuQuota" validate:"min=0"`
+	MemoryQuota  int64             `json:"memoryQuota" validate:"min=1"`
+	StorageQuota int64             `json:"storageQuota" validate:"min=1"`
+	Env          map[string]string `json:"env,omitempty"`
+	Secrets      []SecretDTO       `json:"secrets,omitempty"`
+	// EnableSecretSubstitution pre-provisions the per-box MITM CA at create time
+	// even with no Secrets, so secrets can be added later via PUT /:boxId/secrets.
+	EnableSecretSubstitution *bool             `json:"enableSecretSubstitution,omitempty"`
+	Registry                 *RegistryDTO      `json:"registry,omitempty"`
+	Entrypoint               []string          `json:"entrypoint,omitempty"`
+	Volumes                  []VolumeDTO       `json:"volumes,omitempty"`
+	NetworkBlockAll          *bool             `json:"networkBlockAll,omitempty"`
+	NetworkAllowList         *string           `json:"networkAllowList,omitempty"`
+	Metadata                 map[string]string `json:"metadata,omitempty"`
+	AuthToken                *string           `json:"authToken,omitempty"`
+	OtelEndpoint             *string           `json:"otelEndpoint,omitempty"`
+	SkipStart                *bool             `json:"skipStart,omitempty"`
 
 	// Nullable for backward compatibility
 	OrganizationId *string `json:"organizationId,omitempty"`

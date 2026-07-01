@@ -396,6 +396,19 @@ pub struct BoxOptions {
     /// guest; the real value never enters the VM.
     #[serde(default)]
     pub secrets: Vec<Secret>,
+
+    /// Pre-provision secret substitution (box CA + MITM proxy) at create time
+    /// even when `secrets` is empty, so secrets can be added later on a running
+    /// box via the live-update path.
+    ///
+    /// The box CA must exist before guest boot (the guest installs it into its
+    /// trust store during init); it cannot be injected into an already-running
+    /// guest. So a box that starts without this flag AND without secrets can
+    /// never enable secret substitution later. Setting this reserves that
+    /// capability. When both this is `false` and `secrets` is empty, no CA is
+    /// generated and no MITM handler is installed (unchanged default behavior).
+    #[serde(default)]
+    pub enable_secret_substitution: bool,
 }
 
 /// A secret for MITM proxy injection.
@@ -497,6 +510,7 @@ impl Default for BoxOptions {
             cmd: None,
             user: None,
             secrets: Vec::new(),
+            enable_secret_substitution: false,
         }
     }
 }
@@ -1301,6 +1315,44 @@ mod tests {
     fn test_box_options_with_secrets_default() {
         let opts = BoxOptions::default();
         assert!(opts.secrets.is_empty(), "secrets should default to empty");
+    }
+
+    #[test]
+    fn test_box_options_enable_secret_substitution_default_false() {
+        let opts = BoxOptions::default();
+        assert!(
+            !opts.enable_secret_substitution,
+            "enable_secret_substitution should default to false"
+        );
+    }
+
+    #[test]
+    fn test_box_options_enable_secret_substitution_serde() {
+        let opts = BoxOptions {
+            enable_secret_substitution: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&opts).unwrap();
+        assert!(
+            json.contains("\"enable_secret_substitution\":true"),
+            "JSON must carry the flag: {json}"
+        );
+        let deserialized: BoxOptions = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.enable_secret_substitution);
+    }
+
+    #[test]
+    fn test_box_options_enable_secret_substitution_missing_defaults_false() {
+        let json = r#"{
+            "rootfs": {"Image": "alpine:latest"},
+            "env": [],
+            "secrets": []
+        }"#;
+        let opts: BoxOptions = serde_json::from_str(json).unwrap();
+        assert!(
+            !opts.enable_secret_substitution,
+            "flag should default to false when absent from JSON"
+        );
     }
 
     #[test]

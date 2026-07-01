@@ -88,6 +88,15 @@ export class CreateBoxDto {
   secrets?: CreateBoxSecretDto[]
 
   @ApiPropertyOptional({
+    description:
+      'Pre-provision secret substitution (per-box MITM CA) so secrets can be added later on a running box, even when none are supplied at create time.',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  enableSecretSubstitution?: boolean
+
+  @ApiPropertyOptional({
     description: 'Labels for the box',
     type: 'object',
     additionalProperties: { type: 'string' },

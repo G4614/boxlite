@@ -147,6 +147,17 @@ pub unsafe extern "C" fn boxlite_options_set_detach(opts: *mut CBoxliteOptions, 
     options_set_detach(opts, val)
 }
 
+/// Pre-provision secret substitution (box CA + MITM proxy) at create time even
+/// when no secrets are supplied, so secrets can be added later on a running box.
+/// `val != 0` enables it. No-op on a null handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_options_set_secret_substitution(
+    opts: *mut CBoxliteOptions,
+    val: c_int,
+) {
+    options_set_secret_substitution(opts, val)
+}
+
 /// Apply a `CAdvancedBoxOptions` (security, mount isolation, health check) to a
 /// `CBoxliteOptions`. Clones the advanced configuration into the box options —
 /// the caller retains ownership of `advanced_opts` and is responsible for
@@ -428,6 +439,14 @@ pub unsafe fn options_set_detach(handle: *mut OptionsHandle, val: c_int) {
     unsafe {
         if !handle.is_null() {
             (*handle).options.detach = val != 0;
+        }
+    }
+}
+
+pub unsafe fn options_set_secret_substitution(handle: *mut OptionsHandle, val: c_int) {
+    unsafe {
+        if !handle.is_null() {
+            (*handle).options.enable_secret_substitution = val != 0;
         }
     }
 }

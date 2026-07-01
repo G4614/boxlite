@@ -251,6 +251,9 @@ func (c *Client) Create(ctx context.Context, boxDto dto.CreateBoxDTO) (string, s
 		opts = append(opts, boxlite.WithEnv(k, v))
 	}
 	opts = append(opts, secretOptions(boxDto.Secrets)...)
+	if boxDto.EnableSecretSubstitution != nil {
+		opts = append(opts, boxlite.WithSecretSubstitution(*boxDto.EnableSecretSubstitution))
+	}
 
 	if len(boxDto.Entrypoint) > 0 {
 		opts = append(opts, boxlite.WithEntrypoint(boxDto.Entrypoint...))

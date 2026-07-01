@@ -351,9 +351,18 @@ fn build_network_config(
     config.allow_net = allow_net;
     config.secrets = options.secrets.clone();
 
-    // Generate ephemeral MITM CA when secrets are configured.
+    // Generate ephemeral MITM CA when secrets are configured, or when the box
+    // opts into secret substitution up front (so secrets can be added later via
+    // the live-update path). The CA must exist before guest boot — the guest
+    // installs it into its trust store during init and it cannot be injected
+    // into a running guest — so pre-provisioning here is the only way a box that
+    // starts without secrets can enable substitution later.
+    //
     // The CA cert+key flow through NetworkBackendConfig → GvproxyConfig → Go.
-    if !options.secrets.is_empty() {
+    // With an empty secret set the Go side builds an empty matcher and installs
+    // the MITM handler in pass-through mode (HasRules() == false), so there is
+    // no interception until the first live update adds a rule.
+    if !options.secrets.is_empty() || options.enable_secret_substitution {
         match crate::net::ca::load_or_generate(&layout.ca_dir()) {
             Ok(ca) => {
                 config.ca_cert_pem = Some(ca.cert_pem);

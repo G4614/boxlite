@@ -77,7 +77,11 @@ import { assertWithinPerBoxLimits } from './per-box-limits'
 import { UpdateBoxSecretDto } from '../../boxlite-rest/dto/update-box-secrets.dto'
 import { EncryptionService } from '../../encryption/encryption.service'
 import { CreateBoxSecretDto } from '../dto/create-box.dto'
-import { BOX_CREATE_SECRETS_TTL_SECONDS, boxCreateSecretsKey } from '../utils/box-create-secrets.util'
+import {
+  BOX_CREATE_SECRETS_TTL_SECONDS,
+  boxCreateSecretsKey,
+  boxCreateSecretSubstitutionKey,
+} from '../utils/box-create-secrets.util'
 
 // TODO(image-rewrite): resource defaults previously came from the removed image subsystem;
 // these mirror the Box entity column defaults until image resolution is rebuilt.
@@ -175,9 +179,10 @@ export class BoxService {
       if (createBoxDto.volumes && createBoxDto.volumes.length > 0) {
         const volumeIdOrNames = createBoxDto.volumes.map((v) => v.volumeId)
         await this.volumeService.validateVolumes(organization.id, volumeIdOrNames)
-      } else if (image && !createBoxDto.secrets?.length) {
+      } else if (image && !createBoxDto.secrets?.length && !createBoxDto.enableSecretSubstitution) {
         //  No volumes requested — try to claim a pre-warmed box matching this image/spec
-        //  before creating a fresh one.
+        //  before creating a fresh one. Skipped when secret substitution is requested:
+        //  a pre-warmed box lacks the per-box MITM CA, which must be provisioned at boot.
         const skipWarmPool = (await this.redis.exists(`warm-pool:skip:${image}`)) === 1
         if (!skipWarmPool) {
           const warmPoolBox = await this.warmPoolService.fetchWarmPoolBox({
@@ -251,6 +256,14 @@ export class BoxService {
       try {
         if (createBoxDto.secrets?.length) {
           await this.storeCreateSecrets(insertedBox.id, createBoxDto.secrets)
+        }
+        if (createBoxDto.enableSecretSubstitution) {
+          await this.redis.set(
+            boxCreateSecretSubstitutionKey(insertedBox.id),
+            '1',
+            'EX',
+            BOX_CREATE_SECRETS_TTL_SECONDS,
+          )
         }
       } catch (error) {
         await this.boxRepository.delete({ id: insertedBox.id }).catch((deleteError) => {

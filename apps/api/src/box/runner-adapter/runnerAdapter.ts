@@ -52,6 +52,7 @@ export interface RunnerAdapter {
     box: Box,
     metadata?: { [key: string]: string },
     secrets?: CreateBoxSecretDto[],
+    enableSecretSubstitution?: boolean,
   ): Promise<StartBoxResponse | undefined>
   startBox(
     boxId: string,

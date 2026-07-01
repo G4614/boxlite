@@ -122,6 +122,7 @@ export class RunnerAdapterV2 implements RunnerAdapter {
     box: Box,
     metadata?: { [key: string]: string },
     secrets: CreateBoxSecretDto[] = [],
+    enableSecretSubstitution = false,
   ): Promise<StartBoxResponse | undefined> {
     if (!box.image) {
       throw new Error(`Box ${box.id} has no image; cannot create on runner`)
@@ -137,6 +138,7 @@ export class RunnerAdapterV2 implements RunnerAdapter {
       storageQuota: box.disk,
       env: box.env,
       secrets: await this.encryptSecrets(secrets),
+      enableSecretSubstitution,
       volumes: box.volumes?.map((volume) => ({
         volumeId: volume.volumeId,
         mountPath: volume.mountPath,

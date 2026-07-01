@@ -175,10 +175,60 @@ describe('BoxStartAction.handleRunnerBoxUnknownStateOnDesiredStateStart', () => 
 
     const result = await (action as BoxAction).run(box, lockCode)
 
-    expect(createBox).toHaveBeenCalledWith(box, expect.any(Object), [])
-    expect(redis.del).toHaveBeenCalledWith(`box:create-secrets:${box.id}`)
+    expect(createBox).toHaveBeenCalledWith(box, expect.any(Object), [], false)
+    expect(redis.del).toHaveBeenCalledWith(
+      `box:create-secrets:${box.id}`,
+      `box:create-secret-substitution:${box.id}`,
+    )
     expect(result).toBe(SYNC_AGAIN)
     expect(updatedFields.some((u) => u.state === BoxState.CREATING)).toBe(true)
+  })
+
+  it('pre-provisions secret substitution when the create-time marker is set (no create secrets)', async () => {
+    const runnerId = 'runner-boot-subst'
+
+    const box = new Box('region-1', 'subst-box')
+    box.runnerId = runnerId
+    box.image = 'boxlite/base'
+    box.state = BoxState.UNKNOWN
+    box.desiredState = BoxDesiredState.STARTED
+    box.pending = true
+
+    const runner = { id: runnerId, state: RunnerState.READY } as Runner
+    const runnerService = { findOneOrFail: jest.fn(async () => runner) }
+    const createBox = jest.fn(async () => undefined)
+    const runnerAdapterFactory = { create: jest.fn(async () => ({ createBox }) as any) }
+    const lockCode = new LockCode('lock-boot-subst')
+    const boxRepository = { update: jest.fn(async () => box) }
+    const redisLockProvider = { getCode: jest.fn(async () => lockCode) }
+    const organizationService = { findOne: jest.fn(async () => ({ boxMetadata: {} })) }
+    // No create secrets, but the substitution marker is present.
+    const redis = {
+      get: jest.fn(async (key: string) =>
+        key === `box:create-secret-substitution:${box.id}` ? '1' : null,
+      ),
+      del: jest.fn(async () => 1),
+    }
+
+    const action = new BoxStartAction(
+      runnerService as any,
+      runnerAdapterFactory as any,
+      boxRepository as any,
+      organizationService as any,
+      {} as any,
+      redisLockProvider as any,
+      {} as any,
+      redis as any,
+      { decrypt: jest.fn(async (value: string) => value) } as any,
+    )
+
+    await (action as BoxAction).run(box, lockCode)
+
+    expect(createBox).toHaveBeenCalledWith(box, expect.any(Object), [], true)
+    expect(redis.del).toHaveBeenCalledWith(
+      `box:create-secrets:${box.id}`,
+      `box:create-secret-substitution:${box.id}`,
+    )
   })
 
   it('loads encrypted create secrets from Redis before creating the runner box', async () => {
@@ -230,16 +280,24 @@ describe('BoxStartAction.handleRunnerBoxUnknownStateOnDesiredStateStart', () => 
 
     await (action as BoxAction).run(box, lockCode)
 
-    expect(createBox).toHaveBeenCalledWith(box, expect.any(Object), [
-      {
-        name: 'openai_api_key',
-        value: 'sk-test',
-        hosts: ['api.openai.com'],
-        placeholder: '<BOXLITE_SECRET:openai_api_key>',
-      },
-    ])
+    expect(createBox).toHaveBeenCalledWith(
+      box,
+      expect.any(Object),
+      [
+        {
+          name: 'openai_api_key',
+          value: 'sk-test',
+          hosts: ['api.openai.com'],
+          placeholder: '<BOXLITE_SECRET:openai_api_key>',
+        },
+      ],
+      false,
+    )
     expect(encryptionService.decrypt).toHaveBeenCalledWith('encrypted:sk-test')
-    expect(redis.del).toHaveBeenCalledWith(`box:create-secrets:${box.id}`)
+    expect(redis.del).toHaveBeenCalledWith(
+      `box:create-secrets:${box.id}`,
+      `box:create-secret-substitution:${box.id}`,
+    )
   })
 
   it('keeps stored secrets when the creating state update fails after runner create dispatch', async () => {

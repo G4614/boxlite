@@ -21,7 +21,7 @@ import { CreateBoxSecretDto } from '../../dto/create-box.dto'
 import { InjectRedis } from '@nestjs-modules/ioredis'
 import { Redis } from 'ioredis'
 import { EncryptionService } from '../../../encryption/encryption.service'
-import { boxCreateSecretsKey } from '../../utils/box-create-secrets.util'
+import { boxCreateSecretsKey, boxCreateSecretSubstitutionKey } from '../../utils/box-create-secrets.util'
 
 @Injectable()
 export class BoxStartAction extends BoxAction {
@@ -85,14 +85,17 @@ export class BoxStartAction extends BoxAction {
 
     const runnerAdapter = await this.runnerAdapterFactory.create(runner)
     const createSecrets = await this.loadCreateSecrets(box.id)
-    await runnerAdapter.createBox(box, metadata, createSecrets)
+    const enableSecretSubstitution = (await this.redis.get(boxCreateSecretSubstitutionKey(box.id))) === '1'
+    await runnerAdapter.createBox(box, metadata, createSecrets, enableSecretSubstitution)
 
     await this.updateBoxState(box, BoxState.CREATING, lockCode)
-    this.redis.del(boxCreateSecretsKey(box.id)).catch((error) => {
-      this.logger.warn(
-        `Failed to delete create secrets for box ${box.id}: ${error instanceof Error ? error.message : error}`,
-      )
-    })
+    this.redis
+      .del(boxCreateSecretsKey(box.id), boxCreateSecretSubstitutionKey(box.id))
+      .catch((error) => {
+        this.logger.warn(
+          `Failed to delete create secrets for box ${box.id}: ${error instanceof Error ? error.message : error}`,
+        )
+      })
     return SYNC_AGAIN
   }
 

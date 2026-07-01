@@ -171,22 +171,23 @@ type Secret struct {
 }
 
 type boxConfig struct {
-	name       string
-	cpus       int
-	memoryMiB  int
-	diskSizeGB int
-	rootfsPath string
-	env        [][2]string
-	volumes    []volumeEntry
-	ports      []PortSpec
-	workDir    string
-	entrypoint []string
-	cmd        []string
-	autoRemove *bool
-	detach     *bool
-	network    *NetworkSpec
-	secrets    []Secret
-	advanced   *AdvancedBoxOptions // nil = runtime defaults; non-nil = caller-owned advanced opts applied via boxlite_options_set_advanced
+	name          string
+	cpus          int
+	memoryMiB     int
+	diskSizeGB    int
+	rootfsPath    string
+	env           [][2]string
+	volumes       []volumeEntry
+	ports         []PortSpec
+	workDir       string
+	entrypoint    []string
+	cmd           []string
+	autoRemove    *bool
+	detach        *bool
+	network       *NetworkSpec
+	secrets       []Secret
+	enableSecrets *bool               // nil = default (off); pre-provision secret substitution so secrets can be added live later
+	advanced      *AdvancedBoxOptions // nil = runtime defaults; non-nil = caller-owned advanced opts applied via boxlite_options_set_advanced
 }
 
 type volumeEntry struct {
@@ -293,6 +294,19 @@ func WithSecret(secret Secret) BoxOption {
 	return func(c *boxConfig) {
 		c.secrets = append(c.secrets, secret)
 	}
+}
+
+// WithSecretSubstitution pre-provisions secret substitution (the per-box MITM
+// CA and proxy) at create time even when no [WithSecret] rules are supplied.
+//
+// The box CA must exist before the guest boots — the guest installs it into its
+// trust store during init and it cannot be injected into a running guest — so a
+// box created without any secrets AND without this option can never enable
+// secret substitution later. Set this to reserve that capability, then add or
+// rotate secrets on the running box via the live-update path. When neither this
+// nor [WithSecret] is set, no CA is generated (unchanged default).
+func WithSecretSubstitution(enabled bool) BoxOption {
+	return func(c *boxConfig) { c.enableSecrets = &enabled }
 }
 
 // WithAutoRemove sets whether the box is auto-removed on stop.
@@ -464,6 +478,9 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 		C.free(unsafe.Pointer(cName))
 		C.free(unsafe.Pointer(cValue))
 		C.free(unsafe.Pointer(cPlaceholder))
+	}
+	if cfg.enableSecrets != nil {
+		C.boxlite_options_set_secret_substitution(cOpts, boolToCInt(*cfg.enableSecrets))
 	}
 	if cfg.autoRemove != nil {
 		C.boxlite_options_set_auto_remove(cOpts, boolToCInt(*cfg.autoRemove))

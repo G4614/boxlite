@@ -131,4 +131,12 @@ export class CreateBoxDto {
   @IsArray()
   @ArrayMaxSize(MAX_SECRETS)
   secrets?: CreateBoxSecretDto[]
+
+  // Pre-provision secret substitution (per-box MITM CA) at create time even with
+  // no `secrets`, so secrets can be added later via PUT /:boxId/secrets. The CA
+  // must exist before the guest boots, so a box created without this and without
+  // secrets can never enable substitution later.
+  @IsOptional()
+  @IsBoolean()
+  enable_secret_substitution?: boolean
 }
