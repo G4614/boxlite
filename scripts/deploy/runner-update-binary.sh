@@ -397,6 +397,23 @@ install_embedded_runtime_payload() {
   echo "embedded runtime payload installed: \${guest_hash:0:12} (\$cache_dir)"
 }
 
+write_runtime_dir_override() {
+  local cache_dir
+  cache_dir="\$(primary_runtime_cache_dir)"
+  if [ ! -d "\$cache_dir" ]; then
+    echo "FATAL: runtime cache directory missing before start: \$cache_dir" >&2
+    return 1
+  fi
+
+  mkdir -p "/etc/systemd/system/\$SERVICE.service.d"
+  cat > "/etc/systemd/system/\$SERVICE.service.d/runtime-dir.conf" <<SERVICEEOF
+[Service]
+Environment=BOXLITE_RUNTIME_DIR=\$cache_dir
+SERVICEEOF
+  systemctl daemon-reload
+  echo "systemd runtime override: BOXLITE_RUNTIME_DIR=\$cache_dir"
+}
+
 verify_embedded_runtime_hash() {
   local checked=0
   local cache_dir guest_hash
@@ -568,6 +585,7 @@ restart_with_target() {
   local target="\$1"
   systemctl stop "\$SERVICE" || true
   activate_runner_target "\$target" || return 1
+  write_runtime_dir_override || return 1
   systemctl start "\$SERVICE" || return 1
   sleep 2
   systemctl is-active --quiet "\$SERVICE" || return 1
