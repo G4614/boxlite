@@ -5,11 +5,7 @@
 //! under the platform's local data dir, then serves that directory to
 //! [`RuntimeBinaryFinder`](crate::util::RuntimeBinaryFinder) for binary discovery.
 //!
-//! The extraction path depends on the build profile and optional cache suffix:
-//! - **Explicit cache version/suffix**:
-//!   `~/.local/share/boxlite/runtimes/v{CACHE_VERSION}-{SUFFIX}/` — used for
-//!   non-published release-profile builds, so locally/CI-built artifacts are
-//!   based on the latest published version plus a content hash.
+//! The extraction path depends on the build profile:
 //! - **Release**: `~/.local/share/boxlite/runtimes/v{VERSION}/` — clean, predictable
 //!   paths for published packages where all users on the same version have identical binaries.
 //! - **Debug**: `~/.local/share/boxlite/runtimes/v{VERSION}-{HASH}/` — the `{HASH}` suffix
@@ -131,11 +127,7 @@ impl EmbeddedRuntime {
         // Line 1: version (human-readable). Line 2: build profile, read back by
         // `ttl_for_stamp` so each dir is pruned by the TTL of the profile that
         // created it. `\n` separated; readers use `str::lines` (CRLF-tolerant).
-        let stamp_body = format!(
-            "{}\n{}\n",
-            env!("BOXLITE_RUNTIME_CACHE_VERSION"),
-            env!("BOXLITE_BUILD_PROFILE")
-        );
+        let stamp_body = format!("{}\n{}\n", crate::VERSION, env!("BOXLITE_BUILD_PROFILE"));
         std::fs::write(tmp.join(".complete"), stamp_body)
             .map_err(|e| BoxliteError::Storage(format!("write stamp: {}", e)))?;
 
@@ -205,16 +197,13 @@ impl EmbeddedRuntime {
         let data_dir = dirs::data_local_dir()
             .ok_or_else(|| BoxliteError::Storage("No local data directory".into()))?;
 
-        // Official release builds use clean version paths. Non-published builds can
-        // provide an explicit suffix, and debug builds fall back to the manifest hash.
-        let cache_version = env!("BOXLITE_RUNTIME_CACHE_VERSION");
-        let explicit_suffix = env!("BOXLITE_RUNTIME_CACHE_SUFFIX");
-        let dir_name = if !explicit_suffix.is_empty() {
-            format!("v{}-{}", cache_version, explicit_suffix)
-        } else if env!("BOXLITE_BUILD_PROFILE") == "release" {
-            format!("v{}", cache_version)
+        // Release builds use clean version paths (all users on same version have identical
+        // binaries). Debug builds include the manifest hash for cache invalidation during
+        // development when binaries change without a version bump.
+        let dir_name = if env!("BOXLITE_BUILD_PROFILE") == "release" {
+            format!("v{}", crate::VERSION)
         } else {
-            format!("v{}-{}", cache_version, env!("BOXLITE_MANIFEST_HASH"))
+            format!("v{}-{}", crate::VERSION, env!("BOXLITE_MANIFEST_HASH"))
         };
 
         let dir = data_dir.join("boxlite").join("runtimes").join(dir_name);
@@ -265,29 +254,15 @@ mod tests {
         );
         let dir_name = dir.file_name().unwrap().to_string_lossy();
         assert!(
-            dir_name.starts_with(&format!("v{}", env!("BOXLITE_RUNTIME_CACHE_VERSION"))),
+            dir_name.starts_with(&format!("v{}", crate::VERSION)),
             "Expected dir to start with v{}, got {}",
-            env!("BOXLITE_RUNTIME_CACHE_VERSION"),
+            crate::VERSION,
             dir.display()
         );
 
-        // Non-official builds include a suffix for cache invalidation.
-        if !env!("BOXLITE_RUNTIME_CACHE_SUFFIX").is_empty() {
-            let expected = format!(
-                "v{}-{}",
-                env!("BOXLITE_RUNTIME_CACHE_VERSION"),
-                env!("BOXLITE_RUNTIME_CACHE_SUFFIX")
-            );
-            assert_eq!(
-                dir_name, expected,
-                "explicit runtime cache suffix should be included"
-            );
-        } else if env!("BOXLITE_BUILD_PROFILE") != "release" {
-            let expected = format!(
-                "v{}-{}",
-                env!("BOXLITE_RUNTIME_CACHE_VERSION"),
-                env!("BOXLITE_MANIFEST_HASH")
-            );
+        // Debug builds include manifest hash suffix for cache invalidation
+        if env!("BOXLITE_BUILD_PROFILE") != "release" {
+            let expected = format!("v{}-{}", crate::VERSION, env!("BOXLITE_MANIFEST_HASH"));
             assert_eq!(
                 dir_name, expected,
                 "Debug build dir should include hash suffix"

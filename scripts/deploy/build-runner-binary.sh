@@ -192,9 +192,7 @@ RUNTIME_CACHE_SUFFIX="dev-${BUILD_SEQUENCE}-${RUNTIME_SUFFIX}"
 RUNNER_VERSION="${VERSION}-${RUNTIME_CACHE_SUFFIX}"
 
 echo "==> Building libboxlite with runtime cache key v${RUNNER_VERSION}"
-BOXLITE_RUNTIME_CACHE_VERSION="$VERSION" \
-  BOXLITE_RUNTIME_CACHE_SUFFIX="$RUNTIME_CACHE_SUFFIX" \
-  make dist:c
+make dist:c
 RUNTIME_DIR="$(find_embedded_runtime_dir "$GUEST_SHA256")"
 tar czf "$TMP_DIR/boxlite-runtime.tar.gz" -C "$RUNTIME_DIR" .
 echo "==> Wrote embedded runtime payload from $RUNTIME_DIR"

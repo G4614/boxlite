@@ -443,33 +443,6 @@ verify_embedded_runtime_hash() {
   fi
 }
 
-verify_runner_binary_metadata() {
-  local binary="\$1"
-  local guest_prefix
-
-  command -v strings >/dev/null 2>&1 || {
-    echo "FATAL: required command not found on runner host: strings" >&2
-    return 1
-  }
-
-  if [ -n "\${RUNTIME_SUFFIX:-}" ]; then
-    strings "\$binary" | grep -F "\$RUNTIME_SUFFIX" >/dev/null || {
-      echo "FATAL: runner binary does not contain runtime cache suffix \$RUNTIME_SUFFIX" >&2
-      return 1
-    }
-    echo "runner binary embeds runtime suffix: \$RUNTIME_SUFFIX"
-  fi
-
-  if [ -n "\${GUEST_EXPECTED:-}" ]; then
-    guest_prefix="\${GUEST_EXPECTED:0:12}"
-    strings "\$binary" | grep -F "\$guest_prefix" >/dev/null || {
-      echo "FATAL: runner binary does not contain guest hash prefix \$guest_prefix" >&2
-      return 1
-    }
-    echo "runner binary embeds guest hash prefix: \$guest_prefix"
-  fi
-}
-
 verify_hot_adopted_shims() {
   local count=0
   if [ ! -s "\$HOT_SNAPSHOT" ]; then
@@ -659,7 +632,6 @@ else
   echo "runner runtime cache key: \$RUNTIME_CACHE_DIR_NAME"
 fi
 install_embedded_runtime_payload "\$WORK/boxlite-runtime.tar.gz" || exit 1
-verify_runner_binary_metadata "\$WORK/boxlite-runner" || exit 1
 
 CURRENT_TARGET=\$(current_runner_target)
 NEW_TARGET=\$(prepare_release_target "\$WORK/boxlite-runner" "v${VERSION}")
