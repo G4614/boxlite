@@ -75,9 +75,8 @@ export class BoxStartAction extends BoxAction {
         box.volumes.map((v) => ({ volumeId: v.volumeId, mountPath: v.mountPath, subpath: v.subpath })),
       )
     }
-    if (box.ports?.length) {
-      metadata['ports'] = JSON.stringify(box.ports.map((p) => ({ hostPort: p.hostPort, guestPort: p.guestPort })))
-    }
+    // Ports are carried on the structured create DTO (RunnerAdapter.createBox), which the runner
+    // reads directly. Start metadata is only consulted on the restart path, so no 'ports' entry here.
 
     const runnerAdapter = await this.runnerAdapterFactory.create(runner)
     await runnerAdapter.createBox(box, metadata)

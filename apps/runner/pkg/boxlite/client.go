@@ -492,6 +492,13 @@ func (c *Client) ListInfo(ctx context.Context) ([]boxlite.BoxInfo, error) {
 // port. It intentionally checks only ports declared on box create or replayed
 // via start metadata, so the public proxy cannot expose arbitrary runner-local
 // services.
+//
+// This whitelist is defense-in-depth, not the security boundary. The gvproxy
+// backend binds forwarded host ports on 0.0.0.0 (see gvproxy-bridge main.go:
+// fmt.Sprintf("0.0.0.0:%d", ...)), so every published port is reachable
+// directly on the runner host's interfaces, bypassing this check and the
+// auth-gated proxy entirely. The primary boundary is network isolation of the
+// runner host; this map only stops the proxy from reaching undeclared ports.
 func (c *Client) PublishedHostPort(boxId string, guestPort int) (int, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
