@@ -342,6 +342,61 @@ runtime_cache_dirs() {
   done
 }
 
+primary_runtime_cache_dir() {
+  local version_dir="\${RUNTIME_CACHE_DIR_NAME:-v${RUNTIME_CACHE_VERSION}}"
+  local svc_user svc_home
+
+  svc_user=\$(systemctl show "\$SERVICE" --property=User --value 2>/dev/null || true)
+  if [ -z "\$svc_user" ]; then
+    svc_user=root
+  fi
+
+  svc_home=\$(getent passwd "\$svc_user" 2>/dev/null | cut -d: -f6 || true)
+  if [ -z "\$svc_home" ]; then
+    svc_home=/root
+  fi
+
+  printf '%s\n' "\$svc_home/.local/share/boxlite/runtimes/\$version_dir"
+}
+
+install_embedded_runtime_payload() {
+  local payload="\$1"
+  local cache_dir tmp_dir guest_hash
+
+  if [ -z "\${GUEST_EXPECTED:-}" ]; then
+    echo "embedded runtime install skipped: no expected guest hash sidecar"
+    return 0
+  fi
+  if [ ! -f "\$payload" ]; then
+    echo "embedded runtime install skipped: no runtime payload in tarball"
+    return 0
+  fi
+
+  cache_dir="\$(primary_runtime_cache_dir)"
+  tmp_dir="\${cache_dir}.tmp.\$\$"
+  rm -rf "\$tmp_dir"
+  mkdir -p "\$tmp_dir"
+  tar -xzf "\$payload" -C "\$tmp_dir"
+
+  if [ ! -f "\$tmp_dir/boxlite-guest" ]; then
+    echo "FATAL: embedded runtime payload has no boxlite-guest" >&2
+    rm -rf "\$tmp_dir"
+    return 1
+  fi
+
+  guest_hash=\$(sha256sum "\$tmp_dir/boxlite-guest" | awk '{print \$1}')
+  if [ "\$guest_hash" != "\$GUEST_EXPECTED" ]; then
+    echo "FATAL: embedded runtime payload guest hash mismatch (expected=\${GUEST_EXPECTED:0:12} actual=\${guest_hash:0:12})" >&2
+    rm -rf "\$tmp_dir"
+    return 1
+  fi
+
+  mkdir -p "\$(dirname "\$cache_dir")"
+  rm -rf "\$cache_dir"
+  mv "\$tmp_dir" "\$cache_dir"
+  echo "embedded runtime payload installed: \${guest_hash:0:12} (\$cache_dir)"
+}
+
 verify_embedded_runtime_hash() {
   local checked=0
   local cache_dir guest_hash
@@ -585,6 +640,7 @@ else
   RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}"
   echo "runner runtime cache key: \$RUNTIME_CACHE_DIR_NAME"
 fi
+install_embedded_runtime_payload "\$WORK/boxlite-runtime.tar.gz" || exit 1
 verify_runner_binary_metadata "\$WORK/boxlite-runner" || exit 1
 
 CURRENT_TARGET=\$(current_runner_target)
