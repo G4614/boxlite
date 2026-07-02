@@ -366,7 +366,8 @@ verify_embedded_runtime_hash() {
   done < <(runtime_cache_dirs)
 
   if [ "\$checked" -eq 0 ]; then
-    echo "embedded runtime cache not extracted yet for \$RUNTIME_CACHE_DIR_NAME; runner binary metadata was verified"
+    echo "FATAL: embedded runtime cache not found for \$RUNTIME_CACHE_DIR_NAME; refusing rollout before create/start can hit an old guest binary" >&2
+    return 1
   fi
 }
 
