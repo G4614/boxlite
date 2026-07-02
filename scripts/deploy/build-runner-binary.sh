@@ -77,6 +77,7 @@ require_cmd cargo
 require_cmd go
 require_cmd make
 require_cmd sha256sum
+require_cmd strings
 require_cmd tar
 
 if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
@@ -177,6 +178,15 @@ echo "==> Building libboxlite with runtime cache key v${RUNNER_VERSION}"
 BOXLITE_RUNTIME_CACHE_VERSION="$VERSION" \
   BOXLITE_RUNTIME_CACHE_SUFFIX="$RUNTIME_CACHE_SUFFIX" \
   make dist:c
+if ! strings "$ROOT_DIR/target/release/libboxlite.a" | grep -F "$RUNTIME_CACHE_SUFFIX" >/dev/null; then
+  echo "error: libboxlite.a does not contain runtime cache suffix $RUNTIME_CACHE_SUFFIX" >&2
+  exit 1
+fi
+if ! strings "$ROOT_DIR/target/release/libboxlite.a" | grep -F "$RUNTIME_SUFFIX" >/dev/null; then
+  echo "error: libboxlite.a does not contain guest hash prefix $RUNTIME_SUFFIX" >&2
+  exit 1
+fi
+echo "==> Verified libboxlite embeds runtime cache suffix $RUNTIME_CACHE_SUFFIX"
 cp "$ROOT_DIR/target/release/libboxlite.a" "$ROOT_DIR/sdks/go/libboxlite.a"
 
 go -C apps/runner mod download
@@ -187,6 +197,15 @@ RUNNER_BIN="$TMP_DIR/boxlite-runner"
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -C apps \
   -ldflags "-X github.com/boxlite-ai/runner/internal.Version=${RUNNER_VERSION}" \
   -o "$RUNNER_BIN" ./runner/cmd/runner
+if ! strings "$RUNNER_BIN" | grep -F "$RUNTIME_CACHE_SUFFIX" >/dev/null; then
+  echo "error: runner binary does not contain runtime cache suffix $RUNTIME_CACHE_SUFFIX" >&2
+  exit 1
+fi
+if ! strings "$RUNNER_BIN" | grep -F "$RUNTIME_SUFFIX" >/dev/null; then
+  echo "error: runner binary does not contain guest hash prefix $RUNTIME_SUFFIX" >&2
+  exit 1
+fi
+echo "==> Verified runner binary embeds runtime cache suffix $RUNTIME_CACHE_SUFFIX"
 printf '%s  boxlite-guest\n' "$GUEST_SHA256" > "$TMP_DIR/boxlite-runner.guest.sha256"
 echo "==> Wrote guest hash sidecar ${GUEST_SHA256:0:12}"
 printf '%s\n' "$RUNTIME_CACHE_SUFFIX" > "$TMP_DIR/boxlite-runner.runtime-suffix"

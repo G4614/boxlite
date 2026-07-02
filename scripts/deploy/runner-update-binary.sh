@@ -19,6 +19,7 @@
 #   scripts/deploy/runner-update-binary.sh 0.9.7            # official GitHub release
 #   scripts/deploy/runner-update-binary.sh 0.9.7-dev-123-58d8f01bcd02
 #   scripts/deploy/runner-update-binary.sh --output-dir /tmp/dist 0.9.7-dev-123-58d8f01bcd02
+#   scripts/deploy/runner-update-binary.sh --tarball dist/boxlite-runner-v0.9.7-dev-123-58d8f01bcd02-linux-amd64.tar.gz
 #   AWS_REGION=us-west-2 scripts/deploy/runner-update-binary.sh
 #   STAGE=production scripts/deploy/runner-update-binary.sh
 #   RUNNER_INSTANCE_ID=i-0123456789abcdef0 scripts/deploy/runner-update-binary.sh
@@ -45,6 +46,7 @@ RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS="${RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_S
 SSM_WAIT_TIMEOUT_SECONDS="${SSM_WAIT_TIMEOUT_SECONDS:-1800}"
 SSM_WAIT_POLL_SECONDS="${SSM_WAIT_POLL_SECONDS:-10}"
 VERSION=""
+LOCAL_TARBALL_OVERRIDE=""
 
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -60,6 +62,11 @@ while [[ $# -gt 0 ]]; do
     --version)
       [[ $# -ge 2 ]] || { echo "error: --version requires a value" >&2; exit 1; }
       VERSION="$2"
+      shift 2
+      ;;
+    --tarball)
+      [[ $# -ge 2 ]] || { echo "error: --tarball requires a value" >&2; exit 1; }
+      LOCAL_TARBALL_OVERRIDE="$2"
       shift 2
       ;;
     -h|--help)
@@ -108,7 +115,16 @@ case "$STAGE" in
 esac
 
 if [[ -z "$VERSION" ]]; then
-  VERSION=$(grep -m 1 '^version' "$REPO_ROOT/Cargo.toml" | sed -E 's/^version *= *"([^"]+)".*/\1/')
+  if [[ -n "$LOCAL_TARBALL_OVERRIDE" ]]; then
+    TARBALL_BASENAME="$(basename "$LOCAL_TARBALL_OVERRIDE")"
+    VERSION="$(printf '%s\n' "$TARBALL_BASENAME" | sed -E 's/^boxlite-runner-v(.+)-linux-amd64\.tar\.gz$/\1/')"
+    if [[ "$VERSION" == "$TARBALL_BASENAME" ]]; then
+      echo "error: could not infer version from tarball name: $TARBALL_BASENAME" >&2
+      exit 1
+    fi
+  else
+    VERSION=$(grep -m 1 '^version' "$REPO_ROOT/Cargo.toml" | sed -E 's/^version *= *"([^"]+)".*/\1/')
+  fi
   if [[ -z "$VERSION" ]]; then
     echo "error: could not read version from Cargo.toml at $REPO_ROOT/Cargo.toml" >&2
     exit 1
@@ -116,7 +132,7 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 ASSET_TARBALL="boxlite-runner-v${VERSION}-linux-amd64.tar.gz"
-LOCAL_TARBALL="$ARTIFACT_DIR/$ASSET_TARBALL"
+LOCAL_TARBALL="${LOCAL_TARBALL_OVERRIDE:-$ARTIFACT_DIR/$ASSET_TARBALL}"
 LOCAL_SHA="$LOCAL_TARBALL.sha256"
 RUNTIME_CACHE_VERSION="${VERSION%%-dev-*}"
 IS_DEV_VERSION=0
@@ -350,7 +366,34 @@ verify_embedded_runtime_hash() {
   done < <(runtime_cache_dirs)
 
   if [ "\$checked" -eq 0 ]; then
-    echo "embedded runtime guest hash verification deferred: runtime cache not extracted yet for \$RUNTIME_CACHE_DIR_NAME"
+    echo "embedded runtime cache not extracted yet for \$RUNTIME_CACHE_DIR_NAME; runner binary metadata was verified"
+  fi
+}
+
+verify_runner_binary_metadata() {
+  local binary="\$1"
+  local guest_prefix
+
+  command -v strings >/dev/null 2>&1 || {
+    echo "FATAL: required command not found on runner host: strings" >&2
+    return 1
+  }
+
+  if [ -n "\${RUNTIME_SUFFIX:-}" ]; then
+    strings "\$binary" | grep -F "\$RUNTIME_SUFFIX" >/dev/null || {
+      echo "FATAL: runner binary does not contain runtime cache suffix \$RUNTIME_SUFFIX" >&2
+      return 1
+    }
+    echo "runner binary embeds runtime suffix: \$RUNTIME_SUFFIX"
+  fi
+
+  if [ -n "\${GUEST_EXPECTED:-}" ]; then
+    guest_prefix="\${GUEST_EXPECTED:0:12}"
+    strings "\$binary" | grep -F "\$guest_prefix" >/dev/null || {
+      echo "FATAL: runner binary does not contain guest hash prefix \$guest_prefix" >&2
+      return 1
+    }
+    echo "runner binary embeds guest hash prefix: \$guest_prefix"
   fi
 }
 
@@ -478,6 +521,24 @@ restart_with_target() {
   verify_hot_adopted_shims || return 1
 }
 
+restart_rollback_target() {
+  local target="\$1"
+  local saved_guest_expected="\${GUEST_EXPECTED:-}"
+  local saved_runtime_suffix="\${RUNTIME_SUFFIX:-}"
+  local saved_runtime_cache_dir_name="\${RUNTIME_CACHE_DIR_NAME:-}"
+
+  GUEST_EXPECTED=""
+  RUNTIME_SUFFIX=""
+  RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}"
+  restart_with_target "\$target"
+  local rc=\$?
+
+  GUEST_EXPECTED="\$saved_guest_expected"
+  RUNTIME_SUFFIX="\$saved_runtime_suffix"
+  RUNTIME_CACHE_DIR_NAME="\$saved_runtime_cache_dir_name"
+  return "\$rc"
+}
+
 load_runner_env
 snapshot_live_detached_shims
 echo "hot rollout: captured \$(wc -l < "\$HOT_SNAPSHOT" | tr -d ' ') live detached shim(s)"
@@ -523,6 +584,7 @@ else
   RUNTIME_CACHE_DIR_NAME="v${RUNTIME_CACHE_VERSION}"
   echo "runner runtime cache key: \$RUNTIME_CACHE_DIR_NAME"
 fi
+verify_runner_binary_metadata "\$WORK/boxlite-runner" || exit 1
 
 CURRENT_TARGET=\$(current_runner_target)
 NEW_TARGET=\$(prepare_release_target "\$WORK/boxlite-runner" "v${VERSION}")
@@ -544,7 +606,7 @@ if restart_with_target "\$NEW_TARGET"; then
 else
   echo "upgrade failed or detached-box adoption failed; rolling back" >&2
   if [ -n "\$CURRENT_TARGET" ]; then
-    if restart_with_target "\$CURRENT_TARGET"; then
+    if restart_rollback_target "\$CURRENT_TARGET"; then
       echo "rollback complete"
     else
       echo "rollback failed" >&2
