@@ -80,6 +80,23 @@ require_cmd sha256sum
 require_cmd strings
 require_cmd tar
 
+verify_boxlite_build_env() {
+  local runtime_suffix="$1"
+  local guest_sha256="$2"
+  local output_file
+
+  while IFS= read -r output_file; do
+    if grep -F "cargo:rustc-env=BOXLITE_RUNTIME_CACHE_SUFFIX=$runtime_suffix" "$output_file" >/dev/null &&
+       grep -F "cargo:rustc-env=BOXLITE_GUEST_HASH=$guest_sha256" "$output_file" >/dev/null; then
+      echo "==> Verified boxlite build metadata in $output_file"
+      return 0
+    fi
+  done < <(find "$ROOT_DIR/target/release/build" -maxdepth 2 -path '*/boxlite-*/output' -type f 2>/dev/null | sort)
+
+  echo "error: boxlite build metadata did not record runtime suffix $runtime_suffix and guest hash ${guest_sha256:0:12}" >&2
+  exit 1
+}
+
 if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
   echo "error: runner tarball build currently requires a Linux x86_64 builder" >&2
   exit 1
@@ -178,15 +195,7 @@ echo "==> Building libboxlite with runtime cache key v${RUNNER_VERSION}"
 BOXLITE_RUNTIME_CACHE_VERSION="$VERSION" \
   BOXLITE_RUNTIME_CACHE_SUFFIX="$RUNTIME_CACHE_SUFFIX" \
   make dist:c
-if ! strings "$ROOT_DIR/target/release/libboxlite.a" | grep -F "$RUNTIME_CACHE_SUFFIX" >/dev/null; then
-  echo "error: libboxlite.a does not contain runtime cache suffix $RUNTIME_CACHE_SUFFIX" >&2
-  exit 1
-fi
-if ! strings "$ROOT_DIR/target/release/libboxlite.a" | grep -F "$RUNTIME_SUFFIX" >/dev/null; then
-  echo "error: libboxlite.a does not contain guest hash prefix $RUNTIME_SUFFIX" >&2
-  exit 1
-fi
-echo "==> Verified libboxlite embeds runtime cache suffix $RUNTIME_CACHE_SUFFIX"
+verify_boxlite_build_env "$RUNTIME_CACHE_SUFFIX" "$GUEST_SHA256"
 cp "$ROOT_DIR/target/release/libboxlite.a" "$ROOT_DIR/sdks/go/libboxlite.a"
 
 go -C apps/runner mod download
