@@ -85,7 +85,6 @@ type ExecutionOptions struct {
 // Memory overhead is bounded: each execution adds one map entry plus the
 // state struct (a few writers, two atomics, and a mutex).
 type executionStreamState struct {
-	mu       sync.Mutex
 	stdout   io.Writer
 	stderr   io.Writer
 	onStdout func([]byte)
@@ -103,57 +102,152 @@ type executionStreamState struct {
 	// buffer. The fold happens at the SDK boundary; the C-side Wait
 	// task stays decoupled from streams.
 	drained chan struct{}
+
+	// Stream callbacks arrive on the single per-Runtime drain goroutine. Do not
+	// call user-provided Writers inline there: one blocked sink would wedge the
+	// shared drain and prevent unrelated exec completions from being dispatched.
+	// Instead each execution owns one delivery chain — this byte-bounded buffer
+	// plus a dedicated deliverLoop goroutine that writes to the user sinks.
+	//
+	// Back-pressure is not signalled to C explicitly. When buffered bytes reach
+	// the high-water mark, enqueue blocks the drain goroutine instead of growing
+	// the buffer without bound. A parked drain stops popping the shared C event
+	// queue, so it fills to capacity and the Rust pumps yield in push_event,
+	// throttling the guest. C realises the back-pressure on its own; the Go SDK
+	// makes no pause/resume FFI call.
+	qmu         sync.Mutex
+	notEmpty    *sync.Cond // deliverLoop parks here while the buffer is empty
+	notFull     *sync.Cond // enqueue parks here while the buffer is at capacity
+	queue       []streamChunk
+	queuedBytes int
+	exited      bool
+	stopped     bool
+	drainedOnce sync.Once
+}
+
+const (
+	streamQueueHighWater = 4 << 20 // 4 MiB — enqueue blocks at/above this
+	streamQueueLowWater  = 1 << 20 // 1 MiB — enqueue resumes below this
+)
+
+type streamChunk struct {
+	stderr bool
+	data   []byte
 }
 
 func newExecutionStreamState(opts ExecutionOptions) *executionStreamState {
-	return &executionStreamState{
+	s := &executionStreamState{
 		stdout:   opts.Stdout,
 		stderr:   opts.Stderr,
 		onStdout: opts.OnStdout,
 		onStderr: opts.OnStderr,
 		drained:  make(chan struct{}),
 	}
+	s.notEmpty = sync.NewCond(&s.qmu)
+	s.notFull = sync.NewCond(&s.qmu)
+	go s.deliverLoop()
+	return s
 }
 
-func (s *executionStreamState) deliverStdout(data []byte) {
-	if s.released.Load() {
-		return
-	}
-	s.mu.Lock()
-	stdout := s.stdout
-	cb := s.onStdout
-	s.mu.Unlock()
-	if cb != nil {
-		cb(data)
-	}
-	if stdout != nil {
-		_, _ = stdout.Write(data)
-	}
-}
-
+func (s *executionStreamState) deliverStdout(data []byte) { s.enqueue(streamChunk{data: data}) }
 func (s *executionStreamState) deliverStderr(data []byte) {
+	s.enqueue(streamChunk{stderr: true, data: data})
+}
+
+// enqueue appends a chunk to the per-execution chain. It runs on the shared
+// drain goroutine, so blocking here is the back-pressure hinge: while the
+// buffer is at capacity we park the drain until deliverLoop makes room, which
+// stalls the shared C event queue and throttles the guest through push_event's
+// cooperative yield.
+func (s *executionStreamState) enqueue(chunk streamChunk) {
 	if s.released.Load() {
 		return
 	}
-	s.mu.Lock()
-	stderr := s.stderr
-	cb := s.onStderr
-	s.mu.Unlock()
-	if cb != nil {
-		cb(data)
+	s.qmu.Lock()
+	defer s.qmu.Unlock()
+	for s.queuedBytes >= streamQueueHighWater && !s.exited && !s.stopped {
+		s.notFull.Wait()
 	}
-	if stderr != nil {
-		_, _ = stderr.Write(data)
+	if s.exited || s.stopped {
+		return
 	}
+	s.queue = append(s.queue, chunk)
+	s.queuedBytes += len(chunk.data)
+	s.notEmpty.Signal()
 }
 
 func (s *executionStreamState) deliverExit(_ int) {
 	s.released.Store(true)
-	close(s.drained)
+	s.qmu.Lock()
+	s.exited = true
+	s.notEmpty.Broadcast()
+	s.notFull.Broadcast()
+	s.qmu.Unlock()
 }
 
 func (s *executionStreamState) markReleased() {
 	s.released.Store(true)
+	s.qmu.Lock()
+	s.stopped = true
+	s.notEmpty.Broadcast()
+	s.notFull.Broadcast()
+	s.qmu.Unlock()
+}
+
+func (s *executionStreamState) deliverLoop() {
+	defer s.closeDrained()
+	for {
+		s.qmu.Lock()
+		for len(s.queue) == 0 && !s.exited && !s.stopped {
+			s.notEmpty.Wait()
+		}
+		queue := s.queue
+		s.queue = nil
+		done := s.exited || s.stopped
+		s.qmu.Unlock()
+
+		batch := 0
+		for _, chunk := range queue {
+			s.writeChunk(chunk)
+			batch += len(chunk.data)
+		}
+
+		s.qmu.Lock()
+		s.queuedBytes -= batch
+		// Wake a parked enqueue only after draining back under the low-water
+		// mark, so the drain resumes in bursts instead of thrashing chunk by
+		// chunk at the high-water boundary.
+		if s.queuedBytes < streamQueueLowWater {
+			s.notFull.Broadcast()
+		}
+		s.qmu.Unlock()
+
+		if done {
+			return
+		}
+	}
+}
+
+func (s *executionStreamState) writeChunk(chunk streamChunk) {
+	if chunk.stderr {
+		if s.onStderr != nil {
+			s.onStderr(chunk.data)
+		}
+		if s.stderr != nil {
+			_, _ = s.stderr.Write(chunk.data)
+		}
+		return
+	}
+	if s.onStdout != nil {
+		s.onStdout(chunk.data)
+	}
+	if s.stdout != nil {
+		_, _ = s.stdout.Write(chunk.data)
+	}
+}
+
+func (s *executionStreamState) closeDrained() {
+	s.drainedOnce.Do(func() { close(s.drained) })
 }
 
 // Execution is a handle to a running command.
