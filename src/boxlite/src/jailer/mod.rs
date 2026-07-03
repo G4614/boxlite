@@ -398,6 +398,23 @@ impl<S: Sandbox> Jail for Jailer<S> {
             binary.to_path_buf()
         };
 
+        // build_path_access() ran (via self.context() above) BEFORE the shim
+        // was copied, so on a box's first boot bin_dir did not yet exist and was
+        // skipped. The bwrap sandbox binds only ctx.paths, so without adding the
+        // copied shim's directory here, boxes/<id>/bin/boxlite-shim is invisible
+        // inside the sandbox and execvp fails with ENOENT. Bind it read-only.
+        if self.security.jailer_enabled {
+            if let Some(bin_dir) = effective_binary.parent().filter(|d| d.exists()) {
+                let bin_dir = bin_dir.to_path_buf();
+                if !ctx.paths.iter().any(|pa| pa.path == bin_dir) {
+                    ctx.paths.push(PathAccess {
+                        path: bin_dir,
+                        writable: false,
+                    });
+                }
+            }
+        }
+
         // Start with a bare command. Sandbox.apply() modifies it in-place.
         let mut cmd = Command::new(&effective_binary);
         cmd.args(args);

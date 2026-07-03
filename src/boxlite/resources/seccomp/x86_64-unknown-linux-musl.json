@@ -531,6 +531,10 @@
         "comment": "libkrun: get socket address"
       },
       {
+        "syscall": "getpeername",
+        "comment": "gvproxy MITM: get remote peer address when terminating intercepted TLS for secret substitution (PR #837)."
+      },
+      {
         "syscall": "setsockopt",
         "comment": "libkrun: set socket options"
       },
@@ -1244,6 +1248,10 @@
       {
         "syscall": "getsockname",
         "comment": "Go runtime (gvproxy): get socket address"
+      },
+      {
+        "syscall": "getpeername",
+        "comment": "Go runtime (gvproxy): get remote peer address when terminating intercepted TLS for secret substitution (PR #837)."
       },
       {
         "syscall": "setsockopt",

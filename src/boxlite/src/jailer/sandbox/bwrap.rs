@@ -84,6 +84,22 @@ impl Sandbox for BwrapSandbox {
             .ro_bind_if_exists("/bin", "/bin")
             .ro_bind_if_exists("/sbin", "/sbin");
 
+        // gvproxy runs inside this sandbox and resolves allow-listed hostnames
+        // via the Go net resolver, which reads /etc/resolv.conf. Without it the
+        // resolver falls back to [::1]:53 (refused) and every allowed host maps
+        // to the 0.0.0.0 sinkhole, so guest egress fails with ECONNREFUSED.
+        // ro_bind follows the source symlink (…→ systemd stub-resolv.conf); the
+        // shared host netns keeps 127.0.0.53:53 reachable inside the sandbox.
+        bwrap_cmd.ro_bind_if_exists("/etc/resolv.conf", "/etc/resolv.conf");
+
+        // gvproxy's MITM upstream leg re-originates TLS to the real upstream and
+        // must verify its certificate against the system trust store. Go's x509
+        // loader reads /etc/ssl/certs/ca-certificates.crt (Debian/Ubuntu). Without
+        // it, upstream verification fails with "x509: certificate signed by unknown
+        // authority" and every substituted request returns 502.
+        bwrap_cmd.ro_bind_if_exists("/etc/ssl/certs", "/etc/ssl/certs");
+        bwrap_cmd.ro_bind_if_exists("/etc/pki", "/etc/pki");
+
         // =====================================================================
         // Devices and special mounts
         // =====================================================================
