@@ -1,7 +1,7 @@
 //! Gvproxy configuration structures
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Local DNS zone configuration
 ///
@@ -49,6 +49,10 @@ pub struct GvproxyConfig {
     /// Unix socket path for the network tap interface.
     /// Caller-provided to ensure each box gets a unique, collision-free path.
     pub socket_path: PathBuf,
+
+    /// Unix socket path for inbound port streams handled by gvproxy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingress_socket_path: Option<PathBuf>,
 
     /// Virtual network subnet (e.g., "192.168.127.0/24")
     pub subnet: String,
@@ -124,6 +128,7 @@ impl std::fmt::Debug for GvproxyConfig {
         // via `GvproxySecretConfig::Debug`.
         f.debug_struct("GvproxyConfig")
             .field("socket_path", &self.socket_path)
+            .field("ingress_socket_path", &self.ingress_socket_path)
             .field("subnet", &self.subnet)
             .field("gateway_ip", &self.gateway_ip)
             .field("gateway_mac", &self.gateway_mac)
@@ -173,11 +178,20 @@ impl From<&crate::runtime::options::Secret> for GvproxySecretConfig {
 }
 
 /// Create a config with network defaults for the given socket path.
+pub(crate) fn ingress_socket_path_for(socket_path: &Path) -> PathBuf {
+    let mut ingress = socket_path.as_os_str().to_os_string();
+    ingress.push(".ingress");
+    PathBuf::from(ingress)
+}
+
 fn defaults_with_socket_path(socket_path: PathBuf) -> GvproxyConfig {
     use crate::net::constants::*;
 
+    let ingress_socket_path = Some(ingress_socket_path_for(&socket_path));
+
     GvproxyConfig {
         socket_path,
+        ingress_socket_path,
         subnet: SUBNET.to_string(),
         gateway_ip: GATEWAY_IP.to_string(),
         gateway_mac: GATEWAY_MAC_STRING.to_string(),
@@ -309,6 +323,12 @@ impl GvproxyConfig {
         self.ca_key_pem = Some(key_pem);
         self
     }
+
+    /// Set the Unix socket gvproxy uses for inbound port streams.
+    pub fn with_ingress_socket_path(mut self, path: Option<PathBuf>) -> Self {
+        self.ingress_socket_path = path;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -324,6 +344,10 @@ mod tests {
     fn test_new_config_defaults() {
         let config = GvproxyConfig::new(test_socket_path(), vec![]);
         assert_eq!(config.socket_path, test_socket_path());
+        assert_eq!(
+            config.ingress_socket_path,
+            Some(PathBuf::from("/tmp/test-gvproxy.sock.ingress"))
+        );
         assert_eq!(config.subnet, "192.168.127.0/24");
         assert_eq!(config.gateway_ip, "192.168.127.1");
         assert_eq!(config.guest_ip, "192.168.127.2");
@@ -367,6 +391,7 @@ mod tests {
         let deserialized: GvproxyConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(config.subnet, deserialized.subnet);
         assert_eq!(config.socket_path, deserialized.socket_path);
+        assert_eq!(config.ingress_socket_path, deserialized.ingress_socket_path);
         assert_eq!(config.host_ip, deserialized.host_ip);
         assert_eq!(config.port_mappings.len(), deserialized.port_mappings.len());
         assert_eq!(config.dns_zones, deserialized.dns_zones);
@@ -431,6 +456,16 @@ mod tests {
         // Verify round-trip
         let deserialized: GvproxyConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.socket_path, socket_path);
+    }
+
+    #[test]
+    fn test_ingress_socket_path_can_be_disabled() {
+        let config = GvproxyConfig::new(test_socket_path(), vec![]).with_ingress_socket_path(None);
+
+        let json = serde_json::to_string(&config).unwrap();
+
+        assert!(config.ingress_socket_path.is_none());
+        assert!(!json.contains("ingress_socket_path"));
     }
 
     // ========================================================================

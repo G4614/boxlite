@@ -46,6 +46,7 @@ use super::stats::NetworkStats;
 pub struct GvproxyInstance {
     id: i64,
     socket_path: PathBuf,
+    ingress_socket_path: Option<PathBuf>,
 }
 
 impl GvproxyInstance {
@@ -77,11 +78,21 @@ impl GvproxyInstance {
             config = config.with_ca(cert.to_string(), key.to_string());
         }
 
+        let ingress_socket_path = config.ingress_socket_path.clone();
         let id = ffi::create_instance(&config)?;
 
-        tracing::info!(id, ?socket_path, "Created GvproxyInstance");
+        tracing::info!(
+            id,
+            ?socket_path,
+            ?ingress_socket_path,
+            "Created GvproxyInstance"
+        );
 
-        Ok(Self { id, socket_path })
+        Ok(Self {
+            id,
+            socket_path,
+            ingress_socket_path,
+        })
     }
 
     /// Unix socket path for the network tap interface.
@@ -89,6 +100,11 @@ impl GvproxyInstance {
     /// This is the caller-provided path passed at creation — no FFI call needed.
     pub fn socket_path(&self) -> &Path {
         &self.socket_path
+    }
+
+    /// Unix socket path for inbound port streams handled by gvproxy.
+    pub fn ingress_socket_path(&self) -> Option<&Path> {
+        self.ingress_socket_path.as_deref()
     }
 
     /// Create a GvproxyInstance from a NetworkBackendConfig and return the endpoint.

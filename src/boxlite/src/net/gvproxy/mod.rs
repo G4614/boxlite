@@ -78,7 +78,7 @@ mod stats;
 
 use super::{ConnectionType, NetworkBackend, NetworkBackendConfig, NetworkBackendEndpoint};
 use boxlite_shared::errors::BoxliteResult;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 // Re-export public API
@@ -108,6 +108,8 @@ pub struct GvisorTapBackend {
     instance: Arc<GvproxyInstance>,
     /// Socket path for cross-process communication
     socket_path: PathBuf,
+    /// Socket path for inbound port streams handled by gvproxy
+    ingress_socket_path: Option<PathBuf>,
 }
 
 impl GvisorTapBackend {
@@ -161,9 +163,11 @@ impl GvisorTapBackend {
         instance::start_stats_logging(Arc::downgrade(&instance));
 
         let socket_path = config.socket_path;
+        let ingress_socket_path = instance.ingress_socket_path().map(Path::to_path_buf);
 
         tracing::info!(
             ?socket_path,
+            ?ingress_socket_path,
             version = ?ffi::get_version()?,
             "Created gvisor-tap-vsock backend"
         );
@@ -171,6 +175,7 @@ impl GvisorTapBackend {
         Ok(Self {
             instance,
             socket_path,
+            ingress_socket_path,
         })
     }
 
@@ -203,6 +208,11 @@ impl GvisorTapBackend {
     /// ```
     pub fn get_stats(&self) -> BoxliteResult<NetworkStats> {
         self.instance.get_stats()
+    }
+
+    /// Get the gvproxy ingress Unix socket path, if enabled.
+    pub fn ingress_socket_path(&self) -> Option<&Path> {
+        self.ingress_socket_path.as_deref()
     }
 }
 
