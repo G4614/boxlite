@@ -30,8 +30,10 @@ func TestMitmRouting_SecretHostGetsMitmd(t *testing.T) {
 		Value:       "sk-real-key-123",
 	}}
 
-	// Start an upstream HTTPS server that echoes the Authorization header
+	// Start an upstream HTTPS server that records and echoes the Authorization header
+	var captured capturedUpstream
 	upstreamAddr, cleanup := startTLSEchoServer(t, func(w http.ResponseWriter, r *http.Request) {
+		captured.addAuth(r.Header.Get("Authorization"))
 		fmt.Fprintf(w, "auth=%s", r.Header.Get("Authorization"))
 	})
 	defer cleanup()
@@ -65,12 +67,20 @@ func TestMitmRouting_SecretHostGetsMitmd(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	got := string(body)
 
-	// Verify: the upstream received the REAL secret, not the placeholder
-	if !strings.Contains(got, "sk-real-key-123") {
-		t.Errorf("expected substituted value in upstream, got: %s", got)
+	// Request leg: the upstream received the REAL secret, not the placeholder.
+	auths := captured.snapshotAuths()
+	if len(auths) != 1 || !strings.Contains(auths[0], "sk-real-key-123") {
+		t.Errorf("expected upstream to receive substituted value, got: %v", auths)
 	}
-	if strings.Contains(got, "BOXLITE_SECRET") {
-		t.Errorf("placeholder should not reach upstream, got: %s", got)
+	if len(auths) == 1 && strings.Contains(auths[0], "BOXLITE_SECRET") {
+		t.Errorf("placeholder should not reach upstream, got: %s", auths[0])
+	}
+	// Response leg: reflected value scrubbed back to the placeholder.
+	if strings.Contains(got, "sk-real-key-123") {
+		t.Errorf("secret value leaked back to guest in response: %s", got)
+	}
+	if !strings.Contains(got, "<BOXLITE_SECRET:api_key>") {
+		t.Errorf("expected placeholder in scrubbed response, got: %s", got)
 	}
 }
 
@@ -144,7 +154,9 @@ func TestMitmRouting_AllowlistAndSecrets_MitmPriority(t *testing.T) {
 	}
 
 	// Verify MITM works for this host (proves MITM path is reachable)
+	var captured capturedUpstream
 	upstreamAddr, cleanup := startTLSEchoServer(t, func(w http.ResponseWriter, r *http.Request) {
+		captured.addAuth(r.Header.Get("Authorization"))
 		fmt.Fprintf(w, "auth=%s", r.Header.Get("Authorization"))
 	})
 	defer cleanup()
@@ -170,8 +182,14 @@ func TestMitmRouting_AllowlistAndSecrets_MitmPriority(t *testing.T) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "real-value") {
-		t.Errorf("MITM should substitute even when host is also in allowlist, got: %s", body)
+	// Request leg: upstream received the substituted value.
+	auths := captured.snapshotAuths()
+	if len(auths) != 1 || !strings.Contains(auths[0], "real-value") {
+		t.Errorf("MITM should substitute even when host is also in allowlist, got: %v", auths)
+	}
+	// Response leg: reflected value scrubbed back to the placeholder.
+	if strings.Contains(string(body), "real-value") {
+		t.Errorf("secret value leaked back to guest in response: %s", body)
 	}
 }
 

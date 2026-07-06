@@ -112,6 +112,40 @@ func testSecrets() []SecretConfig {
 	}
 }
 
+// capturedUpstream records what the upstream actually received. secretTransport
+// now scrubs reflected secret values out of responses, so an echoed response no
+// longer reveals whether the request was substituted — tests assert on the
+// captured request instead, and separately assert the response was scrubbed.
+type capturedUpstream struct {
+	mu     sync.Mutex
+	auths  []string
+	bodies []string
+}
+
+func (c *capturedUpstream) addAuth(a string) {
+	c.mu.Lock()
+	c.auths = append(c.auths, a)
+	c.mu.Unlock()
+}
+
+func (c *capturedUpstream) addBody(b string) {
+	c.mu.Lock()
+	c.bodies = append(c.bodies, b)
+	c.mu.Unlock()
+}
+
+func (c *capturedUpstream) snapshotAuths() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.auths...)
+}
+
+func (c *capturedUpstream) snapshotBodies() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.bodies...)
+}
+
 // --- HTTP/1.1 Tests ---
 
 func TestMitmProxy_HTTP1_BasicRequest(t *testing.T) {
@@ -119,9 +153,11 @@ func TestMitmProxy_HTTP1_BasicRequest(t *testing.T) {
 
 	secrets := testSecrets()
 
-	// Upstream echoes the Authorization header
+	// Upstream records and echoes the Authorization header it received.
+	var captured capturedUpstream
 	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
+		captured.addAuth(auth)
 		fmt.Fprintf(w, `{"authorization":%q}`, auth)
 	})
 	defer cleanup()
@@ -148,12 +184,21 @@ func TestMitmProxy_HTTP1_BasicRequest(t *testing.T) {
 		t.Fatal("failed to read response:", err)
 	}
 
-	got := string(body)
-	if !strings.Contains(got, "real-value") {
-		t.Errorf("expected upstream to receive substituted value, got: %s", got)
+	// Request leg: upstream must have received the substituted real value.
+	auths := captured.snapshotAuths()
+	if len(auths) != 1 || !strings.Contains(auths[0], "real-value") {
+		t.Errorf("expected upstream to receive substituted value, got: %v", auths)
 	}
-	if strings.Contains(got, "BOXLITE_SECRET") {
-		t.Errorf("placeholder was not substituted in upstream request: %s", got)
+	if len(auths) == 1 && strings.Contains(auths[0], "BOXLITE_SECRET") {
+		t.Errorf("placeholder was not substituted in upstream request: %s", auths[0])
+	}
+	// Response leg: the reflected value must be scrubbed back to the placeholder.
+	got := string(body)
+	if strings.Contains(got, "real-value") {
+		t.Errorf("secret value leaked back to guest in response: %s", got)
+	}
+	if !strings.Contains(got, "<BOXLITE_SECRET:k>") {
+		t.Errorf("expected placeholder in scrubbed response, got: %s", got)
 	}
 }
 
@@ -162,9 +207,11 @@ func TestMitmProxy_HTTP1_PostWithBody(t *testing.T) {
 
 	secrets := testSecrets()
 
-	// Upstream echoes request body
+	// Upstream records and echoes the request body it received.
+	var captured capturedUpstream
 	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
+		captured.addBody(string(b))
 		w.Write(b)
 	})
 	defer cleanup()
@@ -192,10 +239,15 @@ func TestMitmProxy_HTTP1_PostWithBody(t *testing.T) {
 		t.Fatal("failed to read response:", err)
 	}
 
+	// Request leg: upstream must have received the substituted body.
+	bodies := captured.snapshotBodies()
+	if len(bodies) != 1 || bodies[0] != `{"key":"real-value"}` {
+		t.Errorf("expected upstream to receive substituted body, got: %v", bodies)
+	}
+	// Response leg: the reflected value must be scrubbed back to the placeholder.
 	got := string(body)
-	expected := `{"key":"real-value"}`
-	if got != expected {
-		t.Errorf("expected body %q, got %q", expected, got)
+	if got != `{"key":"<BOXLITE_SECRET:k>"}` {
+		t.Errorf("expected scrubbed response body, got %q", got)
 	}
 }
 
@@ -203,16 +255,12 @@ func TestMitmProxy_HTTP1_KeepAlive(t *testing.T) {
 	ca := newTestCA(t)
 
 	secrets := testSecrets()
-	var requestCount int
-	var mu sync.Mutex
+	var captured capturedUpstream
 
 	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		requestCount++
-		n := requestCount
-		mu.Unlock()
 		auth := r.Header.Get("Authorization")
-		fmt.Fprintf(w, `{"n":%d,"auth":%q}`, n, auth)
+		captured.addAuth(auth)
+		fmt.Fprintf(w, `{"auth":%q}`, auth)
 	})
 	defer cleanup()
 
@@ -238,17 +286,26 @@ func TestMitmProxy_HTTP1_KeepAlive(t *testing.T) {
 		resp.Body.Close()
 		cancel()
 
+		// Response leg: reflected value scrubbed back to the placeholder.
 		got := string(body)
-		if !strings.Contains(got, "real-value") {
-			t.Errorf("request %d: expected substitution, got: %s", i, got)
+		if strings.Contains(got, "real-value") {
+			t.Errorf("request %d: secret leaked back to guest: %s", i, got)
+		}
+		if !strings.Contains(got, "<BOXLITE_SECRET:k>") {
+			t.Errorf("request %d: expected placeholder in scrubbed response, got: %s", i, got)
 		}
 	}
 
-	mu.Lock()
-	if requestCount != 5 {
-		t.Errorf("expected 5 requests at upstream, got %d", requestCount)
+	// Request leg: all 5 requests reached upstream with the substituted value.
+	auths := captured.snapshotAuths()
+	if len(auths) != 5 {
+		t.Errorf("expected 5 requests at upstream, got %d", len(auths))
 	}
-	mu.Unlock()
+	for i, a := range auths {
+		if !strings.Contains(a, "real-value") || strings.Contains(a, "BOXLITE_SECRET") {
+			t.Errorf("request %d: upstream did not receive substituted value: %s", i, a)
+		}
+	}
 }
 
 // --- HTTP/2 Tests ---
@@ -258,9 +315,11 @@ func TestMitmProxy_HTTP2_BasicRequest(t *testing.T) {
 
 	secrets := testSecrets()
 
+	var captured capturedUpstream
 	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		proto := r.Proto
 		auth := r.Header.Get("Authorization")
+		captured.addAuth(auth)
 		fmt.Fprintf(w, `{"proto":%q,"auth":%q}`, proto, auth)
 	})
 	defer cleanup()
@@ -287,9 +346,18 @@ func TestMitmProxy_HTTP2_BasicRequest(t *testing.T) {
 		t.Fatal("failed to read response:", err)
 	}
 
+	// Request leg: upstream must have received the substituted real value.
+	auths := captured.snapshotAuths()
+	if len(auths) != 1 || !strings.Contains(auths[0], "real-value") {
+		t.Errorf("expected upstream to receive substituted value, got: %v", auths)
+	}
+	// Response leg: the reflected value must be scrubbed back to the placeholder.
 	got := string(body)
-	if !strings.Contains(got, "real-value") {
-		t.Errorf("expected substitution, got: %s", got)
+	if strings.Contains(got, "real-value") {
+		t.Errorf("secret value leaked back to guest in response: %s", got)
+	}
+	if !strings.Contains(got, "<BOXLITE_SECRET:k>") {
+		t.Errorf("expected placeholder in scrubbed response, got: %s", got)
 	}
 }
 
@@ -298,8 +366,10 @@ func TestMitmProxy_HTTP2_MultiplexedStreams(t *testing.T) {
 
 	secrets := testSecrets()
 
+	var captured capturedUpstream
 	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
+		captured.addAuth(auth)
 		fmt.Fprintf(w, `{"auth":%q}`, auth)
 	})
 	defer cleanup()
@@ -331,9 +401,10 @@ func TestMitmProxy_HTTP2_MultiplexedStreams(t *testing.T) {
 				return fmt.Errorf("request %d: read failed: %w", i, err)
 			}
 
+			// Response leg: reflected value scrubbed back to the placeholder.
 			got := string(body)
-			if !strings.Contains(got, "real-value") {
-				return fmt.Errorf("request %d: expected substitution, got: %s", i, got)
+			if strings.Contains(got, "real-value") {
+				return fmt.Errorf("request %d: secret leaked back to guest: %s", i, got)
 			}
 			return nil
 		})
@@ -341,6 +412,17 @@ func TestMitmProxy_HTTP2_MultiplexedStreams(t *testing.T) {
 
 	if err := g.Wait(); err != nil {
 		t.Fatal(err)
+	}
+
+	// Request leg: all 10 streams reached upstream with the substituted value.
+	auths := captured.snapshotAuths()
+	if len(auths) != 10 {
+		t.Errorf("expected 10 requests at upstream, got %d", len(auths))
+	}
+	for i, a := range auths {
+		if !strings.Contains(a, "real-value") || strings.Contains(a, "BOXLITE_SECRET") {
+			t.Errorf("stream %d: upstream did not receive substituted value: %s", i, a)
+		}
 	}
 }
 
@@ -351,8 +433,10 @@ func TestMitmProxy_ChunkedRequestBody(t *testing.T) {
 
 	secrets := testSecrets()
 
+	var captured capturedUpstream
 	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
+		captured.addBody(string(b))
 		w.Write(b)
 	})
 	defer cleanup()
@@ -383,9 +467,14 @@ func TestMitmProxy_ChunkedRequestBody(t *testing.T) {
 		t.Fatal("failed to read response:", err)
 	}
 
-	expected := "chunk1-real-value-chunk2"
-	if string(got) != expected {
-		t.Errorf("expected %q, got %q", expected, string(got))
+	// Request leg: upstream received the substituted chunked body.
+	bodies := captured.snapshotBodies()
+	if len(bodies) != 1 || bodies[0] != "chunk1-real-value-chunk2" {
+		t.Errorf("expected upstream to receive substituted body, got: %v", bodies)
+	}
+	// Response leg: reflected value scrubbed back to the placeholder.
+	if string(got) != "chunk1-<BOXLITE_SECRET:k>-chunk2" {
+		t.Errorf("expected scrubbed response, got %q", string(got))
 	}
 }
 
@@ -501,8 +590,10 @@ func TestMitmProxy_ContentLengthAdjustment(t *testing.T) {
 
 	secrets := testSecrets()
 
+	var captured capturedUpstream
 	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
+		captured.addBody(string(b))
 		// Echo the body and the Content-Length the upstream saw
 		fmt.Fprintf(w, "body=%s;cl=%d", string(b), r.ContentLength)
 	})
@@ -530,9 +621,75 @@ func TestMitmProxy_ContentLengthAdjustment(t *testing.T) {
 	got, _ := io.ReadAll(resp.Body)
 	gotStr := string(got)
 
-	// Upstream should have received the substituted body completely
-	if !strings.Contains(gotStr, `body={"token":"real-value"}`) {
-		t.Errorf("expected substituted body at upstream, got: %s", gotStr)
+	// Request leg: upstream should have received the substituted body completely.
+	bodies := captured.snapshotBodies()
+	if len(bodies) != 1 || bodies[0] != `{"token":"real-value"}` {
+		t.Errorf("expected upstream to receive substituted body, got: %v", bodies)
+	}
+	// Response leg: reflected value scrubbed back to the placeholder.
+	if strings.Contains(gotStr, "real-value") {
+		t.Errorf("secret value leaked back to guest in response: %s", gotStr)
+	}
+	if !strings.Contains(gotStr, `body={"token":"<BOXLITE_SECRET:k>"}`) {
+		t.Errorf("expected scrubbed response body, got: %s", gotStr)
+	}
+}
+
+// TestMitmProxy_ResponseScrubbing verifies defense-in-depth: an upstream that
+// reflects the secret value in a response header AND body must have both
+// scrubbed back to the placeholder before the guest sees them.
+func TestMitmProxy_ResponseScrubbing(t *testing.T) {
+	ca := newTestCA(t)
+	secrets := testSecrets()
+
+	var captured capturedUpstream
+	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		captured.addAuth(auth)
+		// Hostile/echoing upstream reflects the received (already-substituted)
+		// value back in both a response header and the body.
+		w.Header().Set("X-Echo-Auth", auth)
+		fmt.Fprintf(w, "echo:%s", auth)
+	})
+	defer cleanup()
+
+	client := dialThroughMITM(t, ca, "api.example.com", addr, secrets)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.example.com/test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer <BOXLITE_SECRET:k>")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal("request failed:", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	// Sanity: request substitution reached upstream.
+	auths := captured.snapshotAuths()
+	if len(auths) != 1 || !strings.Contains(auths[0], "real-value") {
+		t.Fatalf("expected upstream to receive substituted value, got: %v", auths)
+	}
+
+	// Response header must be scrubbed.
+	if h := resp.Header.Get("X-Echo-Auth"); strings.Contains(h, "real-value") {
+		t.Errorf("secret leaked in response header: %s", h)
+	} else if !strings.Contains(h, "<BOXLITE_SECRET:k>") {
+		t.Errorf("expected placeholder in scrubbed response header, got: %s", h)
+	}
+
+	// Response body must be scrubbed.
+	if strings.Contains(string(body), "real-value") {
+		t.Errorf("secret leaked in response body: %s", string(body))
+	}
+	if !strings.Contains(string(body), "<BOXLITE_SECRET:k>") {
+		t.Errorf("expected placeholder in scrubbed response body, got: %s", string(body))
 	}
 }
 

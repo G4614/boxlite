@@ -21,12 +21,12 @@ func (s SecretConfig) String() string {
 }
 
 type streamingReplacer struct {
-	src            io.ReadCloser
-	replacer       *strings.Replacer
-	buf            []byte // internal read buffer for boundary handling
-	bufLen         int    // valid bytes in buf
-	maxPlaceholder int
-	prefixBytes    []byte // first byte of each unique placeholder (for boundary detection)
+	src         io.ReadCloser
+	replacer    *strings.Replacer
+	buf         []byte // internal read buffer for boundary handling
+	bufLen      int    // valid bytes in buf
+	maxMatch    int    // longest search token: placeholder len (request) or value len (response)
+	prefixBytes []byte // first byte of each unique placeholder (for boundary detection)
 
 	// overflow holds replaced output that didn't fit in the caller's buffer.
 	overflow []byte
@@ -61,11 +61,55 @@ func newStreamingReplacer(body io.ReadCloser, secrets []SecretConfig) io.ReadClo
 	}
 
 	return &streamingReplacer{
-		src:            body,
-		replacer:       strings.NewReplacer(pairs...),
-		buf:            make([]byte, replacerBufSize+maxPH),
-		maxPlaceholder: maxPH,
-		prefixBytes:    prefixBytes,
+		src:         body,
+		replacer:    strings.NewReplacer(pairs...),
+		buf:         make([]byte, replacerBufSize+maxPH),
+		maxMatch:    maxPH,
+		prefixBytes: prefixBytes,
+	}
+}
+
+// newSecretResponseScrubber wraps a response body to replace any leaked real
+// secret VALUES with their placeholders — the reverse of request substitution.
+// This is defense-in-depth: an allow-listed upstream that reflects the secret
+// (echo endpoints, verbose errors) would otherwise hand the plaintext back to
+// the guest, which was only ever provisioned with the placeholder. It reuses
+// the same streaming/boundary machinery as the request replacer, keyed on
+// values instead of placeholders. NOTE: this does NOT stop a malicious guest
+// that transforms the value before exfiltration — see the threat-model note in
+// mitm_proxy.go.
+func newSecretResponseScrubber(body io.ReadCloser, secrets []SecretConfig) io.ReadCloser {
+	if body == nil || len(secrets) == 0 {
+		return body
+	}
+
+	maxVal := 0
+	pairs := make([]string, 0, len(secrets)*2)
+	seen := make(map[byte]bool)
+	for _, s := range secrets {
+		if s.Value == "" {
+			continue
+		}
+		pairs = append(pairs, s.Value, s.Placeholder)
+		if len(s.Value) > maxVal {
+			maxVal = len(s.Value)
+		}
+		seen[s.Value[0]] = true
+	}
+	if len(pairs) == 0 {
+		return body
+	}
+	prefixBytes := make([]byte, 0, len(seen))
+	for b := range seen {
+		prefixBytes = append(prefixBytes, b)
+	}
+
+	return &streamingReplacer{
+		src:         body,
+		replacer:    strings.NewReplacer(pairs...),
+		buf:         make([]byte, replacerBufSize+maxVal),
+		maxMatch:    maxVal,
+		prefixBytes: prefixBytes,
 	}
 }
 
@@ -161,11 +205,11 @@ func (s *streamingReplacer) Read(p []byte) (int, error) {
 // safeBoundary returns the number of bytes from the start of buf that can
 // safely be replaced and emitted.
 func (s *streamingReplacer) safeBoundary() int {
-	if s.bufLen <= s.maxPlaceholder-1 {
+	if s.bufLen <= s.maxMatch-1 {
 		return 0
 	}
 
-	dangerStart := s.bufLen - (s.maxPlaceholder - 1)
+	dangerStart := s.bufLen - (s.maxMatch - 1)
 	danger := s.buf[dangerStart:s.bufLen]
 	// Return the earliest occurrence of any prefix byte in the danger zone.
 	minIdx := len(danger)
