@@ -144,6 +144,86 @@ func TestHandleWebSocketUpgrade_HeaderSubstitution(t *testing.T) {
 	}
 }
 
+func TestHandleWebSocketUpgrade_ResponseHeaderScrubbed(t *testing.T) {
+	secrets := []SecretConfig{
+		{
+			Name:        "apikey",
+			Hosts:       []string{"ws.example.com"},
+			Placeholder: "<BOXLITE_SECRET:apikey>",
+			Value:       "secret-api-key",
+		},
+	}
+
+	ca := newTestCA(t)
+	upstreamCert, err := ca.GenerateHostCert("127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstreamLn := tls.NewListener(rawLn, &tls.Config{
+		Certificates: []tls.Certificate{*upstreamCert},
+	})
+	defer upstreamLn.Close()
+
+	go func() {
+		conn, err := upstreamLn.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		req, err := http.ReadRequest(reader)
+		if err != nil {
+			return
+		}
+		// Reflect the (already-substituted) auth value into a 101 response header.
+		resp := "HTTP/1.1 101 Switching Protocols\r\n" +
+			"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+			"X-Echo-Auth: " + req.Header.Get("Authorization") + "\r\n\r\n"
+		conn.Write([]byte(resp))
+	}()
+
+	destAddr := upstreamLn.Addr().String()
+	insecureTLS := &tls.Config{InsecureSkipVerify: true}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleWebSocketUpgrade(w, r, destAddr, secrets, insecureTLS)
+	})
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Authorization", "Bearer <BOXLITE_SECRET:apikey>")
+
+	transport := &http.Transport{}
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatal("request failed:", err)
+	}
+	defer resp.Body.Close()
+
+	// The reflected value in the upgrade response header must be scrubbed.
+	echoed := resp.Header.Get("X-Echo-Auth")
+	if strings.Contains(echoed, "secret-api-key") {
+		t.Errorf("secret leaked in WS upgrade response header: %q", echoed)
+	}
+	if echoed != "Bearer <BOXLITE_SECRET:apikey>" {
+		t.Errorf("expected scrubbed placeholder in WS response header, got %q", echoed)
+	}
+}
+
 func TestHandleWebSocketUpgrade_BidirectionalRelay(t *testing.T) {
 	secrets := []SecretConfig{}
 
