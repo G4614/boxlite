@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -690,6 +691,63 @@ func TestMitmProxy_ResponseScrubbing(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "<BOXLITE_SECRET:k>") {
 		t.Errorf("expected placeholder in scrubbed response body, got: %s", string(body))
+	}
+}
+
+// TestMitmProxy_ResponseScrubbing_Gzip verifies the scrubber is not bypassed by
+// response compression: an upstream that reflects the secret inside a
+// gzip-compressed body must still have it scrubbed before the guest sees it.
+func TestMitmProxy_ResponseScrubbing_Gzip(t *testing.T) {
+	ca := newTestCA(t)
+	secrets := testSecrets()
+
+	var captured capturedUpstream
+	addr, cleanup := startTestUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		captured.addAuth(auth)
+		// Reflect the (substituted) value inside a gzip body, regardless of
+		// Accept-Encoding (like httpbin's /gzip endpoint).
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		fmt.Fprintf(gz, `{"auth":%q}`, auth)
+		gz.Close()
+	})
+	defer cleanup()
+
+	client := dialThroughMITM(t, ca, "api.example.com", addr, secrets)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.example.com/test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer <BOXLITE_SECRET:k>")
+	req.Header.Set("Accept-Encoding", "gzip") // attacker explicitly asks for compression
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal("request failed:", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	// Sanity: upstream received the substituted value.
+	auths := captured.snapshotAuths()
+	if len(auths) != 1 || !strings.Contains(auths[0], "real-value") {
+		t.Fatalf("expected upstream to receive substituted value, got: %v", auths)
+	}
+	// The compressed reflection must be decompressed, scrubbed, and served as
+	// identity — the guest must not see the plaintext value.
+	if strings.Contains(string(body), "real-value") {
+		t.Errorf("secret leaked through gzip response: %s", string(body))
+	}
+	if !strings.Contains(string(body), "<BOXLITE_SECRET:k>") {
+		t.Errorf("expected placeholder in scrubbed response, got: %s", string(body))
+	}
+	if enc := resp.Header.Get("Content-Encoding"); enc != "" {
+		t.Errorf("expected Content-Encoding stripped after decompress, got %q", enc)
 	}
 }
 

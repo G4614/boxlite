@@ -1,8 +1,12 @@
 package main
 
 import (
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -146,10 +150,17 @@ type secretTransport struct {
 }
 
 func (t *secretTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Body != nil && len(t.secrets) > 0 {
-		req.Body = newStreamingReplacer(req.Body, t.secrets)
-		req.ContentLength = -1
-		req.Header.Del("Content-Length")
+	if len(t.secrets) > 0 {
+		// The response scrubber scans bytes for reflected secret values. Opaque
+		// compression (gzip/deflate/br/...) would hide the plaintext from that
+		// scan, so ask the upstream not to compress. Non-compliant upstreams are
+		// handled in installResponseBodyScrubber.
+		req.Header.Set("Accept-Encoding", "identity")
+		if req.Body != nil {
+			req.Body = newStreamingReplacer(req.Body, t.secrets)
+			req.ContentLength = -1
+			req.Header.Del("Content-Length")
+		}
 	}
 	resp, err := t.inner.RoundTrip(req)
 	if err != nil || resp == nil || len(t.secrets) == 0 {
@@ -159,12 +170,70 @@ func (t *secretTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// so a reflecting upstream cannot hand the plaintext to the guest.
 	scrubResponseHeaders(resp, t.secrets)
 	if resp.Body != nil {
-		resp.Body = newSecretResponseScrubber(resp.Body, t.secrets)
-		// Body length changes when value/placeholder differ in size.
-		resp.ContentLength = -1
-		resp.Header.Del("Content-Length")
+		if err := installResponseBodyScrubber(resp, t.secrets); err != nil {
+			resp.Body.Close()
+			logrus.WithError(err).Warn("MITM: refusing unscrubbable response")
+			return nil, err
+		}
 	}
 	return resp, err
+}
+
+// installResponseBodyScrubber wraps resp.Body so reflected secret values are
+// scrubbed even when the upstream compressed the response. A byte-level scrubber
+// cannot see plaintext inside gzip/deflate, so we decompress, scrub, and serve
+// identity. Encodings we cannot decode are refused (fail closed) rather than
+// passed through unscrubbed.
+func installResponseBodyScrubber(resp *http.Response, secrets []SecretConfig) error {
+	enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding")))
+	switch enc {
+	case "", "identity":
+		resp.Body = newSecretResponseScrubber(resp.Body, secrets)
+		resp.ContentLength = -1
+		resp.Header.Del("Content-Length")
+		return nil
+	case "gzip":
+		zr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return fmt.Errorf("gzip reader: %w", err)
+		}
+		installDecodedScrubber(resp, secrets, zr)
+		return nil
+	case "deflate":
+		installDecodedScrubber(resp, secrets, flate.NewReader(resp.Body))
+		return nil
+	default:
+		// We asked for identity but the upstream used an encoding we cannot
+		// decode, so we cannot verify the body is free of the secret.
+		return fmt.Errorf("cannot scrub response with Content-Encoding %q", enc)
+	}
+}
+
+// installDecodedScrubber replaces resp.Body with a reader that decompresses via
+// decoder, scrubs the plaintext, and is served as identity. It closes both the
+// decoder and the original compressed body.
+func installDecodedScrubber(resp *http.Response, secrets []SecretConfig, decoder io.ReadCloser) {
+	src := &multiCloseReader{Reader: decoder, closers: []io.Closer{decoder, resp.Body}}
+	resp.Body = newSecretResponseScrubber(src, secrets)
+	resp.Header.Del("Content-Encoding")
+	resp.Header.Del("Content-Length")
+	resp.ContentLength = -1
+}
+
+// multiCloseReader adapts a Reader plus a set of Closers into an io.ReadCloser.
+type multiCloseReader struct {
+	io.Reader
+	closers []io.Closer
+}
+
+func (m *multiCloseReader) Close() error {
+	var firstErr error
+	for _, c := range m.closers {
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // scrubResponseHeaders replaces leaked secret values with their placeholders in
