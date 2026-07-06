@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -22,7 +23,57 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type proxyRoute struct {
+	boxID      string
+	targetPort string
+	targetPath string
+	runnerInfo *RunnerInfo
+}
+
 func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, error) {
+	route, err := p.resolveProxyRoute(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Build the target URL
+	targetURL := fmt.Sprintf("%s/boxes/%s/toolbox/proxy/%s", route.runnerInfo.ApiUrl, route.boxID, route.targetPort)
+	target, err := url.Parse(fmt.Sprintf("%s%s", targetURL, route.targetPath))
+	if err != nil {
+		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to parse target URL: %w", err)))
+		return nil, nil, fmt.Errorf("failed to parse target URL: %w", err)
+	}
+
+	return target, map[string]string{
+		"X-BoxLite-Authorization": fmt.Sprintf("Bearer %s", route.runnerInfo.ApiKey),
+		"X-Forwarded-Host":        ctx.Request.Host,
+	}, nil
+}
+
+func (p *Proxy) GetProxyTunnelTarget(ctx *gin.Context) (*url.URL, *url.URL, map[string]string, error) {
+	route, err := p.resolveProxyRoute(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	guestTarget := &url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort("127.0.0.1", route.targetPort),
+		Path:   route.targetPath,
+	}
+
+	tunnelTarget, err := url.Parse(fmt.Sprintf("%s/boxes/%s/tunnel/ports/%s", route.runnerInfo.ApiUrl, route.boxID, route.targetPort))
+	if err != nil {
+		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to parse tunnel URL: %w", err)))
+		return nil, nil, nil, fmt.Errorf("failed to parse tunnel URL: %w", err)
+	}
+
+	return guestTarget, tunnelTarget, map[string]string{
+		"X-BoxLite-Authorization": fmt.Sprintf("Bearer %s", route.runnerInfo.ApiKey),
+	}, nil
+}
+
+func (p *Proxy) resolveProxyRoute(ctx *gin.Context) (*proxyRoute, error) {
 	var targetPort, targetPath, boxIdOrSignedToken string
 
 	// Extract port and box ID from the host header.
@@ -31,18 +82,18 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 	targetPort, boxIdOrSignedToken, _, err = p.parseHost(ctx.Request.Host)
 	if err != nil {
 		ctx.Error(common_errors.NewBadRequestError(err))
-		return nil, nil, err
+		return nil, err
 	}
 	targetPath = ctx.Param("path")
 
 	if targetPort == "" {
 		ctx.Error(common_errors.NewBadRequestError(errors.New("target port is required")))
-		return nil, nil, errors.New("target port is required")
+		return nil, errors.New("target port is required")
 	}
 
 	if boxIdOrSignedToken == "" {
 		ctx.Error(common_errors.NewBadRequestError(errors.New("box ID or signed token is required")))
-		return nil, nil, errors.New("box ID or signed token is required")
+		return nil, errors.New("box ID or signed token is required")
 	}
 
 	boxId := boxIdOrSignedToken
@@ -50,14 +101,14 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 	isPublic, err := p.getBoxPublic(ctx, boxIdOrSignedToken)
 	if err != nil {
 		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to get box public status: %w", err)))
-		return nil, nil, fmt.Errorf("failed to get box public status: %w", err)
+		return nil, fmt.Errorf("failed to get box public status: %w", err)
 	}
 
 	if !*isPublic || targetPort == TERMINAL_PORT {
 		portFloat, err := strconv.ParseFloat(targetPort, 64)
 		if err != nil {
 			ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to parse target port: %w", err)))
-			return nil, nil, fmt.Errorf("failed to parse target port: %w", err)
+			return nil, fmt.Errorf("failed to parse target port: %w", err)
 		}
 		var didRedirect bool
 		boxId, didRedirect, err = p.Authenticate(ctx, boxIdOrSignedToken, float32(portFloat))
@@ -65,14 +116,14 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 			if !didRedirect {
 				ctx.Error(err)
 			}
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
 	runnerInfo, err := p.getBoxRunnerInfo(ctx, boxId)
 	if err != nil {
 		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to get runner info: %w", err)))
-		return nil, nil, fmt.Errorf("failed to get runner info: %w", err)
+		return nil, fmt.Errorf("failed to get runner info: %w", err)
 	}
 
 	// Skip last activity update if header is set
@@ -85,9 +136,6 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 		})
 	}
 
-	// Build the target URL
-	targetURL := fmt.Sprintf("%s/boxes/%s/toolbox/proxy/%s", runnerInfo.ApiUrl, boxId, targetPort)
-
 	// Ensure path always has a leading slash but not duplicate slashes
 	if targetPath == "" {
 		targetPath = "/"
@@ -95,16 +143,11 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 		targetPath = "/" + targetPath
 	}
 
-	// Create the complete target URL with path
-	target, err := url.Parse(fmt.Sprintf("%s%s", targetURL, targetPath))
-	if err != nil {
-		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to parse target URL: %w", err)))
-		return nil, nil, fmt.Errorf("failed to parse target URL: %w", err)
-	}
-
-	return target, map[string]string{
-		"X-BoxLite-Authorization": fmt.Sprintf("Bearer %s", runnerInfo.ApiKey),
-		"X-Forwarded-Host":        ctx.Request.Host,
+	return &proxyRoute{
+		boxID:      boxId,
+		targetPort: targetPort,
+		targetPath: targetPath,
+		runnerInfo: runnerInfo,
 	}, nil
 }
 

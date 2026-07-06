@@ -17,8 +17,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 func TestIsTerminalToolboxPath(t *testing.T) {
@@ -83,7 +81,7 @@ func TestParseGuestPortProxyPath(t *testing.T) {
 	}
 }
 
-func TestGuestPortReverseProxyRelaysHTTPViaIngress(t *testing.T) {
+func TestGuestPortTunnelRelaysOpaqueHTTPViaIngress(t *testing.T) {
 	socketPath, serverErrs := startFakeIngress(t, func(conn net.Conn, reader *bufio.Reader) error {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -96,43 +94,45 @@ func TestGuestPortReverseProxyRelaysHTTPViaIngress(t *testing.T) {
 			return fmt.Errorf("write ingress ok: %w", err)
 		}
 
-		req, err := http.ReadRequest(reader)
+		gotRequest, err := reader.ReadString('\n')
 		if err != nil {
-			return fmt.Errorf("read proxied request: %w", err)
+			return fmt.Errorf("read tunneled request line: %w", err)
 		}
-		if req.URL.Path != "/hello" {
-			return fmt.Errorf("proxied path = %q, want /hello", req.URL.Path)
-		}
-		if req.URL.RawQuery != "x=1" {
-			return fmt.Errorf("proxied query = %q, want x=1", req.URL.RawQuery)
-		}
-		if req.Host != "127.0.0.1:8080" {
-			return fmt.Errorf("proxied host = %q, want 127.0.0.1:8080", req.Host)
-		}
-		if req.Header.Get("X-Forwarded-Host") != "8080-box.proxy.dev" {
-			return fmt.Errorf("x-forwarded-host = %q", req.Header.Get("X-Forwarded-Host"))
+		if gotRequest != "GET /hello?x=1 HTTP/1.1\r\n" {
+			return fmt.Errorf("tunneled request line = %q", gotRequest)
 		}
 
 		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"))
 		return err
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "http://8080-box.proxy.dev/boxes/box/toolbox/proxy/8080/hello?x=1", nil)
-	req.Host = "8080-box.proxy.dev"
-	rec := httptest.NewRecorder()
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveGuestPortTunnel(w, r, socketPath, 8080, testLogger())
+	}))
+	defer proxyServer.Close()
 
-	newGuestPortReverseProxy(socketPath, 8080, "/hello", testLogger()).ServeHTTP(rec, req)
+	conn, reader := dialRunnerTunnel(t, proxyServer.URL)
+	defer conn.Close()
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
+	if _, err := fmt.Fprint(conn, "GET /hello?x=1 HTTP/1.1\r\nHost: 8080-box.proxy.dev\r\n\r\n"); err != nil {
+		t.Fatalf("write tunneled request: %v", err)
 	}
-	if rec.Body.String() != "ok" {
-		t.Fatalf("body = %q, want ok", rec.Body.String())
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("read tunneled response: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Fatalf("response = (%d, %q), want 200 ok", resp.StatusCode, body)
 	}
 	assertNoServerError(t, serverErrs)
 }
 
-func TestGuestPortReverseProxyRelaysWebSocketViaIngress(t *testing.T) {
+func TestGuestPortTunnelRelaysOpaqueWebSocketViaIngress(t *testing.T) {
 	socketPath, serverErrs := startFakeIngress(t, func(conn net.Conn, reader *bufio.Reader) error {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -172,29 +172,65 @@ func TestGuestPortReverseProxyRelaysWebSocketViaIngress(t *testing.T) {
 	})
 
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		newGuestPortReverseProxy(socketPath, 8081, "/ws", testLogger()).ServeHTTP(w, r)
+		serveGuestPortTunnel(w, r, socketPath, 8081, testLogger())
 	}))
 	defer proxyServer.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(proxyServer.URL, "http") + "/boxes/box/toolbox/proxy/8081/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial websocket proxy: %v", err)
-	}
+	conn, reader := dialRunnerTunnel(t, proxyServer.URL)
 	defer conn.Close()
 
-	if err := conn.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
+	key := "dGhlIHNhbXBsZSBub25jZQ=="
+	if _, err := fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: 8081-box.proxy.dev\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\n\r\n", key); err != nil {
+		t.Fatalf("write websocket handshake: %v", err)
+	}
+	resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatalf("read websocket handshake: %v", err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("websocket status = %d", resp.StatusCode)
+	}
+	if err := writeMaskedTextFrame(conn, "ping"); err != nil {
 		t.Fatalf("write websocket message: %v", err)
 	}
-	mt, payload, err := conn.ReadMessage()
+	payload, err := readTextFrame(reader)
 	if err != nil {
 		t.Fatalf("read websocket message: %v", err)
 	}
-	if mt != websocket.TextMessage || string(payload) != "pong" {
-		t.Fatalf("websocket response = (%d, %q), want text pong", mt, payload)
+	if payload != "pong" {
+		t.Fatalf("websocket response = %q, want pong", payload)
 	}
 
 	assertNoServerError(t, serverErrs)
+}
+
+func dialRunnerTunnel(t *testing.T, serverURL string) (net.Conn, *bufio.Reader) {
+	t.Helper()
+
+	addr := strings.TrimPrefix(serverURL, "http://")
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial tunnel server: %v", err)
+	}
+
+	if _, err := fmt.Fprintf(conn, "CONNECT /boxes/box/tunnel/ports/8080 HTTP/1.1\r\nHost: %s\r\n\r\n", addr); err != nil {
+		_ = conn.Close()
+		t.Fatalf("write CONNECT: %v", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		_ = conn.Close()
+		t.Fatalf("read CONNECT response: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_ = conn.Close()
+		t.Fatalf("CONNECT status = %d", resp.StatusCode)
+	}
+
+	return conn, reader
 }
 
 func startFakeIngress(t *testing.T, handle func(net.Conn, *bufio.Reader) error) (string, <-chan error) {
@@ -292,4 +328,43 @@ func writeTextFrame(w io.Writer, payload string) error {
 	}
 	_, err := w.Write(append([]byte{0x81, byte(len(payload))}, []byte(payload)...))
 	return err
+}
+
+func writeMaskedTextFrame(w io.Writer, payload string) error {
+	if len(payload) > 125 {
+		return fmt.Errorf("payload too large")
+	}
+	mask := []byte{1, 2, 3, 4}
+	frame := []byte{0x81, 0x80 | byte(len(payload))}
+	frame = append(frame, mask...)
+	for i, b := range []byte(payload) {
+		frame = append(frame, b^mask[i%4])
+	}
+	_, err := w.Write(frame)
+	return err
+}
+
+func readTextFrame(r *bufio.Reader) (string, error) {
+	first, err := r.ReadByte()
+	if err != nil {
+		return "", fmt.Errorf("read websocket first byte: %w", err)
+	}
+	if first&0x0f != 0x1 {
+		return "", fmt.Errorf("unexpected websocket opcode 0x%x", first&0x0f)
+	}
+
+	second, err := r.ReadByte()
+	if err != nil {
+		return "", fmt.Errorf("read websocket second byte: %w", err)
+	}
+	payloadLen := int(second & 0x7f)
+	if payloadLen >= 126 {
+		return "", fmt.Errorf("test frame too large")
+	}
+
+	payload := make([]byte, payloadLen)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return "", fmt.Errorf("read websocket payload: %w", err)
+	}
+	return string(payload), nil
 }

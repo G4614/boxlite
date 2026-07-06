@@ -38,6 +38,14 @@ var proxyTransport = &http.Transport{
 //	@Failure		500			{object}	string	"Internal server error"
 //	@Router			/workspaces/{workspaceId}/{projectId}/toolbox/{path} [get]
 func NewProxyRequestHandler(getProxyTarget func(*gin.Context) (targetUrl *url.URL, extraHeaders map[string]string, err error), modifyResponse func(*http.Response) error) gin.HandlerFunc {
+	return NewProxyRequestHandlerWithTransport(getProxyTarget, modifyResponse, proxyTransport)
+}
+
+func NewProxyRequestHandlerWithTransport(getProxyTarget func(*gin.Context) (targetUrl *url.URL, extraHeaders map[string]string, err error), modifyResponse func(*http.Response) error, transport http.RoundTripper) gin.HandlerFunc {
+	if transport == nil {
+		transport = proxyTransport
+	}
+
 	return func(ctx *gin.Context) {
 		target, extraHeaders, err := getProxyTarget(ctx)
 		if err != nil {
@@ -64,7 +72,7 @@ func NewProxyRequestHandler(getProxyTarget func(*gin.Context) (targetUrl *url.UR
 					req.Header.Add(key, value)
 				}
 			},
-			Transport:      proxyTransport,
+			Transport:      transport,
 			ModifyResponse: modifyResponse,
 		}
 

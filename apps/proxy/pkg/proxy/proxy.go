@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"sync"
 	"time"
@@ -168,7 +169,7 @@ func StartProxy(ctx context.Context, config *config.Config) error {
 			return
 		}
 
-		_, _, _, err := proxy.parseHost(ctx.Request.Host)
+		targetPort, _, _, err := proxy.parseHost(ctx.Request.Host)
 		// if the host is not valid, we don't proxy the request
 		if err != nil {
 			switch ctx.Request.Method {
@@ -189,7 +190,21 @@ func StartProxy(ctx context.Context, config *config.Config) error {
 			return
 		}
 
-		common_proxy.NewProxyRequestHandler(proxy.GetProxyTarget, nil)(ctx)
+		if targetPort == TERMINAL_PORT {
+			common_proxy.NewProxyRequestHandler(proxy.GetProxyTarget, nil)(ctx)
+			return
+		}
+
+		target, tunnel, tunnelHeaders, err := proxy.GetProxyTunnelTarget(ctx)
+		if err != nil {
+			// Error already sent to the context
+			return
+		}
+		common_proxy.NewProxyRequestHandlerWithTransport(func(*gin.Context) (*url.URL, map[string]string, error) {
+			return target, map[string]string{
+				"X-Forwarded-Host": ctx.Request.Host,
+			}, nil
+		}, nil, newRunnerTunnelTransport(tunnel, tunnelHeaders))(ctx)
 	})
 
 	httpServer := &http.Server{

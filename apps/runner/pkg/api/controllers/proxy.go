@@ -8,10 +8,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"strings"
 	"sync"
 	"time"
@@ -65,17 +65,42 @@ func ProxyRequest(logger *slog.Logger) gin.HandlerFunc {
 			return
 		}
 
-		targetPort, targetPath, ok, err := parseGuestPortProxyPath(path)
+		targetPort, _, ok, err := parseGuestPortProxyPath(path)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if ok {
-			handleGuestPortProxy(ctx, r, boxId, targetPort, targetPath, logger)
+			if ctx.Request.Method != http.MethodConnect {
+				ctx.JSON(http.StatusGone, gin.H{
+					"error": "port preview now uses the runner tunnel endpoint",
+				})
+				return
+			}
+			handleGuestPortTunnel(ctx, r, boxId, targetPort, logger)
 			return
 		}
 
 		legacyToolboxUnavailable(ctx, logger, boxId, path)
+	}
+}
+
+func GuestPortTunnel(logger *slog.Logger) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		r, err := runner.GetInstance(nil)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		boxId := ctx.Param("boxId")
+		port64, err := parseTCPPort(ctx.Param("port"))
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		handleGuestPortTunnel(ctx, r, boxId, uint16(port64), logger)
 	}
 }
 
@@ -144,43 +169,86 @@ func legacyToolboxUnavailable(ctx *gin.Context, logger *slog.Logger, boxId strin
 	})
 }
 
-func handleGuestPortProxy(ctx *gin.Context, r *runner.Runner, boxId string, port uint16, targetPath string, logger *slog.Logger) {
+func handleGuestPortTunnel(ctx *gin.Context, r *runner.Runner, boxId string, port uint16, logger *slog.Logger) {
 	ingressSocketPath, err := r.Boxlite.GvproxyIngressSocketPath(ctx.Request.Context(), boxId)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	proxy := newGuestPortReverseProxy(ingressSocketPath, port, targetPath, logger)
-	proxy.ServeHTTP(ctx.Writer, ctx.Request)
+	serveGuestPortTunnel(ctx.Writer, ctx.Request, ingressSocketPath, port, logger)
 }
 
-func newGuestPortReverseProxy(ingressSocketPath string, port uint16, targetPath string, logger *slog.Logger) *httputil.ReverseProxy {
-	targetHost := fmt.Sprintf("127.0.0.1:%d", port)
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialGvproxyIngress(ctx, ingressSocketPath, port)
-		},
+func serveGuestPortTunnel(w http.ResponseWriter, req *http.Request, ingressSocketPath string, port uint16, logger *slog.Logger) {
+	ingressConn, err := dialGvproxyIngress(req.Context(), ingressSocketPath, port)
+	if err != nil {
+		logger.WarnContext(req.Context(), "guest port tunnel failed", "port", port, "error", err)
+		http.Error(w, "guest port tunnel failed: "+err.Error(), http.StatusBadGateway)
+		return
 	}
 
-	return &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			originalHost := req.Host
-			req.URL.Scheme = "http"
-			req.URL.Host = targetHost
-			req.URL.Path = targetPath
-			req.URL.RawPath = ""
-			req.Host = targetHost
-			if req.Header.Get("X-Forwarded-Host") == "" {
-				req.Header.Set("X-Forwarded-Host", originalHost)
-			}
-		},
-		Transport: transport,
-		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			logger.WarnContext(req.Context(), "guest port proxy failed", "port", port, "path", targetPath, "error", err)
-			http.Error(w, "guest port proxy failed: "+err.Error(), http.StatusBadGateway)
-		},
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		_ = ingressConn.Close()
+		http.Error(w, "response writer does not support hijacking", http.StatusInternalServerError)
+		return
 	}
+
+	clientConn, rw, err := hijacker.Hijack()
+	if err != nil {
+		_ = ingressConn.Close()
+		logger.WarnContext(req.Context(), "guest port tunnel hijack failed", "port", port, "error", err)
+		return
+	}
+	defer clientConn.Close()
+	defer ingressConn.Close()
+
+	if _, err := rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+		logger.WarnContext(req.Context(), "guest port tunnel response failed", "port", port, "error", err)
+		return
+	}
+	if err := rw.Flush(); err != nil {
+		logger.WarnContext(req.Context(), "guest port tunnel flush failed", "port", port, "error", err)
+		return
+	}
+
+	bridgeTunnelConns(&bufferedTunnelConn{Conn: clientConn, reader: rw.Reader}, ingressConn)
+}
+
+func bridgeTunnelConns(client net.Conn, ingress net.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(ingress, client)
+		closeWriteOrClose(ingress)
+	}()
+
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(client, ingress)
+		closeWriteOrClose(client)
+	}()
+
+	wg.Wait()
+}
+
+func closeWriteOrClose(conn net.Conn) {
+	if closeWriter, ok := conn.(interface{ CloseWrite() error }); ok {
+		_ = closeWriter.CloseWrite()
+		return
+	}
+	_ = conn.Close()
+}
+
+type bufferedTunnelConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *bufferedTunnelConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
 }
 
 func dialGvproxyIngress(ctx context.Context, ingressSocketPath string, port uint16) (net.Conn, error) {

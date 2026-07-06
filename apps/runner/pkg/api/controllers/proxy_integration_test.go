@@ -3,10 +3,12 @@
 package controllers
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,7 +27,7 @@ import (
 	blclient "github.com/boxlite-ai/runner/pkg/boxlite"
 )
 
-func TestIntegrationGuestPortReverseProxyRelaysHTTPViaRealVM(t *testing.T) {
+func TestIntegrationGuestPortTunnelRelaysHTTPViaRealVM(t *testing.T) {
 	initRunnerConfigForIntegrationTest(t)
 
 	ctx := context.Background()
@@ -96,11 +98,11 @@ func TestIntegrationGuestPortReverseProxyRelaysHTTPViaRealVM(t *testing.T) {
 	}
 
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		newGuestPortReverseProxy(ingressSocketPath, 18080, "/", testLogger()).ServeHTTP(w, r)
+		serveGuestPortTunnel(w, r, ingressSocketPath, 18080, testLogger())
 	}))
 	defer proxyServer.Close()
 
-	waitForRealVMProxyResponse(t, proxyServer.URL, "vm-proxy-ok\n", func() string {
+	waitForRealVMTunnelResponse(t, proxyServer.URL, "vm-proxy-ok\n", func() string {
 		return stderr.String()
 	})
 }
@@ -193,10 +195,9 @@ func skipIfRuntimeUnavailable(t *testing.T, err error) {
 	}
 }
 
-func waitForRealVMProxyResponse(t *testing.T, url string, want string, stderr func() string) {
+func waitForRealVMTunnelResponse(t *testing.T, url string, want string, stderr func() string) {
 	t.Helper()
 
-	client := http.Client{Timeout: 3 * time.Second}
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	deadline := time.After(45 * time.Second)
@@ -205,12 +206,7 @@ func waitForRealVMProxyResponse(t *testing.T, url string, want string, stderr fu
 	var lastStatus int
 
 	for {
-		req, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			t.Fatalf("NewRequest: %v", err)
-		}
-		req.Host = "18080-box.proxy.dev"
-		resp, err := client.Do(req)
+		resp, err := getThroughTunnel(url, "GET / HTTP/1.1\r\nHost: 18080-box.proxy.dev\r\n\r\n")
 		if err == nil {
 			body, readErr := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
@@ -229,7 +225,64 @@ func waitForRealVMProxyResponse(t *testing.T, url string, want string, stderr fu
 		select {
 		case <-ticker.C:
 		case <-deadline:
-			t.Fatalf("real VM proxy did not return %q within deadline; lastStatus=%d lastBody=%q lastErr=%v stderr=%q", want, lastStatus, lastBody, lastErr, stderr())
+			t.Fatalf("real VM tunnel did not return %q within deadline; lastStatus=%d lastBody=%q lastErr=%v stderr=%q", want, lastStatus, lastBody, lastErr, stderr())
 		}
 	}
+}
+
+func getThroughTunnel(serverURL string, rawRequest string) (*http.Response, error) {
+	addr := strings.TrimPrefix(serverURL, "http://")
+	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	if _, err := fmt.Fprintf(conn, "CONNECT /boxes/box/tunnel/ports/18080 HTTP/1.1\r\nHost: %s\r\n\r\n", addr); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	reader := bufio.NewReader(conn)
+	connectResp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	_ = connectResp.Body.Close()
+	if connectResp.StatusCode != http.StatusOK {
+		_ = conn.Close()
+		return nil, fmt.Errorf("CONNECT status %d", connectResp.StatusCode)
+	}
+
+	if _, err := io.WriteString(conn, rawRequest); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	resp.Body = &connClosingReadCloser{ReadCloser: resp.Body, conn: conn}
+	return resp, nil
+}
+
+type connClosingReadCloser struct {
+	io.ReadCloser
+	conn net.Conn
+}
+
+func (c *connClosingReadCloser) Close() error {
+	bodyErr := c.ReadCloser.Close()
+	connErr := c.conn.Close()
+	if bodyErr != nil {
+		return bodyErr
+	}
+	return connErr
 }
