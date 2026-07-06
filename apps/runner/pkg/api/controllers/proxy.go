@@ -5,9 +5,13 @@
 package controllers
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +39,7 @@ var upgrader = websocket.Upgrader{
 const (
 	terminalKeepaliveInterval = 15 * time.Second
 	terminalWriteDeadline     = 20 * time.Second
+	ingressHandshakeTimeout   = 10 * time.Second
 )
 
 // ProxyRequest handles the terminal preview endpoint. Legacy in-box toolbox
@@ -50,18 +55,23 @@ func ProxyRequest(logger *slog.Logger) gin.HandlerFunc {
 		boxId := ctx.Param("boxId")
 		path := normalizeToolboxPath(ctx.Param("path"))
 
-		if strings.EqualFold(ctx.Request.Header.Get("Upgrade"), "websocket") {
-			if isTerminalToolboxPath(path) {
+		if isTerminalToolboxPath(path) {
+			if strings.EqualFold(ctx.Request.Header.Get("Upgrade"), "websocket") {
 				handleWebSocketTerminal(ctx, r, boxId, logger)
 				return
 			}
 
-			legacyToolboxUnavailable(ctx, logger, boxId, path)
+			ctx.Data(http.StatusOK, "text/html; charset=utf-8", []byte(terminalHTML))
 			return
 		}
 
-		if isTerminalToolboxPath(path) {
-			ctx.Data(http.StatusOK, "text/html; charset=utf-8", []byte(terminalHTML))
+		targetPort, targetPath, ok, err := parseGuestPortProxyPath(path)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if ok {
+			handleGuestPortProxy(ctx, r, boxId, targetPort, targetPath, logger)
 			return
 		}
 
@@ -84,11 +94,142 @@ func isTerminalToolboxPath(path string) bool {
 	return path == "/" || path == "/proxy/22222" || strings.HasPrefix(path, "/proxy/22222/")
 }
 
+func parseGuestPortProxyPath(path string) (uint16, string, bool, error) {
+	path = normalizeToolboxPath(path)
+	if !strings.HasPrefix(path, "/proxy/") {
+		return 0, "", false, nil
+	}
+
+	rest := strings.TrimPrefix(path, "/proxy/")
+	rawPort, targetPath, _ := strings.Cut(rest, "/")
+	if rawPort == "" {
+		return 0, "", true, fmt.Errorf("target port is required")
+	}
+
+	port64, err := parseTCPPort(rawPort)
+	if err != nil {
+		return 0, "", true, err
+	}
+
+	if targetPath == "" {
+		targetPath = "/"
+	} else {
+		targetPath = "/" + targetPath
+	}
+
+	return uint16(port64), targetPath, true, nil
+}
+
+func parseTCPPort(rawPort string) (uint64, error) {
+	var port uint64
+	for _, ch := range rawPort {
+		if ch < '0' || ch > '9' {
+			return 0, fmt.Errorf("invalid target port %q", rawPort)
+		}
+		port = port*10 + uint64(ch-'0')
+		if port > 65535 {
+			return 0, fmt.Errorf("target port %q is out of range", rawPort)
+		}
+	}
+	if port == 0 {
+		return 0, fmt.Errorf("target port must be in range 1-65535")
+	}
+	return port, nil
+}
+
 func legacyToolboxUnavailable(ctx *gin.Context, logger *slog.Logger, boxId string, path string) {
 	logger.InfoContext(ctx.Request.Context(), "legacy toolbox proxy request rejected", "box", boxId, "path", path)
 	ctx.JSON(http.StatusGone, gin.H{
 		"error": "legacy toolbox proxy is no longer available; use the BoxLite REST API or terminal preview",
 	})
+}
+
+func handleGuestPortProxy(ctx *gin.Context, r *runner.Runner, boxId string, port uint16, targetPath string, logger *slog.Logger) {
+	ingressSocketPath, err := r.Boxlite.GvproxyIngressSocketPath(ctx.Request.Context(), boxId)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	proxy := newGuestPortReverseProxy(ingressSocketPath, port, targetPath, logger)
+	proxy.ServeHTTP(ctx.Writer, ctx.Request)
+}
+
+func newGuestPortReverseProxy(ingressSocketPath string, port uint16, targetPath string, logger *slog.Logger) *httputil.ReverseProxy {
+	targetHost := fmt.Sprintf("127.0.0.1:%d", port)
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return dialGvproxyIngress(ctx, ingressSocketPath, port)
+		},
+	}
+
+	return &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			originalHost := req.Host
+			req.URL.Scheme = "http"
+			req.URL.Host = targetHost
+			req.URL.Path = targetPath
+			req.URL.RawPath = ""
+			req.Host = targetHost
+			if req.Header.Get("X-Forwarded-Host") == "" {
+				req.Header.Set("X-Forwarded-Host", originalHost)
+			}
+		},
+		Transport: transport,
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			logger.WarnContext(req.Context(), "guest port proxy failed", "port", port, "path", targetPath, "error", err)
+			http.Error(w, "guest port proxy failed: "+err.Error(), http.StatusBadGateway)
+		},
+	}
+}
+
+func dialGvproxyIngress(ctx context.Context, ingressSocketPath string, port uint16) (net.Conn, error) {
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "unix", ingressSocketPath)
+	if err != nil {
+		return nil, fmt.Errorf("dial gvproxy ingress %s: %w", ingressSocketPath, err)
+	}
+
+	deadline := time.Now().Add(ingressHandshakeTimeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	if _, err := fmt.Fprintf(conn, "CONNECT /ports/%d HTTP/1.1\r\n", port); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("write gvproxy ingress request: %w", err)
+	}
+
+	reader := bufio.NewReaderSize(conn, 128)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("read gvproxy ingress response: %w", err)
+	}
+	if strings.TrimSpace(line) != "OK" {
+		_ = conn.Close()
+		return nil, fmt.Errorf("gvproxy ingress rejected port %d: %s", port, strings.TrimSpace(line))
+	}
+
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	return &ingressHandshakeConn{Conn: conn, reader: reader}, nil
+}
+
+type ingressHandshakeConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *ingressHandshakeConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
 }
 
 const terminalHTML = `<!DOCTYPE html>
