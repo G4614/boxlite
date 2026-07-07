@@ -21,6 +21,7 @@ import (
 	"github.com/boxlite-ai/runner/pkg/api"
 	"github.com/boxlite-ai/runner/pkg/backend"
 	blclient "github.com/boxlite-ai/runner/pkg/boxlite"
+	"github.com/boxlite-ai/runner/pkg/portgateway"
 	"github.com/boxlite-ai/runner/pkg/runner"
 	"github.com/boxlite-ai/runner/pkg/runner/v2/executor"
 	"github.com/boxlite-ai/runner/pkg/runner/v2/healthcheck"
@@ -239,12 +240,27 @@ func run() int {
 		apiServerErrChan <- err
 	}()
 
+	portGatewayServer := portgateway.NewServer(portgateway.ServerConfig{
+		Logger:   logger,
+		Port:     cfg.PortGatewayPort,
+		ApiToken: cfg.ApiToken,
+		Resolver: boxliteClient,
+	})
+	portGatewayErrChan := make(chan error)
+	go func() {
+		err := portGatewayServer.Start(ctx)
+		portGatewayErrChan <- err
+	}()
+
 	interruptChannel := make(chan os.Signal, 1)
 	signal.Notify(interruptChannel, os.Interrupt, syscall.SIGTERM)
 
 	select {
 	case err := <-apiServerErrChan:
 		logger.Error("API server error", "error", err)
+		return 1
+	case err := <-portGatewayErrChan:
+		logger.Error("Port gateway error", "error", err)
 		return 1
 	case <-interruptChannel:
 		logger.Info("Signal received, shutting down")
@@ -264,6 +280,7 @@ func run() int {
 		shutdownCancel()
 
 		apiServer.Stop()
+		portGatewayServer.Stop()
 		logger.Info("Shutdown complete")
 		return 143
 	}

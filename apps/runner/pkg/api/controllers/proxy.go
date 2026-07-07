@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/boxlite-ai/runner/pkg/portgateway"
 	"github.com/boxlite-ai/runner/pkg/runner"
 	"github.com/boxlite-ai/runner/pkg/shellutil"
 	"github.com/gin-gonic/gin"
@@ -62,42 +61,19 @@ func ProxyRequest(logger *slog.Logger) gin.HandlerFunc {
 			return
 		}
 
-		targetPort, _, ok, err := parseGuestPortProxyPath(path)
+		_, _, ok, err := parseGuestPortProxyPath(path)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if ok {
-			if ctx.Request.Method != http.MethodConnect {
-				ctx.JSON(http.StatusGone, gin.H{
-					"error": "port preview now uses the runner tunnel endpoint",
-				})
-				return
-			}
-			handleGuestPortTunnel(ctx, r, boxId, targetPort, logger)
+			ctx.JSON(http.StatusGone, gin.H{
+				"error": "port preview now uses the runner port gateway",
+			})
 			return
 		}
 
 		legacyToolboxUnavailable(ctx, logger, boxId, path)
-	}
-}
-
-func GuestPortTunnel(logger *slog.Logger) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		r, err := runner.GetInstance(nil)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		boxId := ctx.Param("boxId")
-		port64, err := parseTCPPort(ctx.Param("port"))
-		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		handleGuestPortTunnel(ctx, r, boxId, uint16(port64), logger)
 	}
 }
 
@@ -164,10 +140,6 @@ func legacyToolboxUnavailable(ctx *gin.Context, logger *slog.Logger, boxId strin
 	ctx.JSON(http.StatusGone, gin.H{
 		"error": "legacy toolbox proxy is no longer available; use the BoxLite REST API or terminal preview",
 	})
-}
-
-func handleGuestPortTunnel(ctx *gin.Context, r *runner.Runner, boxId string, port uint16, logger *slog.Logger) {
-	portgateway.New(r.Boxlite, logger).ServeConnect(ctx.Writer, ctx.Request, boxId, port)
 }
 
 const terminalHTML = `<!DOCTYPE html>

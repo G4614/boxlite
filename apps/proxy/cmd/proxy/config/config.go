@@ -28,6 +28,7 @@ type Config struct {
 	TLSKeyFile            string             `envconfig:"TLS_KEY_FILE"`
 	EnableTLS             bool               `envconfig:"ENABLE_TLS"`
 	BoxliteApiUrl         string             `envconfig:"BOXLITE_API_URL" validate:"required"`
+	RunnerPortGatewayPort int                `envconfig:"RUNNER_PORT_GATEWAY_PORT"`
 	Oidc                  OidcConfig         `envconfig:"OIDC"`
 	Redis                 *cache.RedisConfig `envconfig:"REDIS"`
 	PreviewWarningEnabled bool               `envconfig:"PREVIEW_WARNING_ENABLED"`

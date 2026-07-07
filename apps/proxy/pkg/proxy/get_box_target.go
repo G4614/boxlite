@@ -62,7 +62,13 @@ func (p *Proxy) GetProxyTunnelTarget(ctx *gin.Context) (*url.URL, *url.URL, map[
 		Path:   route.targetPath,
 	}
 
-	tunnelTarget, err := url.Parse(fmt.Sprintf("%s/boxes/%s/tunnel/ports/%s", route.runnerInfo.ApiUrl, route.boxID, route.targetPort))
+	runnerPortGatewayURL, err := p.runnerPortGatewayURL(route.runnerInfo.ApiUrl)
+	if err != nil {
+		ctx.Error(common_errors.NewBadRequestError(err))
+		return nil, nil, nil, err
+	}
+
+	tunnelTarget, err := url.Parse(fmt.Sprintf("%s/boxes/%s/tunnel/ports/%s", runnerPortGatewayURL, route.boxID, route.targetPort))
 	if err != nil {
 		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to parse tunnel URL: %w", err)))
 		return nil, nil, nil, fmt.Errorf("failed to parse tunnel URL: %w", err)
@@ -71,6 +77,30 @@ func (p *Proxy) GetProxyTunnelTarget(ctx *gin.Context) (*url.URL, *url.URL, map[
 	return guestTarget, tunnelTarget, map[string]string{
 		"X-BoxLite-Authorization": fmt.Sprintf("Bearer %s", route.runnerInfo.ApiKey),
 	}, nil
+}
+
+func (p *Proxy) runnerPortGatewayURL(runnerAPIURL string) (string, error) {
+	parsed, err := url.Parse(runnerAPIURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse runner URL: %w", err)
+	}
+
+	portGatewayPort := 0
+	if p.config != nil && p.config.RunnerPortGatewayPort > 0 {
+		portGatewayPort = p.config.RunnerPortGatewayPort
+	} else if rawPort := parsed.Port(); rawPort != "" {
+		apiPort, err := strconv.Atoi(rawPort)
+		if err != nil || apiPort <= 0 || apiPort >= 65535 {
+			return "", fmt.Errorf("invalid runner URL port %q", rawPort)
+		}
+		portGatewayPort = apiPort + 1
+	}
+
+	if portGatewayPort > 0 {
+		parsed.Host = net.JoinHostPort(parsed.Hostname(), strconv.Itoa(portGatewayPort))
+	}
+
+	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
 func (p *Proxy) resolveProxyRoute(ctx *gin.Context) (*proxyRoute, error) {

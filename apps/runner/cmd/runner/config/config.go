@@ -18,6 +18,7 @@ type Config struct {
 	BoxliteApiUrl                      string        `envconfig:"BOXLITE_API_URL"`
 	ApiToken                           string        `envconfig:"BOXLITE_RUNNER_TOKEN"`
 	ApiPort                            int           `envconfig:"API_PORT"`
+	PortGatewayPort                    int           `envconfig:"PORT_GATEWAY_PORT"`
 	ApiLogRequests                     bool          `envconfig:"API_LOG_REQUESTS" default:"false"`
 	TLSCertFile                        string        `envconfig:"TLS_CERT_FILE"`
 	TLSKeyFile                         string        `envconfig:"TLS_KEY_FILE"`
@@ -106,6 +107,9 @@ func GetConfig() (*Config, error) {
 
 	if config.ApiPort == 0 {
 		config.ApiPort = DEFAULT_API_PORT
+	}
+	if config.PortGatewayPort == 0 {
+		config.PortGatewayPort = config.ApiPort + 1
 	}
 
 	if config.Domain == "" {
