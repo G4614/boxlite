@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +26,14 @@ import (
 	runnerconfig "github.com/boxlite-ai/runner/cmd/runner/config"
 	"github.com/boxlite-ai/runner/pkg/api/dto"
 	blclient "github.com/boxlite-ai/runner/pkg/boxlite"
+	"github.com/boxlite-ai/runner/pkg/portgateway"
 )
+
+type staticGuestConnectorResolver string
+
+func (r staticGuestConnectorResolver) GvproxyGuestConnectorSocketPath(context.Context, string) (string, error) {
+	return string(r), nil
+}
 
 func TestIntegrationGuestPortTunnelRelaysHTTPViaRealVM(t *testing.T) {
 	initRunnerConfigForIntegrationTest(t)
@@ -98,13 +106,17 @@ func TestIntegrationGuestPortTunnelRelaysHTTPViaRealVM(t *testing.T) {
 	}
 
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveGuestPortTunnel(w, r, connectorSocketPath, 18080, testLogger())
+		portgateway.New(staticGuestConnectorResolver(connectorSocketPath), integrationTestLogger()).ServeConnect(w, r, boxID, 18080)
 	}))
 	defer proxyServer.Close()
 
 	waitForRealVMTunnelResponse(t, proxyServer.URL, "vm-proxy-ok\n", func() string {
 		return stderr.String()
 	})
+}
+
+func integrationTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func cleanupLeakedRealVMProcesses(t *testing.T, homeDir string, runtimeBoxID string) {
