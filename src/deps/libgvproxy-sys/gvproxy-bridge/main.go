@@ -181,42 +181,42 @@ type DNSZone struct {
 
 // GvproxyConfig matches the Rust structure (must stay in sync!)
 type GvproxyConfig struct {
-	SocketPath        string         `json:"socket_path"`
-	IngressSocketPath string         `json:"ingress_socket_path,omitempty"`
-	Subnet            string         `json:"subnet"`
-	GatewayIP         string         `json:"gateway_ip"`
-	GatewayMac        string         `json:"gateway_mac"`
-	GuestIP           string         `json:"guest_ip"`
-	HostIP            string         `json:"host_ip"`
-	GuestMac          string         `json:"guest_mac"`
-	MTU               uint16         `json:"mtu"`
-	PortMappings      []PortMapping  `json:"port_mappings"`
-	DNSZones          []DNSZone      `json:"dns_zones"`
-	DNSSearchDomains  []string       `json:"dns_search_domains"`
-	Debug             bool           `json:"debug"`
-	CaptureFile       *string        `json:"capture_file,omitempty"`
-	AllowNet          []string       `json:"allow_net,omitempty"`
-	Secrets           []SecretConfig `json:"secrets,omitempty"`
-	CACertPEM         string         `json:"ca_cert_pem,omitempty"`
-	CAKeyPEM          string         `json:"ca_key_pem,omitempty"`
+	SocketPath               string         `json:"socket_path"`
+	GuestConnectorSocketPath string         `json:"guest_connector_socket_path,omitempty"`
+	Subnet                   string         `json:"subnet"`
+	GatewayIP                string         `json:"gateway_ip"`
+	GatewayMac               string         `json:"gateway_mac"`
+	GuestIP                  string         `json:"guest_ip"`
+	HostIP                   string         `json:"host_ip"`
+	GuestMac                 string         `json:"guest_mac"`
+	MTU                      uint16         `json:"mtu"`
+	PortMappings             []PortMapping  `json:"port_mappings"`
+	DNSZones                 []DNSZone      `json:"dns_zones"`
+	DNSSearchDomains         []string       `json:"dns_search_domains"`
+	Debug                    bool           `json:"debug"`
+	CaptureFile              *string        `json:"capture_file,omitempty"`
+	AllowNet                 []string       `json:"allow_net,omitempty"`
+	Secrets                  []SecretConfig `json:"secrets,omitempty"`
+	CACertPEM                string         `json:"ca_cert_pem,omitempty"`
+	CAKeyPEM                 string         `json:"ca_key_pem,omitempty"`
 }
 
 // GvproxyInstance tracks a running gvisor-tap-vsock instance
 type GvproxyInstance struct {
-	ID                int64
-	SocketPath        string
-	IngressSocketPath string
-	GuestIP           string
-	Config            *types.Configuration
-	Cancel            context.CancelFunc
-	conn              net.Conn     // For macOS UnixDgram (VFKit)
-	listener          net.Listener // For Linux UnixStream (Qemu)
-	ingressListener   net.Listener // Unix socket for inbound guest-port streams
-	ingressWg         sync.WaitGroup
-	vn                *virtualnetwork.VirtualNetwork // Virtual network for stats collection
-	vnMu              sync.RWMutex                   // Protects vn field
-	ca                *BoxCA                         // Ephemeral MITM CA (nil if no secrets)
-	secretMatcher     *SecretHostMatcher             // Hostname→secrets lookup (nil if no secrets)
+	ID                       int64
+	SocketPath               string
+	GuestConnectorSocketPath string
+	GuestIP                  string
+	Config                   *types.Configuration
+	Cancel                   context.CancelFunc
+	conn                     net.Conn     // For macOS UnixDgram (VFKit)
+	listener                 net.Listener // For Linux UnixStream (Qemu)
+	guestConnectorListener   net.Listener // Unix socket for internal runner-to-guest streams
+	guestConnectorWg         sync.WaitGroup
+	vn                       *virtualnetwork.VirtualNetwork // Virtual network for stats collection
+	vnMu                     sync.RWMutex                   // Protects vn field
+	ca                       *BoxCA                         // Ephemeral MITM CA (nil if no secrets)
+	secretMatcher            *SecretHostMatcher             // Hostname→secrets lookup (nil if no secrets)
 }
 
 func buildDNSZones(config GvproxyConfig) []types.Zone {
@@ -381,14 +381,14 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	instance := &GvproxyInstance{
-		ID:                id,
-		SocketPath:        socketPath,
-		IngressSocketPath: config.IngressSocketPath,
-		GuestIP:           config.GuestIP,
-		Config:            tapConfig,
-		Cancel:            cancel,
-		conn:              conn,
-		listener:          listener,
+		ID:                       id,
+		SocketPath:               socketPath,
+		GuestConnectorSocketPath: config.GuestConnectorSocketPath,
+		GuestIP:                  config.GuestIP,
+		Config:                   tapConfig,
+		Cancel:                   cancel,
+		conn:                     conn,
+		listener:                 listener,
 	}
 
 	// Parse MITM CA from config (generated by Rust) when secrets are configured
@@ -467,8 +467,8 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 			}
 		}
 
-		if err := instance.startIngress(ctx, config.IngressSocketPath); err != nil {
-			logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("Failed to start gvproxy ingress")
+		if err := instance.startGuestConnector(ctx, config.GuestConnectorSocketPath); err != nil {
+			logrus.WithFields(logrus.Fields{"error": err, "id": id}).Error("Failed to start gvproxy guest connector")
 			initErr <- err
 			return
 		}
@@ -538,7 +538,7 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 		} else if listener != nil {
 			listener.Close()
 		}
-		instance.closeIngress()
+		instance.closeGuestConnector()
 		os.Remove(socketPath)
 	}()
 
@@ -558,7 +558,7 @@ func gvproxy_create(configJSON *C.char, errOut **C.char) C.longlong {
 		} else if listener != nil {
 			listener.Close()
 		}
-		instance.closeIngress()
+		instance.closeGuestConnector()
 		os.Remove(socketPath)
 		return -1
 	}
@@ -587,7 +587,7 @@ func gvproxy_destroy(id C.longlong) C.int {
 
 	// Cancel context to stop goroutines
 	instance.Cancel()
-	instance.closeIngress()
+	instance.closeGuestConnector()
 
 	logrus.Info("Destroyed gvproxy instance", "id", id)
 	return 0

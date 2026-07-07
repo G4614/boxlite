@@ -11,27 +11,27 @@ import (
 	logrus "github.com/sirupsen/logrus"
 )
 
-const ingressDialTimeout = 10 * time.Second
+const guestConnectorDialTimeout = 10 * time.Second
 
-func (i *GvproxyInstance) startIngress(ctx context.Context, path string) error {
+func (i *GvproxyInstance) startGuestConnector(ctx context.Context, path string) error {
 	if path == "" {
 		return nil
 	}
 
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove stale ingress socket %q: %w", path, err)
+		return fmt.Errorf("remove stale guest connector socket %q: %w", path, err)
 	}
 
 	listener, err := net.Listen("unix", path)
 	if err != nil {
-		return fmt.Errorf("listen ingress socket %q: %w", path, err)
+		return fmt.Errorf("listen guest connector socket %q: %w", path, err)
 	}
 
-	i.ingressListener = listener
-	i.ingressWg.Add(1)
+	i.guestConnectorListener = listener
+	i.guestConnectorWg.Add(1)
 	go func() {
-		defer i.ingressWg.Done()
-		i.acceptIngress(ctx, listener)
+		defer i.guestConnectorWg.Done()
+		i.acceptGuestConnector(ctx, listener)
 	}()
 
 	go func() {
@@ -42,11 +42,11 @@ func (i *GvproxyInstance) startIngress(ctx context.Context, path string) error {
 	logrus.WithFields(logrus.Fields{
 		"id":   i.ID,
 		"path": path,
-	}).Info("gvproxy ingress listening")
+	}).Info("gvproxy guest connector listening")
 	return nil
 }
 
-func (i *GvproxyInstance) acceptIngress(ctx context.Context, listener net.Listener) {
+func (i *GvproxyInstance) acceptGuestConnector(ctx context.Context, listener net.Listener) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -54,26 +54,26 @@ func (i *GvproxyInstance) acceptIngress(ctx context.Context, listener net.Listen
 				logrus.WithFields(logrus.Fields{
 					"id":    i.ID,
 					"error": err,
-				}).Warn("gvproxy ingress accept failed")
+				}).Warn("gvproxy guest connector accept failed")
 			}
 			return
 		}
 
-		i.ingressWg.Add(1)
+		i.guestConnectorWg.Add(1)
 		go func() {
-			defer i.ingressWg.Done()
-			handleIngressConn(ctx, conn, i.dialGuestPort)
+			defer i.guestConnectorWg.Done()
+			handleGuestConnectorConn(ctx, conn, i.dialGuestPort)
 		}()
 	}
 }
 
-func (i *GvproxyInstance) closeIngress() {
-	if i.ingressListener != nil {
-		_ = i.ingressListener.Close()
+func (i *GvproxyInstance) closeGuestConnector() {
+	if i.guestConnectorListener != nil {
+		_ = i.guestConnectorListener.Close()
 	}
-	i.ingressWg.Wait()
-	if i.IngressSocketPath != "" {
-		_ = os.Remove(i.IngressSocketPath)
+	i.guestConnectorWg.Wait()
+	if i.GuestConnectorSocketPath != "" {
+		_ = os.Remove(i.GuestConnectorSocketPath)
 	}
 }
 
@@ -90,7 +90,7 @@ func (i *GvproxyInstance) dialGuestPort(ctx context.Context, port uint16) (net.C
 		return nil, errors.New("guest IP is not configured")
 	}
 
-	dialCtx, cancel := context.WithTimeout(ctx, ingressDialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, guestConnectorDialTimeout)
 	defer cancel()
 
 	return vn.DialContextTCP(dialCtx, fmt.Sprintf("%s:%d", guestIP, port))

@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
@@ -81,17 +82,13 @@ func TestParseGuestPortProxyPath(t *testing.T) {
 	}
 }
 
-func TestGuestPortTunnelRelaysOpaqueHTTPViaIngress(t *testing.T) {
-	socketPath, serverErrs := startFakeIngress(t, func(conn net.Conn, reader *bufio.Reader) error {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read ingress request: %w", err)
-		}
-		if line != "CONNECT /ports/8080 HTTP/1.1\r\n" {
-			return fmt.Errorf("ingress request = %q", line)
+func TestGuestPortTunnelRelaysOpaqueHTTPViaGuestConnector(t *testing.T) {
+	socketPath, serverErrs := startFakeGuestConnector(t, func(conn net.Conn, reader *bufio.Reader) error {
+		if err := expectGuestConnectorRequest(reader, 8080); err != nil {
+			return err
 		}
 		if _, err := conn.Write([]byte("OK\n")); err != nil {
-			return fmt.Errorf("write ingress ok: %w", err)
+			return fmt.Errorf("write guest connector ok: %w", err)
 		}
 
 		gotRequest, err := reader.ReadString('\n')
@@ -132,17 +129,13 @@ func TestGuestPortTunnelRelaysOpaqueHTTPViaIngress(t *testing.T) {
 	assertNoServerError(t, serverErrs)
 }
 
-func TestGuestPortTunnelRelaysOpaqueWebSocketViaIngress(t *testing.T) {
-	socketPath, serverErrs := startFakeIngress(t, func(conn net.Conn, reader *bufio.Reader) error {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read ingress request: %w", err)
-		}
-		if line != "CONNECT /ports/8081 HTTP/1.1\r\n" {
-			return fmt.Errorf("ingress request = %q", line)
+func TestGuestPortTunnelRelaysOpaqueWebSocketViaGuestConnector(t *testing.T) {
+	socketPath, serverErrs := startFakeGuestConnector(t, func(conn net.Conn, reader *bufio.Reader) error {
+		if err := expectGuestConnectorRequest(reader, 8081); err != nil {
+			return err
 		}
 		if _, err := conn.Write([]byte("OK\n")); err != nil {
-			return fmt.Errorf("write ingress ok: %w", err)
+			return fmt.Errorf("write guest connector ok: %w", err)
 		}
 
 		req, err := http.ReadRequest(reader)
@@ -233,14 +226,14 @@ func dialRunnerTunnel(t *testing.T, serverURL string) (net.Conn, *bufio.Reader) 
 	return conn, reader
 }
 
-func startFakeIngress(t *testing.T, handle func(net.Conn, *bufio.Reader) error) (string, <-chan error) {
+func startFakeGuestConnector(t *testing.T, handle func(net.Conn, *bufio.Reader) error) (string, <-chan error) {
 	t.Helper()
 
 	socketPath := fmt.Sprintf("/tmp/boxlite-runner-proxy-%d-%d.sock", os.Getpid(), time.Now().UnixNano())
 	_ = os.Remove(socketPath)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
-		t.Fatalf("listen fake ingress: %v", err)
+		t.Fatalf("listen fake guest connector: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = listener.Close()
@@ -268,11 +261,25 @@ func assertNoServerError(t *testing.T, errs <-chan error) {
 	select {
 	case err := <-errs:
 		if err != nil {
-			t.Fatalf("fake ingress error: %v", err)
+			t.Fatalf("fake guest connector error: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for fake ingress")
+		t.Fatal("timed out waiting for fake guest connector")
 	}
+}
+
+func expectGuestConnectorRequest(reader io.Reader, wantPort uint16) error {
+	request := make([]byte, len(guestConnectorMagic)+2)
+	if _, err := io.ReadFull(reader, request); err != nil {
+		return fmt.Errorf("read guest connector request: %w", err)
+	}
+	if string(request[:len(guestConnectorMagic)]) != guestConnectorMagic {
+		return fmt.Errorf("guest connector magic = %q, want %q", request[:len(guestConnectorMagic)], guestConnectorMagic)
+	}
+	if gotPort := binary.BigEndian.Uint16(request[len(guestConnectorMagic):]); gotPort != wantPort {
+		return fmt.Errorf("guest connector port = %d, want %d", gotPort, wantPort)
+	}
+	return nil
 }
 
 func testLogger() *slog.Logger {

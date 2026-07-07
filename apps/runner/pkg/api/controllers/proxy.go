@@ -7,6 +7,7 @@ package controllers
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
@@ -39,7 +40,8 @@ var upgrader = websocket.Upgrader{
 const (
 	terminalKeepaliveInterval = 15 * time.Second
 	terminalWriteDeadline     = 20 * time.Second
-	ingressHandshakeTimeout   = 10 * time.Second
+	guestConnectorTimeout     = 10 * time.Second
+	guestConnectorMagic       = "BLGC1"
 )
 
 // ProxyRequest handles the terminal preview endpoint. Legacy in-box toolbox
@@ -170,17 +172,17 @@ func legacyToolboxUnavailable(ctx *gin.Context, logger *slog.Logger, boxId strin
 }
 
 func handleGuestPortTunnel(ctx *gin.Context, r *runner.Runner, boxId string, port uint16, logger *slog.Logger) {
-	ingressSocketPath, err := r.Boxlite.GvproxyIngressSocketPath(ctx.Request.Context(), boxId)
+	connectorSocketPath, err := r.Boxlite.GvproxyGuestConnectorSocketPath(ctx.Request.Context(), boxId)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	serveGuestPortTunnel(ctx.Writer, ctx.Request, ingressSocketPath, port, logger)
+	serveGuestPortTunnel(ctx.Writer, ctx.Request, connectorSocketPath, port, logger)
 }
 
-func serveGuestPortTunnel(w http.ResponseWriter, req *http.Request, ingressSocketPath string, port uint16, logger *slog.Logger) {
-	ingressConn, err := dialGvproxyIngress(req.Context(), ingressSocketPath, port)
+func serveGuestPortTunnel(w http.ResponseWriter, req *http.Request, connectorSocketPath string, port uint16, logger *slog.Logger) {
+	guestConn, err := dialGvproxyGuestConnector(req.Context(), connectorSocketPath, port)
 	if err != nil {
 		logger.WarnContext(req.Context(), "guest port tunnel failed", "port", port, "error", err)
 		http.Error(w, "guest port tunnel failed: "+err.Error(), http.StatusBadGateway)
@@ -189,19 +191,19 @@ func serveGuestPortTunnel(w http.ResponseWriter, req *http.Request, ingressSocke
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
-		_ = ingressConn.Close()
+		_ = guestConn.Close()
 		http.Error(w, "response writer does not support hijacking", http.StatusInternalServerError)
 		return
 	}
 
 	clientConn, rw, err := hijacker.Hijack()
 	if err != nil {
-		_ = ingressConn.Close()
+		_ = guestConn.Close()
 		logger.WarnContext(req.Context(), "guest port tunnel hijack failed", "port", port, "error", err)
 		return
 	}
 	defer clientConn.Close()
-	defer ingressConn.Close()
+	defer guestConn.Close()
 
 	if _, err := rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		logger.WarnContext(req.Context(), "guest port tunnel response failed", "port", port, "error", err)
@@ -212,22 +214,22 @@ func serveGuestPortTunnel(w http.ResponseWriter, req *http.Request, ingressSocke
 		return
 	}
 
-	bridgeTunnelConns(&bufferedTunnelConn{Conn: clientConn, reader: rw.Reader}, ingressConn)
+	bridgeTunnelConns(&bufferedTunnelConn{Conn: clientConn, reader: rw.Reader}, guestConn)
 }
 
-func bridgeTunnelConns(client net.Conn, ingress net.Conn) {
+func bridgeTunnelConns(client net.Conn, guest net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(ingress, client)
-		closeWriteOrClose(ingress)
+		_, _ = io.Copy(guest, client)
+		closeWriteOrClose(guest)
 	}()
 
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(client, ingress)
+		_, _ = io.Copy(client, guest)
 		closeWriteOrClose(client)
 	}()
 
@@ -251,14 +253,14 @@ func (c *bufferedTunnelConn) Read(p []byte) (int, error) {
 	return c.reader.Read(p)
 }
 
-func dialGvproxyIngress(ctx context.Context, ingressSocketPath string, port uint16) (net.Conn, error) {
+func dialGvproxyGuestConnector(ctx context.Context, connectorSocketPath string, port uint16) (net.Conn, error) {
 	dialer := net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "unix", ingressSocketPath)
+	conn, err := dialer.DialContext(ctx, "unix", connectorSocketPath)
 	if err != nil {
-		return nil, fmt.Errorf("dial gvproxy ingress %s: %w", ingressSocketPath, err)
+		return nil, fmt.Errorf("dial gvproxy guest connector %s: %w", connectorSocketPath, err)
 	}
 
-	deadline := time.Now().Add(ingressHandshakeTimeout)
+	deadline := time.Now().Add(guestConnectorTimeout)
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
@@ -267,20 +269,23 @@ func dialGvproxyIngress(ctx context.Context, ingressSocketPath string, port uint
 		return nil, err
 	}
 
-	if _, err := fmt.Fprintf(conn, "CONNECT /ports/%d HTTP/1.1\r\n", port); err != nil {
+	request := make([]byte, len(guestConnectorMagic)+2)
+	copy(request, guestConnectorMagic)
+	binary.BigEndian.PutUint16(request[len(guestConnectorMagic):], port)
+	if _, err := conn.Write(request); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("write gvproxy ingress request: %w", err)
+		return nil, fmt.Errorf("write gvproxy guest connector request: %w", err)
 	}
 
 	reader := bufio.NewReaderSize(conn, 128)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("read gvproxy ingress response: %w", err)
+		return nil, fmt.Errorf("read gvproxy guest connector response: %w", err)
 	}
 	if strings.TrimSpace(line) != "OK" {
 		_ = conn.Close()
-		return nil, fmt.Errorf("gvproxy ingress rejected port %d: %s", port, strings.TrimSpace(line))
+		return nil, fmt.Errorf("gvproxy guest connector rejected port %d: %s", port, strings.TrimSpace(line))
 	}
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
@@ -288,15 +293,15 @@ func dialGvproxyIngress(ctx context.Context, ingressSocketPath string, port uint
 		return nil, err
 	}
 
-	return &ingressHandshakeConn{Conn: conn, reader: reader}, nil
+	return &guestConnectorHandshakeConn{Conn: conn, reader: reader}, nil
 }
 
-type ingressHandshakeConn struct {
+type guestConnectorHandshakeConn struct {
 	net.Conn
 	reader *bufio.Reader
 }
 
-func (c *ingressHandshakeConn) Read(p []byte) (int, error) {
+func (c *guestConnectorHandshakeConn) Read(p []byte) (int, error) {
 	return c.reader.Read(p)
 }
 

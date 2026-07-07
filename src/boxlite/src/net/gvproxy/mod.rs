@@ -108,8 +108,8 @@ pub struct GvisorTapBackend {
     instance: Arc<GvproxyInstance>,
     /// Socket path for cross-process communication
     socket_path: PathBuf,
-    /// Socket path for inbound port streams handled by gvproxy
-    ingress_socket_path: Option<PathBuf>,
+    /// Socket path for runner-owned guest-port streams
+    guest_connector_socket_path: Option<PathBuf>,
 }
 
 impl GvisorTapBackend {
@@ -163,11 +163,13 @@ impl GvisorTapBackend {
         instance::start_stats_logging(Arc::downgrade(&instance));
 
         let socket_path = config.socket_path;
-        let ingress_socket_path = instance.ingress_socket_path().map(Path::to_path_buf);
+        let guest_connector_socket_path = instance
+            .guest_connector_socket_path()
+            .map(Path::to_path_buf);
 
         tracing::info!(
             ?socket_path,
-            ?ingress_socket_path,
+            ?guest_connector_socket_path,
             version = ?ffi::get_version()?,
             "Created gvisor-tap-vsock backend"
         );
@@ -175,7 +177,7 @@ impl GvisorTapBackend {
         Ok(Self {
             instance,
             socket_path,
-            ingress_socket_path,
+            guest_connector_socket_path,
         })
     }
 
@@ -210,9 +212,9 @@ impl GvisorTapBackend {
         self.instance.get_stats()
     }
 
-    /// Get the gvproxy ingress Unix socket path, if enabled.
-    pub fn ingress_socket_path(&self) -> Option<&Path> {
-        self.ingress_socket_path.as_deref()
+    /// Get the gvproxy guest connector Unix socket path, if enabled.
+    pub fn guest_connector_socket_path(&self) -> Option<&Path> {
+        self.guest_connector_socket_path.as_deref()
     }
 }
 

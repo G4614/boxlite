@@ -92,13 +92,13 @@ func TestIntegrationGuestPortTunnelRelaysHTTPViaRealVM(t *testing.T) {
 		_ = exec.Close()
 	})
 
-	ingressSocketPath, err := client.GvproxyIngressSocketPath(ctx, boxID)
+	connectorSocketPath, err := client.GvproxyGuestConnectorSocketPath(ctx, boxID)
 	if err != nil {
-		t.Fatalf("GvproxyIngressSocketPath: %v", err)
+		t.Fatalf("GvproxyGuestConnectorSocketPath: %v", err)
 	}
 
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveGuestPortTunnel(w, r, ingressSocketPath, 18080, testLogger())
+		serveGuestPortTunnel(w, r, connectorSocketPath, 18080, testLogger())
 	}))
 	defer proxyServer.Close()
 
