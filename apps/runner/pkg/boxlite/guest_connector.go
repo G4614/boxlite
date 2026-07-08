@@ -9,26 +9,34 @@ import (
 )
 
 const (
-	socketSymlinkBase    = "/tmp"
-	netSocketName        = "net.sock"
-	guestConnectorSuffix = ".guest"
+	socketSymlinkBase     = "/tmp"
+	netSocketName         = "net.sock"
+	guestConnectorSuffix  = ".guest"
+	defaultGvproxyGuestIP = "192.168.127.2"
 )
 
-// GvproxyGuestConnectorSocketPath returns the short Unix socket path used by
-// gvproxy's internal guest-port connector. The public/control-plane box id may
-// be the box name, so resolve the box first and then use the core runtime id in
-// the Rust socket path.
-func (c *Client) GvproxyGuestConnectorSocketPath(ctx context.Context, boxId string) (string, error) {
+// GvproxyGuestConnectorEndpoint returns the Unix socket endpoint used by
+// gvproxy's internal ServicesMux tunnel. The public/control-plane box id may be
+// the box name, so resolve the box first and then use the core runtime id in the
+// Rust socket path.
+func (c *Client) GvproxyGuestConnectorEndpoint(ctx context.Context, boxId string) (string, string, error) {
 	if err := validateBoxIdForSocketPath(boxId); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	bx, err := c.getOrFetchBox(ctx, boxId)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return gvproxyGuestConnectorSocketPathForRuntimeBoxID(bx.ID())
+	socketPath, err := gvproxyGuestConnectorSocketPathForRuntimeBoxID(bx.ID())
+	if err != nil {
+		return "", "", err
+	}
+
+	// This matches src/boxlite/src/net/constants.rs::GUEST_IP. Core currently
+	// gives every guest the same DHCP static lease.
+	return socketPath, defaultGvproxyGuestIP, nil
 }
 
 func gvproxyGuestConnectorSocketPathForRuntimeBoxID(runtimeBoxID string) (string, error) {

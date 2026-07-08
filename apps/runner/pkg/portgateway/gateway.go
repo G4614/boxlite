@@ -6,24 +6,23 @@ package portgateway
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/containers/gvisor-tap-vsock/pkg/transport"
 )
 
 const (
-	guestConnectorTimeout = 10 * time.Second
-	guestConnectorMagic   = "BLGC1"
+	gvproxyTunnelTimeout = 10 * time.Second
 )
 
 type ConnectorResolver interface {
-	GvproxyGuestConnectorSocketPath(ctx context.Context, boxId string) (string, error)
+	GvproxyGuestConnectorEndpoint(ctx context.Context, boxId string) (socketPath string, guestIP string, err error)
 }
 
 type Gateway struct {
@@ -42,13 +41,13 @@ func New(resolver ConnectorResolver, logger *slog.Logger) *Gateway {
 }
 
 func (g *Gateway) ServeConnect(w http.ResponseWriter, req *http.Request, boxId string, port uint16) {
-	connectorSocketPath, err := g.resolver.GvproxyGuestConnectorSocketPath(req.Context(), boxId)
+	connectorSocketPath, guestIP, err := g.resolver.GvproxyGuestConnectorEndpoint(req.Context(), boxId)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	guestConn, err := dialGvproxyGuestConnector(req.Context(), connectorSocketPath, port)
+	guestConn, err := dialGvproxyTunnel(req.Context(), connectorSocketPath, guestIP, port)
 	if err != nil {
 		g.logger.WarnContext(req.Context(), "guest port tunnel failed", "box", boxId, "port", port, "error", err)
 		http.Error(w, "guest port tunnel failed: "+err.Error(), http.StatusBadGateway)
@@ -91,14 +90,18 @@ func (g *Gateway) ServeConnect(w http.ResponseWriter, req *http.Request, boxId s
 	)
 }
 
-func dialGvproxyGuestConnector(ctx context.Context, connectorSocketPath string, port uint16) (net.Conn, error) {
+func dialGvproxyTunnel(ctx context.Context, connectorSocketPath string, guestIP string, port uint16) (net.Conn, error) {
+	if guestIP == "" {
+		return nil, fmt.Errorf("guest IP is required")
+	}
+
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "unix", connectorSocketPath)
 	if err != nil {
-		return nil, fmt.Errorf("dial gvproxy guest connector %s: %w", connectorSocketPath, err)
+		return nil, fmt.Errorf("dial gvproxy tunnel socket %s: %w", connectorSocketPath, err)
 	}
 
-	deadline := time.Now().Add(guestConnectorTimeout)
+	deadline := time.Now().Add(gvproxyTunnelTimeout)
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
@@ -107,23 +110,9 @@ func dialGvproxyGuestConnector(ctx context.Context, connectorSocketPath string, 
 		return nil, err
 	}
 
-	request := make([]byte, len(guestConnectorMagic)+2)
-	copy(request, guestConnectorMagic)
-	binary.BigEndian.PutUint16(request[len(guestConnectorMagic):], port)
-	if _, err := conn.Write(request); err != nil {
+	if err := transport.Tunnel(conn, guestIP, int(port)); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("write gvproxy guest connector request: %w", err)
-	}
-
-	reader := bufio.NewReaderSize(conn, 128)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("read gvproxy guest connector response: %w", err)
-	}
-	if strings.TrimSpace(line) != "OK" {
-		_ = conn.Close()
-		return nil, fmt.Errorf("gvproxy guest connector rejected port %d: %s", port, strings.TrimSpace(line))
+		return nil, fmt.Errorf("open gvproxy tunnel to %s:%d: %w", guestIP, port, err)
 	}
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
@@ -131,7 +120,7 @@ func dialGvproxyGuestConnector(ctx context.Context, connectorSocketPath string, 
 		return nil, err
 	}
 
-	return &guestConnectorHandshakeConn{Conn: conn, reader: reader}, nil
+	return conn, nil
 }
 
 type PumpResult struct {
@@ -189,14 +178,5 @@ type bufferedTunnelConn struct {
 }
 
 func (c *bufferedTunnelConn) Read(p []byte) (int, error) {
-	return c.reader.Read(p)
-}
-
-type guestConnectorHandshakeConn struct {
-	net.Conn
-	reader *bufio.Reader
-}
-
-func (c *guestConnectorHandshakeConn) Read(p []byte) (int, error) {
 	return c.reader.Read(p)
 }

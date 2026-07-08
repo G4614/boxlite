@@ -29,10 +29,13 @@ import (
 	"github.com/boxlite-ai/runner/pkg/portgateway"
 )
 
-type staticGuestConnectorResolver string
+type staticGuestConnectorResolver struct {
+	socketPath string
+	guestIP    string
+}
 
-func (r staticGuestConnectorResolver) GvproxyGuestConnectorSocketPath(context.Context, string) (string, error) {
-	return string(r), nil
+func (r staticGuestConnectorResolver) GvproxyGuestConnectorEndpoint(context.Context, string) (string, string, error) {
+	return r.socketPath, r.guestIP, nil
 }
 
 func TestIntegrationGuestPortTunnelRelaysHTTPViaRealVM(t *testing.T) {
@@ -100,13 +103,13 @@ func TestIntegrationGuestPortTunnelRelaysHTTPViaRealVM(t *testing.T) {
 		_ = exec.Close()
 	})
 
-	connectorSocketPath, err := client.GvproxyGuestConnectorSocketPath(ctx, boxID)
+	connectorSocketPath, guestIP, err := client.GvproxyGuestConnectorEndpoint(ctx, boxID)
 	if err != nil {
-		t.Fatalf("GvproxyGuestConnectorSocketPath: %v", err)
+		t.Fatalf("GvproxyGuestConnectorEndpoint: %v", err)
 	}
 
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		portgateway.New(staticGuestConnectorResolver(connectorSocketPath), integrationTestLogger()).ServeConnect(w, r, boxID, 18080)
+		portgateway.New(staticGuestConnectorResolver{socketPath: connectorSocketPath, guestIP: guestIP}, integrationTestLogger()).ServeConnect(w, r, boxID, 18080)
 	}))
 	defer proxyServer.Close()
 

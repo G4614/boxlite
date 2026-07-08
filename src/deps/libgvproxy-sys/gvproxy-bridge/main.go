@@ -19,6 +19,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -212,6 +213,7 @@ type GvproxyInstance struct {
 	conn                     net.Conn     // For macOS UnixDgram (VFKit)
 	listener                 net.Listener // For Linux UnixStream (Qemu)
 	guestConnectorListener   net.Listener // Unix socket for internal runner-to-guest streams
+	guestConnectorServer     *http.Server
 	guestConnectorWg         sync.WaitGroup
 	vn                       *virtualnetwork.VirtualNetwork // Virtual network for stats collection
 	vnMu                     sync.RWMutex                   // Protects vn field

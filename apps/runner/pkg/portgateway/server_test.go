@@ -15,14 +15,7 @@ import (
 )
 
 func TestServerRelaysAuthenticatedConnect(t *testing.T) {
-	socketPath, serverErrs := startFakeGuestConnector(t, func(conn net.Conn, reader *bufio.Reader) error {
-		if err := expectGuestConnectorRequest(reader, 8080); err != nil {
-			return err
-		}
-		if _, err := conn.Write([]byte("OK\n")); err != nil {
-			return fmt.Errorf("write guest connector ok: %w", err)
-		}
-
+	socketPath, serverErrs := startFakeGvproxyTunnel(t, 8080, func(conn net.Conn, reader *bufio.Reader) error {
 		gotRequest, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("read tunneled request line: %w", err)

@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,21 +20,16 @@ import (
 	"time"
 )
 
+const testGuestIP = "192.168.127.2"
+
 type staticResolver string
 
-func (r staticResolver) GvproxyGuestConnectorSocketPath(context.Context, string) (string, error) {
-	return string(r), nil
+func (r staticResolver) GvproxyGuestConnectorEndpoint(context.Context, string) (string, string, error) {
+	return string(r), testGuestIP, nil
 }
 
 func TestGatewayRelaysOpaqueHTTPViaGuestConnector(t *testing.T) {
-	socketPath, serverErrs := startFakeGuestConnector(t, func(conn net.Conn, reader *bufio.Reader) error {
-		if err := expectGuestConnectorRequest(reader, 8080); err != nil {
-			return err
-		}
-		if _, err := conn.Write([]byte("OK\n")); err != nil {
-			return fmt.Errorf("write guest connector ok: %w", err)
-		}
-
+	socketPath, serverErrs := startFakeGvproxyTunnel(t, 8080, func(conn net.Conn, reader *bufio.Reader) error {
 		gotRequest, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("read tunneled request line: %w", err)
@@ -75,14 +69,7 @@ func TestGatewayRelaysOpaqueHTTPViaGuestConnector(t *testing.T) {
 }
 
 func TestGatewayRelaysOpaqueWebSocketViaGuestConnector(t *testing.T) {
-	socketPath, serverErrs := startFakeGuestConnector(t, func(conn net.Conn, reader *bufio.Reader) error {
-		if err := expectGuestConnectorRequest(reader, 8081); err != nil {
-			return err
-		}
-		if _, err := conn.Write([]byte("OK\n")); err != nil {
-			return fmt.Errorf("write guest connector ok: %w", err)
-		}
-
+	socketPath, serverErrs := startFakeGvproxyTunnel(t, 8081, func(conn net.Conn, reader *bufio.Reader) error {
 		req, err := http.ReadRequest(reader)
 		if err != nil {
 			return fmt.Errorf("read websocket request: %w", err)
@@ -305,7 +292,7 @@ func closeWrite(t *testing.T, conn *net.TCPConn) {
 	}
 }
 
-func startFakeGuestConnector(t *testing.T, handle func(net.Conn, *bufio.Reader) error) (string, <-chan error) {
+func startFakeGvproxyTunnel(t *testing.T, wantPort uint16, handle func(net.Conn, *bufio.Reader) error) (string, <-chan error) {
 	t.Helper()
 
 	socketPath := fmt.Sprintf("/tmp/boxlite-runner-proxy-%d-%d.sock", os.Getpid(), time.Now().UnixNano())
@@ -328,7 +315,32 @@ func startFakeGuestConnector(t *testing.T, handle func(net.Conn, *bufio.Reader) 
 		}
 		defer conn.Close()
 		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-		errs <- handle(conn, bufio.NewReader(conn))
+
+		reader := bufio.NewReader(conn)
+		req, err := http.ReadRequest(reader)
+		if err != nil {
+			errs <- fmt.Errorf("read gvproxy tunnel request: %w", err)
+			return
+		}
+		_ = req.Body.Close()
+		if req.Method != http.MethodPost || req.URL.Path != "/tunnel" {
+			errs <- fmt.Errorf("gvproxy tunnel request = %s %s, want POST /tunnel", req.Method, req.URL.Path)
+			return
+		}
+		if gotIP := req.URL.Query().Get("ip"); gotIP != testGuestIP {
+			errs <- fmt.Errorf("gvproxy tunnel ip = %q, want %q", gotIP, testGuestIP)
+			return
+		}
+		if gotPort := req.URL.Query().Get("port"); gotPort != fmt.Sprint(wantPort) {
+			errs <- fmt.Errorf("gvproxy tunnel port = %q, want %d", gotPort, wantPort)
+			return
+		}
+		if _, err := conn.Write([]byte("OK")); err != nil {
+			errs <- fmt.Errorf("write gvproxy tunnel ok: %w", err)
+			return
+		}
+
+		errs <- handle(conn, reader)
 	}()
 
 	return socketPath, errs
@@ -345,20 +357,6 @@ func assertNoServerError(t *testing.T, errs <-chan error) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for fake guest connector")
 	}
-}
-
-func expectGuestConnectorRequest(reader io.Reader, wantPort uint16) error {
-	request := make([]byte, len(guestConnectorMagic)+2)
-	if _, err := io.ReadFull(reader, request); err != nil {
-		return fmt.Errorf("read guest connector request: %w", err)
-	}
-	if string(request[:len(guestConnectorMagic)]) != guestConnectorMagic {
-		return fmt.Errorf("guest connector magic = %q, want %q", request[:len(guestConnectorMagic)], guestConnectorMagic)
-	}
-	if gotPort := binary.BigEndian.Uint16(request[len(guestConnectorMagic):]); gotPort != wantPort {
-		return fmt.Errorf("guest connector port = %d, want %d", gotPort, wantPort)
-	}
-	return nil
 }
 
 func testLogger() *slog.Logger {
