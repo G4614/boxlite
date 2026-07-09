@@ -14,10 +14,7 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use crate::BoxInfo;
 use crate::litebox::copy::CopyOptions;
 use crate::litebox::snapshot_mgr::SnapshotInfo;
-use crate::litebox::{
-    BoxCommand, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution, PortPreviewUrl,
-    SignedPortPreviewUrl,
-};
+use crate::litebox::{BoxCommand, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution};
 use crate::metrics::BoxMetrics;
 use crate::net::BoxTunnel;
 use crate::runtime::backend::{BoxBackend, BoxNetworkBackend, SnapshotBackend};
@@ -29,7 +26,7 @@ use super::exec::RestExecControl;
 use super::types::{
     BoxMetricsResponse, BoxResponse, CloneBoxRequest, CreateSnapshotRequest, ExecRequest,
     ExecResponse, ExecutionStatusResponse, ExportBoxRequest, ListSnapshotsResponse,
-    PortPreviewUrlResponse, SignedPortPreviewUrlResponse, SnapshotResponse,
+    SnapshotResponse,
 };
 
 /// REST-backed box handle.
@@ -51,15 +48,6 @@ impl RestBox {
 
     fn box_id_str(&self) -> String {
         self.cached_info.read().id.to_string()
-    }
-
-    fn validate_preview_port(port: u16) -> BoxliteResult<()> {
-        if port == 0 {
-            return Err(BoxliteError::InvalidArgument(
-                "port must be in range 1-65535".into(),
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -401,54 +389,6 @@ impl BoxNetworkBackend for RestBox {
         Err(BoxliteError::Unsupported(
             "REST boxes do not support guest port tunnels".into(),
         ))
-    }
-
-    async fn preview_url(&self, port: u16) -> BoxliteResult<PortPreviewUrl> {
-        Self::validate_preview_port(port)?;
-        let box_id = self.box_id_str();
-        let path = format!("/boxes/{}/ports/{}/preview-url", box_id, port);
-        let resp: PortPreviewUrlResponse = self.client.get(&path).await?;
-        Ok(PortPreviewUrl {
-            box_id: resp.box_id,
-            url: resp.url,
-            token: resp.token,
-        })
-    }
-
-    async fn signed_preview_url(
-        &self,
-        port: u16,
-        expires_in_seconds: Option<u32>,
-    ) -> BoxliteResult<SignedPortPreviewUrl> {
-        Self::validate_preview_port(port)?;
-        let box_id = self.box_id_str();
-        let mut path = format!("/boxes/{}/ports/{}/signed-preview-url", box_id, port);
-        if let Some(seconds) = expires_in_seconds {
-            path.push_str(&format!("?expiresInSeconds={}", seconds));
-        }
-        let resp: SignedPortPreviewUrlResponse = self.client.get(&path).await?;
-        Ok(SignedPortPreviewUrl {
-            box_id: resp.box_id,
-            port: resp.port,
-            token: resp.token,
-            url: resp.url,
-        })
-    }
-
-    async fn expire_signed_preview_url(&self, port: u16, token: &str) -> BoxliteResult<()> {
-        Self::validate_preview_port(port)?;
-        if token.is_empty() {
-            return Err(BoxliteError::InvalidArgument(
-                "signed preview token is required".into(),
-            ));
-        }
-        let box_id = self.box_id_str();
-        let token = urlencoding::encode(token);
-        let path = format!(
-            "/boxes/{}/ports/{}/signed-preview-url/{}/expire",
-            box_id, port, token
-        );
-        self.client.post_empty_no_content(&path).await
     }
 }
 
@@ -1216,7 +1156,7 @@ mod tests {
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
-    use tokio::sync::{Mutex, oneshot};
+    use tokio::sync::Mutex;
     use tokio_tungstenite::tungstenite::Message;
 
     /// Recorded behavior of the in-process test server.
@@ -1260,46 +1200,6 @@ mod tests {
         ApiClient::new(&opts).expect("ApiClient::new")
     }
 
-    const TEST_BOX_ID: &str = "01HJK4TNRPQSXYZ8WM6NCVT9R5";
-
-    fn test_box_info() -> BoxInfo {
-        let now = chrono::Utc::now();
-        BoxInfo {
-            id: crate::runtime::id::BoxID::parse(TEST_BOX_ID).unwrap(),
-            name: None,
-            status: crate::litebox::BoxStatus::Running,
-            created_at: now,
-            last_updated: now,
-            pid: None,
-            image: "alpine:latest".to_string(),
-            cpus: 1,
-            memory_mib: 256,
-            labels: Default::default(),
-            health_status: crate::litebox::HealthStatus::new(),
-        }
-    }
-
-    async fn rest_box_with_one_response(
-        body: &'static str,
-    ) -> (RestBox, oneshot::Receiver<String>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (request_tx, request_rx) = oneshot::channel();
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let head = read_request_head(&mut stream).await;
-            let request_line = String::from_utf8_lossy(&head)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .to_string();
-            let _ = request_tx.send(request_line);
-            write_status_response(&mut stream, body).await;
-        });
-
-        (RestBox::new(client_for(port), test_box_info()), request_rx)
-    }
-
     /// Send a minimal HTTP/1.1 200 OK with a JSON body.
     async fn write_status_response(stream: &mut TcpStream, body: &str) {
         let resp = format!(
@@ -1312,62 +1212,6 @@ mod tests {
         );
         let _ = stream.write_all(resp.as_bytes()).await;
         let _ = stream.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn rest_preview_url_uses_box_port_endpoint() {
-        let (rest_box, request_rx) = rest_box_with_one_response(
-            r#"{"boxId":"01HJK4TNRPQSXYZ8WM6NCVT9R5","url":"https://3000-preview.example.test/","token":"tok"}"#,
-        )
-        .await;
-
-        let preview = rest_box.preview_url(3000).await.unwrap();
-
-        assert_eq!(preview.box_id, TEST_BOX_ID);
-        assert_eq!(preview.url, "https://3000-preview.example.test/");
-        assert_eq!(preview.token, "tok");
-        assert_eq!(
-            request_rx.await.unwrap(),
-            format!("GET /v1/boxes/{TEST_BOX_ID}/ports/3000/preview-url HTTP/1.1")
-        );
-    }
-
-    #[tokio::test]
-    async fn rest_signed_preview_url_sends_expiration_query() {
-        let (rest_box, request_rx) = rest_box_with_one_response(
-            r#"{"boxId":"01HJK4TNRPQSXYZ8WM6NCVT9R5","port":3000,"url":"https://3000-signed.example.test/","token":"signed"}"#,
-        )
-        .await;
-
-        let preview = rest_box.signed_preview_url(3000, Some(120)).await.unwrap();
-
-        assert_eq!(preview.box_id, TEST_BOX_ID);
-        assert_eq!(preview.port, 3000);
-        assert_eq!(preview.url, "https://3000-signed.example.test/");
-        assert_eq!(preview.token, "signed");
-        assert_eq!(
-            request_rx.await.unwrap(),
-            format!(
-                "GET /v1/boxes/{TEST_BOX_ID}/ports/3000/signed-preview-url?expiresInSeconds=120 HTTP/1.1"
-            )
-        );
-    }
-
-    #[tokio::test]
-    async fn rest_expire_signed_preview_url_encodes_token() {
-        let (rest_box, request_rx) = rest_box_with_one_response("").await;
-
-        rest_box
-            .expire_signed_preview_url(3000, "tok/with space")
-            .await
-            .unwrap();
-
-        assert_eq!(
-            request_rx.await.unwrap(),
-            format!(
-                "POST /v1/boxes/{TEST_BOX_ID}/ports/3000/signed-preview-url/tok%2Fwith%20space/expire HTTP/1.1"
-            )
-        );
     }
 
     /// Stream wrapper that replays a buffered prefix before delegating to the

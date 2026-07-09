@@ -21,7 +21,7 @@ pub use copy::CopyOptions;
 pub(crate) use crash_report::CrashReport;
 pub use exec::{BoxCommand, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution, ExecutionId};
 pub(crate) use manager::BoxManager;
-pub use network::{NetworkHandle, PortPreviewUrl, SignedPortPreviewUrl};
+pub use network::NetworkHandle;
 pub use snapshot::SnapshotHandle;
 pub use state::{BoxState, BoxStatus, HealthState, HealthStatus};
 
@@ -146,7 +146,7 @@ impl LiteBox {
             .await
     }
 
-    /// Get a network handle for network operations.
+    /// Get a network handle for raw tunnel operations.
     pub fn network(&self) -> NetworkHandle {
         NetworkHandle::new(Arc::clone(&self.network_backend))
     }
