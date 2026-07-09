@@ -1200,6 +1200,7 @@ mod tests {
         result_tx
             .send(boxlite::ExecResult {
                 exit_code: 0,
+                timed_out: false,
                 error_message: None,
             })
             .unwrap();
@@ -1243,6 +1244,7 @@ mod tests {
         result_tx
             .send(boxlite::ExecResult {
                 exit_code: 42,
+                timed_out: false,
                 error_message: None,
             })
             .unwrap();
