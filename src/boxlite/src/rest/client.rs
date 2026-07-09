@@ -1,5 +1,6 @@
 //! HTTP client for the BoxLite REST API.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -285,10 +286,45 @@ impl ApiClient {
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
     > {
+        self.connect_ws_with_query(path, &[]).await
+    }
+
+    pub(crate) async fn connect_box_network_tunnel(
+        &self,
+        box_id: impl AsRef<str>,
+        target: SocketAddr,
+    ) -> BoxliteResult<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        let path = format!("/boxes/{}/network/tunnel", box_id.as_ref());
+        let host = target.ip().to_string();
+        let port = target.port().to_string();
+        self.connect_ws_with_query(&path, &[("host", host.as_str()), ("port", port.as_str())])
+            .await
+    }
+
+    pub(crate) async fn connect_ws_with_query(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> BoxliteResult<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         use tokio_tungstenite::tungstenite::http::HeaderValue;
 
-        let http_url = self.url(path);
+        let mut http_url = reqwest::Url::parse(&self.url(path))
+            .map_err(|e| BoxliteError::Internal(format!("WS URL build failed: {}", e)))?;
+        if !query.is_empty() {
+            http_url
+                .query_pairs_mut()
+                .extend_pairs(query.iter().copied());
+        }
+        let http_url = http_url.to_string();
         let ws_url = if let Some(rest) = http_url.strip_prefix("https://") {
             format!("wss://{}", rest)
         } else if let Some(rest) = http_url.strip_prefix("http://") {

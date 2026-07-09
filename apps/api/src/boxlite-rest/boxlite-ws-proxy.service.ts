@@ -19,10 +19,13 @@ type RunnerUpgradeRequest = IncomingMessage & {
   __boxliteRunnerBoxId?: string
 }
 
-// Matches /api/v1/boxes/<id>/executions/<id>/attach and the
-// /api/v1/<tenant>/boxes/<id>/executions/<id>/attach shape with optional query string.
+// Matches WebSocket box data-plane routes:
+// /api/v1/boxes/<id>/executions/<id>/attach,
+// /api/v1/boxes/<id>/network/tunnel,
+// and the /api/v1/<tenant>/boxes/... shape with optional query string.
 // Named groups: `tenant` (optional org id / path prefix) and `boxId`.
-const ATTACH_PATH = /^\/api\/v1\/(?:(?<tenant>[^/]+)\/)?boxes\/(?<boxId>[^/]+)\/executions\/[^/]+\/attach(?:\?.*)?$/
+const BOX_WS_PATH =
+  /^\/api\/v1\/(?:(?<tenant>[^/]+)\/)?boxes\/(?<boxId>[^/]+)\/(?:(?:executions\/[^/]+\/attach)|(?:network\/tunnel))(?:\?.*)?$/
 
 /**
  * Singleton WebSocket proxy for `/attach` upgrades.
@@ -81,14 +84,18 @@ export class BoxliteWsProxyService {
   }
 
   /**
-   * Box id (+ optional tenant/org id) when the URL is an `/attach` WS upgrade.
+   * Box id (+ optional tenant/org id) when the URL is a box WS upgrade.
    * The tenant is the organization for JWT auth (an API key carries its own org).
    */
-  matchAttachPath(url: string | undefined): { boxId: string; tenant?: string } | null {
+  matchBoxWsPath(url: string | undefined): { boxId: string; tenant?: string } | null {
     if (!url) return null
-    const groups = url.match(ATTACH_PATH)?.groups as { boxId: string; tenant?: string } | undefined
+    const groups = url.match(BOX_WS_PATH)?.groups as { boxId: string; tenant?: string } | undefined
     if (!groups) return null
     return { boxId: groups.boxId, tenant: groups.tenant }
+  }
+
+  matchAttachPath(url: string | undefined): { boxId: string; tenant?: string } | null {
+    return this.matchBoxWsPath(url)
   }
 
   /**
@@ -96,7 +103,7 @@ export class BoxliteWsProxyService {
    * proxy middleware. Closes the socket cleanly on any failure.
    */
   async upgrade(req: IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
-    const match = this.matchAttachPath(req.url)
+    const match = this.matchBoxWsPath(req.url)
     if (!match) {
       socket.destroy()
       return

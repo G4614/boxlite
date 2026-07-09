@@ -7,6 +7,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -100,6 +101,109 @@ func BoxliteNetworkProxy(logger *slog.Logger) gin.HandlerFunc {
 
 		targetPath := networkProxyEscapedPath(ctx.Request, boxId, rawPort, ctx.Param("path"))
 		handleGuestPortProxy(ctx, r, boxId, uint16(port64), targetPath, logger)
+	}
+}
+
+// BoxliteNetworkTunnel upgrades to WebSocket and forwards binary frames to a raw
+// TCP stream inside the box guest network.
+func BoxliteNetworkTunnel(logger *slog.Logger) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		r, err := runner.GetInstance(nil)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		boxId := ctx.Param("boxId")
+		host := ctx.Query("host")
+		rawPort := ctx.Query("port")
+		port64, err := strconv.ParseUint(rawPort, 10, 16)
+		if host == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "target host is required"})
+			return
+		}
+		if err != nil || port64 == 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid target port %q", rawPort)})
+			return
+		}
+
+		target := net.JoinHostPort(host, strconv.Itoa(int(port64)))
+		tcpConn, err := r.Boxlite.DialGuestTCP(ctx.Request.Context(), boxId, target)
+		if err != nil {
+			logger.WarnContext(ctx.Request.Context(), "guest tunnel dial failed", "box", boxId, "target", target, "error", err)
+			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+
+		wsConn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+		if err != nil {
+			_ = tcpConn.Close()
+			return
+		}
+
+		runNetworkTunnel(ctx.Request.Context(), wsConn, tcpConn, logger)
+	}
+}
+
+const maxTunnelFrameBytes = 1 * 1024 * 1024
+
+func runNetworkTunnel(parentCtx context.Context, wsConn *websocket.Conn, tcpConn net.Conn, logger *slog.Logger) {
+	wsConn.SetReadLimit(maxTunnelFrameBytes)
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+	defer wsConn.Close()
+	defer tcpConn.Close()
+
+	var writeMu sync.Mutex
+	errCh := make(chan error, 2)
+
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := tcpConn.Read(buf)
+			if n > 0 {
+				writeMu.Lock()
+				writeErr := wsConn.WriteMessage(websocket.BinaryMessage, buf[:n])
+				writeMu.Unlock()
+				if writeErr != nil {
+					errCh <- writeErr
+					return
+				}
+			}
+			if err != nil {
+				if err != io.EOF {
+					errCh <- err
+				} else {
+					errCh <- nil
+				}
+				return
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			messageType, payload, err := wsConn.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if messageType != websocket.BinaryMessage {
+				continue
+			}
+			if _, err := tcpConn.Write(payload); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil && logger != nil {
+			logger.DebugContext(ctx, "network tunnel closed", "error", err)
+		}
+	case <-ctx.Done():
 	}
 }
 

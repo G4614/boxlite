@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-)
 
-const guestIP = "192.168.127.2"
+	sdk "github.com/boxlite-ai/boxlite/sdks/go"
+)
 
 func (c *Client) NewGuestPortTransport(boxId string, port uint16, logger *slog.Logger) *http.Transport {
 	if logger == nil {
@@ -33,14 +33,24 @@ func (c *Client) NewGuestPortTransport(boxId string, port uint16, logger *slog.L
 }
 
 func (c *Client) DialGuestPort(ctx context.Context, boxId string, port uint16) (net.Conn, error) {
+	return c.DialGuestTCP(ctx, boxId, net.JoinHostPort(sdk.GuestIP, fmt.Sprintf("%d", port)))
+}
+
+func (c *Client) DialGuestTCP(ctx context.Context, boxId string, target string) (net.Conn, error) {
 	bx, err := c.getOrFetchBox(ctx, boxId)
 	if err != nil {
 		return nil, err
 	}
 
-	conn, err := bx.Network().Tunnel(ctx, net.JoinHostPort(guestIP, fmt.Sprintf("%d", port)))
+	network, err := bx.Network()
 	if err != nil {
-		return nil, fmt.Errorf("open guest port tunnel to %s:%d: %w", boxId, port, err)
+		return nil, fmt.Errorf("open box network handle for %s: %w", boxId, err)
+	}
+	defer network.Close()
+
+	conn, err := network.Tunnel(ctx, target)
+	if err != nil {
+		return nil, fmt.Errorf("open guest TCP tunnel to %s/%s: %w", boxId, target, err)
 	}
 	return conn, nil
 }

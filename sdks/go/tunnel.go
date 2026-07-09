@@ -11,26 +11,50 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"syscall"
+	goruntime "runtime"
 	"unsafe"
 )
 
 // NetworkHandle exposes network operations for a box.
 type NetworkHandle struct {
-	box *Box
+	handle *C.CBoxNetworkHandle
+}
+
+func closedNetworkError() error {
+	return &Error{Code: ErrInvalidState, Message: "network handle is closed"}
 }
 
 // Network returns a handle for box network operations.
-func (b *Box) Network() *NetworkHandle {
-	return &NetworkHandle{box: b}
+func (b *Box) Network() (*NetworkHandle, error) {
+	if b == nil || b.handle == nil {
+		return nil, ErrRuntimeClosed
+	}
+	var cNetwork *C.CBoxNetworkHandle
+	var cerr C.CBoxliteError
+	code := C.boxlite_box_network(b.handle, &cNetwork, &cerr)
+	if code != C.Ok {
+		return nil, freeError(&cerr)
+	}
+	if cNetwork == nil {
+		return nil, fmt.Errorf("boxlite network handle is nil")
+	}
+	network := &NetworkHandle{handle: cNetwork}
+	goruntime.SetFinalizer(network, func(network *NetworkHandle) { network.Close() })
+	return network, nil
+}
+
+// Close releases the network handle. It does not close the box.
+func (n *NetworkHandle) Close() {
+	if n == nil || n.handle == nil {
+		return
+	}
+	C.boxlite_box_network_free(n.handle)
+	n.handle = nil
+	goruntime.SetFinalizer(n, nil)
 }
 
 // Tunnel opens a raw byte stream to target inside the box's guest network.
 func (n *NetworkHandle) Tunnel(ctx context.Context, target string) (net.Conn, error) {
-	if n == nil || n.box == nil {
-		return nil, ErrRuntimeClosed
-	}
 	host, portText, err := net.SplitHostPort(target)
 	if err != nil {
 		return nil, err
@@ -42,49 +66,47 @@ func (n *NetworkHandle) Tunnel(ctx context.Context, target string) (net.Conn, er
 	if port < 0 || port > 65535 {
 		return nil, fmt.Errorf("invalid tunnel port %d", port)
 	}
-	return n.box.openTunnel(ctx, host, uint16(port))
+	return n.openTunnel(ctx, host, uint16(port))
 }
 
 // Tunnel opens a raw byte stream to target inside the box's guest network.
 func (b *Box) Tunnel(ctx context.Context, target string) (net.Conn, error) {
-	return b.Network().Tunnel(ctx, target)
+	network, err := b.Network()
+	if err != nil {
+		return nil, err
+	}
+	defer network.Close()
+	return network.Tunnel(ctx, target)
 }
 
-func (b *Box) openTunnel(ctx context.Context, targetIP string, targetPort uint16) (net.Conn, error) {
-	if b.handle == nil {
-		return nil, ErrRuntimeClosed
-	}
-
+func (n *NetworkHandle) openTunnel(ctx context.Context, targetIP string, targetPort uint16) (net.Conn, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
+	if n == nil || n.handle == nil {
+		return nil, closedNetworkError()
+	}
 
-	var fd C.int
+	var cAddr *C.char
 	var cerr C.CBoxliteError
 	if targetIP == "" {
 		return nil, fmt.Errorf("tunnel target IP is required")
 	}
 	cIP := C.CString(targetIP)
 	defer C.free(unsafe.Pointer(cIP))
-	code := C.boxlite_box_tunnel(b.handle, cIP, C.uint16_t(targetPort), &fd, &cerr)
+	code := C.boxlite_box_network_tunnel(n.handle, cIP, C.uint16_t(targetPort), &cAddr, &cerr)
 	if code != C.Ok {
 		return nil, freeError(&cerr)
 	}
-
-	name := fmt.Sprintf("boxlite-tunnel-%d", targetPort)
-	if targetIP != "" {
-		name = fmt.Sprintf("boxlite-tunnel-%s-%d", targetIP, targetPort)
+	if cAddr == nil {
+		return nil, fmt.Errorf("boxlite tunnel returned empty local address")
 	}
-	file := os.NewFile(uintptr(fd), name)
-	if file == nil {
-		_ = syscall.Close(int(fd))
-		return nil, fmt.Errorf("boxlite tunnel returned invalid fd %d", int(fd))
-	}
-	defer file.Close()
-
-	conn, err := net.FileConn(file)
+	localAddr := C.GoString(cAddr)
+	C.boxlite_free_string(cAddr)
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp", localAddr)
 	if err != nil {
 		return nil, err
 	}

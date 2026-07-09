@@ -385,10 +385,59 @@ impl BoxBackend for RestBox {
 
 #[async_trait]
 impl BoxNetworkBackend for RestBox {
-    async fn tunnel(&self, _target: SocketAddr) -> BoxliteResult<BoxTunnel> {
-        Err(BoxliteError::Unsupported(
-            "REST boxes do not support guest port tunnels".into(),
-        ))
+    async fn tunnel(&self, target: SocketAddr) -> BoxliteResult<BoxTunnel> {
+        use futures::{SinkExt, StreamExt};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::UnixStream;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let ws = self
+            .client
+            .connect_box_network_tunnel(self.box_id_str(), target)
+            .await?;
+        let (local, mut pump_end) = UnixStream::pair().map_err(|e| {
+            BoxliteError::Network(format!("REST tunnel local socket pair failed: {e}"))
+        })?;
+        let (mut sink, mut stream) = ws.split();
+
+        tokio::spawn(async move {
+            let mut read_buf = vec![0u8; 32 * 1024];
+            loop {
+                tokio::select! {
+                    read = pump_end.read(&mut read_buf) => {
+                        match read {
+                            Ok(0) => {
+                                let _ = sink.send(Message::Close(None)).await;
+                                return;
+                            }
+                            Ok(n) => {
+                                if sink.send(Message::Binary(read_buf[..n].to_vec())).await.is_err() {
+                                    return;
+                                }
+                            }
+                            Err(_) => {
+                                let _ = sink.send(Message::Close(None)).await;
+                                return;
+                            }
+                        }
+                    }
+                    frame = stream.next() => {
+                        match frame {
+                            Some(Ok(Message::Binary(bytes))) => {
+                                if pump_end.write_all(&bytes).await.is_err() {
+                                    return;
+                                }
+                            }
+                            Some(Ok(Message::Close(_))) | None => return,
+                            Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) | Some(Ok(Message::Text(_))) | Some(Ok(Message::Frame(_))) => {}
+                            Some(Err(_)) => return,
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(BoxTunnel::from_local(local, target))
     }
 }
 
