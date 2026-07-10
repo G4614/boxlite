@@ -28,44 +28,6 @@ export const PreviewApiAxiosParamCreator = function (configuration?: Configurati
     return {
         /**
          * 
-         * @summary Get box ID from signed preview URL token
-         * @param {string} signedPreviewToken Signed preview URL token
-         * @param {number} port Port number to get box ID from signed preview URL token
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        getBoxIdFromSignedPreviewUrlToken: async (signedPreviewToken: string, port: number, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'signedPreviewToken' is not null or undefined
-            assertParamExists('getBoxIdFromSignedPreviewUrlToken', 'signedPreviewToken', signedPreviewToken)
-            // verify required parameter 'port' is not null or undefined
-            assertParamExists('getBoxIdFromSignedPreviewUrlToken', 'port', port)
-            const localVarPath = `/preview/{signedPreviewToken}/{port}/box-id`
-                .replace('{signedPreviewToken}', encodeURIComponent(String(signedPreviewToken)))
-                .replace('{port}', encodeURIComponent(String(port)));
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-            localVarHeaderParameter['Accept'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
          * @summary Check if user has access to the box
          * @param {string} boxId 
          * @param {*} [options] Override http request option.
@@ -187,20 +149,6 @@ export const PreviewApiFp = function(configuration?: Configuration) {
     return {
         /**
          * 
-         * @summary Get box ID from signed preview URL token
-         * @param {string} signedPreviewToken Signed preview URL token
-         * @param {number} port Port number to get box ID from signed preview URL token
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async getBoxIdFromSignedPreviewUrlToken(signedPreviewToken: string, port: number, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<string>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.getBoxIdFromSignedPreviewUrlToken(signedPreviewToken, port, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['PreviewApi.getBoxIdFromSignedPreviewUrlToken']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
          * @summary Check if user has access to the box
          * @param {string} boxId 
          * @param {*} [options] Override http request option.
@@ -250,17 +198,6 @@ export const PreviewApiFactory = function (configuration?: Configuration, basePa
     return {
         /**
          * 
-         * @summary Get box ID from signed preview URL token
-         * @param {string} signedPreviewToken Signed preview URL token
-         * @param {number} port Port number to get box ID from signed preview URL token
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        getBoxIdFromSignedPreviewUrlToken(signedPreviewToken: string, port: number, options?: RawAxiosRequestConfig): AxiosPromise<string> {
-            return localVarFp.getBoxIdFromSignedPreviewUrlToken(signedPreviewToken, port, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
          * @summary Check if user has access to the box
          * @param {string} boxId 
          * @param {*} [options] Override http request option.
@@ -297,17 +234,6 @@ export const PreviewApiFactory = function (configuration?: Configuration, basePa
  * PreviewApi - object-oriented interface
  */
 export class PreviewApi extends BaseAPI {
-    /**
-     * 
-     * @summary Get box ID from signed preview URL token
-     * @param {string} signedPreviewToken Signed preview URL token
-     * @param {number} port Port number to get box ID from signed preview URL token
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    public getBoxIdFromSignedPreviewUrlToken(signedPreviewToken: string, port: number, options?: RawAxiosRequestConfig) {
-        return PreviewApiFp(this.configuration).getBoxIdFromSignedPreviewUrlToken(signedPreviewToken, port, options).then((request) => request(this.axios, this.basePath));
-    }
 
     /**
      * 

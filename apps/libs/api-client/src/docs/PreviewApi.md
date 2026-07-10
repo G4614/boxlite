@@ -4,63 +4,10 @@ All URIs are relative to *http://localhost:3000*
 
 |Method | HTTP request | Description|
 |------------- | ------------- | -------------|
-|[**getBoxIdFromSignedPreviewUrlToken**](#getboxidfromsignedpreviewurltoken) | **GET** /preview/{signedPreviewToken}/{port}/box-id | Get box ID from signed preview URL token|
 |[**hasBoxAccess**](#hasboxaccess) | **GET** /preview/{boxId}/access | Check if user has access to the box|
 |[**isBoxPublic**](#isboxpublic) | **GET** /preview/{boxId}/public | Check if box is public|
 |[**isValidAuthToken**](#isvalidauthtoken) | **GET** /preview/{boxId}/validate/{authToken} | Check if box auth token is valid|
 
-# **getBoxIdFromSignedPreviewUrlToken**
-> string getBoxIdFromSignedPreviewUrlToken()
-
-
-### Example
-
-```typescript
-import {
-    PreviewApi,
-    Configuration
-} from './api';
-
-const configuration = new Configuration();
-const apiInstance = new PreviewApi(configuration);
-
-let signedPreviewToken: string; //Signed preview URL token (default to undefined)
-let port: number; //Port number to get box ID from signed preview URL token (default to undefined)
-
-const { status, data } = await apiInstance.getBoxIdFromSignedPreviewUrlToken(
-    signedPreviewToken,
-    port
-);
-```
-
-### Parameters
-
-|Name | Type | Description  | Notes|
-|------------- | ------------- | ------------- | -------------|
-| **signedPreviewToken** | [**string**] | Signed preview URL token | defaults to undefined|
-| **port** | [**number**] | Port number to get box ID from signed preview URL token | defaults to undefined|
-
-
-### Return type
-
-**string**
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: Not defined
- - **Accept**: application/json
-
-
-### HTTP response details
-| Status code | Description | Response headers |
-|-------------|-------------|------------------|
-|**200** | Box ID from signed preview URL token |  -  |
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **hasBoxAccess**
 > boolean hasBoxAccess()

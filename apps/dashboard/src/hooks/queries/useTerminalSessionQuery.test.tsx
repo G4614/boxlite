@@ -11,13 +11,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { useTerminalSessionQuery } from './useTerminalSessionQuery'
 
 const mocks = vi.hoisted(() => ({
-  getSignedPortPreviewUrl: vi.fn(),
+  getPortPreviewUrl: vi.fn(),
 }))
 
 vi.mock('@/hooks/useApi', () => ({
   useApi: () => ({
     boxApi: {
-      getSignedPortPreviewUrl: mocks.getSignedPortPreviewUrl,
+      getPortPreviewUrl: mocks.getPortPreviewUrl,
     },
   }),
 }))
@@ -60,9 +60,9 @@ describe('useTerminalSessionQuery', () => {
         },
       },
     })
-    mocks.getSignedPortPreviewUrl
-      .mockResolvedValueOnce({ data: { url: 'https://terminal.example/session-1' } })
-      .mockResolvedValueOnce({ data: { url: 'https://terminal.example/session-2' } })
+    mocks.getPortPreviewUrl
+      .mockResolvedValueOnce({ data: { url: 'https://terminal.example/session-1', token: 'token-1' } })
+      .mockResolvedValueOnce({ data: { url: 'https://terminal.example/session-2?existing=1', token: 'token-2' } })
   })
 
   afterEach(() => {
@@ -96,26 +96,26 @@ describe('useTerminalSessionQuery', () => {
   it('keeps the active terminal URL stable across rerenders and refreshes it when re-enabled', async () => {
     await renderProbe(true)
 
-    expect(mocks.getSignedPortPreviewUrl).toHaveBeenCalledTimes(1)
+    expect(mocks.getPortPreviewUrl).toHaveBeenCalledTimes(1)
     expect(document.querySelector('[data-testid="terminal-session-url"]')?.textContent).toBe(
-      'https://terminal.example/session-1',
+      'https://terminal.example/session-1?BOXLITE_BOX_AUTH_KEY=token-1',
     )
 
     await renderProbe(true)
     await flushReactWork()
 
-    expect(mocks.getSignedPortPreviewUrl).toHaveBeenCalledTimes(1)
+    expect(mocks.getPortPreviewUrl).toHaveBeenCalledTimes(1)
     expect(document.querySelector('[data-testid="terminal-session-url"]')?.textContent).toBe(
-      'https://terminal.example/session-1',
+      'https://terminal.example/session-1?BOXLITE_BOX_AUTH_KEY=token-1',
     )
 
     await renderProbe(false)
     await renderProbe(true)
     await flushReactWork()
 
-    expect(mocks.getSignedPortPreviewUrl).toHaveBeenCalledTimes(2)
+    expect(mocks.getPortPreviewUrl).toHaveBeenCalledTimes(2)
     expect(document.querySelector('[data-testid="terminal-session-url"]')?.textContent).toBe(
-      'https://terminal.example/session-2',
+      'https://terminal.example/session-2?existing=1&BOXLITE_BOX_AUTH_KEY=token-2',
     )
   })
 })

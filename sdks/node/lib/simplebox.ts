@@ -78,6 +78,46 @@ export interface Secret {
   placeholder?: string;
 }
 
+function previewApiUrl(boxId: string, port: number): string {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new TypeError("port must be an integer between 1 and 65535");
+  }
+
+  const baseUrl = process.env.BOXLITE_REST_URL?.replace(/\/+$/, "");
+  if (!baseUrl) {
+    throw new Error("BOXLITE_REST_URL is required to create a port preview URL");
+  }
+
+  const prefix = process.env.BOXLITE_REST_PATH_PREFIX?.replace(/^\/+|\/+$/g, "");
+  const prefixPart = prefix ? `/${prefix}` : "";
+  return `${baseUrl}/v1${prefixPart}/box/${encodeURIComponent(boxId)}/ports/${port}/preview-url`;
+}
+
+async function requestPreviewUrl(boxId: string, port: number): Promise<string> {
+  const apiKey = process.env.BOXLITE_API_KEY;
+  if (!apiKey) {
+    throw new Error("BOXLITE_API_KEY is required to create a port preview URL");
+  }
+
+  const response = await fetch(previewApiUrl(boxId, port), {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `port preview API failed: HTTP ${response.status}: ${await response.text()}`,
+    );
+  }
+
+  const payload = (await response.json()) as { url?: unknown };
+  if (typeof payload.url !== "string" || payload.url.length === 0) {
+    throw new Error("port preview API response did not include a URL");
+  }
+  return payload.url;
+}
+
 /**
  * Structured network configuration for a box.
  */
@@ -673,6 +713,18 @@ export class SimpleBox {
   async metrics() {
     const box = await this._ensureBox();
     return box.metrics();
+  }
+
+  /**
+   * Return the public preview URL for a port inside this box.
+   *
+   * Reads BOXLITE_REST_URL, BOXLITE_API_KEY, and optionally
+   * BOXLITE_REST_PATH_PREFIX from the environment. The returned URL can be used
+   * with regular HTTP clients such as fetch, curl, or a browser.
+   */
+  async getPortPreviewUrl(port: number): Promise<string> {
+    const box = await this._ensureBox();
+    return requestPreviewUrl(box.id, port);
   }
 
   /**

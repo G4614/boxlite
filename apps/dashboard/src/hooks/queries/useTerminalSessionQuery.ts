@@ -25,10 +25,10 @@ export const useTerminalSessionQuery = (boxId: string, enabled: boolean) => {
   const query = useQuery({
     queryKey,
     queryFn: async (): Promise<TerminalSession> => {
-      const url = (
-        await boxApi.getSignedPortPreviewUrl(boxId, TERMINAL_PORT, selectedOrganization?.id, SESSION_DURATION_SECONDS)
-      ).data.url
-      return { url, expiresAt: Date.now() + SESSION_DURATION_SECONDS * 1000 }
+      const preview = (await boxApi.getPortPreviewUrl(boxId, TERMINAL_PORT, selectedOrganization?.id)).data
+      const url = new URL(preview.url)
+      url.searchParams.set('BOXLITE_BOX_AUTH_KEY', preview.token)
+      return { url: url.toString(), expiresAt: Date.now() + SESSION_DURATION_SECONDS * 1000 }
     },
     enabled: enabled && !!boxId && !!selectedOrganization?.id,
     staleTime: 0,

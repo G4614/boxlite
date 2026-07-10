@@ -37,12 +37,9 @@ func TestRunnerNetworkProxyTargetURLUsesRestNamespace(t *testing.T) {
 }
 
 func TestDecodeDirectPreviewBoxID(t *testing.T) {
-	got, ok, err := decodeDirectPreviewBoxID("35334d4f5a336a70355a7531")
+	got, err := decodeDirectPreviewBoxID("35334d4f5a336a70355a7531")
 	if err != nil {
 		t.Fatalf("decodeDirectPreviewBoxID returned error: %v", err)
-	}
-	if !ok {
-		t.Fatal("decodeDirectPreviewBoxID did not recognize encoded direct box ID")
 	}
 	if got != "53MOZ3jp5Zu1" {
 		t.Fatalf("decodeDirectPreviewBoxID = %q, want %q", got, "53MOZ3jp5Zu1")
@@ -50,56 +47,28 @@ func TestDecodeDirectPreviewBoxID(t *testing.T) {
 }
 
 func TestDecodeDirectPreviewBoxIDRejectsDecodedPathCharacters(t *testing.T) {
-	_, ok, err := decodeDirectPreviewBoxID("35334d4f5a336a702f2e2e2f")
+	_, err := decodeDirectPreviewBoxID("35334d4f5a336a702f2e2e2f")
 	if err == nil {
 		t.Fatal("decodeDirectPreviewBoxID returned nil error")
-	}
-	if !ok {
-		t.Fatal("decodeDirectPreviewBoxID did not recognize encoded direct box ID")
 	}
 }
 
 func TestDecodeDirectPreviewBoxIDRejectsDecodedWrongLength(t *testing.T) {
-	_, ok, err := decodeDirectPreviewBoxID("35334d4f5a336a70355a75")
-	if err != nil {
-		t.Fatalf("decodeDirectPreviewBoxID returned error for legacy-sized value: %v", err)
-	}
-	if ok {
-		t.Fatal("decodeDirectPreviewBoxID unexpectedly recognized non-encoded value")
+	_, err := decodeDirectPreviewBoxID("35334d4f5a336a70355a75")
+	if err == nil {
+		t.Fatal("decodeDirectPreviewBoxID returned nil error for short value")
 	}
 
-	_, ok, err = decodeDirectPreviewBoxID("35334d4f5a336a70355a7500")
+	_, err = decodeDirectPreviewBoxID("35334d4f5a336a70355a7500")
 	if err == nil {
 		t.Fatal("decodeDirectPreviewBoxID returned nil error")
 	}
-	if !ok {
-		t.Fatal("decodeDirectPreviewBoxID did not recognize encoded direct box ID")
-	}
 }
 
-func TestDecodeDirectPreviewBoxIDKeepsLegacyRawValue(t *testing.T) {
-	got, ok, err := decodeDirectPreviewBoxID("legacyboxid")
-	if err != nil {
-		t.Fatalf("decodeDirectPreviewBoxID returned error: %v", err)
-	}
-	if ok {
-		t.Fatal("decodeDirectPreviewBoxID unexpectedly recognized legacy raw value")
-	}
-	if got != "legacyboxid" {
-		t.Fatalf("decodeDirectPreviewBoxID = %q, want %q", got, "legacyboxid")
-	}
-}
-
-func TestDecodeDirectPreviewBoxIDKeepsSignedTokenValue(t *testing.T) {
-	got, ok, err := decodeDirectPreviewBoxID("abcdef0123456789")
-	if err != nil {
-		t.Fatalf("decodeDirectPreviewBoxID returned error: %v", err)
-	}
-	if ok {
-		t.Fatal("decodeDirectPreviewBoxID unexpectedly recognized signed token value")
-	}
-	if got != "abcdef0123456789" {
-		t.Fatalf("decodeDirectPreviewBoxID = %q, want %q", got, "abcdef0123456789")
+func TestDecodeDirectPreviewBoxIDRejectsSignedTokenValue(t *testing.T) {
+	_, err := decodeDirectPreviewBoxID("abcdef0123456789")
+	if err == nil {
+		t.Fatal("decodeDirectPreviewBoxID returned nil error for signed token value")
 	}
 }
 

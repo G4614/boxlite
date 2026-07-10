@@ -5,7 +5,7 @@
  */
 
 import { ApiProperty, ApiSchema } from '@nestjs/swagger'
-import { IsNumber, IsString } from 'class-validator'
+import { IsString } from 'class-validator'
 
 @ApiSchema({ name: 'PortPreviewUrl' })
 export class PortPreviewUrlDto {
@@ -29,36 +29,4 @@ export class PortPreviewUrlDto {
   })
   @IsString()
   token: string
-}
-
-@ApiSchema({ name: 'SignedPortPreviewUrl' })
-export class SignedPortPreviewUrlDto {
-  @ApiProperty({
-    description: 'ID of the box',
-    example: '123456',
-  })
-  @IsString()
-  boxId: string
-
-  @ApiProperty({
-    description: 'Port number of the signed preview URL',
-    example: 3000,
-    type: 'integer',
-  })
-  @IsNumber()
-  port: number
-
-  @ApiProperty({
-    description: 'Token of the signed preview URL',
-    example: 'jl6wb9z5o3eii',
-  })
-  @IsString()
-  token: string
-
-  @ApiProperty({
-    description: 'Signed preview url',
-    example: 'https://{port}-{token}.{proxyDomain}',
-  })
-  @IsString()
-  url: string
 }

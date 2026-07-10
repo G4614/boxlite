@@ -1,8 +1,8 @@
 //! Network handle operations for the BoxLite C SDK.
 
-use std::ffi::CString;
 use std::net::SocketAddr;
 use std::os::raw::c_char;
+use std::os::fd::IntoRawFd;
 use std::ptr;
 use std::sync::Arc;
 
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn boxlite_box_network_tunnel(
     network: *mut CBoxNetworkHandle,
     target_ip: *const c_char,
     target_port: u16,
-    out_addr: *mut *mut c_char,
+    out_fd: *mut i32,
     out_error: *mut CBoxliteError,
 ) -> BoxliteErrorCode {
     unsafe {
@@ -70,11 +70,11 @@ pub unsafe extern "C" fn boxlite_box_network_tunnel(
             write_error(out_error, null_pointer_error("network"));
             return BoxliteErrorCode::InvalidArgument;
         }
-        if out_addr.is_null() {
-            write_error(out_error, null_pointer_error("out_addr"));
+        if out_fd.is_null() {
+            write_error(out_error, null_pointer_error("out_fd"));
             return BoxliteErrorCode::InvalidArgument;
         }
-        *out_addr = ptr::null_mut();
+        *out_fd = -1;
 
         let ip = match c_str_to_string(target_ip) {
             Ok(s) => s,
@@ -96,66 +96,28 @@ pub unsafe extern "C" fn boxlite_box_network_tunnel(
         };
 
         let network_ref = &*network;
-        let listener = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
-            Ok(listener) => listener,
+        match network_ref
+            .tokio_rt
+            .block_on(network_ref.handle.network().tunnel(target))
+        {
+            Ok(tunnel) => match tunnel.into_fd() {
+                Some(fd) => {
+                    *out_fd = fd.into_raw_fd();
+                    BoxliteErrorCode::Ok
+                }
+                None => {
+                    write_error(
+                        out_error,
+                        BoxliteError::Unsupported(
+                            "box network tunnel transport cannot be exported as fd".into(),
+                        ),
+                    );
+                    BoxliteErrorCode::Unsupported
+                }
+            },
             Err(e) => {
-                write_error(
-                    out_error,
-                    BoxliteError::Network(format!("failed to bind local tunnel listener: {e}")),
-                );
-                return BoxliteErrorCode::Network;
-            }
-        };
-        let addr = match listener.local_addr() {
-            Ok(addr) => addr,
-            Err(e) => {
-                write_error(
-                    out_error,
-                    BoxliteError::Network(format!("failed to inspect local tunnel listener: {e}")),
-                );
-                return BoxliteErrorCode::Network;
-            }
-        };
-        if let Err(e) = listener.set_nonblocking(true) {
-            write_error(
-                out_error,
-                BoxliteError::Network(format!("failed to configure local tunnel listener: {e}")),
-            );
-            return BoxliteErrorCode::Network;
-        }
-        let listener = match tokio::net::TcpListener::from_std(listener) {
-            Ok(listener) => listener,
-            Err(e) => {
-                write_error(
-                    out_error,
-                    BoxliteError::Network(format!("failed to create async tunnel listener: {e}")),
-                );
-                return BoxliteErrorCode::Network;
-            }
-        };
-
-        let handle = Arc::clone(&network_ref.handle);
-        network_ref.tokio_rt.spawn(async move {
-            let accepted =
-                tokio::time::timeout(std::time::Duration::from_secs(30), listener.accept()).await;
-            if let Ok(Ok((mut client, _))) = accepted
-                && let Ok(mut tunnel) = handle.network().tunnel(target).await
-            {
-                let _ = tokio::io::copy_bidirectional(&mut client, &mut tunnel).await;
-            }
-        });
-
-        match CString::new(addr.to_string()) {
-            Ok(addr) => {
-                *out_addr = addr.into_raw();
-                BoxliteErrorCode::Ok
-            }
-            Err(e) => {
-                write_error(
-                    out_error,
-                    BoxliteError::Internal(format!("failed to encode tunnel address: {e}")),
-                );
-                BoxliteErrorCode::Internal
+                write_error(out_error, e);
+                BoxliteErrorCode::Network
             }
         }
     }

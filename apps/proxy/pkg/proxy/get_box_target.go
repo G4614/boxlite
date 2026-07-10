@@ -31,12 +31,12 @@ const (
 )
 
 func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, error) {
-	var targetPort, targetPath, boxIdOrSignedToken string
+	var targetPort, targetPath, encodedBoxID string
 
 	// Extract port and box ID from the host header.
-	// Expected format: 1234-<boxId | token>.proxy.domain
+	// Expected format: 1234-<hex-encoded-box-id>.proxy.domain
 	var err error
-	targetPort, boxIdOrSignedToken, _, err = p.parseHost(ctx.Request.Host)
+	targetPort, encodedBoxID, _, err = p.parseHost(ctx.Request.Host)
 	if err != nil {
 		ctx.Error(common_errors.NewBadRequestError(err))
 		return nil, nil, err
@@ -48,21 +48,18 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 		return nil, nil, errors.New("target port is required")
 	}
 
-	if boxIdOrSignedToken == "" {
-		ctx.Error(common_errors.NewBadRequestError(errors.New("box ID or signed token is required")))
-		return nil, nil, errors.New("box ID or signed token is required")
+	if encodedBoxID == "" {
+		ctx.Error(common_errors.NewBadRequestError(errors.New("encoded box ID is required")))
+		return nil, nil, errors.New("encoded box ID is required")
 	}
 
-	boxId := boxIdOrSignedToken
-	if decodedBoxId, ok, decodeErr := decodeDirectPreviewBoxID(boxIdOrSignedToken); decodeErr != nil {
+	boxId, decodeErr := decodeDirectPreviewBoxID(encodedBoxID)
+	if decodeErr != nil {
 		ctx.Error(common_errors.NewBadRequestError(decodeErr))
 		return nil, nil, decodeErr
-	} else if ok {
-		boxId = decodedBoxId
-		boxIdOrSignedToken = decodedBoxId
 	}
 
-	isPublic, err := p.getBoxPublic(ctx, boxIdOrSignedToken)
+	isPublic, err := p.getBoxPublic(ctx, boxId)
 	if err != nil {
 		ctx.Error(common_errors.NewBadRequestError(fmt.Errorf("failed to get box public status: %w", err)))
 		return nil, nil, fmt.Errorf("failed to get box public status: %w", err)
@@ -75,7 +72,7 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 			return nil, nil, fmt.Errorf("failed to parse target port: %w", err)
 		}
 		var didRedirect bool
-		boxId, didRedirect, err = p.Authenticate(ctx, boxIdOrSignedToken, float32(portFloat))
+		boxId, didRedirect, err = p.Authenticate(ctx, boxId, float32(portFloat))
 		if err != nil {
 			if !didRedirect {
 				ctx.Error(err)
@@ -90,15 +87,7 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 		return nil, nil, fmt.Errorf("failed to get runner info: %w", err)
 	}
 
-	// Skip last activity update if header is set
-	if ctx.Request.Header.Get(SKIP_LAST_ACTIVITY_UPDATE_HEADER) != "true" {
-		doneCh := make(chan struct{})
-		go p.updateLastActivity(ctx.Request.Context(), boxId, true, doneCh)
-		ctx.Request.Header.Del(SKIP_LAST_ACTIVITY_UPDATE_HEADER)
-		ctx.Set(ACTIVITY_POLL_STOP_KEY, func() {
-			close(doneCh)
-		})
-	}
+	p.startActivityPoll(ctx, boxId)
 
 	// Build the target URL
 	targetURL := runnerNetworkProxyTargetURL(runnerInfo.ApiUrl, boxId, targetPort)
@@ -125,6 +114,20 @@ func (p *Proxy) GetProxyTarget(ctx *gin.Context) (*url.URL, map[string]string, e
 
 func runnerNetworkProxyTargetURL(runnerApiURL string, boxId string, targetPort string) string {
 	return fmt.Sprintf("%s/v1/boxes/%s/network/proxy/%s", runnerApiURL, boxId, targetPort)
+}
+
+func (p *Proxy) startActivityPoll(ctx *gin.Context, boxId string) {
+	if ctx.Request.Header.Get(SKIP_LAST_ACTIVITY_UPDATE_HEADER) == "true" {
+		ctx.Request.Header.Del(SKIP_LAST_ACTIVITY_UPDATE_HEADER)
+		return
+	}
+
+	doneCh := make(chan struct{})
+	go p.updateLastActivity(ctx.Request.Context(), boxId, true, doneCh)
+	ctx.Request.Header.Del(SKIP_LAST_ACTIVITY_UPDATE_HEADER)
+	ctx.Set(ACTIVITY_POLL_STOP_KEY, func() {
+		close(doneCh)
+	})
 }
 
 func requestEscapedPath(requestURL *url.URL, fallbackPath string) string {
@@ -304,7 +307,7 @@ func (p *Proxy) validateAndCache(
 	return &isValid, nil
 }
 
-func (p *Proxy) parseHost(host string) (targetPort string, boxIdOrSignedToken string, baseHost string, err error) {
+func (p *Proxy) parseHost(host string) (targetPort string, encodedBoxID string, baseHost string, err error) {
 	// Extract port and box ID from the host header
 	// Expected format: 1234-some-id-uuid.proxy.domain
 	if host == "" {
@@ -335,32 +338,32 @@ func (p *Proxy) parseHost(host string) (targetPort string, boxIdOrSignedToken st
 		return "", "", "", fmt.Errorf("invalid port '%s': must be numeric", targetPort)
 	}
 
-	boxIdOrSignedToken = after
+	encodedBoxID = after
 	// Join remaining parts to form the base domain (e.g., "proxy.domain")
 	baseHost = strings.Join(parts[1:], ".")
 
-	return targetPort, boxIdOrSignedToken, baseHost, nil
+	return targetPort, encodedBoxID, baseHost, nil
 }
 
-func decodeDirectPreviewBoxID(value string) (string, bool, error) {
+func decodeDirectPreviewBoxID(value string) (string, error) {
 	if len(value) != encodedDirectPreviewBoxIDLength {
-		return value, false, nil
+		return "", fmt.Errorf("invalid encoded box ID length: got %d, want %d", len(value), encodedDirectPreviewBoxIDLength)
 	}
 
 	decoded, err := hex.DecodeString(value)
 	if err != nil {
-		return value, false, nil
+		return "", fmt.Errorf("invalid encoded box ID: %w", err)
 	}
 	if len(decoded) == 0 {
-		return "", true, errors.New("invalid direct preview box ID: empty decoded box ID")
+		return "", errors.New("invalid direct preview box ID: empty decoded box ID")
 	}
 
 	boxId := string(decoded)
 	if !isValidDirectPreviewBoxID(boxId) {
-		return "", true, errors.New("invalid direct preview box ID")
+		return "", errors.New("invalid direct preview box ID")
 	}
 
-	return boxId, true, nil
+	return boxId, nil
 }
 
 func isValidDirectPreviewBoxID(value string) bool {

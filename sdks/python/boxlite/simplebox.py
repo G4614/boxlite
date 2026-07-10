@@ -5,9 +5,14 @@ Provides common functionality for all specialized boxes (CodeBox, BrowserBox, et
 """
 
 import asyncio
+import json
 import logging
+import os
 from enum import IntEnum
 from typing import Optional, TYPE_CHECKING
+from urllib.error import HTTPError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from .exec import ExecResult
 
@@ -17,6 +22,44 @@ if TYPE_CHECKING:
 logger = logging.getLogger("boxlite.simplebox")
 
 __all__ = ["SimpleBox"]
+
+
+def _preview_api_url(box_id: str, port: int) -> str:
+    if port < 1 or port > 65535:
+        raise ValueError("port must be between 1 and 65535")
+
+    base_url = os.environ.get("BOXLITE_REST_URL", "").rstrip("/")
+    if not base_url:
+        raise RuntimeError("BOXLITE_REST_URL is required to create a port preview URL")
+
+    prefix = os.environ.get("BOXLITE_REST_PATH_PREFIX", "").strip("/")
+    prefix_part = f"/{prefix}" if prefix else ""
+    return (
+        f"{base_url}/v1{prefix_part}/box/{quote(box_id, safe='')}"
+        f"/ports/{port}/preview-url"
+    )
+
+
+def _request_preview_url(box_id: str, port: int) -> str:
+    api_key = os.environ.get("BOXLITE_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("BOXLITE_API_KEY is required to create a port preview URL")
+
+    request = Request(
+        _preview_api_url(box_id, port),
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"port preview API failed: HTTP {exc.code}: {body}") from exc
+
+    url = payload.get("url")
+    if not isinstance(url, str) or not url:
+        raise RuntimeError("port preview API response did not include a URL")
+    return url
 
 
 class StreamType(IntEnum):
@@ -291,6 +334,21 @@ class SimpleBox:
             stderr=stderr,
             error_message=error_message,
         )
+
+    async def get_port_preview_url(self, port: int) -> str:
+        """
+        Return the public preview URL for a port inside this box.
+
+        This is a REST API convenience wrapper. It reads ``BOXLITE_REST_URL``,
+        ``BOXLITE_API_KEY``, and optionally ``BOXLITE_REST_PATH_PREFIX`` from
+        the environment, then returns a URL that regular HTTP clients can use.
+        """
+        if not self._started:
+            raise RuntimeError(
+                "Box not started. Use 'async with SimpleBox(...) as box:' "
+                "or call 'await box.start()' first."
+            )
+        return await asyncio.to_thread(_request_preview_url, self.id, port)
 
     async def stop(self):
         """

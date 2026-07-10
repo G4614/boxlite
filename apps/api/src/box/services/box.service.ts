@@ -57,7 +57,7 @@ import { customAlphabet as customNanoid, nanoid, urlAlphabet } from 'nanoid'
 import { WithInstrumentation } from '../../common/decorators/otel.decorator'
 import { validateMountPaths, validateSubpaths } from '../utils/volume-mount-path-validation.util'
 import { BoxRepository } from '../repositories/box.repository'
-import { PortPreviewUrlDto, SignedPortPreviewUrlDto } from '../dto/port-preview-url.dto'
+import { PortPreviewUrlDto } from '../dto/port-preview-url.dto'
 import { RegionService } from '../../region/services/region.service'
 import { BoxCreatedEvent } from '../events/box-create.event'
 import { InjectRedis } from '@nestjs-modules/ioredis'
@@ -695,70 +695,6 @@ export class BoxService {
       url,
       token: box.authToken,
     }
-  }
-
-  async getSignedPortPreviewUrl(
-    boxIdOrName: string,
-    organizationId: string,
-    port: number,
-    expiresInSeconds = 60,
-  ): Promise<SignedPortPreviewUrlDto> {
-    if (port < 1 || port > 65535) {
-      throw new BadRequestError('Invalid port')
-    }
-
-    if (expiresInSeconds < 1 || expiresInSeconds > 60 * 60 * 24) {
-      throw new BadRequestError('expiresInSeconds must be between 1 second and 24 hours')
-    }
-
-    const proxyDomain = this.configService.getOrThrow('proxy.domain')
-    const proxyProtocol = this.configService.getOrThrow('proxy.protocol')
-
-    const box = await this.findOneByIdOrName(boxIdOrName, organizationId)
-
-    const token = customNanoid(urlAlphabet.replace('_', '').replace('-', ''))(16).toLocaleLowerCase()
-
-    const lockKey = `box:signed-preview-url-token:${port}:${token}`
-    await this.redis.setex(lockKey, expiresInSeconds, box.id)
-
-    let url = `${proxyProtocol}://${port}-${token}.${proxyDomain}`
-
-    const region = await this.regionService.findOne(box.region, true)
-    if (region && region.proxyUrl) {
-      // Insert port and box.id into the custom proxy URL
-      url = region.proxyUrl.replace(/(https?:\/)(\/)/, `$1/${port}-${token}.`)
-    }
-
-    return {
-      boxId: box.id,
-      port,
-      token,
-      url,
-    }
-  }
-
-  async getBoxIdFromSignedPreviewUrlToken(token: string, port: number): Promise<string> {
-    const lockKey = `box:signed-preview-url-token:${port}:${token}`
-    const boxId = await this.redis.get(lockKey)
-    if (!boxId) {
-      throw new ForbiddenException('Invalid or expired token')
-    }
-    return boxId
-  }
-
-  async expireSignedPreviewUrlToken(
-    boxIdOrName: string,
-    organizationId: string,
-    token: string,
-    port: number,
-  ): Promise<void> {
-    const box = await this.findOneByIdOrName(boxIdOrName, organizationId)
-    if (!box) {
-      throw new NotFoundException(`Box with ID or name ${boxIdOrName} not found`)
-    }
-
-    const lockKey = `box:signed-preview-url-token:${port}:${token}`
-    await this.redis.del(lockKey)
   }
 
   async destroy(boxIdOrName: string, organizationId?: string): Promise<Box> {

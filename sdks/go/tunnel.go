@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	goruntime "runtime"
 	"unsafe"
 )
@@ -89,24 +90,26 @@ func (n *NetworkHandle) openTunnel(ctx context.Context, targetIP string, targetP
 		return nil, closedNetworkError()
 	}
 
-	var cAddr *C.char
+	var cFD C.int
 	var cerr C.CBoxliteError
 	if targetIP == "" {
 		return nil, fmt.Errorf("tunnel target IP is required")
 	}
 	cIP := C.CString(targetIP)
 	defer C.free(unsafe.Pointer(cIP))
-	code := C.boxlite_box_network_tunnel(n.handle, cIP, C.uint16_t(targetPort), &cAddr, &cerr)
+	code := C.boxlite_box_network_tunnel(n.handle, cIP, C.uint16_t(targetPort), &cFD, &cerr)
 	if code != C.Ok {
 		return nil, freeError(&cerr)
 	}
-	if cAddr == nil {
-		return nil, fmt.Errorf("boxlite tunnel returned empty local address")
+	if cFD < 0 {
+		return nil, fmt.Errorf("boxlite tunnel returned invalid fd")
 	}
-	localAddr := C.GoString(cAddr)
-	C.boxlite_free_string(cAddr)
-	dialer := net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", localAddr)
+	file := os.NewFile(uintptr(cFD), "boxlite-tunnel")
+	if file == nil {
+		return nil, fmt.Errorf("boxlite tunnel returned invalid fd")
+	}
+	defer file.Close()
+	conn, err := net.FileConn(file)
 	if err != nil {
 		return nil, err
 	}

@@ -149,30 +149,4 @@ export class PreviewController {
     return true
   }
 
-  @Get(':signedPreviewToken/:port/box-id')
-  @ApiOperation({
-    summary: 'Get box ID from signed preview URL token',
-    operationId: 'getBoxIdFromSignedPreviewUrlToken',
-  })
-  @ApiParam({
-    name: 'signedPreviewToken',
-    description: 'Signed preview URL token',
-    type: 'string',
-  })
-  @ApiParam({
-    name: 'port',
-    description: 'Port number to get box ID from signed preview URL token',
-    type: 'number',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Box ID from signed preview URL token',
-    type: String,
-  })
-  async getBoxIdFromSignedPreviewUrlToken(
-    @Param('signedPreviewToken') signedPreviewToken: string,
-    @Param('port') port: number,
-  ): Promise<string> {
-    return this.boxService.getBoxIdFromSignedPreviewUrlToken(signedPreviewToken, port)
-  }
 }

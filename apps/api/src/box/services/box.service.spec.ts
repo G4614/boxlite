@@ -65,7 +65,6 @@ function makePreviewUrlService() {
       throw new Error(`unexpected config key ${key}`)
     }),
   } as any
-  const redis = { setex: jest.fn() } as any
   const regionService = { findOne: jest.fn().mockResolvedValue(null) } as any
   const noop = {} as any
   const service = new BoxService(
@@ -80,7 +79,7 @@ function makePreviewUrlService() {
     noop, // organizationService
     noop, // runnerAdapterFactory
     noop, // redisLockProvider
-    redis, // redis
+    noop, // redis
     regionService, // regionService
     noop, // boxLookupCacheInvalidationService
     noop, // boxActivityService
@@ -91,7 +90,7 @@ function makePreviewUrlService() {
     region: 'region-1',
   } as any)
 
-  return { service, redis }
+  return { service }
 }
 
 describe('BoxService preview URLs', () => {
@@ -103,21 +102,6 @@ describe('BoxService preview URLs', () => {
     expect(result.boxId).toBe('MixedCaseBox')
     expect(result.url).toBe('https://3000-4d6978656443617365426f78.proxy.example.test')
     expect(result.token).toBe('preview-token')
-  })
-
-  it('creates signed preview URLs for service ports', async () => {
-    const { service, redis } = makePreviewUrlService()
-
-    const result = await service.getSignedPortPreviewUrl('MixedCaseBox', 'org-1', 3000, 120)
-
-    expect(result.boxId).toBe('MixedCaseBox')
-    expect(result.port).toBe(3000)
-    expect(result.url).toMatch(/^https:\/\/3000-[a-z0-9]+\.proxy\.example\.test$/)
-    expect(redis.setex).toHaveBeenCalledWith(
-      `box:signed-preview-url-token:3000:${result.token}`,
-      120,
-      'MixedCaseBox',
-    )
   })
 })
 

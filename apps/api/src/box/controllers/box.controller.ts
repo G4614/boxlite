@@ -48,7 +48,7 @@ import { OrganizationAuthContext } from '../../common/interfaces/auth-context.in
 import { RequiredOrganizationResourcePermissions } from '../../organization/decorators/required-organization-resource-permissions.decorator'
 import { OrganizationResourcePermission } from '../../organization/enums/organization-resource-permission.enum'
 import { OrganizationResourceActionGuard } from '../../organization/guards/organization-resource-action.guard'
-import { PortPreviewUrlDto, SignedPortPreviewUrlDto } from '../dto/port-preview-url.dto'
+import { PortPreviewUrlDto } from '../dto/port-preview-url.dto'
 import { BadRequestError } from '../../exceptions/bad-request.exception'
 import { BoxStateUpdatedEvent } from '../events/box-state-updated.event'
 import { Audit, TypedRequest } from '../../audit/decorators/audit.decorator'
@@ -654,76 +654,6 @@ export class BoxController {
     @Param('port') port: number,
   ): Promise<PortPreviewUrlDto> {
     return this.boxService.getPortPreviewUrl(boxIdOrName, authContext.organizationId, port)
-  }
-
-  @Get(':boxIdOrName/ports/:port/signed-preview-url')
-  @ApiOperation({
-    summary: 'Get signed preview URL for a box port',
-    operationId: 'getSignedPortPreviewUrl',
-  })
-  @ApiParam({
-    name: 'boxIdOrName',
-    description: 'ID or name of the box',
-    type: 'string',
-  })
-  @ApiParam({
-    name: 'port',
-    description: 'Port number to get signed preview URL for',
-    type: 'integer',
-  })
-  @ApiQuery({
-    name: 'expiresInSeconds',
-    required: false,
-    type: 'integer',
-    description: 'Expiration time in seconds (default: 60 seconds)',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Signed preview URL for the specified port',
-    type: SignedPortPreviewUrlDto,
-  })
-  @UseGuards(BoxAccessGuard)
-  async getSignedPortPreviewUrl(
-    @AuthContext() authContext: OrganizationAuthContext,
-    @Param('boxIdOrName') boxIdOrName: string,
-    @Param('port') port: number,
-    @Query('expiresInSeconds') expiresInSeconds?: number,
-  ): Promise<SignedPortPreviewUrlDto> {
-    return this.boxService.getSignedPortPreviewUrl(boxIdOrName, authContext.organizationId, port, expiresInSeconds)
-  }
-
-  @Post(':boxIdOrName/ports/:port/signed-preview-url/:token/expire')
-  @ApiOperation({
-    summary: 'Expire signed preview URL for a box port',
-    operationId: 'expireSignedPortPreviewUrl',
-  })
-  @ApiParam({
-    name: 'boxIdOrName',
-    description: 'ID or name of the box',
-    type: 'string',
-  })
-  @ApiParam({
-    name: 'port',
-    description: 'Port number to expire signed preview URL for',
-    type: 'integer',
-  })
-  @ApiParam({
-    name: 'token',
-    description: 'Token to expire signed preview URL for',
-    type: 'string',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Signed preview URL has been expired',
-  })
-  @UseGuards(BoxAccessGuard)
-  async expireSignedPortPreviewUrl(
-    @AuthContext() authContext: OrganizationAuthContext,
-    @Param('boxIdOrName') boxIdOrName: string,
-    @Param('port') port: number,
-    @Param('token') token: string,
-  ): Promise<void> {
-    await this.boxService.expireSignedPreviewUrlToken(boxIdOrName, authContext.organizationId, token, port)
   }
 
   @Post(':boxIdOrName/ssh-access')

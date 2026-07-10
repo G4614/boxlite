@@ -541,7 +541,7 @@ void boxlite_box_network_free(CBoxNetworkHandle *network);
 enum BoxliteErrorCode boxlite_box_network_tunnel(CBoxNetworkHandle *network,
                                                  const char *target_ip,
                                                  uint16_t target_port,
-                                                 char **out_addr,
+                                                 int *out_fd,
                                                  CBoxliteError *out_error);
 
 enum BoxliteErrorCode boxlite_options_new(const char *image,

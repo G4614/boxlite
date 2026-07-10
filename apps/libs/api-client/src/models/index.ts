@@ -87,7 +87,6 @@ export * from './runner-healthcheck';
 export * from './runner-service-health';
 export * from './runner-state';
 export * from './send-webhook-dto';
-export * from './signed-port-preview-url';
 export * from './ssh-access-dto';
 export * from './ssh-access-validation-dto';
 export * from './storage-access-dto';

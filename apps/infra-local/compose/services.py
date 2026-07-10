@@ -420,13 +420,11 @@ def _caddyfile(cfg) -> str:
 }}
 
 :80 {{
-\t# Box port-preview proxy: hostnames look like `<port>-<token>.localhost:28080`.
-\t# The dashboard's terminal iframe loads URLs in this shape (returned by
-\t# `/api/box/:boxIdOrName/ports/:port/signed-preview-url`). Forward any host that
-\t# starts with `<digits>-` to the apps/proxy service on the host (port 4000),
-\t# which resolves the token → box → runner and proxies through.
-\t@signed_port_preview_host header_regexp Host ^[0-9]+-[a-z0-9]+\\.
-\thandle @signed_port_preview_host {{
+\t# Box port-preview proxy: hostnames look like `<port>-<encoded-box-id>.localhost:28080`.
+\t# Forward any host that starts with `<digits>-` to the apps/proxy service on the
+\t# host (port 4000), which resolves the encoded box ID → box → runner and proxies through.
+\t@port_preview_host header_regexp Host ^[0-9]+-[a-z0-9]+\\.
+\thandle @port_preview_host {{
 \t\treverse_proxy {cfg.host_hub}:4000 {{
 \t\t\theader_up Host {{http.request.host}}
 \t\t}}

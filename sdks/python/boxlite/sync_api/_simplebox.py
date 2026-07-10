@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Dict, Optional
 
 from ..exec import ExecResult
+from ..simplebox import _request_preview_url
 
 if TYPE_CHECKING:
     from ._boxlite import SyncBoxlite
@@ -254,6 +255,15 @@ class SyncSimpleBox:
             )
 
         return self._runtime._sync(_exec_and_collect())
+
+    def get_port_preview_url(self, port: int) -> str:
+        """
+        Return the public preview URL for a port inside this box.
+
+        Reads BOXLITE_REST_URL, BOXLITE_API_KEY, and optionally
+        BOXLITE_REST_PATH_PREFIX from the environment.
+        """
+        return _request_preview_url(self.id, port)
 
     def stop(self) -> None:
         """Stop the box (preserves state for restart)."""
