@@ -286,7 +286,36 @@ impl ApiClient {
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
     > {
-        self.connect_ws_with_query(path, &[]).await
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        use tokio_tungstenite::tungstenite::http::HeaderValue;
+
+        let http_url = self.url(path);
+        let ws_url = if let Some(rest) = http_url.strip_prefix("https://") {
+            format!("wss://{}", rest)
+        } else if let Some(rest) = http_url.strip_prefix("http://") {
+            format!("ws://{}", rest)
+        } else {
+            return Err(BoxliteError::Internal(format!(
+                "WS connect: unsupported URL scheme in {}",
+                http_url
+            )));
+        };
+
+        let mut request = ws_url
+            .as_str()
+            .into_client_request()
+            .map_err(|e| BoxliteError::Internal(format!("WS request build failed: {}", e)))?;
+
+        if let Some(bearer) = self.current_bearer().await? {
+            let value = HeaderValue::from_str(&format!("Bearer {}", bearer))
+                .map_err(|e| BoxliteError::Internal(format!("WS auth header invalid: {}", e)))?;
+            request.headers_mut().insert("Authorization", value);
+        }
+
+        let (stream, _resp) = tokio_tungstenite::connect_async(request)
+            .await
+            .map_err(map_ws_error)?;
+        Ok(stream)
     }
 
     pub(crate) async fn connect_box_network_tunnel(
@@ -401,54 +430,6 @@ impl ApiClient {
         let path = format!("/boxes/{}/network/tunnel?port={port}", box_id.as_ref());
         let descriptor: TunnelDescriptor = self.post_empty(&path).await?;
         Ok(descriptor.url)
-    }
-
-    pub(crate) async fn connect_ws_with_query(
-        &self,
-        path: &str,
-        query: &[(&str, &str)],
-    ) -> BoxliteResult<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    > {
-        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        use tokio_tungstenite::tungstenite::http::HeaderValue;
-
-        let mut http_url = reqwest::Url::parse(&self.url(path))
-            .map_err(|e| BoxliteError::Internal(format!("WS URL build failed: {}", e)))?;
-        if !query.is_empty() {
-            http_url
-                .query_pairs_mut()
-                .extend_pairs(query.iter().copied());
-        }
-        let http_url = http_url.to_string();
-        let ws_url = if let Some(rest) = http_url.strip_prefix("https://") {
-            format!("wss://{}", rest)
-        } else if let Some(rest) = http_url.strip_prefix("http://") {
-            format!("ws://{}", rest)
-        } else {
-            return Err(BoxliteError::Internal(format!(
-                "WS connect: unsupported URL scheme in {}",
-                http_url
-            )));
-        };
-
-        let mut request = ws_url
-            .as_str()
-            .into_client_request()
-            .map_err(|e| BoxliteError::Internal(format!("WS request build failed: {}", e)))?;
-
-        if let Some(bearer) = self.current_bearer().await? {
-            let value = HeaderValue::from_str(&format!("Bearer {}", bearer))
-                .map_err(|e| BoxliteError::Internal(format!("WS auth header invalid: {}", e)))?;
-            request.headers_mut().insert("Authorization", value);
-        }
-
-        let (stream, _resp) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(map_ws_error)?;
-        Ok(stream)
     }
 
     /// Build an authorized request (for custom operations like file upload/download).
