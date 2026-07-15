@@ -54,6 +54,7 @@ tower = "0.5"
 hyper-util = { version = "0.1", features = ["tokio"] }
 # gvproxy ServicesMux control client (HTTP/1.1 over the per-box unix socket).
 hyper = { version = "1", features = ["client", "http1"] }
+hyper-rustls = { version = "0.27", features = ["http1", "rustls-native-certs"] }
 http-body-util = "0.1"
 bytes = "1"
 uuid = { version = "1.10", features = ["v4"] }
@@ -125,3 +126,4 @@ boxlite-test-utils = { path = "../test-utils" }
 notify = "6.1"
 proptest = "1.4"
 toml = "0.8"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }

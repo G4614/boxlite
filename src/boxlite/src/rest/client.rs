@@ -18,6 +18,7 @@ use crate::runtime::auth::Principal;
 
 /// Re-request a token once it is within this leeway of `expires_at`.
 const REFRESH_LEEWAY: Duration = Duration::from_secs(60);
+const CONNECT_SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// HTTP client for the BoxLite REST API.
 ///
@@ -285,10 +286,143 @@ impl ApiClient {
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
     > {
+        self.connect_ws_with_query(path, &[]).await
+    }
+
+    pub(crate) async fn connect_box_network_tunnel(
+        &self,
+        box_id: impl AsRef<str>,
+        port: u16,
+    ) -> BoxliteResult<tokio::net::UnixStream> {
+        let path = format!("/boxes/{}/network/tunnel", box_id.as_ref());
+        let url = reqwest::Url::parse(&self.url(&path))
+            .map_err(|e| BoxliteError::Internal(format!("CONNECT URL build failed: {e}")))?;
+        let authority = url
+            .host_str()
+            .ok_or_else(|| BoxliteError::Internal("CONNECT URL has no host".into()))?;
+        let authority = match url.port() {
+            Some(port) => format!("{authority}:{port}"),
+            None => authority.to_string(),
+        };
+        let query = format!("port={port}");
+        let uri: hyper::Uri = format!("{}://{}{}?{query}", url.scheme(), authority, url.path())
+            .parse()
+            .map_err(|e| BoxliteError::Internal(format!("CONNECT URI build failed: {e}")))?;
+
+        use hyper::Request;
+        use hyper::body::Incoming;
+        use hyper::client::conn::http1;
+        use hyper_rustls::HttpsConnectorBuilder;
+        use hyper_util::rt::TokioIo;
+        use tower::Service;
+
+        let mut connector = HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .map_err(|e| BoxliteError::Config(format!("TLS roots unavailable: {e}")))?
+            .https_or_http()
+            .enable_http1()
+            .build();
+        let setup = async {
+            let io = connector
+                .call(uri.clone())
+                .await
+                .map_err(|e| BoxliteError::Network(format!("CONNECT transport failed: {e}")))?;
+            let (mut sender, connection) = http1::handshake(io)
+                .await
+                .map_err(|e| BoxliteError::Network(format!("CONNECT handshake failed: {e}")))?;
+            let connection = connection.with_upgrades();
+            tokio::spawn(async move {
+                if let Err(err) = connection.await {
+                    tracing::debug!(error = %err, "REST CONNECT connection closed");
+                }
+            });
+
+            let bearer = self.current_bearer().await?;
+            let target = uri
+                .path_and_query()
+                .ok_or_else(|| BoxliteError::Internal("CONNECT URI has no path".into()))?
+                .to_string();
+            let mut request = Request::builder()
+                .method("CONNECT")
+                .uri(target)
+                .header("host", authority);
+            if let Some(bearer) = bearer {
+                request = request.header("authorization", format!("Bearer {bearer}"));
+            }
+            let response: hyper::Response<Incoming> = sender
+                .send_request(
+                    request
+                        .body(http_body_util::Empty::<bytes::Bytes>::new())
+                        .map_err(|e| {
+                            BoxliteError::Internal(format!("CONNECT request build failed: {e}"))
+                        })?,
+                )
+                .await
+                .map_err(|e| BoxliteError::Network(format!("CONNECT request failed: {e}")))?;
+            if response.status() != hyper::StatusCode::OK {
+                return Err(BoxliteError::Network(format!(
+                    "CONNECT request rejected with status {}",
+                    response.status()
+                )));
+            }
+
+            hyper::upgrade::on(response)
+                .await
+                .map_err(|e| BoxliteError::Network(format!("CONNECT upgrade failed: {e}")))
+        };
+        let upgraded = tokio::time::timeout(CONNECT_SETUP_TIMEOUT, setup)
+            .await
+            .map_err(|_| {
+                BoxliteError::Network(format!(
+                    "CONNECT setup timed out after {}s",
+                    CONNECT_SETUP_TIMEOUT.as_secs()
+                ))
+            })??;
+        let mut upgraded = TokioIo::new(upgraded);
+        let (local, mut pump_end) = tokio::net::UnixStream::pair()
+            .map_err(|e| BoxliteError::Network(format!("CONNECT local socket pair failed: {e}")))?;
+        tokio::spawn(async move {
+            let _ = tokio::io::copy_bidirectional(&mut pump_end, &mut upgraded).await;
+        });
+        Ok(local)
+    }
+
+    /// Request the public descriptor for a box service tunnel.
+    pub(crate) async fn describe_box_tunnel(
+        &self,
+        box_id: impl AsRef<str>,
+        port: u16,
+    ) -> BoxliteResult<String> {
+        // Wire body of `POST /boxes/{box_id}/network/tunnel`; only the URL is used.
+        #[derive(serde::Deserialize)]
+        struct TunnelDescriptor {
+            url: String,
+        }
+        let path = format!("/boxes/{}/network/tunnel?port={port}", box_id.as_ref());
+        let descriptor: TunnelDescriptor = self.post_empty(&path).await?;
+        Ok(descriptor.url)
+    }
+
+    pub(crate) async fn connect_ws_with_query(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> BoxliteResult<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         use tokio_tungstenite::tungstenite::http::HeaderValue;
 
-        let http_url = self.url(path);
+        let mut http_url = reqwest::Url::parse(&self.url(path))
+            .map_err(|e| BoxliteError::Internal(format!("WS URL build failed: {}", e)))?;
+        if !query.is_empty() {
+            http_url
+                .query_pairs_mut()
+                .extend_pairs(query.iter().copied());
+        }
+        let http_url = http_url.to_string();
         let ws_url = if let Some(rest) = http_url.strip_prefix("https://") {
             format!("wss://{}", rest)
         } else if let Some(rest) = http_url.strip_prefix("http://") {
@@ -500,6 +634,8 @@ mod tests {
     use async_trait::async_trait;
     use boxlite_shared::errors::BoxliteError;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     /// Rotating credential with a finite expiry already in the past, so
     /// `current_bearer` must re-request on every call. Proves the cache
@@ -529,6 +665,43 @@ mod tests {
     fn client_with(cred: Arc<dyn Credential>) -> ApiClient {
         let opts = BoxliteRestOptions::new("http://localhost:1").with_credential(cred);
         ApiClient::new(&opts).expect("client")
+    }
+
+    #[tokio::test]
+    async fn connect_box_network_tunnel_establishes_http_connect_stream() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 512];
+            loop {
+                let n = socket.read(&mut chunk).await.unwrap();
+                request.extend_from_slice(&chunk[..n]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).unwrap();
+            assert!(request.starts_with("CONNECT /v1/boxes/box-1/network/tunnel?port=3000"));
+            socket.write_all(b"HTTP/1.1 200 OK\r\n\r\n").await.unwrap();
+            let mut payload = [0; 4];
+            socket.read_exact(&mut payload).await.unwrap();
+            socket.write_all(&payload).await.unwrap();
+        });
+
+        let client =
+            ApiClient::new(&BoxliteRestOptions::new(format!("http://127.0.0.1:{port}"))).unwrap();
+        let mut stream = client
+            .connect_box_network_tunnel("box-1", 3000)
+            .await
+            .unwrap();
+        stream.write_all(b"ping").await.unwrap();
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(&response, b"ping");
+        server.await.unwrap();
     }
 
     #[tokio::test]
