@@ -1,5 +1,6 @@
 //! RestBox — implements BoxBackend for the REST API.
 
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -13,9 +14,11 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use crate::BoxInfo;
 use crate::litebox::copy::CopyOptions;
 use crate::litebox::snapshot_mgr::SnapshotInfo;
-use crate::litebox::{BoxCommand, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution};
+use crate::litebox::{
+    BoxCommand, BoxTunnel, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution,
+};
 use crate::metrics::BoxMetrics;
-use crate::runtime::backend::{BoxBackend, SnapshotBackend};
+use crate::runtime::backend::{BoxBackend, BoxNetworkBackend, SnapshotBackend};
 use crate::runtime::id::BoxID;
 use crate::runtime::options::{CloneOptions, ExportOptions, SnapshotOptions};
 
@@ -316,8 +319,13 @@ impl BoxBackend for RestBox {
         let info = resp.to_box_info()?;
         let rest_box = Arc::new(RestBox::new(self.client.clone(), info));
         let box_backend: Arc<dyn BoxBackend> = rest_box.clone();
+        let network_backend: Arc<dyn BoxNetworkBackend> = rest_box.clone();
         let snapshot_backend: Arc<dyn SnapshotBackend> = rest_box;
-        Ok(crate::LiteBox::new(box_backend, snapshot_backend))
+        Ok(crate::LiteBox::new(
+            box_backend,
+            network_backend,
+            snapshot_backend,
+        ))
     }
 
     async fn clone_boxes(
@@ -373,6 +381,43 @@ impl BoxBackend for RestBox {
         })?;
 
         Ok(crate::runtime::options::BoxArchive::new(output_path))
+    }
+}
+
+#[async_trait]
+impl BoxNetworkBackend for RestBox {
+    async fn tunnel(&self, target: SocketAddr) -> BoxliteResult<BoxTunnel> {
+        if target.ip().to_string() != crate::net::constants::GUEST_IP {
+            return Err(BoxliteError::Unsupported(
+                "REST box tunnels only support service ports on the guest IP".into(),
+            ));
+        }
+
+        // Both halves run on demand: url() describes for the public URL,
+        // connect() opens the raw stream. A caller that only connects never
+        // pays for the describe round-trip.
+        let port = target.port();
+        let url_client = self.client.clone();
+        let url_box_id = self.box_id_str();
+        let connect_client = self.client.clone();
+        let connect_box_id = self.box_id_str();
+        Ok(BoxTunnel::new(
+            Some(Box::new(move || {
+                let client = url_client.clone();
+                let box_id = url_box_id.clone();
+                Box::pin(async move { client.describe_box_tunnel(&box_id, port).await })
+            })),
+            Arc::new(move || {
+                let client = connect_client.clone();
+                let box_id = connect_box_id.clone();
+                Box::pin(async move {
+                    let stream = client
+                        .connect_box_network_tunnel(&box_id, target.port())
+                        .await?;
+                    Ok(crate::net::TunnelStream::Local(stream))
+                })
+            }),
+        ))
     }
 }
 
