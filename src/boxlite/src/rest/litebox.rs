@@ -393,20 +393,15 @@ impl BoxNetworkBackend for RestBox {
             ));
         }
 
-        // Both halves run on demand: url() describes for the public URL,
-        // connect() opens the raw stream. A caller that only connects never
-        // pays for the describe round-trip.
         let port = target.port();
-        let url_client = self.client.clone();
-        let url_box_id = self.box_id_str();
+        let endpoint = self
+            .client
+            .describe_box_tunnel(self.box_id_str(), port)
+            .await?;
         let connect_client = self.client.clone();
         let connect_box_id = self.box_id_str();
         Ok(BoxTunnel::new(
-            Some(Box::new(move || {
-                let client = url_client.clone();
-                let box_id = url_box_id.clone();
-                Box::pin(async move { client.describe_box_tunnel(&box_id, port).await })
-            })),
+            Some(endpoint),
             Arc::new(move || {
                 let client = connect_client.clone();
                 let box_id = connect_box_id.clone();
