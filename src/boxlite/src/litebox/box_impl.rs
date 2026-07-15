@@ -4,6 +4,7 @@
 // IMPORTS
 // ============================================================================
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -23,6 +24,7 @@ use crate::disk::Disk;
 use crate::event_listener::EventListener;
 #[cfg(target_os = "linux")]
 use crate::fs::BindMountHandle;
+use crate::litebox::BoxTunnel;
 use crate::litebox::copy::CopyOptions;
 use crate::lock::LockGuard;
 use crate::metrics::{BoxMetrics, BoxMetricsStorage};
@@ -60,7 +62,7 @@ pub(crate) struct LiveState {
     /// Read via [`BoxImpl::network`]; the first caller lands with the outer
     /// (SDK/CLI) layer — held now so the box owns the abstraction from birth.
     #[allow(dead_code)]
-    network: Option<Box<dyn NetworkBackend>>,
+    network: Option<Arc<dyn NetworkBackend>>,
 
     // Metrics
     metrics: BoxMetricsStorage,
@@ -90,7 +92,7 @@ impl LiveState {
         Self {
             handler: std::sync::Mutex::new(handler),
             guest_session,
-            network,
+            network: network.map(Arc::from),
             metrics,
             _container_rootfs_disk: container_rootfs_disk,
             guest_rootfs_disk,
@@ -1167,6 +1169,27 @@ impl crate::runtime::backend::BoxBackend for BoxImpl {
         dest: &std::path::Path,
     ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
         BoxImpl::export_box(self, options, dest).await
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::runtime::backend::BoxNetworkBackend for BoxImpl {
+    async fn tunnel(&self, target: SocketAddr) -> BoxliteResult<BoxTunnel> {
+        // Local boxes have no public URL; the tunnel carries a connector that
+        // opens the raw stream through the guest-network backend on demand.
+        let network = self
+            .live_state()
+            .await?
+            .network
+            .clone()
+            .ok_or_else(|| BoxliteError::Unsupported("box networking is disabled".into()))?;
+        Ok(BoxTunnel::new(
+            None,
+            Arc::new(move || {
+                let network = Arc::clone(&network);
+                Box::pin(async move { Ok(network.tunnel(target).await?.into_stream()) })
+            }),
+        ))
     }
 }
 

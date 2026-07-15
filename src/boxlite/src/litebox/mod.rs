@@ -12,6 +12,7 @@ mod exec;
 mod init;
 pub(crate) mod local_snapshot;
 mod manager;
+mod network;
 mod snapshot;
 pub(crate) mod snapshot_mgr;
 mod state;
@@ -20,6 +21,7 @@ pub use copy::CopyOptions;
 pub(crate) use crash_report::CrashReport;
 pub use exec::{BoxCommand, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution, ExecutionId};
 pub(crate) use manager::BoxManager;
+pub use network::{BoxTunnel, NetworkHandle};
 pub use snapshot::SnapshotHandle;
 pub use state::{BoxState, BoxStatus, HealthState, HealthStatus};
 
@@ -31,7 +33,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::metrics::BoxMetrics;
-use crate::runtime::backend::{BoxBackend, SnapshotBackend};
+use crate::runtime::backend::{BoxBackend, BoxNetworkBackend, SnapshotBackend};
 use crate::runtime::options::{BoxArchive, CloneOptions, ExportOptions};
 use crate::{BoxID, BoxInfo};
 use boxlite_shared::errors::BoxliteResult;
@@ -50,6 +52,8 @@ pub struct LiteBox {
     name: Option<String>,
     /// Backend for lifecycle/exec/file operations.
     box_backend: Arc<dyn BoxBackend>,
+    /// Backend for network operations.
+    network_backend: Arc<dyn BoxNetworkBackend>,
     /// Backend for snapshot lifecycle operations.
     snapshot_backend: Arc<dyn SnapshotBackend>,
 }
@@ -60,12 +64,25 @@ impl LiteBox {
         box_backend: Arc<dyn BoxBackend>,
         snapshot_backend: Arc<dyn SnapshotBackend>,
     ) -> Self {
+        Self::new_with_network(
+            box_backend,
+            Arc::new(crate::litebox::network::UnsupportedNetworkBackend),
+            snapshot_backend,
+        )
+    }
+
+    pub(crate) fn new_with_network(
+        box_backend: Arc<dyn BoxBackend>,
+        network_backend: Arc<dyn BoxNetworkBackend>,
+        snapshot_backend: Arc<dyn SnapshotBackend>,
+    ) -> Self {
         let id = box_backend.id().clone();
         let name = box_backend.name().map(|s| s.to_string());
         Self {
             id,
             name,
             box_backend,
+            network_backend,
             snapshot_backend,
         }
     }
@@ -138,6 +155,11 @@ impl LiteBox {
         self.box_backend
             .copy_out(container_src.as_ref(), host_dst.as_ref(), opts)
             .await
+    }
+
+    /// Get a network handle for raw tunnel operations.
+    pub fn network(&self) -> NetworkHandle {
+        NetworkHandle::new(Arc::clone(&self.network_backend))
     }
 
     /// Get a snapshot handle for snapshot operations.
