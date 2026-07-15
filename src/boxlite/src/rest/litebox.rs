@@ -414,7 +414,7 @@ impl BoxNetworkBackend for RestBox {
                     let stream = client
                         .connect_box_network_tunnel(&box_id, target.port())
                         .await?;
-                    Ok(crate::net::TunnelStream::Local(stream))
+                    Ok(crate::net::BoxInternalTunnel::from_local(stream, target))
                 })
             }),
         ))
