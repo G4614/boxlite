@@ -9,6 +9,8 @@ use serde::de::DeserializeOwned;
 use tokio::sync::RwLock;
 
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+use hyper_util::client::legacy::connect::HttpConnector;
 
 use super::credential::{AccessToken, Credential};
 use super::error::{map_http_error, map_http_status};
@@ -69,6 +71,7 @@ pub(crate) struct ApiClient {
     /// once and cached forever.
     cached: Arc<RwLock<Option<AccessToken>>>,
     config_cache: Arc<RwLock<Option<ServerConfig>>>,
+    tunnel_connector: HttpsConnector<HttpConnector>,
 }
 
 impl ApiClient {
@@ -80,6 +83,12 @@ impl ApiClient {
 
         let base_url = config.url.trim_end_matches('/').to_string();
         let path_prefix = config.path_prefix.clone();
+        let tunnel_connector = HttpsConnectorBuilder::new()
+            .with_provider_and_native_roots(rustls::crypto::aws_lc_rs::default_provider())
+            .map_err(|e| BoxliteError::Config(format!("TLS roots unavailable: {e}")))?
+            .https_or_http()
+            .enable_http1()
+            .build();
 
         Ok(Self {
             http,
@@ -88,6 +97,7 @@ impl ApiClient {
             credential: config.credential.clone(),
             cached: Arc::new(RwLock::new(None)),
             config_cache: Arc::new(RwLock::new(None)),
+            tunnel_connector,
         })
     }
 
@@ -357,16 +367,10 @@ impl ApiClient {
         use hyper::Request;
         use hyper::body::Incoming;
         use hyper::client::conn::http1;
-        use hyper_rustls::HttpsConnectorBuilder;
         use hyper_util::rt::TokioIo;
         use tower::Service;
 
-        let mut connector = HttpsConnectorBuilder::new()
-            .with_provider_and_native_roots(rustls::crypto::aws_lc_rs::default_provider())
-            .map_err(|e| BoxliteError::Config(format!("TLS roots unavailable: {e}")))?
-            .https_or_http()
-            .enable_http1()
-            .build();
+        let mut connector = self.tunnel_connector.clone();
         let setup = async {
             let io = connector
                 .call(uri.clone())

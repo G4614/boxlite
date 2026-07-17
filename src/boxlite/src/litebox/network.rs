@@ -39,7 +39,7 @@ impl Drop for LocalEndpoint {
 }
 
 /// A reusable box service tunnel target. Creating it prepares a stable endpoint;
-/// each [`open_stream`](Self::open_stream) call establishes a fresh connection.
+/// each [`connect`](Self::connect) call establishes a fresh connection.
 pub struct BoxTunnel {
     endpoint: BoxEndpoint,
     connector: Connector,
@@ -138,14 +138,8 @@ impl BoxTunnel {
     }
 
     /// Establish a new connection to this tunnel's endpoint.
-    pub async fn open_stream(&self) -> BoxliteResult<Box<dyn BoxConnection>> {
-        (self.connector)().await
-    }
-
-    /// Deprecated alias for [`open_stream`](Self::open_stream).
-    #[deprecated(note = "use BoxTunnel::open_stream")]
     pub async fn connect(&self) -> BoxliteResult<Box<dyn BoxConnection>> {
-        self.open_stream().await
+        (self.connector)().await
     }
 }
 
@@ -198,9 +192,9 @@ mod tests {
         );
         assert!(peer_rx.try_recv().is_err(), "tunnel() must not connect");
 
-        let mut first = tunnel.open_stream().await.unwrap();
+        let mut first = tunnel.connect().await.unwrap();
         let mut first_peer = peer_rx.recv().await.unwrap();
-        let mut second = tunnel.open_stream().await.unwrap();
+        let mut second = tunnel.connect().await.unwrap();
         let mut second_peer = peer_rx.recv().await.unwrap();
         first_peer.write_all(b"one").await.unwrap();
         second_peer.write_all(b"two").await.unwrap();
@@ -234,9 +228,9 @@ mod tests {
         assert!(path.exists());
         assert!(peer_rx.try_recv().is_err(), "tunnel() must not connect");
 
-        let mut first = tunnel.open_stream().await.unwrap();
+        let mut first = tunnel.connect().await.unwrap();
         let mut first_peer = peer_rx.recv().await.unwrap();
-        let mut second = tunnel.open_stream().await.unwrap();
+        let mut second = tunnel.connect().await.unwrap();
         let mut second_peer = peer_rx.recv().await.unwrap();
         first_peer.write_all(b"one").await.unwrap();
         second_peer.write_all(b"two").await.unwrap();
