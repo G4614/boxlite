@@ -2,12 +2,14 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use boxlite_shared::errors::BoxliteResult;
+use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 
+use crate::net::BoxInternalTunnel;
 use crate::runtime::backend::BoxNetworkBackend;
 
 /// A descriptor for a box service tunnel.
@@ -20,9 +22,27 @@ pub enum BoxEndpoint {
 }
 
 /// Public byte-stream capability for a box service connection.
-pub trait BoxConnection: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {}
+pub trait BoxConnection: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {
+    /// Consume the connection and transfer its underlying descriptor to FFI callers.
+    fn into_fd(self: Box<Self>) -> BoxliteResult<OwnedFd>;
+}
 
-impl<T> BoxConnection for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {}
+impl BoxConnection for tokio::net::UnixStream {
+    fn into_fd(self: Box<Self>) -> BoxliteResult<OwnedFd> {
+        (*self)
+            .into_std()
+            .map(OwnedFd::from)
+            .map_err(|error| BoxliteError::Network(format!("export tunnel fd: {error}")))
+    }
+}
+
+impl BoxConnection for BoxInternalTunnel {
+    fn into_fd(self: Box<Self>) -> BoxliteResult<OwnedFd> {
+        (*self)
+            .into_fd()
+            .ok_or_else(|| BoxliteError::Unsupported("tunnel cannot be exported as an fd".into()))
+    }
+}
 
 type ConnectFuture = Pin<Box<dyn Future<Output = BoxliteResult<Box<dyn BoxConnection>>> + Send>>;
 type Connector = Arc<dyn Fn() -> ConnectFuture + Send + Sync>;

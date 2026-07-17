@@ -64,6 +64,12 @@ typedef enum BoxliteErrorCode {
   SessionReaped = 21,
 } BoxliteErrorCode;
 
+// The kind of endpoint exposed by a box tunnel.
+typedef enum BoxliteEndpointType {
+  BoxliteEndpointTypeUrl = 0,
+  BoxliteEndpointTypeUnixSocket = 1,
+} BoxliteEndpointType;
+
 // Transport protocol for a port forwarding rule.
 typedef enum BoxlitePortProtocol {
   BoxlitePortProtocolTcp = 0,
@@ -90,6 +96,9 @@ typedef struct BoxNetworkHandle BoxNetworkHandle;
 
 // Opaque handle for Runner API (auto-manages runtime)
 typedef struct BoxRunner BoxRunner;
+
+// Opaque handle for a reusable box service tunnel.
+typedef struct BoxTunnelHandle BoxTunnelHandle;
 
 // Opaque credential handle. Wraps a core `Arc<dyn Credential>` so the
 // concrete credential kind (today only `ApiKeyCredential`) is hidden
@@ -300,6 +309,8 @@ typedef struct CRuntimeMetrics {
 typedef void (*CRuntimeMetricsCb)(struct CRuntimeMetrics*, CBoxliteError*, void*);
 
 typedef struct BoxNetworkHandle CBoxNetworkHandle;
+
+typedef struct BoxTunnelHandle CBoxTunnelHandle;
 
 typedef struct CredentialHandle CBoxliteCredential;
 
@@ -540,6 +551,17 @@ void boxlite_box_network_free(CBoxNetworkHandle *network);
 
 enum BoxliteErrorCode boxlite_box_network_tunnel(CBoxNetworkHandle *network,
                                                  uint16_t port,
+                                                 CBoxTunnelHandle **out_tunnel,
+                                                 CBoxliteError *out_error);
+
+void boxlite_box_tunnel_free(CBoxTunnelHandle *tunnel);
+
+enum BoxliteErrorCode boxlite_box_tunnel_endpoint(CBoxTunnelHandle *tunnel,
+                                                  enum BoxliteEndpointType *out_type,
+                                                  char **out_address,
+                                                  CBoxliteError *out_error);
+
+enum BoxliteErrorCode boxlite_box_tunnel_connect(CBoxTunnelHandle *tunnel,
                                                  int32_t *out_fd,
                                                  CBoxliteError *out_error);
 

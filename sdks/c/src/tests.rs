@@ -215,6 +215,7 @@ fn test_free_functions_null_safe() {
         boxlite_image_free(ptr::null_mut());
         boxlite_box_free(ptr::null_mut());
         boxlite_box_network_free(ptr::null_mut());
+        boxlite_box_tunnel_free(ptr::null_mut());
         boxlite_free_string(ptr::null_mut());
         boxlite_error_free(ptr::null_mut());
         boxlite_result_free(ptr::null_mut());
