@@ -167,6 +167,10 @@ EOF
 echo "==> Building boxlite-runner from package v$VERSION at $(git rev-parse --short HEAD)"
 echo "==> Non-release artifact version prefix: v${VERSION}-dev-${BUILD_SEQUENCE}"
 
+if [[ "$RUN_SETUP" -eq 1 ]]; then
+  make setup:build
+fi
+
 echo "==> Cleaning runner build artifacts"
 cargo clean -p boxlite -p boxlite-c -p boxlite-shim -p boxlite-guest
 rm -f \
@@ -177,10 +181,6 @@ rm -f \
 rm -f "$ROOT_DIR/target/x86_64-unknown-linux-gnu/release/boxlite-shim"
 rm -f "$ROOT_DIR/target/x86_64-unknown-linux-musl/release/boxlite-guest"
 rm -rf "$ROOT_DIR/sdks/c/dist"
-
-if [[ "$RUN_SETUP" -eq 1 ]]; then
-  make setup:build
-fi
 
 scripts/build/build-shim.sh --profile release
 scripts/build/build-guest.sh --profile release
