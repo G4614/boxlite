@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::os::fd::OwnedFd;
 use std::sync::Arc;
 
-use boxlite_shared::errors::BoxliteResult;
+use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 
 use crate::net::BoxInternalTunnel;
 use crate::runtime::backend::BoxNetworkBackend;
