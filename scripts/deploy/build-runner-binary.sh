@@ -69,6 +69,10 @@ done
 
 cd "$ROOT_DIR"
 
+# Inherited RUSTFLAGS would override .cargo/config.toml wholesale and leak
+# crt-static into proc-macro builds (make dist:c) — always start clean.
+unset RUSTFLAGS
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "error: required command not found: $1" >&2; exit 1; }
 }
@@ -182,8 +186,26 @@ rm -f "$ROOT_DIR/target/x86_64-unknown-linux-gnu/release/boxlite-shim"
 rm -f "$ROOT_DIR/target/x86_64-unknown-linux-musl/release/boxlite-guest"
 rm -rf "$ROOT_DIR/sdks/c/dist"
 
-scripts/build/build-shim.sh --profile release
+# Shim links the gvproxy Go c-archive: must be non-PIE static (see #319).
+# Env prefix scopes the flags to this stage only — build-shim.sh passes
+# --target, which keeps them off host proc-macros.
+RUSTFLAGS="-C target-feature=+crt-static -C relocation-model=static -C link-arg=-Wl,-z,stack-size=2097152 -C link-arg=-Wl,--allow-multiple-definition" \
+  scripts/build/build-shim.sh --profile release
 scripts/build/build-guest.sh --profile release
+
+# Refuse to package a shim that cannot even start (#937 static-pie regression guard)
+SHIM_SMOKE="$ROOT_DIR/target/release/boxlite-shim"
+if file "$SHIM_SMOKE" | grep -q "pie executable"; then
+  echo "error: boxlite-shim linked as static-pie — incompatible with embedded Go c-archive (see #319)" >&2
+  exit 1
+fi
+smoke_rc=0
+timeout 5 "$SHIM_SMOKE" --version </dev/null >/dev/null 2>&1 || smoke_rc=$?
+if [ "$smoke_rc" -ge 124 ]; then
+  echo "error: boxlite-shim crashes on --version (exit $smoke_rc); refusing to package" >&2
+  exit 1
+fi
+
 GUEST_BIN="$ROOT_DIR/target/x86_64-unknown-linux-musl/release/boxlite-guest"
 [[ -x "$GUEST_BIN" ]] || { echo "error: guest binary not found after build: $GUEST_BIN" >&2; exit 1; }
 GUEST_SHA256="$(sha256sum "$GUEST_BIN" | awk '{print $1}')"
@@ -196,7 +218,25 @@ make dist:c
 echo "==> Fixing libboxlite Go runtime symbols"
 bash "$ROOT_DIR/scripts/build/fix-go-symbols.sh" "$ROOT_DIR/target/release/libboxlite.a"
 RUNTIME_DIR="$(find_embedded_runtime_dir "$GUEST_SHA256")"
-tar czf "$TMP_DIR/boxlite-runtime.tar.gz" -C "$RUNTIME_DIR" .
+# #937 moved libkrunfw out of the embedded out/runtime payload; the canonical
+# assembler (scripts/build/build-runtime.sh) now collects target/libkrunfw.*
+# separately. Mirror that here — without libkrunfw.so.5 the shim dlopen
+# fallback fails and every box start dies with libkrun status=-2.
+RUNTIME_STAGE="$TMP_DIR/runtime-stage"
+mkdir -p "$RUNTIME_STAGE"
+cp -a "$RUNTIME_DIR/." "$RUNTIME_STAGE/"
+krunfw_count=0
+for f in "$ROOT_DIR"/target/libkrunfw.*; do
+  [ -f "$f" ] || continue
+  cp -a "$f" "$RUNTIME_STAGE/"
+  krunfw_count=$((krunfw_count + 1))
+done
+if [ "$krunfw_count" -eq 0 ]; then
+  echo "error: no libkrunfw.* assets found in target/ — VM kernel would be missing from the payload (libkrun status=-2)" >&2
+  exit 1
+fi
+echo "==> Bundled $krunfw_count libkrunfw asset(s) into runtime payload"
+tar czf "$TMP_DIR/boxlite-runtime.tar.gz" -C "$RUNTIME_STAGE" .
 echo "==> Wrote embedded runtime payload from $RUNTIME_DIR"
 cp "$ROOT_DIR/target/release/libboxlite.a" "$ROOT_DIR/sdks/go/libboxlite.a"
 
