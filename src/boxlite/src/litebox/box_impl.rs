@@ -67,12 +67,13 @@ async fn create_local_tunnel(
     let listener = tokio::net::UnixListener::bind(&path).map_err(|error| {
         BoxliteError::Network(format!("bind tunnel socket {}: {error}", path.display()))
     })?;
+    let accept_network = Arc::clone(&network);
     let accept_task = tokio::spawn(async move {
         loop {
             let Ok((mut client, _)) = listener.accept().await else {
                 break;
             };
-            let network = Arc::clone(&network);
+            let network = Arc::clone(&accept_network);
             tokio::spawn(async move {
                 match network.tunnel(target).await {
                     Ok(mut service) => {
@@ -89,20 +90,12 @@ async fn create_local_tunnel(
         _directory: directory,
         accept_task,
     });
-    let connect_path = path.clone();
     Ok(BoxTunnel::new(BoxEndpoint::UnixSocket(path), move || {
         let endpoint = Arc::clone(&endpoint);
-        let path = connect_path.clone();
+        let network = Arc::clone(&network);
         async move {
             let _endpoint = endpoint;
-            tokio::net::UnixStream::connect(&path)
-                .await
-                .map_err(|error| {
-                    BoxliteError::Network(format!(
-                        "connect tunnel socket {}: {error}",
-                        path.display()
-                    ))
-                })
+            network.tunnel(target).await
         }
     }))
 }
