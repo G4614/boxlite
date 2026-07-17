@@ -24,8 +24,8 @@ use crate::disk::Disk;
 use crate::event_listener::EventListener;
 #[cfg(target_os = "linux")]
 use crate::fs::BindMountHandle;
-use crate::litebox::BoxTunnel;
 use crate::litebox::copy::CopyOptions;
+use crate::litebox::{BoxEndpoint, BoxTunnel};
 use crate::lock::LockGuard;
 use crate::metrics::{BoxMetrics, BoxMetricsStorage};
 use crate::net::NetworkBackend;
@@ -1175,21 +1175,18 @@ impl crate::runtime::backend::BoxBackend for BoxImpl {
 #[async_trait::async_trait]
 impl crate::runtime::backend::BoxNetworkBackend for BoxImpl {
     async fn tunnel(&self, target: SocketAddr) -> BoxliteResult<BoxTunnel> {
-        // Local boxes have no public URL; the tunnel carries a connector that
-        // opens the raw stream through the guest-network backend on demand.
         let network = self
             .live_state()
             .await?
             .network
             .clone()
             .ok_or_else(|| BoxliteError::Unsupported("box networking is disabled".into()))?;
-        Ok(BoxTunnel::new(
-            None,
-            Arc::new(move || {
-                let network = Arc::clone(&network);
-                Box::pin(async move { network.tunnel(target).await })
-            }),
-        ))
+        let fd = network
+            .tunnel(target)
+            .await?
+            .into_fd()
+            .ok_or_else(|| BoxliteError::Network("local tunnel did not expose an fd".into()))?;
+        Ok(BoxTunnel::new(Some(BoxEndpoint::Fd(fd)), None))
     }
 }
 

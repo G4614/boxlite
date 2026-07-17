@@ -15,7 +15,7 @@ use crate::BoxInfo;
 use crate::litebox::copy::CopyOptions;
 use crate::litebox::snapshot_mgr::SnapshotInfo;
 use crate::litebox::{
-    BoxCommand, BoxTunnel, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution,
+    BoxCommand, BoxEndpoint, BoxTunnel, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution,
 };
 use crate::metrics::BoxMetrics;
 use crate::runtime::backend::{BoxBackend, BoxNetworkBackend, SnapshotBackend};
@@ -394,24 +394,15 @@ impl BoxNetworkBackend for RestBox {
         }
 
         let port = target.port();
-        let endpoint = self
+        let box_id = self.box_id_str();
+        let endpoint = self.client.describe_box_tunnel(&box_id, port).await?;
+        let stream = self
             .client
-            .describe_box_tunnel(self.box_id_str(), port)
+            .connect_box_network_tunnel(&box_id, port)
             .await?;
-        let connect_client = self.client.clone();
-        let connect_box_id = self.box_id_str();
         Ok(BoxTunnel::new(
-            Some(endpoint),
-            Arc::new(move || {
-                let client = connect_client.clone();
-                let box_id = connect_box_id.clone();
-                Box::pin(async move {
-                    let stream = client
-                        .connect_box_network_tunnel(&box_id, target.port())
-                        .await?;
-                    Ok(crate::net::BoxInternalTunnel::from_local(stream, target))
-                })
-            }),
+            Some(BoxEndpoint::Url(endpoint)),
+            Some(crate::net::BoxInternalTunnel::from_local(stream, target)),
         ))
     }
 }
