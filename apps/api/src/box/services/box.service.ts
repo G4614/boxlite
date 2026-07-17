@@ -220,7 +220,7 @@ export class BoxService {
       box.mem = mem
       box.disk = disk
 
-      box.public = createBoxDto.public || false
+      box.public = createBoxDto.public ?? true
 
       if (createBoxDto.networkBlockAll !== undefined) {
         box.networkBlockAll = createBoxDto.networkBlockAll
@@ -280,7 +280,7 @@ export class BoxService {
   ): Promise<BoxDto> {
     const now = new Date()
     const updateData: Partial<Box> = {
-      public: createBoxDto.public || false,
+      public: createBoxDto.public ?? true,
       labels: createBoxDto.labels || {},
       organizationId: organization.id,
       createdAt: now,

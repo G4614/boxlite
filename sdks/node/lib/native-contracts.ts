@@ -254,6 +254,15 @@ export interface JsSnapshotHandle {
   restore(name: string): Promise<void>;
 }
 
+export interface JsNetworkHandle {
+  tunnel(port: number): Promise<JsBoxTunnel>;
+}
+
+export interface JsBoxTunnel {
+  endpoint(): Promise<string>;
+  connectFd(): Promise<number>;
+}
+
 export type JsCloneOptions = Record<string, never>;
 
 export type JsExportOptions = Record<string, never>;
@@ -272,6 +281,7 @@ export interface JsBox {
     workingDir?: string | null,
   ): Promise<JsExecution>;
   readonly snapshot: JsSnapshotHandle;
+  readonly network: JsNetworkHandle;
   cloneBox(
     options?: JsCloneOptions | null,
     name?: string | null,

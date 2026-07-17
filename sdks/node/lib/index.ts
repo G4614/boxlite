@@ -91,6 +91,7 @@ export { getNativeModule, getJsBoxlite };
 // Re-export TypeScript wrappers
 export {
   SimpleBox,
+  NetworkHandle,
   type NetworkSpec,
   type SimpleBoxOptions,
   type SecurityOptions,

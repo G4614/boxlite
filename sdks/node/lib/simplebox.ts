@@ -10,10 +10,12 @@
 
 import type { CopyOptions } from "./copy.js";
 import type { ExecResult } from "./exec.js";
+import { Socket } from "node:net";
 import { getJsBoxlite } from "./native.js";
 import type {
   JsBox,
   JsBoxOptions,
+  JsBoxTunnel,
   JsBoxlite,
   JsExecStderr,
   JsExecStdout,
@@ -251,6 +253,31 @@ export interface SimpleBoxOptions {
   security?: SecurityOptions;
 }
 
+/** Box-scoped network operations for a SimpleBox. */
+export class NetworkHandle {
+  /** @internal */
+  constructor(private readonly ensureBox: () => Promise<JsBox>) {}
+
+  /** Return a lazy tunnel handle for a port inside this box. */
+  async tunnel(port: number): Promise<BoxTunnel> {
+    const box = await this.ensureBox();
+    return new BoxTunnel(await box.network.tunnel(port));
+  }
+}
+
+export class BoxTunnel {
+  constructor(private readonly tunnel: JsBoxTunnel) {}
+
+  async endpoint(): Promise<string> {
+    return this.tunnel.endpoint();
+  }
+
+  async connect(): Promise<Socket> {
+    const fd = await this.tunnel.connectFd();
+    return new Socket({ fd, readable: true, writable: true });
+  }
+}
+
 /**
  * Base class for specialized container types.
  *
@@ -297,6 +324,7 @@ export class SimpleBox {
   protected _boxOpts: JsBoxOptions;
   protected _reuseExisting: boolean;
   protected _created: boolean | null = null;
+  readonly network: NetworkHandle;
 
   /**
    * Create a new SimpleBox.
@@ -367,6 +395,7 @@ export class SimpleBox {
 
     this._name = options.name;
     this._reuseExisting = options.reuseExisting ?? false;
+    this.network = new NetworkHandle(() => this._ensureBox());
   }
 
   /**
@@ -673,6 +702,11 @@ export class SimpleBox {
   async metrics() {
     const box = await this._ensureBox();
     return box.metrics();
+  }
+
+  /** Open a raw bidirectional socket to a port inside this box. */
+  async tunnel(port: number): Promise<BoxTunnel> {
+    return this.network.tunnel(port);
   }
 
   /**

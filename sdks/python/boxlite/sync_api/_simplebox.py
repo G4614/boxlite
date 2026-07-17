@@ -255,6 +255,23 @@ class SyncSimpleBox:
 
         return self._runtime._sync(_exec_and_collect())
 
+    def tunnel(self, port: int):
+        """Open a blocking bidirectional socket to a port inside this box."""
+        if self._box is None:
+            raise RuntimeError(
+                "Box not started. Use 'with SyncSimpleBox(...) as box:' first."
+            )
+        return self.network.tunnel(port)
+
+    @property
+    def network(self):
+        """Get the box-scoped network handle."""
+        if self._box is None:
+            raise RuntimeError(
+                "Box not started. Use 'with SyncSimpleBox(...) as box:' first."
+            )
+        return self._box.network
+
     def stop(self) -> None:
         """Stop the box (preserves state for restart)."""
         self._box.stop()

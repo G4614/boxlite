@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 if TYPE_CHECKING:
     from ._boxlite import SyncBoxlite
     from ._execution import SyncExecution
+    from ._network import SyncNetworkHandle
     from ..boxlite import Box, BoxInfo, BoxMetrics
 
 __all__ = ["SyncBox"]
@@ -53,10 +54,19 @@ class SyncBox:
         self._runtime = runtime
         # Create a SyncBase helper for _sync() method
         self._sync_helper = SyncBase(box, runtime.loop, runtime.dispatcher_fiber)
+        self._network = None
 
     def _sync(self, coro):
         """Run async operation synchronously."""
         return self._sync_helper._sync(coro)
+
+    def _open_tunnel_fd(self, port: int) -> int:
+        """Open a native tunnel and return its owned file descriptor."""
+        return self._sync(self._box.network.open_tunnel_fd(port))
+
+    def _tunnel_endpoint(self, port: int):
+        """Resolve the public endpoint for a service port."""
+        return self._sync(self._box.network.endpoint(port))
 
     @property
     def id(self) -> str:
@@ -123,6 +133,19 @@ class SyncBox:
     def metrics(self) -> "BoxMetrics":
         """Get box metrics (CPU, memory usage, etc.)."""
         return self._sync(self._box.metrics())
+
+    @property
+    def network(self) -> "SyncNetworkHandle":
+        """Get the box-scoped network handle."""
+        if self._network is None:
+            from ._network import SyncNetworkHandle
+
+            self._network = SyncNetworkHandle(self)
+        return self._network
+
+    def tunnel(self, port: int):
+        """Return a lazy tunnel handle for a port inside this box."""
+        return self.network.tunnel(port)
 
     # Context manager support
     def __enter__(self) -> "SyncBox":
