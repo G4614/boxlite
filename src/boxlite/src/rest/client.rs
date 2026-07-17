@@ -19,6 +19,34 @@ use crate::runtime::auth::Principal;
 /// Re-request a token once it is within this leeway of `expires_at`.
 const REFRESH_LEEWAY: Duration = Duration::from_secs(60);
 const CONNECT_SETUP_TIMEOUT: Duration = Duration::from_secs(30);
+const ERROR_BODY_LIMIT: usize = 4096;
+
+fn connect_authority(url: &reqwest::Url) -> BoxliteResult<String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| BoxliteError::Internal("CONNECT URL has no host".into()))?;
+    let host = if host.starts_with('[') && host.ends_with(']') {
+        host.to_string()
+    } else if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    Ok(match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
+}
+
+fn map_error_response(status: StatusCode, text: &str) -> BoxliteError {
+    if let Ok(err_resp) = serde_json::from_str::<ErrorResponse>(text) {
+        map_http_error(status, &err_resp.error)
+    } else if let Ok(err_resp) = serde_json::from_str::<FlatErrorResponse>(text) {
+        map_http_error(status, &err_resp.into_error_model())
+    } else {
+        map_http_status(status, text)
+    }
+}
 
 /// HTTP client for the BoxLite REST API.
 ///
@@ -185,13 +213,7 @@ impl ApiClient {
         resp: reqwest::Response,
     ) -> BoxliteResult<T> {
         let text = resp.text().await.unwrap_or_default();
-        if let Ok(err_resp) = serde_json::from_str::<ErrorResponse>(&text) {
-            Err(map_http_error(status, &err_resp.error))
-        } else if let Ok(err_resp) = serde_json::from_str::<FlatErrorResponse>(&text) {
-            Err(map_http_error(status, &err_resp.into_error_model()))
-        } else {
-            Err(map_http_status(status, &text))
-        }
+        Err(map_error_response(status, &text))
     }
 
     // ========================================================================
@@ -326,13 +348,7 @@ impl ApiClient {
         let path = format!("/boxes/{}/network/tunnel", box_id.as_ref());
         let url = reqwest::Url::parse(&self.url(&path))
             .map_err(|e| BoxliteError::Internal(format!("CONNECT URL build failed: {e}")))?;
-        let authority = url
-            .host_str()
-            .ok_or_else(|| BoxliteError::Internal("CONNECT URL has no host".into()))?;
-        let authority = match url.port() {
-            Some(port) => format!("{authority}:{port}"),
-            None => authority.to_string(),
-        };
+        let authority = connect_authority(&url)?;
         let query = format!("port={port}");
         let uri: hyper::Uri = format!("{}://{}{}?{query}", url.scheme(), authority, url.path())
             .parse()
@@ -346,7 +362,7 @@ impl ApiClient {
         use tower::Service;
 
         let mut connector = HttpsConnectorBuilder::new()
-            .with_native_roots()
+            .with_provider_and_native_roots(rustls::crypto::aws_lc_rs::default_provider())
             .map_err(|e| BoxliteError::Config(format!("TLS roots unavailable: {e}")))?
             .https_or_http()
             .enable_http1()
@@ -389,10 +405,25 @@ impl ApiClient {
                 .await
                 .map_err(|e| BoxliteError::Network(format!("CONNECT request failed: {e}")))?;
             if response.status() != hyper::StatusCode::OK {
-                return Err(BoxliteError::Network(format!(
-                    "CONNECT request rejected with status {}",
-                    response.status()
-                )));
+                use http_body_util::BodyExt;
+
+                let status = response.status();
+                let mut body = response.into_body();
+                let mut bytes = bytes::BytesMut::new();
+                while bytes.len() < ERROR_BODY_LIMIT {
+                    let Some(frame) = body.frame().await else {
+                        break;
+                    };
+                    let frame = frame.map_err(|e| {
+                        BoxliteError::Internal(format!("reading CONNECT error body: {e}"))
+                    })?;
+                    if let Some(data) = frame.data_ref() {
+                        let remaining = ERROR_BODY_LIMIT - bytes.len();
+                        bytes.extend_from_slice(&data[..data.len().min(remaining)]);
+                    }
+                }
+                let text = String::from_utf8_lossy(&bytes);
+                return Err(map_error_response(status, &text));
             }
 
             hyper::upgrade::on(response)
@@ -648,9 +679,14 @@ mod tests {
         ApiClient::new(&opts).expect("client")
     }
 
+    #[test]
+    fn connect_authority_brackets_ipv6_literals() {
+        let url = reqwest::Url::parse("http://[::1]:8080/v1/boxes/box-1").unwrap();
+        assert_eq!(connect_authority(&url).unwrap(), "[::1]:8080");
+    }
+
     #[tokio::test]
     async fn connect_box_network_tunnel_establishes_http_connect_stream() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = tokio::spawn(async move {
@@ -682,6 +718,45 @@ mod tests {
         let mut response = [0; 4];
         stream.read_exact(&mut response).await.unwrap();
         assert_eq!(&response, b"ping");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejected_connect_uses_structured_error_mapping() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 512];
+            loop {
+                let n = socket.read(&mut chunk).await.unwrap();
+                request.extend_from_slice(&chunk[..n]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let body =
+                r#"{"error":{"message":"missing box","type":"NotFoundError","code":"not_found"}}"#;
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 404 Not Found\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+
+        let client =
+            ApiClient::new(&BoxliteRestOptions::new(format!("http://127.0.0.1:{port}"))).unwrap();
+        let err = client
+            .connect_box_network_tunnel("box-1", 3000)
+            .await
+            .expect_err("CONNECT should be rejected");
+        assert!(matches!(err, BoxliteError::NotFound(message) if message == "missing box"));
         server.await.unwrap();
     }
 
