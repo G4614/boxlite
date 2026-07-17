@@ -204,7 +204,14 @@ export class BoxliteWsProxyService {
           this.respondAndClose(socket, res.statusCode || 502, 'Bad Gateway')
           return
         }
-        if (head.length > 0) socket.write(head)
+        try {
+          socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+          if (head.length > 0) socket.write(head)
+        } catch {
+          socket.destroy()
+          upstreamSocket.destroy()
+          return
+        }
         socket.pipe(upstreamSocket)
         upstreamSocket.pipe(socket)
         socket.once('close', () => upstreamSocket.destroy())

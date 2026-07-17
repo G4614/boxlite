@@ -5,9 +5,15 @@
  */
 
 import { createProxyMiddleware } from 'http-proxy-middleware'
-import type { IncomingMessage } from 'http'
+import { EventEmitter } from 'events'
+import { request as httpRequest, type IncomingMessage } from 'http'
+import type { Socket } from 'net'
 import { BoxliteWsProxyService } from './boxlite-ws-proxy.service'
 
+jest.mock('http', () => ({
+  ...jest.requireActual('http'),
+  request: jest.fn(),
+}))
 jest.mock('http-proxy-middleware', () => ({
   createProxyMiddleware: jest.fn(() => ({
     upgrade: jest.fn(),
@@ -68,6 +74,72 @@ describe('BoxliteWsProxyService', () => {
     expect(pathRewrite('/api/v1/default/boxes/public-box/executions/exec-1/attach?x=1', req)).toBe(
       '/v1/boxes/box-uuid/executions/exec-1/attach?x=1',
     )
+  })
+
+  it('acknowledges a successful CONNECT before relaying bytes', async () => {
+    const apiKeyService = {
+      getApiKeyByValue: jest.fn().mockResolvedValue({
+        organizationId: 'org-1',
+        userId: 'user-1',
+        expiresAt: null,
+      }),
+    }
+    const organizationUserService = {
+      findOne: jest.fn().mockResolvedValue({ organizationId: 'org-1', userId: 'user-1' }),
+    }
+    const boxService = {
+      findOneByIdOrName: jest.fn().mockResolvedValue({ id: 'internal-box', runnerId: 'runner-1' }),
+    }
+    const runnerService = {
+      findOne: jest.fn().mockResolvedValue({
+        apiUrl: 'http://runner.internal:3003',
+        apiKey: 'runner-key',
+      }),
+    }
+    const service = new BoxliteWsProxyService(
+      apiKeyService as never,
+      organizationUserService as never,
+      boxService as never,
+      runnerService as never,
+      {} as never,
+    )
+
+    const upstreamRequest = new EventEmitter() as EventEmitter & { end: jest.Mock }
+    upstreamRequest.end = jest.fn()
+    jest.mocked(httpRequest).mockReturnValue(upstreamRequest as never)
+
+    const clientSocket = new EventEmitter() as EventEmitter & {
+      write: jest.Mock
+      pipe: jest.Mock
+      destroy: jest.Mock
+    }
+    clientSocket.write = jest.fn()
+    clientSocket.pipe = jest.fn()
+    clientSocket.destroy = jest.fn()
+    const upstreamSocket = new EventEmitter() as EventEmitter & {
+      pipe: jest.Mock
+      destroy: jest.Mock
+    }
+    upstreamSocket.pipe = jest.fn()
+    upstreamSocket.destroy = jest.fn()
+
+    await service.connect(
+      authRequest('blk_live_test', '/api/v1/org-1/boxes/public-box/network/tunnel?port=3000'),
+      clientSocket as unknown as Socket,
+    )
+    upstreamRequest.emit('connect', { statusCode: 200 }, upstreamSocket, Buffer.from('upstream-head'))
+
+    expect(httpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'CONNECT',
+        path: '/v1/boxes/internal-box/network/tunnel?port=3000',
+        headers: { Authorization: 'Bearer runner-key' },
+      }),
+    )
+    expect(clientSocket.write).toHaveBeenNthCalledWith(1, 'HTTP/1.1 200 Connection Established\r\n\r\n')
+    expect(clientSocket.write).toHaveBeenNthCalledWith(2, Buffer.from('upstream-head'))
+    expect(clientSocket.pipe).toHaveBeenCalledWith(upstreamSocket)
+    expect(upstreamSocket.pipe).toHaveBeenCalledWith(clientSocket)
   })
 
   it('authenticates API key bearer tokens for websocket attach', async () => {
