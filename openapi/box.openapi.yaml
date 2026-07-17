@@ -843,7 +843,8 @@ paths:
       summary: Describe a box service tunnel
       description: |
         Returns the public service URL for a remote box. The returned descriptor
-        is independent from the raw SDK stream opened through HTTP CONNECT.
+        is independent from the raw SDK stream. SDK clients open that stream by
+        sending an authenticated HTTP CONNECT request to this same path and port.
       tags: [Network]
       responses:
         "200":
@@ -856,22 +857,6 @@ paths:
           $ref: "#/components/responses/BadRequestError"
         "404":
           $ref: "#/components/responses/NotFoundError"
-    x-boxlite-connect:
-      operationId: openBoxNetworkTunnel
-      summary: Open a raw TCP tunnel to a box service port
-      description: |
-        An authenticated HTTP CONNECT request upgrades this route to a
-        bidirectional byte stream. This is the SDK transport primitive for box
-        network access, not a public browser preview endpoint.
-      responses:
-        "200":
-          description: CONNECT accepted; bidirectional tunnel begins
-        "400":
-          $ref: "#/components/responses/BadRequestError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "502":
-          $ref: "#/components/responses/UpstreamUnavailableError"
 
   # -------------------------------------------------------------------------
   # Metrics
@@ -1206,19 +1191,6 @@ components:
               message: "images error: manifest unknown for python:nonexistent"
               type: ImageError
               code: image_pull_failed
-              request_id: req_01HZK4TNRPQSXYZ8WM6NCVT9R5
-
-    UpstreamUnavailableError:
-      description: The target box or runner could not accept the network connection
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-          example:
-            error:
-              message: "guest network connection failed"
-              type: NetworkError
-              code: upstream_unavailable
               request_id: req_01HZK4TNRPQSXYZ8WM6NCVT9R5
 
   # -------------------------------------------------------------------------
