@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use boxlite_shared::errors::{BoxliteError, BoxliteResult};
+use boxlite_shared::errors::BoxliteResult;
 
 use crate::runtime::backend::BoxNetworkBackend;
 
@@ -27,23 +27,11 @@ impl<T> BoxConnection for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrit
 type ConnectFuture = Pin<Box<dyn Future<Output = BoxliteResult<Box<dyn BoxConnection>>> + Send>>;
 type Connector = Arc<dyn Fn() -> ConnectFuture + Send + Sync>;
 
-struct LocalEndpoint {
-    _directory: tempfile::TempDir,
-    accept_task: tokio::task::JoinHandle<()>,
-}
-
-impl Drop for LocalEndpoint {
-    fn drop(&mut self) {
-        self.accept_task.abort();
-    }
-}
-
 /// A reusable box service tunnel target. Creating it prepares a stable endpoint;
 /// each [`connect`](Self::connect) call establishes a fresh connection.
 pub struct BoxTunnel {
     endpoint: BoxEndpoint,
     connector: Connector,
-    _local_endpoint: Option<LocalEndpoint>,
 }
 
 impl BoxTunnel {
@@ -64,72 +52,7 @@ impl BoxTunnel {
         Self {
             endpoint,
             connector,
-            _local_endpoint: None,
         }
-    }
-
-    pub(crate) async fn local<F, Fut, C>(connect: F) -> BoxliteResult<Self>
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = BoxliteResult<C>> + Send + 'static,
-        C: BoxConnection + 'static,
-    {
-        let upstream: Connector = Arc::new(move || {
-            let future = connect();
-            Box::pin(async move {
-                future
-                    .await
-                    .map(|stream| Box::new(stream) as Box<dyn BoxConnection>)
-            })
-        });
-        let directory = tempfile::Builder::new()
-            .prefix("boxlite-tunnel-")
-            .tempdir()
-            .map_err(|error| BoxliteError::Network(format!("create tunnel directory: {error}")))?;
-        let path = directory.path().join("service.sock");
-        let listener = tokio::net::UnixListener::bind(&path).map_err(|error| {
-            BoxliteError::Network(format!("bind tunnel socket {}: {error}", path.display()))
-        })?;
-        let accept_task = tokio::spawn(async move {
-            loop {
-                let Ok((mut client, _)) = listener.accept().await else {
-                    break;
-                };
-                let upstream = Arc::clone(&upstream);
-                tokio::spawn(async move {
-                    match upstream().await {
-                        Ok(mut service) => {
-                            let _ = tokio::io::copy_bidirectional(&mut client, &mut service).await;
-                        }
-                        Err(error) => {
-                            tracing::debug!(%error, "local tunnel connection failed");
-                        }
-                    }
-                });
-            }
-        });
-        let connect_path = path.clone();
-        Ok(Self {
-            endpoint: BoxEndpoint::UnixSocket(path),
-            connector: Arc::new(move || {
-                let path = connect_path.clone();
-                Box::pin(async move {
-                    tokio::net::UnixStream::connect(&path)
-                        .await
-                        .map(|stream| Box::new(stream) as Box<dyn BoxConnection>)
-                        .map_err(|error| {
-                            BoxliteError::Network(format!(
-                                "connect tunnel socket {}: {error}",
-                                path.display()
-                            ))
-                        })
-                })
-            }),
-            _local_endpoint: Some(LocalEndpoint {
-                _directory: directory,
-                accept_task,
-            }),
-        })
     }
 
     /// Return the stable endpoint prepared by [`NetworkHandle::tunnel`].
@@ -164,6 +87,7 @@ impl NetworkHandle {
 
 #[cfg(test)]
 mod tests {
+    use boxlite_shared::errors::BoxliteError;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
@@ -209,23 +133,24 @@ mod tests {
     #[tokio::test]
     async fn local_tunnel_exposes_reusable_unix_socket_lazily() {
         let (peer_tx, mut peer_rx) = tokio::sync::mpsc::unbounded_channel();
-        let tunnel = BoxTunnel::local(move || {
-            let peer_tx = peer_tx.clone();
-            async move {
-                let (stream, peer) = UnixStream::pair().map_err(|error| {
-                    BoxliteError::Network(format!("test socket pair failed: {error}"))
-                })?;
-                peer_tx.send(peer).unwrap();
-                Ok(stream)
-            }
-        })
-        .await
-        .unwrap();
+        let tunnel = BoxTunnel::new(
+            BoxEndpoint::UnixSocket("/tmp/test-boxlite-tunnel.sock".into()),
+            move || {
+                let peer_tx = peer_tx.clone();
+                async move {
+                    let (stream, peer) = UnixStream::pair().map_err(|error| {
+                        BoxliteError::Network(format!("test socket pair failed: {error}"))
+                    })?;
+                    peer_tx.send(peer).unwrap();
+                    Ok(stream)
+                }
+            },
+        );
 
-        let BoxEndpoint::UnixSocket(path) = tunnel.endpoint().await.unwrap() else {
-            panic!("local tunnel must expose a Unix socket");
-        };
-        assert!(path.exists());
+        assert_eq!(
+            tunnel.endpoint().await.unwrap(),
+            BoxEndpoint::UnixSocket("/tmp/test-boxlite-tunnel.sock".into())
+        );
         assert!(peer_rx.try_recv().is_err(), "tunnel() must not connect");
 
         let mut first = tunnel.connect().await.unwrap();

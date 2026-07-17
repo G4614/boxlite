@@ -24,8 +24,8 @@ use crate::disk::Disk;
 use crate::event_listener::EventListener;
 #[cfg(target_os = "linux")]
 use crate::fs::BindMountHandle;
-use crate::litebox::BoxTunnel;
 use crate::litebox::copy::CopyOptions;
+use crate::litebox::{BoxEndpoint, BoxTunnel};
 use crate::lock::LockGuard;
 use crate::metrics::{BoxMetrics, BoxMetricsStorage};
 use crate::net::NetworkBackend;
@@ -43,6 +43,69 @@ use crate::{BoxID, BoxInfo, HealthCheckOptions, HealthState};
 
 /// Shared reference to BoxImpl.
 pub type SharedBoxImpl = Arc<BoxImpl>;
+
+struct LocalTunnelEndpoint {
+    _directory: tempfile::TempDir,
+    accept_task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for LocalTunnelEndpoint {
+    fn drop(&mut self) {
+        self.accept_task.abort();
+    }
+}
+
+async fn create_local_tunnel(
+    network: Arc<dyn NetworkBackend>,
+    target: SocketAddr,
+) -> BoxliteResult<BoxTunnel> {
+    let directory = tempfile::Builder::new()
+        .prefix("boxlite-tunnel-")
+        .tempdir()
+        .map_err(|error| BoxliteError::Network(format!("create tunnel directory: {error}")))?;
+    let path = directory.path().join("service.sock");
+    let listener = tokio::net::UnixListener::bind(&path).map_err(|error| {
+        BoxliteError::Network(format!("bind tunnel socket {}: {error}", path.display()))
+    })?;
+    let accept_task = tokio::spawn(async move {
+        loop {
+            let Ok((mut client, _)) = listener.accept().await else {
+                break;
+            };
+            let network = Arc::clone(&network);
+            tokio::spawn(async move {
+                match network.tunnel(target).await {
+                    Ok(mut service) => {
+                        let _ = tokio::io::copy_bidirectional(&mut client, &mut service).await;
+                    }
+                    Err(error) => {
+                        tracing::debug!(%error, "local tunnel connection failed");
+                    }
+                }
+            });
+        }
+    });
+    let endpoint = Arc::new(LocalTunnelEndpoint {
+        _directory: directory,
+        accept_task,
+    });
+    let connect_path = path.clone();
+    Ok(BoxTunnel::new(BoxEndpoint::UnixSocket(path), move || {
+        let endpoint = Arc::clone(&endpoint);
+        let path = connect_path.clone();
+        async move {
+            let _endpoint = endpoint;
+            tokio::net::UnixStream::connect(&path)
+                .await
+                .map_err(|error| {
+                    BoxliteError::Network(format!(
+                        "connect tunnel socket {}: {error}",
+                        path.display()
+                    ))
+                })
+        }
+    }))
+}
 
 // ============================================================================
 // LIVE STATE
@@ -1181,11 +1244,7 @@ impl crate::runtime::backend::BoxNetworkBackend for BoxImpl {
             .network
             .clone()
             .ok_or_else(|| BoxliteError::Unsupported("box networking is disabled".into()))?;
-        BoxTunnel::local(move || {
-            let network = Arc::clone(&network);
-            async move { network.tunnel(target).await }
-        })
-        .await
+        create_local_tunnel(network, target).await
     }
 }
 
