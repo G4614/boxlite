@@ -396,14 +396,12 @@ impl BoxNetworkBackend for RestBox {
         let port = target.port();
         let box_id = self.box_id_str();
         let endpoint = self.client.describe_box_tunnel(&box_id, port).await?;
-        let stream = self
-            .client
-            .connect_box_network_tunnel(&box_id, port)
-            .await?;
-        Ok(BoxTunnel::new(
-            Some(BoxEndpoint::Url(endpoint)),
-            Some(crate::net::BoxInternalTunnel::from_local(stream, target)),
-        ))
+        let client = self.client.clone();
+        Ok(BoxTunnel::new(BoxEndpoint::Url(endpoint), move || {
+            let client = client.clone();
+            let box_id = box_id.clone();
+            async move { client.connect_box_network_tunnel(&box_id, port).await }
+        }))
     }
 }
 
