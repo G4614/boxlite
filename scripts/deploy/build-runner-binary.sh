@@ -179,6 +179,7 @@ echo "==> Cleaning runner build artifacts"
 cargo clean -p boxlite -p boxlite-c -p boxlite-shim -p boxlite-guest
 rm -f \
   "$ROOT_DIR/sdks/go/libboxlite.a" \
+  "$ROOT_DIR/sdks/go/include/boxlite.h" \
   "$ROOT_DIR/target/release/libboxlite.a" \
   "$ROOT_DIR/target/release/libboxlite.so" \
   "$ROOT_DIR/target/release/boxlite-shim"
@@ -238,7 +239,14 @@ fi
 echo "==> Bundled $krunfw_count libkrunfw asset(s) into runtime payload"
 tar czf "$TMP_DIR/boxlite-runtime.tar.gz" -C "$RUNTIME_STAGE" .
 echo "==> Wrote embedded runtime payload from $RUNTIME_DIR"
+mkdir -p "$ROOT_DIR/sdks/go/include"
 cp "$ROOT_DIR/target/release/libboxlite.a" "$ROOT_DIR/sdks/go/libboxlite.a"
+cp "$ROOT_DIR/sdks/c/include/boxlite.h" "$ROOT_DIR/sdks/go/include/boxlite.h"
+cmp -s "$ROOT_DIR/sdks/c/include/boxlite.h" "$ROOT_DIR/sdks/go/include/boxlite.h" || {
+  echo "error: staged Go SDK header does not match the freshly built C SDK header" >&2
+  exit 1
+}
+echo "==> Staged matching libboxlite.a and boxlite.h for the runner CGO build"
 
 go -C apps/runner mod download
 go -C apps/common-go mod download
