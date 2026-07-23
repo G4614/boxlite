@@ -78,10 +78,9 @@ def test_node_sdk_tunnel_rejects_stopped_box(node_tunnel_env):
     env.pop("BOXLITE_E2E_SKIP_STOPPED_BOX")
     _assert_node_tunnel_passes(_run_node_tunnel(env))
 
-
 @pytest.mark.xfail(
     strict=True,
-    reason="TCP half-close currently drops the guest response",
+    reason="cloud tunnel path through NLB TLS termination does not guarantee TCP half-close",
 )
 def test_node_sdk_tunnel_preserves_tcp_half_close(node_tunnel_env):
     env = {**node_tunnel_env}

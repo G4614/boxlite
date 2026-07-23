@@ -224,10 +224,9 @@ async def test_python_sdk_tunnel_rejects_stopped_box(rt, image):
         return
     assert SERVICES[0][1] not in stopped_response
 
-
 @pytest.mark.xfail(
     strict=True,
-    reason="TCP half-close currently drops the guest response",
+    reason="cloud tunnel path through NLB TLS termination does not guarantee TCP half-close",
 )
 @pytest.mark.asyncio
 async def test_python_sdk_tunnel_preserves_tcp_half_close(rt, image):
