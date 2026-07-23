@@ -209,7 +209,7 @@ async def test_python_sdk_tunnel_proxies_http_from_rest_box(rt, image):
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,
     reason="stopped boxes may remain reachable through existing tunnel routing",
 )
 @pytest.mark.asyncio

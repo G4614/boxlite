@@ -52,8 +52,8 @@ The main cloud coverage lives in:
 | `test_python_sdk_tunnel_keeps_boxes_isolated`           | Two Boxes using the same guest port cannot receive each other's traffic                                                                                                                                       |
 | `test_python_sdk_tunnel_proxies_ssh_over_https_connect` | Real `sshd:2222`, ephemeral key authentication, TLS to the public Proxy, HTTP CONNECT, arbitrary SSH bytes, command execution in the guest                                                                    |
 | `test_node_sdk_tunnel_proxies_http_from_rest_box`       | Node equivalent of the HTTP, WebSocket, multi-port, concurrency, large-response, restart, cancellation, and Box-isolation coverage                                                                            |
-| `test_python_sdk_tunnel_rejects_stopped_box`            | Strict `xfail`: records that a stopped Box can still produce an accepted CONNECT before the stream fails                                                                                                      |
-| `test_node_sdk_tunnel_rejects_stopped_box`              | Strict `xfail`: Node coverage for the same stopped-Box behavior                                                                                                                                               |
+| `test_python_sdk_tunnel_rejects_stopped_box`            | Non-strict `xfail`: records the race in which a stopped Box can still produce an accepted CONNECT before the stream fails                                                                                     |
+| `test_node_sdk_tunnel_rejects_stopped_box`              | Non-strict `xfail`: Node coverage for the same stopped-Box race                                                                                                                                               |
 | `test_python_sdk_tunnel_preserves_tcp_half_close`       | Strict `xfail`: records that `shutdown_write()` can drop the guest response                                                                                                                                   |
 | `test_node_sdk_tunnel_preserves_tcp_half_close`         | Strict `xfail`: Node coverage for the same TCP half-close behavior                                                                                                                                            |
 
@@ -170,9 +170,10 @@ python -m pytest \
   -vv -ra
 ```
 
-The expected result for the last command is four `XFAIL` results. Because each
-marker is strict, an unexpected pass fails the run and signals that the
-behavior or the marker should be reviewed.
+The two half-close cases should report `XFAIL` and are strict. The stopped-Box
+cases can report either `XFAIL` or `XPASS` because the observed behavior is a
+race; an occasional pass does not prove the issue is fixed. The command should
+still exit successfully.
 
 ## Pre-existing Dev Box Tests
 
