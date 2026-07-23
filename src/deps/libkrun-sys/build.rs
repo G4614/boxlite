@@ -218,6 +218,7 @@ fn download_libkrunfw_so(install_dir: &Path) {
     let lib_dir = install_dir.join(LIB_DIR);
     let has_lean = cfg!(feature = "kernel-lean");
     let has_net = cfg!(feature = "kernel-net");
+    let local_net = local_net_kernel();
 
     if !has_lean && !has_net {
         panic!("At least one of kernel-lean or kernel-net features must be enabled");
@@ -225,6 +226,11 @@ fn download_libkrunfw_so(install_dir: &Path) {
 
     let version_marker = install_dir.join(format!(".version-{LIBKRUNFW_VERSION}"));
     if version_marker.exists() {
+        if has_net {
+            if let Some(source) = &local_net {
+                install_local_net_kernel(source, &lib_dir, has_lean);
+            }
+        }
         println!("cargo:warning=Using cached libkrunfw.so ({LIBKRUNFW_VERSION})");
         return;
     }
@@ -246,7 +252,10 @@ fn download_libkrunfw_so(install_dir: &Path) {
         )
         .unwrap_or_else(|e| panic!("Failed to fetch lean libkrunfw: {}", e));
 
-        if !LIBKRUNFW_NET_SHA256.starts_with("TODO") {
+        if let Some(source) = &local_net {
+            install_local_net_kernel(source, &lib_dir, true);
+            println!("cargo:warning=Embedded kernels: lean + local net (dual mode)");
+        } else if !LIBKRUNFW_NET_SHA256.starts_with("TODO") {
             let net_tarball = install_dir.join(format!("libkrunfw-net-{LIBKRUNFW_VERSION}.tgz"));
             Fetcher::fetch(
                 LIBKRUNFW_NET_URL,
@@ -270,14 +279,23 @@ fn download_libkrunfw_so(install_dir: &Path) {
                  Upload the net kernel blob and fill in the SHA256."
             );
         }
-        let tarball = install_dir.join(format!("libkrunfw-net-{LIBKRUNFW_VERSION}.tgz"));
-        Fetcher::fetch(
-            LIBKRUNFW_NET_URL,
-            LIBKRUNFW_NET_SHA256,
-            &tarball,
-            install_dir,
-        )
-        .unwrap_or_else(|e| panic!("Failed to fetch net libkrunfw: {}", e));
+        if let Some(source) = &local_net {
+            install_local_net_kernel(source, &lib_dir, false);
+        } else {
+            let tarball = install_dir.join(format!("libkrunfw-net-{LIBKRUNFW_VERSION}.tgz"));
+            Fetcher::fetch(
+                LIBKRUNFW_NET_URL,
+                LIBKRUNFW_NET_SHA256,
+                &tarball,
+                install_dir,
+            )
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to fetch net libkrunfw: {e}. Run `make libkrunfw-net` \
+                     or set BOXLITE_LIBKRUNFW_NET_PATH."
+                )
+            });
+        }
         println!("cargo:warning=Embedded kernel: net only");
     } else {
         // Lean only (default)
@@ -299,6 +317,44 @@ fn download_libkrunfw_so(install_dir: &Path) {
         "cargo:warning=Extracted libkrunfw.so to {}",
         lib_dir.display()
     );
+}
+
+#[cfg(target_os = "linux")]
+fn local_net_kernel() -> Option<PathBuf> {
+    println!("cargo:rerun-if-env-changed=BOXLITE_LIBKRUNFW_NET_PATH");
+
+    let path = env::var_os("BOXLITE_LIBKRUNFW_NET_PATH")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").ok()?);
+            Some(
+                manifest_dir
+                    .join("../../..")
+                    .join("target/net-kernel/lib64/libkrunfw-net.so.5"),
+            )
+        })?;
+
+    println!("cargo:rerun-if-changed={}", path.display());
+    path.is_file().then_some(path)
+}
+
+#[cfg(target_os = "linux")]
+fn install_local_net_kernel(source: &Path, lib_dir: &Path, dual: bool) {
+    let destination = if dual {
+        lib_dir.join("libkrunfw-net.so.5")
+    } else {
+        lib_dir.join("libkrunfw.so.5")
+    };
+    fs::create_dir_all(lib_dir)
+        .unwrap_or_else(|e| panic!("Failed to create {}: {e}", lib_dir.display()));
+    fs::copy(source, &destination).unwrap_or_else(|e| {
+        panic!(
+            "Failed to copy local net kernel {} to {}: {e}",
+            source.display(),
+            destination.display()
+        )
+    });
+    println!("cargo:warning=Using local net kernel {}", source.display());
 }
 
 // ── Make utilities ───────────────────────────────────────────────────────────

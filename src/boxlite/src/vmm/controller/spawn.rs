@@ -160,7 +160,7 @@ impl<'a> ShimSpawner<'a> {
         // picks it up instead of the default libkrunfw.so.5.
         let prepend: Vec<PathBuf> = match self.options.kernel.as_deref() {
             Some("net") => match self.stage_net_kernel()? {
-                Some(libs_dir) => vec![libs_dir],
+                Some(libs_dir) => self.activate_staged_kernel(libs_dir)?,
                 None => {
                     return Err(BoxliteError::Engine(
                         "--kernel net requires libkrunfw-net.so.5 in the embedded \
@@ -169,12 +169,38 @@ impl<'a> ShimSpawner<'a> {
                     ));
                 }
             },
-            Some(path) => vec![self.stage_custom_kernel(Path::new(path))?],
+            Some(path) => {
+                let libs_dir = self.stage_custom_kernel(Path::new(path))?;
+                self.activate_staged_kernel(libs_dir)?
+            }
             None => vec![],
         };
 
         configure_library_env_with_prepend(cmd, std::ptr::null(), &prepend);
         Ok(())
+    }
+
+    fn activate_staged_kernel(&self, libs_dir: PathBuf) -> BoxliteResult<Vec<PathBuf>> {
+        if !self.options.advanced.security.jailer_enabled {
+            return Ok(vec![libs_dir]);
+        }
+
+        // Bwrap clears the inherited environment and loads firmware from the
+        // copied shim directory. Replace the lean blob copied there with the
+        // selected kernel; prepending LD_LIBRARY_PATH on the outer bwrap
+        // command cannot affect the sanitized child environment.
+        let source = libs_dir.join("libkrunfw.so.5");
+        let destination = self.layout.root().join("bin/libkrunfw.so.5");
+        std::fs::copy(&source, &destination).map_err(|e| {
+            BoxliteError::Storage(format!(
+                "Failed to activate selected kernel {} at {}: {}",
+                source.display(),
+                destination.display(),
+                e
+            ))
+        })?;
+
+        Ok(vec![])
     }
 
     /// Stage `<box>/libs/libkrunfw.so.5` → `libkrunfw-net.so.5` symlink.
