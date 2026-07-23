@@ -85,10 +85,10 @@ Build-time feature flags control which kernels are embedded:
 cargo build --release -p boxlite-cli
 
 # Net kernel only
-cargo build --release -p boxlite-cli --features boxlite/kernel-net --no-default-features
+cargo build --release -p boxlite-cli --features kernel-net --no-default-features
 
 # Both (dual mode)
-cargo build --release -p boxlite-cli --features boxlite/kernel-net
+cargo build --release -p boxlite-cli --features kernel-net
 ```
 
 At runtime, `--kernel net` selects the net kernel (only available in dual or net-only builds):

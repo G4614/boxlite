@@ -75,6 +75,10 @@ gtmpl = "0.7"
 gtmpl_value = "0.5"
 [build-dependencies]
 
+[features]
+default = []
+kernel-net = ["boxlite/kernel-net"]
+
 [dev-dependencies]
 boxlite = { workspace = true, features = ["rest", "test-support"] }
 boxlite-test-utils = { path = "../test-utils" }
