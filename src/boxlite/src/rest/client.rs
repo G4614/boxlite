@@ -358,7 +358,7 @@ impl ApiClient {
     pub(crate) async fn connect_box_network_tunnel(
         &self,
         uri: &str,
-    ) -> BoxliteResult<tokio::io::DuplexStream> {
+    ) -> BoxliteResult<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>> {
         use http_body_util::Empty;
         use hyper::{Method, Request, Uri};
         use hyper_util::rt::TokioIo;
@@ -399,12 +399,7 @@ impl ApiClient {
         let upgraded = hyper::upgrade::on(response)
             .await
             .map_err(|e| BoxliteError::Network(format!("CONNECT upgrade failed: {e}")))?;
-        let (local, mut pump_end) = tokio::io::duplex(64 * 1024);
-        let mut remote = TokioIo::new(upgraded);
-        tokio::spawn(async move {
-            let _ = tokio::io::copy_bidirectional(&mut pump_end, &mut remote).await;
-        });
-        Ok(local)
+        Ok(TokioIo::new(upgraded))
     }
 
     /// Prepare a box service tunnel and return its public descriptor.
@@ -677,19 +672,25 @@ mod tests {
             let mut payload = [0; 4];
             socket.read_exact(&mut payload).await.unwrap();
             assert_eq!(&payload, b"ping");
-            socket.write_all(&payload).await.unwrap();
+            assert_eq!(
+                socket.read_u8().await.unwrap_err().kind(),
+                std::io::ErrorKind::UnexpectedEof
+            );
+            socket.write_all(b"pong").await.unwrap();
         });
 
         let client =
             ApiClient::new(&BoxliteRestOptions::new(format!("http://127.0.0.1:{port}"))).unwrap();
-        let mut stream = client
+        let stream = client
             .connect_box_network_tunnel(&format!("http://127.0.0.1:{port}"))
             .await
             .unwrap();
-        stream.write_all(b"ping").await.unwrap();
+        let (mut reader, mut writer) = tokio::io::split(stream);
+        writer.write_all(b"ping").await.unwrap();
+        writer.shutdown().await.unwrap();
         let mut response = [0; 4];
-        stream.read_exact(&mut response).await.unwrap();
-        assert_eq!(&response, b"ping");
+        reader.read_exact(&mut response).await.unwrap();
+        assert_eq!(&response, b"pong");
         server.await.unwrap();
     }
 
