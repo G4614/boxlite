@@ -79,6 +79,13 @@ export class BoxliteBoxController {
         auto_stop: req.body?.auto_stop,
         auto_delete: req.body?.auto_delete,
         auto_resume: req.body?.auto_resume,
+        network: req.body?.network
+          ? {
+              mode: req.body.network.mode,
+              allow_net: req.body.network.allow_net,
+              service_visibility: req.body.network.service_visibility,
+            }
+          : undefined,
       }),
     },
   })

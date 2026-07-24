@@ -121,4 +121,24 @@ describe('CreateBoxDto network validation', () => {
 
     expect(JSON.stringify(errors)).toContain('isIn')
   })
+
+  it.each(['public', 'private'])('accepts service_visibility=%s', async (visibility) => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: { mode: 'enabled', service_visibility: visibility },
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
+  })
+
+  it('rejects unsupported service_visibility values', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: { mode: 'enabled', service_visibility: 'shared' },
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isIn')
+  })
 })

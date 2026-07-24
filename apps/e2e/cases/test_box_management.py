@@ -9,6 +9,22 @@ from __future__ import annotations
 
 import boxlite
 import pytest
+import urllib.error
+import urllib.request
+
+
+async def _preview_public_status(e2e_auth, box_id: str) -> int:
+    req = urllib.request.Request(
+        e2e_auth.url_for(f"/preview/{box_id}/public"),
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            response.read()
+            return response.status
+    except urllib.error.HTTPError as exc:
+        exc.read()
+        return exc.code
 
 
 @pytest.mark.asyncio
@@ -60,5 +76,30 @@ async def test_box_options_env_propagates_through_rest(rt, image):
         assert "yes-its-there" in out, (
             f"env from BoxOptions did not reach the guest: {out!r}"
         )
+    finally:
+        await rt.remove(box.id, force=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("service_visibility", "expected_status"),
+    [("public", 200), ("private", 404)],
+)
+async def test_box_options_service_visibility_controls_preview_access(
+    rt,
+    image,
+    e2e_auth,
+    service_visibility,
+    expected_status,
+):
+    box = await rt.create(
+        boxlite.BoxOptions(
+            image=image,
+            auto_remove=True,
+            service_visibility=service_visibility,
+        ),
+    )
+    try:
+        assert await _preview_public_status(e2e_auth, box.id) == expected_status
     finally:
         await rt.remove(box.id, force=True)

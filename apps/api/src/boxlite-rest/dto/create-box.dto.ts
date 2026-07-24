@@ -43,6 +43,10 @@ export class NetworkSpecDto {
   @IsString({ each: true })
   @Validate(IsNetworkAllowEntryConstraint, { each: true })
   allow_net?: string[]
+
+  @IsOptional()
+  @IsIn(['public', 'private'])
+  service_visibility?: 'public' | 'private'
 }
 
 export class CreateBoxDto {
