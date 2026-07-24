@@ -228,6 +228,9 @@ export interface SimpleBoxOptions {
   /** Structured network configuration. */
   network?: NetworkSpec;
 
+  /** Whether box services may receive public inbound traffic through the remote proxy. */
+  allowPublicTraffic?: boolean;
+
   /** Secrets to inject into outbound HTTPS requests. */
   secrets?: Secret[];
 
@@ -416,6 +419,7 @@ export class SimpleBox {
         : undefined,
       volumes: options.volumes,
       network: options.network,
+      allowPublicTraffic: options.allowPublicTraffic,
       ports: options.ports,
       entrypoint: options.entrypoint,
       cmd: options.cmd,

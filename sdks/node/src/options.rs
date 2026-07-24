@@ -192,6 +192,10 @@ pub struct JsBoxOptions {
     /// Structured network configuration.
     pub network: Option<JsNetworkSpec>,
 
+    /// Whether box services may receive public inbound traffic through the remote proxy.
+    #[napi(js_name = "allowPublicTraffic")]
+    pub allow_public_traffic: Option<bool>,
+
     /// Port mappings as array of port specs
     pub ports: Option<Vec<JsPortSpec>>,
 
@@ -460,6 +464,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
+            allow_public_traffic: js_opts.allow_public_traffic,
             ports,
             auto_remove,
             advanced: AdvancedBoxOptions {
@@ -754,6 +759,7 @@ mod tests {
                 mode: "enabled".into(),
                 allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
             }),
+            allow_public_traffic: Some(true),
             ports: None,
             auto_remove: None,
             auto_stop: None,
@@ -798,6 +804,7 @@ mod tests {
         assert_eq!(opts.auto_delete, None);
         assert!(opts.advanced.capabilities.add.is_empty());
         assert!(opts.advanced.capabilities.drop.is_empty());
+        assert_eq!(opts.allow_public_traffic, Some(true));
         match opts.network {
             NetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
@@ -818,6 +825,7 @@ mod tests {
             env: None,
             volumes: None,
             network: None,
+            allow_public_traffic: None,
             ports: None,
             auto_remove: None,
             auto_stop: None,

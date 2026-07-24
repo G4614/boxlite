@@ -329,6 +329,11 @@ pub struct BoxOptions {
     pub rootfs: RootfsSpec,
     pub volumes: Vec<VolumeSpec>,
     pub network: NetworkSpec,
+    /// Whether services running inside the box may receive public inbound
+    /// traffic through the remote proxy. `None` lets the REST control plane use
+    /// its default policy.
+    #[serde(default)]
+    pub allow_public_traffic: Option<bool>,
     /// Explicit host publication for the local runtime.
     ///
     /// Remote runtimes reject port mappings; use a box network tunnel for
@@ -525,6 +530,7 @@ impl Default for BoxOptions {
             rootfs: RootfsSpec::default(),
             volumes: Vec::new(),
             network: NetworkSpec::default(),
+            allow_public_traffic: None,
             ports: Vec::new(),
             auto_remove: default_auto_remove(),
             auto_stop: None,
@@ -1350,6 +1356,12 @@ mod tests {
         let config = NetworkConfig::from(&NetworkSpec::Disabled);
         assert_eq!(config.mode, NetworkMode::Disabled);
         assert!(config.allow_net.is_empty());
+    }
+
+    #[test]
+    fn test_allow_public_traffic_defaults_to_server_policy() {
+        let opts = BoxOptions::default();
+        assert_eq!(opts.allow_public_traffic, None);
     }
 
     #[test]

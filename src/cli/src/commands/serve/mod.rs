@@ -745,6 +745,10 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         })?,
         None => NetworkSpec::default(),
     };
+    let allow_public_traffic = req
+        .network
+        .as_ref()
+        .and_then(|network| network.allow_public_traffic);
 
     // SecurityOptions is deliberately NOT client-configurable over
     // REST: sandbox security is the operator's policy. The server
@@ -762,6 +766,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         working_dir: req.working_dir.clone(),
         env,
         network,
+        allow_public_traffic,
         entrypoint: req.entrypoint.clone(),
         cmd: req.cmd.clone(),
         user: req.user.clone(),
@@ -1364,6 +1369,22 @@ mod tests {
             build_box_options(&persistent).expect("build").detach,
             "persistent boxes keep the serve API's historical detached default"
         );
+    }
+
+    #[test]
+    fn build_box_options_carries_allow_public_traffic_from_network_spec() {
+        let req: super::types::CreateBoxRequest = serde_json::from_str(
+            r#"{
+                "image": "alpine:latest",
+                "network": {
+                    "mode": "enabled",
+                    "allow_public_traffic": false
+                }
+            }"#,
+        )
+        .expect("body with allow_public_traffic must deserialize");
+        let opts = build_box_options(&req).expect("build");
+        assert_eq!(opts.allow_public_traffic, Some(false));
     }
 
     #[test]

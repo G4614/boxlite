@@ -72,6 +72,8 @@ export interface SkillBoxOptions {
   autoRemove?: boolean;
   /** Structured network configuration. */
   network?: NetworkSpec;
+  /** Whether box services may receive public inbound traffic through the remote proxy. */
+  allowPublicTraffic?: boolean;
   /** Secrets to inject into outbound HTTPS requests. */
   secrets?: Secret[];
   /** Optional runtime instance */
@@ -171,6 +173,7 @@ export class SkillBox extends SimpleBox {
       name: options.name ?? "skill-box",
       autoRemove: options.autoRemove ?? true,
       network: options.network,
+      allowPublicTraffic: options.allowPublicTraffic,
       secrets: options.secrets,
       runtime: options.runtime,
       env: {

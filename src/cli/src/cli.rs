@@ -1692,18 +1692,15 @@ mod tests {
     // ─── tunnel parse tests ────────────────────────────────────────────────
 
     #[test]
-    fn network_tunnel_parses_box_and_port() {
-        Cli::try_parse_from(["boxlite", "network", "tunnel", "mybox", "3000"]).expect("parse");
-    }
-
-    #[test]
-    fn network_tunnel_preserves_box_and_port() {
+    fn tunnel_parses_box_and_port() {
         let cli =
             Cli::try_parse_from(["boxlite", "network", "tunnel", "mybox", "3000"]).expect("parse");
-        let Commands::Network(args) = cli.command else {
+        let Commands::Network(network) = cli.command else {
             panic!("expected Commands::Network");
         };
-        let NetworkCommand::Tunnel(args) = args.command;
+        let args = match network.command {
+            crate::commands::network::NetworkCommand::Tunnel(args) => args,
+        };
         assert_eq!(args.target, "mybox");
         assert_eq!(args.port, 3000);
     }
@@ -1715,7 +1712,7 @@ mod tests {
     }
 
     #[test]
-    fn network_tunnel_rejects_port_zero_at_parse() {
+    fn tunnel_rejects_port_zero_at_parse() {
         let result = Cli::try_parse_from(["boxlite", "network", "tunnel", "mybox", "0"]);
         assert!(result.is_err(), "port 0 must be rejected by the parser");
     }

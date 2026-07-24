@@ -382,6 +382,8 @@ pub(crate) struct PyBoxOptions {
     pub(crate) volumes: Vec<PyVolumeSpec>,
     #[pyo3(get, set)]
     pub(crate) network: Option<PyNetworkSpec>,
+    #[pyo3(get, set)]
+    pub(crate) allow_public_traffic: Option<bool>,
     pub(crate) ports: Vec<PyPortSpec>,
     /// Deprecated compatibility option; use auto_delete.
     #[pyo3(get, set)]
@@ -430,6 +432,7 @@ impl PyBoxOptions {
         env=vec![],
         volumes=vec![],
         network=None,
+        allow_public_traffic=None,
         ports=vec![],
         auto_remove=None,
         auto_stop=None,
@@ -453,6 +456,7 @@ impl PyBoxOptions {
         env: Vec<(String, String)>,
         volumes: Vec<PyVolumeSpec>,
         network: Option<PyNetworkSpec>,
+        allow_public_traffic: Option<bool>,
         ports: Vec<PyPortSpec>,
         auto_remove: Option<bool>,
         auto_stop: Option<u32>,
@@ -475,6 +479,7 @@ impl PyBoxOptions {
             env,
             volumes,
             network,
+            allow_public_traffic,
             ports,
             auto_remove,
             auto_stop,
@@ -538,6 +543,7 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
+            allow_public_traffic: py_opts.allow_public_traffic,
             ports,
             auto_stop: py_opts.auto_stop,
             auto_delete,
