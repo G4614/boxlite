@@ -50,6 +50,20 @@ async def _wait_for_service(box, port: int, marker: str) -> str:
     raise AssertionError(f"in-box service did not become ready: {last_error}")
 
 
+async def _start_http_service(box, port: int) -> None:
+    result = await box.exec(
+        "sh",
+        [
+            "-lc",
+            f"python3 -u -m http.server {port} --bind 0.0.0.0 "
+            f">/tmp/http-{port}.log 2>&1 & echo $!",
+        ],
+    )
+    _, stderr = await drain(result)
+    status = await result.wait()
+    assert status.exit_code == 0, stderr
+
+
 # ── stop / start preserves data ────────────────────────────────────
 
 
@@ -94,16 +108,17 @@ async def test_stop_start_restarts_main_service(rt, image):
     b = await rt.create(
         boxlite.BoxOptions(
             image=image,
-            cmd=["python3", "-m", "http.server", str(port), "--bind", "0.0.0.0"],
             auto_remove=False,
         )
     )
     try:
         await b.start()
+        await _start_http_service(b, port)
         first = await _wait_for_service(b, port, "Directory listing")
         assert "Directory listing" in first
 
         await b.stop()
+        await asyncio.sleep(2)
         restarted = await rt.get(b.id)
         assert restarted is not None
         await restarted.start()
