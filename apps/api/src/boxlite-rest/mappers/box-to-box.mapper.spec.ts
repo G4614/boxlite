@@ -10,11 +10,11 @@ describe('BoxLite lifecycle policy mapper', () => {
   it.each([
     ['public', true],
     ['private', false],
-  ])('maps service_visibility=%s to control-plane public=%s', (visibility, expected) => {
+  ])('maps service_access=%s to control-plane public=%s', (access, expected) => {
     const mapped = createBoxToCreateBox({
       network: {
         mode: 'enabled',
-        service_visibility: visibility as 'public' | 'private',
+        service_access: access as 'public' | 'private',
       },
     })
 

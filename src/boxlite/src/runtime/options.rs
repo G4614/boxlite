@@ -332,7 +332,7 @@ pub struct BoxOptions {
     /// Whether service preview endpoints are public or private. `None` lets the
     /// REST control plane use its default policy.
     #[serde(default)]
-    pub service_visibility: Option<ServiceVisibility>,
+    pub service_access: Option<ServiceAccess>,
     /// Explicit host publication for the local runtime.
     ///
     /// Remote runtimes reject port mappings; use a box network tunnel for
@@ -529,7 +529,7 @@ impl Default for BoxOptions {
             rootfs: RootfsSpec::default(),
             volumes: Vec::new(),
             network: NetworkSpec::default(),
-            service_visibility: None,
+            service_access: None,
             ports: Vec::new(),
             auto_remove: default_auto_remove(),
             auto_stop: None,
@@ -710,15 +710,15 @@ impl From<&NetworkSpec> for NetworkConfig {
     }
 }
 
-/// Inbound service preview visibility for remote boxes.
+/// Inbound service access policy for remote boxes.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ServiceVisibility {
+pub enum ServiceAccess {
     Public,
     Private,
 }
 
-impl std::str::FromStr for ServiceVisibility {
+impl std::str::FromStr for ServiceAccess {
     type Err = boxlite_shared::errors::BoxliteError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -726,14 +726,14 @@ impl std::str::FromStr for ServiceVisibility {
             "public" => Ok(Self::Public),
             "private" => Ok(Self::Private),
             _ => Err(boxlite_shared::errors::BoxliteError::Config(format!(
-                "invalid service_visibility {:?}. Expected \"public\" or \"private\".",
+                "invalid service_access {:?}. Expected \"public\" or \"private\".",
                 value
             ))),
         }
     }
 }
 
-impl ServiceVisibility {
+impl ServiceAccess {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Public => "public",
@@ -1390,9 +1390,9 @@ mod tests {
     }
 
     #[test]
-    fn test_service_visibility_defaults_to_server_policy() {
+    fn test_service_access_defaults_to_server_policy() {
         let opts = BoxOptions::default();
-        assert_eq!(opts.service_visibility, None);
+        assert_eq!(opts.service_access, None);
     }
 
     #[test]

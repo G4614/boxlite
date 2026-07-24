@@ -6,8 +6,7 @@ use boxlite::runtime::advanced_options::{HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
     BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, ServiceVisibility,
-    VolumeSpec,
+    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, ServiceAccess, VolumeSpec,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -384,7 +383,7 @@ pub(crate) struct PyBoxOptions {
     #[pyo3(get, set)]
     pub(crate) network: Option<PyNetworkSpec>,
     #[pyo3(get, set)]
-    pub(crate) service_visibility: Option<String>,
+    pub(crate) service_access: Option<String>,
     pub(crate) ports: Vec<PyPortSpec>,
     /// Deprecated compatibility option; use auto_delete.
     #[pyo3(get, set)]
@@ -433,7 +432,7 @@ impl PyBoxOptions {
         env=vec![],
         volumes=vec![],
         network=None,
-        service_visibility=None,
+        service_access=None,
         ports=vec![],
         auto_remove=None,
         auto_stop=None,
@@ -457,7 +456,7 @@ impl PyBoxOptions {
         env: Vec<(String, String)>,
         volumes: Vec<PyVolumeSpec>,
         network: Option<PyNetworkSpec>,
-        service_visibility: Option<String>,
+        service_access: Option<String>,
         ports: Vec<PyPortSpec>,
         auto_remove: Option<bool>,
         auto_stop: Option<u32>,
@@ -480,7 +479,7 @@ impl PyBoxOptions {
             env,
             volumes,
             network,
-            service_visibility,
+            service_access,
             ports,
             auto_remove,
             auto_stop,
@@ -522,10 +521,10 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
         };
 
         let ports = py_opts.ports.into_iter().map(PortSpec::from).collect();
-        let service_visibility = py_opts
-            .service_visibility
+        let service_access = py_opts
+            .service_access
             .as_deref()
-            .map(str::parse::<ServiceVisibility>)
+            .map(str::parse::<ServiceAccess>)
             .transpose()?;
 
         // Convert image/rootfs_path to RootfsSpec
@@ -549,7 +548,7 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
-            service_visibility,
+            service_access,
             ports,
             auto_stop: py_opts.auto_stop,
             auto_delete,

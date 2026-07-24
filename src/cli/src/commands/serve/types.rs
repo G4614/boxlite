@@ -82,7 +82,7 @@ pub(super) struct NetworkSpec {
     #[serde(default)]
     pub allow_net: Vec<String>,
     #[serde(default)]
-    pub service_visibility: Option<String>,
+    pub service_access: Option<String>,
 }
 
 #[derive(Serialize)]

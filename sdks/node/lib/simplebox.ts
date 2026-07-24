@@ -229,7 +229,7 @@ export interface SimpleBoxOptions {
   network?: NetworkSpec;
 
   /** Whether service preview endpoints are public or private. */
-  serviceVisibility?: "public" | "private";
+  serviceAccess?: "public" | "private";
 
   /** Secrets to inject into outbound HTTPS requests. */
   secrets?: Secret[];
@@ -419,7 +419,7 @@ export class SimpleBox {
         : undefined,
       volumes: options.volumes,
       network: options.network,
-      serviceVisibility: options.serviceVisibility,
+      serviceAccess: options.serviceAccess,
       ports: options.ports,
       entrypoint: options.entrypoint,
       cmd: options.cmd,

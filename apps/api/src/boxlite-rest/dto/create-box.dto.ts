@@ -46,7 +46,7 @@ export class NetworkSpecDto {
 
   @IsOptional()
   @IsIn(['public', 'private'])
-  service_visibility?: 'public' | 'private'
+  service_access?: 'public' | 'private'
 }
 
 export class CreateBoxDto {

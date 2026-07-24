@@ -49,7 +49,7 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
     const allowNet = dto.network.allow_net?.map((entry) => entry.trim()).filter(Boolean)
     createDto.networkBlockAll = dto.network.mode === 'disabled'
     createDto.networkAllowList = dto.network.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
-    createDto.public = dto.network.service_visibility ? dto.network.service_visibility === 'public' : undefined
+    createDto.public = dto.network.service_access ? dto.network.service_access === 'public' : undefined
   }
   return createDto
 }

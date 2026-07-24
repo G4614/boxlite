@@ -83,7 +83,7 @@ export class BoxliteBoxController {
           ? {
               mode: req.body.network.mode,
               allow_net: req.body.network.allow_net,
-              service_visibility: req.body.network.service_visibility,
+              service_access: req.body.network.service_access,
             }
           : undefined,
       }),

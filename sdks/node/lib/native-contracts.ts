@@ -141,7 +141,7 @@ export interface JsBoxOptions {
   volumes?: JsVolumeSpec[];
   network?: JsNetworkSpec;
   /** Whether service preview endpoints are public or private. */
-  serviceVisibility?: "public" | "private";
+  serviceAccess?: "public" | "private";
   ports?: JsPortSpec[];
   /**
    * @deprecated Use autoDelete. Preserved for embedded remove-on-stop

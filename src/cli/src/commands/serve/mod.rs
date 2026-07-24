@@ -23,7 +23,7 @@ use tokio::sync::RwLock;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
-use boxlite::runtime::options::ServiceVisibility;
+use boxlite::runtime::options::ServiceAccess;
 use boxlite::runtime::options::{NetworkConfig, NetworkMode};
 use boxlite::{
     BoxCommand, BoxInfo, BoxOptions, BoxliteRuntime, ExecStdin, Execution, LiteBox, NetworkSpec,
@@ -746,11 +746,11 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         })?,
         None => NetworkSpec::default(),
     };
-    let service_visibility = req
+    let service_access = req
         .network
         .as_ref()
-        .and_then(|network| network.service_visibility.as_deref())
-        .map(str::parse::<ServiceVisibility>)
+        .and_then(|network| network.service_access.as_deref())
+        .map(str::parse::<ServiceAccess>)
         .transpose()?;
 
     // SecurityOptions is deliberately NOT client-configurable over
@@ -769,7 +769,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         working_dir: req.working_dir.clone(),
         env,
         network,
-        service_visibility,
+        service_access,
         entrypoint: req.entrypoint.clone(),
         cmd: req.cmd.clone(),
         user: req.user.clone(),
@@ -1375,19 +1375,19 @@ mod tests {
     }
 
     #[test]
-    fn build_box_options_carries_service_visibility_from_network_spec() {
+    fn build_box_options_carries_service_access_from_network_spec() {
         let req: super::types::CreateBoxRequest = serde_json::from_str(
             r#"{
                 "image": "alpine:latest",
                 "network": {
                     "mode": "enabled",
-                    "service_visibility": "private"
+                    "service_access": "private"
                 }
             }"#,
         )
-        .expect("body with service_visibility must deserialize");
+        .expect("body with service_access must deserialize");
         let opts = build_box_options(&req).expect("build");
-        assert_eq!(opts.service_visibility, Some(ServiceVisibility::Private));
+        assert_eq!(opts.service_access, Some(ServiceAccess::Private));
     }
 
     #[test]

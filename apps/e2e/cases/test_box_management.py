@@ -82,21 +82,21 @@ async def test_box_options_env_propagates_through_rest(rt, image):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("service_visibility", "expected_status"),
+    ("service_access", "expected_status"),
     [("public", 200), ("private", 404)],
 )
-async def test_box_options_service_visibility_controls_preview_access(
+async def test_box_options_service_access_controls_preview_access(
     rt,
     image,
     e2e_auth,
-    service_visibility,
+    service_access,
     expected_status,
 ):
     box = await rt.create(
         boxlite.BoxOptions(
             image=image,
             auto_remove=True,
-            service_visibility=service_visibility,
+            service_access=service_access,
         ),
     )
     try:

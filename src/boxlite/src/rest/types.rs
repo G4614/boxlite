@@ -177,7 +177,7 @@ impl CreateBoxRequest {
             env,
             network: Some(CreateBoxNetworkSpec::from_options(
                 &options.network,
-                options.service_visibility.as_ref(),
+                options.service_access.as_ref(),
             )),
             entrypoint: options.entrypoint.clone(),
             cmd: options.cmd.clone(),
@@ -211,13 +211,13 @@ pub(crate) struct CreateBoxNetworkSpec {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow_net: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_visibility: Option<String>,
+    pub service_access: Option<String>,
 }
 
 impl CreateBoxNetworkSpec {
     fn from_options(
         spec: &crate::runtime::options::NetworkSpec,
-        service_visibility: Option<&crate::runtime::options::ServiceVisibility>,
+        service_access: Option<&crate::runtime::options::ServiceAccess>,
     ) -> Self {
         let config = crate::runtime::options::NetworkConfig::from(spec);
         let mode = match config.mode {
@@ -227,7 +227,7 @@ impl CreateBoxNetworkSpec {
         Self {
             mode: mode.to_string(),
             allow_net: config.allow_net,
-            service_visibility: service_visibility.map(|visibility| visibility.as_str().into()),
+            service_access: service_access.map(|access| access.as_str().into()),
         }
     }
 }
@@ -600,7 +600,7 @@ mod tests {
             network: Some(CreateBoxNetworkSpec {
                 mode: "enabled".into(),
                 allow_net: vec!["api.openai.com".into()],
-                service_visibility: Some("public".into()),
+                service_access: Some("public".into()),
             }),
             entrypoint: None,
             cmd: None,
@@ -625,7 +625,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["network"]["mode"], "enabled");
         assert_eq!(value["network"]["allow_net"][0], "api.openai.com");
-        assert_eq!(value["network"]["service_visibility"], "public");
+        assert_eq!(value["network"]["service_access"], "public");
         assert!(json.contains("\"secrets\""));
         // None fields should be skipped
         assert!(!json.contains("rootfs_path"));
@@ -643,7 +643,7 @@ mod tests {
             network: NetworkSpec::Enabled {
                 allow_net: vec!["api.openai.com".into()],
             },
-            service_visibility: Some(crate::runtime::options::ServiceVisibility::Private),
+            service_access: Some(crate::runtime::options::ServiceAccess::Private),
             secrets: vec![Secret {
                 name: "openai".into(),
                 value: "sk-test".into(),
@@ -669,9 +669,7 @@ mod tests {
             Some(vec!["api.openai.com".into()])
         );
         assert_eq!(
-            req.network
-                .as_ref()
-                .and_then(|n| n.service_visibility.clone()),
+            req.network.as_ref().and_then(|n| n.service_access.clone()),
             Some("private".into())
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
@@ -753,7 +751,7 @@ mod tests {
             Some("disabled")
         );
         assert!(req.network.as_ref().unwrap().allow_net.is_empty());
-        assert_eq!(req.network.as_ref().unwrap().service_visibility, None);
+        assert_eq!(req.network.as_ref().unwrap().service_access, None);
     }
 
     /// REST is intentionally a "the server picks the security policy"
