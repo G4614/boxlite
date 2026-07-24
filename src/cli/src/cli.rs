@@ -1698,9 +1698,7 @@ mod tests {
         let Commands::Network(network) = cli.command else {
             panic!("expected Commands::Network");
         };
-        let args = match network.command {
-            crate::commands::network::NetworkCommand::Tunnel(args) => args,
-        };
+        let crate::commands::network::NetworkCommand::Tunnel(args) = network.command;
         assert_eq!(args.target, "mybox");
         assert_eq!(args.port, 3000);
     }
