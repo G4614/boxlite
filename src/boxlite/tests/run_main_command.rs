@@ -8,7 +8,10 @@
 
 mod common;
 
+use boxlite::net::constants::GUEST_IP;
 use boxlite::{BoxOptions, RootfsSpec};
+use std::net::SocketAddr;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::StreamExt;
 
 /// Create a box whose main command is `cmd`, optionally on a PTY.
@@ -61,6 +64,85 @@ async fn attached_stdout(opts: BoxOptions) -> String {
     let _ = runtime.shutdown(Some(common::TEST_SHUTDOWN_TIMEOUT)).await;
 
     stdout
+}
+
+async fn fetch_service(litebox: &boxlite::LiteBox, port: u16) -> String {
+    let target = SocketAddr::new(GUEST_IP.parse().unwrap(), port);
+    let tunnel = litebox
+        .network()
+        .tunnel(target)
+        .await
+        .expect("open service tunnel");
+    let mut connection = tunnel.connect().expect("connect service tunnel");
+    connection
+        .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .expect("write HTTP request");
+
+    let mut response = Vec::new();
+    connection
+        .read_to_end(&mut response)
+        .await
+        .expect("read HTTP response");
+    String::from_utf8(response).expect("HTTP response must be UTF-8")
+}
+
+/// A stopped box with a long-lived main service must start that service again.
+/// This is the regression test for cloud boxes whose `stop -> start` appeared
+/// successful while the original listener was already gone.
+#[tokio::test]
+async fn main_service_is_available_after_stop_and_start() {
+    let home = boxlite_test_utils::home::PerTestBoxHome::new();
+    let runtime = boxlite::BoxliteRuntime::new(boxlite::runtime::options::BoxliteOptions {
+        home_dir: home.path.clone(),
+        image_registries: common::test_registries(),
+    })
+    .expect("create runtime");
+
+    let box_name = "main-service-restart";
+    let box_handle = runtime
+        .create(
+            main_command_opts(
+                &[
+                    "sh",
+                    "-c",
+                    "mkdir -p /tmp/www && echo service-ready >/tmp/www/index.html && exec busybox httpd -f -p 0.0.0.0:8080 -h /tmp/www",
+                ],
+                false,
+            ),
+            Some(box_name.to_string()),
+        )
+        .await
+        .expect("create service box");
+
+    box_handle.start().await.expect("start service box");
+    let first_response = fetch_service(&box_handle, 8080).await;
+    assert!(
+        first_response.contains("service-ready"),
+        "service must be reachable before stop: {first_response:?}"
+    );
+
+    box_handle.stop().await.expect("stop service box");
+    drop(box_handle);
+
+    let restarted = runtime
+        .get(box_name)
+        .await
+        .expect("get stopped service box")
+        .expect("service box must remain after stop");
+    restarted.start().await.expect("restart service box");
+
+    let second_response = fetch_service(&restarted, 8080).await;
+    assert!(
+        second_response.contains("service-ready"),
+        "service must be reachable after stop/start: {second_response:?}"
+    );
+
+    let _ = restarted.stop().await;
+    let _ = runtime.remove(restarted.id().as_str(), true).await;
+    let _ = runtime
+        .shutdown(Some(common::TEST_SHUTDOWN_TIMEOUT))
+        .await;
 }
 
 /// `tty: true` must give the *main command* a real terminal.
