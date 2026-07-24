@@ -30,7 +30,7 @@ def main() -> None:
     authority = f"{target_host}:{target_port}"
     conn.sendall(
         f"CONNECT {authority} HTTP/1.1\r\n"
-        f"Host: {proxy_host}\r\n"
+        f"Host: {authority}\r\n"
         "Proxy-Connection: Keep-Alive\r\n\r\n".encode()
     )
 

@@ -353,6 +353,8 @@ async def test_python_sdk_tunnel_proxies_ssh_over_https_connect(
             "UserKnownHostsFile=/dev/null",
             "-o",
             "ConnectTimeout=15",
+            "-p",
+            "2222",
             f"root@{endpoint.hostname}",
             "printf BOXLITE_SSH_CONNECT_OK",
             stdout=asyncio.subprocess.PIPE,
