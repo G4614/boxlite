@@ -23,6 +23,7 @@ use tokio::sync::RwLock;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
+use boxlite::runtime::options::ServiceVisibility;
 use boxlite::runtime::options::{NetworkConfig, NetworkMode};
 use boxlite::{
     BoxCommand, BoxInfo, BoxOptions, BoxliteRuntime, ExecStdin, Execution, LiteBox, NetworkSpec,
@@ -745,10 +746,12 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         })?,
         None => NetworkSpec::default(),
     };
-    let allow_public_traffic = req
+    let service_visibility = req
         .network
         .as_ref()
-        .and_then(|network| network.allow_public_traffic);
+        .and_then(|network| network.service_visibility.as_deref())
+        .map(str::parse::<ServiceVisibility>)
+        .transpose()?;
 
     // SecurityOptions is deliberately NOT client-configurable over
     // REST: sandbox security is the operator's policy. The server
@@ -766,7 +769,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         working_dir: req.working_dir.clone(),
         env,
         network,
-        allow_public_traffic,
+        service_visibility,
         entrypoint: req.entrypoint.clone(),
         cmd: req.cmd.clone(),
         user: req.user.clone(),
@@ -1372,19 +1375,19 @@ mod tests {
     }
 
     #[test]
-    fn build_box_options_carries_allow_public_traffic_from_network_spec() {
+    fn build_box_options_carries_service_visibility_from_network_spec() {
         let req: super::types::CreateBoxRequest = serde_json::from_str(
             r#"{
                 "image": "alpine:latest",
                 "network": {
                     "mode": "enabled",
-                    "allow_public_traffic": false
+                    "service_visibility": "private"
                 }
             }"#,
         )
-        .expect("body with allow_public_traffic must deserialize");
+        .expect("body with service_visibility must deserialize");
         let opts = build_box_options(&req).expect("build");
-        assert_eq!(opts.allow_public_traffic, Some(false));
+        assert_eq!(opts.service_visibility, Some(ServiceVisibility::Private));
     }
 
     #[test]

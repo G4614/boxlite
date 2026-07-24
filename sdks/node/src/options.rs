@@ -5,7 +5,8 @@ use boxlite::runtime::advanced_options::{AdvancedBoxOptions, HealthCheckOptions,
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
     BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret, VolumeSpec,
+    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret, ServiceVisibility,
+    VolumeSpec,
 };
 use napi::bindgen_prelude::Error;
 use napi_derive::napi;
@@ -192,9 +193,9 @@ pub struct JsBoxOptions {
     /// Structured network configuration.
     pub network: Option<JsNetworkSpec>,
 
-    /// Whether box services may receive public inbound traffic through the remote proxy.
-    #[napi(js_name = "allowPublicTraffic")]
-    pub allow_public_traffic: Option<bool>,
+    /// Whether service preview endpoints are "public" or "private".
+    #[napi(js_name = "serviceVisibility")]
+    pub service_visibility: Option<String>,
 
     /// Port mappings as array of port specs
     pub ports: Option<Vec<JsPortSpec>>,
@@ -441,6 +442,11 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             .and_then(|advanced| advanced.capabilities)
             .map(Into::into)
             .unwrap_or_default();
+        let service_visibility = js_opts
+            .service_visibility
+            .as_deref()
+            .map(str::parse::<ServiceVisibility>)
+            .transpose()?;
         let secrets = js_opts
             .secrets
             .unwrap_or_default()
@@ -464,7 +470,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
-            allow_public_traffic: js_opts.allow_public_traffic,
+            service_visibility,
             ports,
             auto_remove,
             advanced: AdvancedBoxOptions {
@@ -759,7 +765,7 @@ mod tests {
                 mode: "enabled".into(),
                 allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
             }),
-            allow_public_traffic: Some(true),
+            service_visibility: Some("public".into()),
             ports: None,
             auto_remove: None,
             auto_stop: None,
@@ -804,7 +810,7 @@ mod tests {
         assert_eq!(opts.auto_delete, None);
         assert!(opts.advanced.capabilities.add.is_empty());
         assert!(opts.advanced.capabilities.drop.is_empty());
-        assert_eq!(opts.allow_public_traffic, Some(true));
+        assert_eq!(opts.service_visibility, Some(ServiceVisibility::Public));
         match opts.network {
             NetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
@@ -825,7 +831,7 @@ mod tests {
             env: None,
             volumes: None,
             network: None,
-            allow_public_traffic: None,
+            service_visibility: None,
             ports: None,
             auto_remove: None,
             auto_stop: None,

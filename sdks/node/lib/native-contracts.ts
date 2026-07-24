@@ -140,8 +140,8 @@ export interface JsBoxOptions {
   env?: JsEnvVar[];
   volumes?: JsVolumeSpec[];
   network?: JsNetworkSpec;
-  /** Whether box services may receive public inbound traffic through the remote proxy. */
-  allowPublicTraffic?: boolean;
+  /** Whether service preview endpoints are public or private. */
+  serviceVisibility?: "public" | "private";
   ports?: JsPortSpec[];
   /**
    * @deprecated Use autoDelete. Preserved for embedded remove-on-stop

@@ -329,11 +329,10 @@ pub struct BoxOptions {
     pub rootfs: RootfsSpec,
     pub volumes: Vec<VolumeSpec>,
     pub network: NetworkSpec,
-    /// Whether services running inside the box may receive public inbound
-    /// traffic through the remote proxy. `None` lets the REST control plane use
-    /// its default policy.
+    /// Whether service preview endpoints are public or private. `None` lets the
+    /// REST control plane use its default policy.
     #[serde(default)]
-    pub allow_public_traffic: Option<bool>,
+    pub service_visibility: Option<ServiceVisibility>,
     /// Explicit host publication for the local runtime.
     ///
     /// Remote runtimes reject port mappings; use a box network tunnel for
@@ -530,7 +529,7 @@ impl Default for BoxOptions {
             rootfs: RootfsSpec::default(),
             volumes: Vec::new(),
             network: NetworkSpec::default(),
-            allow_public_traffic: None,
+            service_visibility: None,
             ports: Vec::new(),
             auto_remove: default_auto_remove(),
             auto_stop: None,
@@ -707,6 +706,38 @@ impl From<&NetworkSpec> for NetworkConfig {
                 mode: NetworkMode::Disabled,
                 allow_net: Vec::new(),
             },
+        }
+    }
+}
+
+/// Inbound service preview visibility for remote boxes.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceVisibility {
+    Public,
+    Private,
+}
+
+impl std::str::FromStr for ServiceVisibility {
+    type Err = boxlite_shared::errors::BoxliteError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "public" => Ok(Self::Public),
+            "private" => Ok(Self::Private),
+            _ => Err(boxlite_shared::errors::BoxliteError::Config(format!(
+                "invalid service_visibility {:?}. Expected \"public\" or \"private\".",
+                value
+            ))),
+        }
+    }
+}
+
+impl ServiceVisibility {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private => "private",
         }
     }
 }
@@ -1359,9 +1390,9 @@ mod tests {
     }
 
     #[test]
-    fn test_allow_public_traffic_defaults_to_server_policy() {
+    fn test_service_visibility_defaults_to_server_policy() {
         let opts = BoxOptions::default();
-        assert_eq!(opts.allow_public_traffic, None);
+        assert_eq!(opts.service_visibility, None);
     }
 
     #[test]
