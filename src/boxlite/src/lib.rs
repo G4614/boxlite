@@ -53,8 +53,8 @@ pub use runtime::advanced_options::{
 };
 pub use runtime::options::{
     BoxArchive, BoxOptions, BoxliteOptions, CloneOptions, ExportOptions, ImageRegistry,
-    ImageRegistryAuth, NetworkMode, NetworkSpec, PortProtocol, RegistryTransport, RootfsSpec,
-    Secret, SnapshotOptions,
+    ImageRegistryAuth, InboundNetworkSpec, NetworkMode, NetworkSpec, OutboundNetworkSpec,
+    PortProtocol, RegistryTransport, RootfsSpec, Secret, ServiceAccess, SnapshotOptions,
 };
 /// Boxlite library version (from CARGO_PKG_VERSION at compile time).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

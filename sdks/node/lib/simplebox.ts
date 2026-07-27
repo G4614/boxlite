@@ -103,6 +103,9 @@ export interface NetworkSpec {
 
   /** Outbound allowlist when network is enabled. */
   allowNet?: string[];
+
+  /** Whether inbound service endpoints are public or private. */
+  serviceAccess?: "public" | "private";
 }
 
 const MAX_SAFE_U64_NUMBER = Number.MAX_SAFE_INTEGER;
@@ -227,9 +230,6 @@ export interface SimpleBoxOptions {
 
   /** Structured network configuration. */
   network?: NetworkSpec;
-
-  /** Whether service preview endpoints are public or private. */
-  serviceAccess?: "public" | "private";
 
   /** Secrets to inject into outbound HTTPS requests. */
   secrets?: Secret[];
@@ -419,7 +419,6 @@ export class SimpleBox {
         : undefined,
       volumes: options.volumes,
       network: options.network,
-      serviceAccess: options.serviceAccess,
       ports: options.ports,
       entrypoint: options.entrypoint,
       cmd: options.cmd,

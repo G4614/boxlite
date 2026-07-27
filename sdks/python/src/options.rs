@@ -6,7 +6,7 @@ use boxlite::runtime::advanced_options::{HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
     BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, ServiceAccess, VolumeSpec,
+    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, VolumeSpec,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -253,20 +253,26 @@ pub(crate) struct PyNetworkSpec {
     pub(crate) mode: String,
     #[pyo3(get, set)]
     pub(crate) allow_net: Vec<String>,
+    #[pyo3(get, set)]
+    pub(crate) service_access: Option<String>,
 }
 
 #[pymethods]
 impl PyNetworkSpec {
     #[new]
-    #[pyo3(signature = (mode, allow_net=vec![]))]
-    fn new(mode: String, allow_net: Vec<String>) -> Self {
-        Self { mode, allow_net }
+    #[pyo3(signature = (mode, allow_net=vec![], service_access=None))]
+    fn new(mode: String, allow_net: Vec<String>, service_access: Option<String>) -> Self {
+        Self {
+            mode,
+            allow_net,
+            service_access,
+        }
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "NetworkSpec(mode={:?}, allow_net={:?})",
-            self.mode, self.allow_net
+            "NetworkSpec(mode={:?}, allow_net={:?}, service_access={:?})",
+            self.mode, self.allow_net, self.service_access
         )
     }
 }
@@ -279,6 +285,11 @@ impl TryFrom<PyNetworkSpec> for NetworkSpec {
         NetworkSpec::try_from(NetworkConfig {
             mode,
             allow_net: py_spec.allow_net,
+            service_access: py_spec
+                .service_access
+                .as_deref()
+                .map(str::parse)
+                .transpose()?,
         })
     }
 }
@@ -382,8 +393,6 @@ pub(crate) struct PyBoxOptions {
     pub(crate) volumes: Vec<PyVolumeSpec>,
     #[pyo3(get, set)]
     pub(crate) network: Option<PyNetworkSpec>,
-    #[pyo3(get, set)]
-    pub(crate) service_access: Option<String>,
     pub(crate) ports: Vec<PyPortSpec>,
     /// Deprecated compatibility option; use auto_delete.
     #[pyo3(get, set)]
@@ -432,7 +441,6 @@ impl PyBoxOptions {
         env=vec![],
         volumes=vec![],
         network=None,
-        service_access=None,
         ports=vec![],
         auto_remove=None,
         auto_stop=None,
@@ -456,7 +464,6 @@ impl PyBoxOptions {
         env: Vec<(String, String)>,
         volumes: Vec<PyVolumeSpec>,
         network: Option<PyNetworkSpec>,
-        service_access: Option<String>,
         ports: Vec<PyPortSpec>,
         auto_remove: Option<bool>,
         auto_stop: Option<u32>,
@@ -479,7 +486,6 @@ impl PyBoxOptions {
             env,
             volumes,
             network,
-            service_access,
             ports,
             auto_remove,
             auto_stop,
@@ -521,11 +527,6 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
         };
 
         let ports = py_opts.ports.into_iter().map(PortSpec::from).collect();
-        let service_access = py_opts
-            .service_access
-            .as_deref()
-            .map(str::parse::<ServiceAccess>)
-            .transpose()?;
 
         // Convert image/rootfs_path to RootfsSpec
         let rootfs = match &py_opts.rootfs_path {
@@ -548,7 +549,6 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
-            service_access,
             ports,
             auto_stop: py_opts.auto_stop,
             auto_delete,

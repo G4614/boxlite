@@ -652,6 +652,7 @@ impl NetworkFlags {
         opts.network = NetworkSpec::try_from(NetworkConfig {
             mode,
             allow_net: self.allow_net.clone(),
+            service_access: None,
         })?;
         Ok(())
     }
@@ -983,6 +984,7 @@ impl ManagementFlags {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boxlite::runtime::options::OutboundNetworkSpec;
     use clap::CommandFactory;
     use std::fs;
     use std::path::PathBuf;
@@ -1358,7 +1360,7 @@ mod tests {
             .expect("no-op apply");
 
         assert!(
-            matches!(opts.network, NetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
+            matches!(opts.network.outbound, OutboundNetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
         );
     }
 
@@ -1370,7 +1372,10 @@ mod tests {
             .apply_to(&mut opts)
             .expect("disabled is valid");
 
-        assert!(matches!(opts.network, NetworkSpec::Disabled));
+        assert!(matches!(
+            opts.network.outbound,
+            OutboundNetworkSpec::Disabled
+        ));
     }
 
     #[test]
@@ -1382,8 +1387,8 @@ mod tests {
             .apply_to(&mut opts)
             .expect("allow-net implies enabled");
 
-        match opts.network {
-            NetworkSpec::Enabled { allow_net } => {
+        match opts.network.outbound {
+            OutboundNetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["api.openai.com", "10.0.0.0/8"]);
             }
             other => panic!("expected Enabled with allowlist, got {other:?}"),
@@ -1698,7 +1703,7 @@ mod tests {
         let Commands::Network(network) = cli.command else {
             panic!("expected Commands::Network");
         };
-        let crate::commands::network::NetworkCommand::Tunnel(args) = network.command;
+        let NetworkCommand::Tunnel(args) = network.command;
         assert_eq!(args.target, "mybox");
         assert_eq!(args.port, 3000);
     }

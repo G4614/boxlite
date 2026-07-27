@@ -329,10 +329,6 @@ pub struct BoxOptions {
     pub rootfs: RootfsSpec,
     pub volumes: Vec<VolumeSpec>,
     pub network: NetworkSpec,
-    /// Whether service preview endpoints are public or private. `None` lets the
-    /// REST control plane use its default policy.
-    #[serde(default)]
-    pub service_access: Option<ServiceAccess>,
     /// Explicit host publication for the local runtime.
     ///
     /// Remote runtimes reject port mappings; use a box network tunnel for
@@ -529,7 +525,6 @@ impl Default for BoxOptions {
             rootfs: RootfsSpec::default(),
             volumes: Vec::new(),
             network: NetworkSpec::default(),
-            service_access: None,
             ports: Vec::new(),
             auto_remove: default_auto_remove(),
             auto_stop: None,
@@ -586,7 +581,8 @@ impl BoxOptions {
 
         self.advanced.capabilities.validate()?;
 
-        if matches!(self.network, NetworkSpec::Disabled) && !self.ports.is_empty() {
+        if matches!(self.network.outbound, OutboundNetworkSpec::Disabled) && !self.ports.is_empty()
+        {
             return Err(boxlite_shared::errors::BoxliteError::Config(
                 "ports require network.mode=\"enabled\"".to_string(),
             ));
@@ -670,41 +666,65 @@ impl std::str::FromStr for NetworkMode {
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkConfig {
+    #[serde(default)]
+    pub outbound: OutboundNetworkConfig,
+    #[serde(default)]
+    pub inbound: InboundNetworkConfig,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutboundNetworkConfig {
     pub mode: NetworkMode,
     #[serde(default)]
     pub allow_net: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InboundNetworkConfig {
+    /// Whether inbound service endpoints are public or private. `None` lets the
+    /// REST control plane use its default policy.
+    #[serde(default)]
+    pub service_access: Option<ServiceAccess>,
 }
 
 impl TryFrom<NetworkConfig> for NetworkSpec {
     type Error = boxlite_shared::errors::BoxliteError;
 
     fn try_from(config: NetworkConfig) -> Result<Self, Self::Error> {
-        match config.mode {
-            NetworkMode::Enabled => Ok(Self::Enabled {
-                allow_net: config.allow_net,
-            }),
-            NetworkMode::Disabled if !config.allow_net.is_empty() => {
-                Err(boxlite_shared::errors::BoxliteError::Config(
+        let outbound = match config.outbound.mode {
+            NetworkMode::Enabled => OutboundNetworkSpec::Enabled {
+                allow_net: config.outbound.allow_net,
+            },
+            NetworkMode::Disabled if !config.outbound.allow_net.is_empty() => {
+                return Err(boxlite_shared::errors::BoxliteError::Config(
                     "network.mode=\"disabled\" is incompatible with allow_net. \
                      Remove allow_net or use mode=\"enabled\"."
                         .to_string(),
-                ))
+                ));
             }
-            NetworkMode::Disabled => Ok(Self::Disabled),
-        }
+            NetworkMode::Disabled => OutboundNetworkSpec::Disabled,
+        };
+        Ok(Self {
+            outbound,
+            inbound: InboundNetworkSpec {
+                service_access: config.inbound.service_access,
+            },
+        })
     }
 }
 
 impl From<&NetworkSpec> for NetworkConfig {
     fn from(spec: &NetworkSpec) -> Self {
-        match spec {
-            NetworkSpec::Enabled { allow_net } => Self {
-                mode: NetworkMode::Enabled,
-                allow_net: allow_net.clone(),
-            },
-            NetworkSpec::Disabled => Self {
-                mode: NetworkMode::Disabled,
-                allow_net: Vec::new(),
+        let (mode, allow_net) = match &spec.outbound {
+            OutboundNetworkSpec::Enabled { allow_net } => (NetworkMode::Enabled, allow_net.clone()),
+            OutboundNetworkSpec::Disabled => (NetworkMode::Disabled, Vec::new()),
+        };
+        Self {
+            outbound: OutboundNetworkConfig { mode, allow_net },
+            inbound: InboundNetworkConfig {
+                service_access: spec.inbound.service_access.clone(),
             },
         }
     }
@@ -744,8 +764,11 @@ impl ServiceAccess {
 
 /// Internal Rust network configuration for a box.
 ///
-/// Controls whether the box has network access and what hosts it can reach.
+/// Separates outbound guest egress from inbound service access policy so future
+/// inbound restrictions (for example CIDR allowlists) can evolve without
+/// overloading outbound network mode.
 ///
+/// Outbound examples:
 /// - `Enabled { allow_net: [] }` — full internet access (default)
 /// - `Enabled { allow_net: ["api.openai.com"] }` — only listed hosts reachable
 /// - `Disabled` — no network interface at all
@@ -769,8 +792,50 @@ impl ServiceAccess {
 ///
 /// The gateway's DNS resolver and DHCP are unaffected: they are internal
 /// services, not egress.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct NetworkSpec {
+    #[serde(default)]
+    pub outbound: OutboundNetworkSpec,
+    #[serde(default)]
+    pub inbound: InboundNetworkSpec,
+}
+
+impl<'de> serde::Deserialize<'de> for NetworkSpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct CurrentNetworkSpec {
+            #[serde(default)]
+            outbound: OutboundNetworkSpec,
+            #[serde(default)]
+            inbound: InboundNetworkSpec,
+        }
+
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum NetworkSpecWire {
+            Legacy(OutboundNetworkSpec),
+            Current(CurrentNetworkSpec),
+        }
+
+        match NetworkSpecWire::deserialize(deserializer)? {
+            NetworkSpecWire::Legacy(outbound) => Ok(Self {
+                outbound,
+                inbound: InboundNetworkSpec::default(),
+            }),
+            NetworkSpecWire::Current(current) => Ok(Self {
+                outbound: current.outbound,
+                inbound: current.inbound,
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum NetworkSpec {
+pub enum OutboundNetworkSpec {
     /// Network enabled. Empty `allow_net` = full access.
     /// Non-empty = only listed hosts/IPs allowed (DNS sinkhole for others).
     Enabled {
@@ -781,11 +846,38 @@ pub enum NetworkSpec {
     Disabled,
 }
 
-impl Default for NetworkSpec {
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct InboundNetworkSpec {
+    #[serde(default)]
+    pub service_access: Option<ServiceAccess>,
+}
+
+impl Default for OutboundNetworkSpec {
     fn default() -> Self {
         Self::Enabled {
             allow_net: Vec::new(),
         }
+    }
+}
+
+impl NetworkSpec {
+    pub fn enabled(allow_net: Vec<String>) -> Self {
+        Self {
+            outbound: OutboundNetworkSpec::Enabled { allow_net },
+            inbound: InboundNetworkSpec::default(),
+        }
+    }
+
+    pub fn disabled() -> Self {
+        Self {
+            outbound: OutboundNetworkSpec::Disabled,
+            inbound: InboundNetworkSpec::default(),
+        }
+    }
+
+    pub fn with_service_access(mut self, service_access: Option<ServiceAccess>) -> Self {
+        self.inbound.service_access = service_access;
+        self
     }
 }
 
@@ -1280,7 +1372,10 @@ mod tests {
             "rootfs": {"Image": "alpine:latest"},
             "env": [],
             "volumes": [],
-            "network": {"Enabled": {"allow_net": []}},
+            "network": {
+                "outbound": {"Enabled": {"allow_net": []}},
+                "inbound": {}
+            },
             "ports": []
         }"#;
         let opts: BoxOptions = serde_json::from_str(json).unwrap();
@@ -1295,7 +1390,10 @@ mod tests {
             "rootfs": {"Image": "alpine"},
             "env": [],
             "volumes": [],
-            "network": {"Enabled": {"allow_net": []}},
+            "network": {
+                "outbound": {"Enabled": {"allow_net": []}},
+                "inbound": {}
+            },
             "ports": [],
             "auto_delete": 0,
             "detach": true
@@ -1359,15 +1457,17 @@ mod tests {
         let spec = NetworkSpec::try_from(NetworkConfig {
             mode: NetworkMode::Enabled,
             allow_net: vec!["example.com".to_string()],
+            service_access: Some(ServiceAccess::Public),
         })
         .unwrap();
 
-        match spec {
-            NetworkSpec::Enabled { allow_net } => {
+        match spec.outbound {
+            OutboundNetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com".to_string()]);
             }
-            NetworkSpec::Disabled => panic!("expected enabled network spec"),
+            OutboundNetworkSpec::Disabled => panic!("expected enabled network spec"),
         }
+        assert_eq!(spec.inbound.service_access, Some(ServiceAccess::Public));
     }
 
     #[test]
@@ -1375,6 +1475,7 @@ mod tests {
         let err = NetworkSpec::try_from(NetworkConfig {
             mode: NetworkMode::Disabled,
             allow_net: vec!["example.com".to_string()],
+            service_access: None,
         })
         .unwrap_err()
         .to_string();
@@ -1384,15 +1485,35 @@ mod tests {
 
     #[test]
     fn test_network_spec_converts_to_public_network_config() {
-        let config = NetworkConfig::from(&NetworkSpec::Disabled);
+        let config = NetworkConfig::from(&NetworkSpec::disabled());
         assert_eq!(config.mode, NetworkMode::Disabled);
         assert!(config.allow_net.is_empty());
     }
 
     #[test]
+    fn test_network_spec_deserializes_legacy_enabled_shape() {
+        let spec: NetworkSpec =
+            serde_json::from_str(r#"{"Enabled":{"allow_net":["api.openai.com"]}}"#).unwrap();
+        match spec.outbound {
+            OutboundNetworkSpec::Enabled { allow_net } => {
+                assert_eq!(allow_net, vec!["api.openai.com"]);
+            }
+            OutboundNetworkSpec::Disabled => panic!("legacy enabled shape should stay enabled"),
+        }
+        assert_eq!(spec.inbound.service_access, None);
+    }
+
+    #[test]
+    fn test_network_spec_deserializes_legacy_disabled_shape() {
+        let spec: NetworkSpec = serde_json::from_str(r#""Disabled""#).unwrap();
+        assert!(matches!(spec.outbound, OutboundNetworkSpec::Disabled));
+        assert_eq!(spec.inbound.service_access, None);
+    }
+
+    #[test]
     fn test_service_access_defaults_to_server_policy() {
         let opts = BoxOptions::default();
-        assert_eq!(opts.service_access, None);
+        assert_eq!(opts.network.inbound.service_access, None);
     }
 
     #[test]
@@ -1686,7 +1807,10 @@ mod tests {
             "rootfs": {"Image": "alpine:latest"},
             "env": [],
             "volumes": [],
-            "network": {"Enabled": {"allow_net": []}},
+            "network": {
+                "outbound": {"Enabled": {"allow_net": []}},
+                "inbound": {}
+            },
             "ports": []
         }"#;
         let opts: BoxOptions = serde_json::from_str(json).unwrap();
@@ -1706,7 +1830,10 @@ mod tests {
             "rootfs": {"Image": "docker:dind"},
             "env": [],
             "volumes": [],
-            "network": {"Enabled": {"allow_net": []}},
+            "network": {
+                "outbound": {"Enabled": {"allow_net": []}},
+                "inbound": {}
+            },
             "ports": [],
             "cmd": ["--iptables=false"],
             "user": "1000:1000"
@@ -1743,7 +1870,10 @@ mod tests {
             "rootfs": {"Image": "alpine:latest"},
             "env": [],
             "volumes": [],
-            "network": {"Enabled": {"allow_net": []}},
+            "network": {
+                "outbound": {"Enabled": {"allow_net": []}},
+                "inbound": {}
+            },
             "ports": []
         }"#;
         let opts: BoxOptions = serde_json::from_str(json).unwrap();
@@ -1759,7 +1889,10 @@ mod tests {
             "rootfs": {"Image": "docker:dind"},
             "env": [],
             "volumes": [],
-            "network": {"Enabled": {"allow_net": []}},
+            "network": {
+                "outbound": {"Enabled": {"allow_net": []}},
+                "inbound": {}
+            },
             "ports": [],
             "entrypoint": ["dockerd"],
             "cmd": ["--iptables=false"]
@@ -1921,7 +2054,10 @@ mod tests {
             "rootfs": {"Image": "alpine:latest"},
             "env": [],
             "volumes": [],
-            "network": {"Enabled": {"allow_net": []}},
+            "network": {
+                "outbound": {"Enabled": {"allow_net": []}},
+                "inbound": {}
+            },
             "ports": []
         }"#;
         let opts: BoxOptions = serde_json::from_str(json).unwrap();

@@ -23,7 +23,6 @@ use tokio::sync::RwLock;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
-use boxlite::runtime::options::ServiceAccess;
 use boxlite::runtime::options::{NetworkConfig, NetworkMode};
 use boxlite::{
     BoxCommand, BoxInfo, BoxOptions, BoxliteRuntime, ExecStdin, Execution, LiteBox, NetworkSpec,
@@ -743,15 +742,14 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         Some(network) => NetworkSpec::try_from(NetworkConfig {
             mode: network.mode.parse::<NetworkMode>()?,
             allow_net: network.allow_net.clone(),
+            service_access: network
+                .service_access
+                .as_deref()
+                .map(str::parse)
+                .transpose()?,
         })?,
         None => NetworkSpec::default(),
     };
-    let service_access = req
-        .network
-        .as_ref()
-        .and_then(|network| network.service_access.as_deref())
-        .map(str::parse::<ServiceAccess>)
-        .transpose()?;
 
     // SecurityOptions is deliberately NOT client-configurable over
     // REST: sandbox security is the operator's policy. The server
@@ -769,7 +767,6 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         working_dir: req.working_dir.clone(),
         env,
         network,
-        service_access,
         entrypoint: req.entrypoint.clone(),
         cmd: req.cmd.clone(),
         user: req.user.clone(),
@@ -1255,6 +1252,7 @@ pub async fn execute(args: ServeArgs, global: &GlobalFlags) -> anyhow::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boxlite::runtime::options::ServiceAccess;
     use std::time::Duration;
 
     // --- API-key auth decision (pure; no runtime/network needed) ---
@@ -1387,7 +1385,10 @@ mod tests {
         )
         .expect("body with service_access must deserialize");
         let opts = build_box_options(&req).expect("build");
-        assert_eq!(opts.service_access, Some(ServiceAccess::Private));
+        assert_eq!(
+            opts.network.inbound.service_access,
+            Some(ServiceAccess::Private)
+        );
     }
 
     #[test]

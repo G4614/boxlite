@@ -72,8 +72,6 @@ export interface SkillBoxOptions {
   autoRemove?: boolean;
   /** Structured network configuration. */
   network?: NetworkSpec;
-  /** Whether service preview endpoints are public or private. */
-  serviceAccess?: "public" | "private";
   /** Secrets to inject into outbound HTTPS requests. */
   secrets?: Secret[];
   /** Optional runtime instance */
@@ -173,7 +171,6 @@ export class SkillBox extends SimpleBox {
       name: options.name ?? "skill-box",
       autoRemove: options.autoRemove ?? true,
       network: options.network,
-      serviceAccess: options.serviceAccess,
       secrets: options.secrets,
       runtime: options.runtime,
       env: {

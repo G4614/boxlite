@@ -5,8 +5,7 @@ use boxlite::runtime::advanced_options::{AdvancedBoxOptions, HealthCheckOptions,
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
     BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret, ServiceAccess,
-    VolumeSpec,
+    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret, VolumeSpec,
 };
 use napi::bindgen_prelude::Error;
 use napi_derive::napi;
@@ -193,10 +192,6 @@ pub struct JsBoxOptions {
     /// Structured network configuration.
     pub network: Option<JsNetworkSpec>,
 
-    /// Whether service preview endpoints are "public" or "private".
-    #[napi(js_name = "serviceAccess")]
-    pub service_access: Option<String>,
-
     /// Port mappings as array of port specs
     pub ports: Option<Vec<JsPortSpec>>,
 
@@ -336,6 +331,10 @@ pub struct JsNetworkSpec {
     /// CIDR to keep UDP open.
     #[napi(js_name = "allowNet")]
     pub allow_net: Option<Vec<String>>,
+
+    /// Whether inbound service endpoints are "public" or "private".
+    #[napi(js_name = "serviceAccess")]
+    pub service_access: Option<String>,
 }
 
 impl From<JsPortSpec> for PortSpec {
@@ -378,6 +377,11 @@ impl TryFrom<JsNetworkSpec> for NetworkSpec {
         NetworkSpec::try_from(NetworkConfig {
             mode,
             allow_net: js_spec.allow_net.unwrap_or_default(),
+            service_access: js_spec
+                .service_access
+                .as_deref()
+                .map(str::parse)
+                .transpose()?,
         })
     }
 }
@@ -442,11 +446,6 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             .and_then(|advanced| advanced.capabilities)
             .map(Into::into)
             .unwrap_or_default();
-        let service_access = js_opts
-            .service_access
-            .as_deref()
-            .map(str::parse::<ServiceAccess>)
-            .transpose()?;
         let secrets = js_opts
             .secrets
             .unwrap_or_default()
@@ -470,7 +469,6 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
-            service_access,
             ports,
             auto_remove,
             advanced: AdvancedBoxOptions {
@@ -764,8 +762,8 @@ mod tests {
             network: Some(JsNetworkSpec {
                 mode: "enabled".into(),
                 allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
+                service_access: Some("public".into()),
             }),
-            service_access: Some("public".into()),
             ports: None,
             auto_remove: None,
             auto_stop: None,
@@ -810,12 +808,17 @@ mod tests {
         assert_eq!(opts.auto_delete, None);
         assert!(opts.advanced.capabilities.add.is_empty());
         assert!(opts.advanced.capabilities.drop.is_empty());
-        assert_eq!(opts.service_access, Some(ServiceAccess::Public));
-        match opts.network {
-            NetworkSpec::Enabled { allow_net } => {
+        assert_eq!(
+            opts.network.inbound.service_access,
+            Some(boxlite::runtime::options::ServiceAccess::Public)
+        );
+        match opts.network.outbound {
+            boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
             }
-            NetworkSpec::Disabled => panic!("network should be enabled"),
+            boxlite::runtime::options::OutboundNetworkSpec::Disabled => {
+                panic!("network should be enabled")
+            }
         }
     }
 
@@ -831,7 +834,6 @@ mod tests {
             env: None,
             volumes: None,
             network: None,
-            service_access: None,
             ports: None,
             auto_remove: None,
             auto_stop: None,
@@ -864,6 +866,7 @@ mod tests {
         let err = NetworkSpec::try_from(JsNetworkSpec {
             mode: "disabled".into(),
             allow_net: Some(vec!["example.com".into()]),
+            service_access: None,
         })
         .unwrap_err();
 

@@ -96,7 +96,10 @@ async def test_box_options_service_access_controls_preview_access(
         boxlite.BoxOptions(
             image=image,
             auto_remove=True,
-            service_access=service_access,
+            network=boxlite.NetworkSpec(
+                mode="enabled",
+                service_access=service_access,
+            ),
         ),
     )
     try:

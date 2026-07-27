@@ -175,10 +175,7 @@ impl CreateBoxRequest {
             disk_size_gb: options.disk_size_gb,
             working_dir: options.working_dir.clone(),
             env,
-            network: Some(CreateBoxNetworkSpec::from_options(
-                &options.network,
-                options.service_access.as_ref(),
-            )),
+            network: Some(CreateBoxNetworkSpec::from_options(&options.network)),
             entrypoint: options.entrypoint.clone(),
             cmd: options.cmd.clone(),
             user: options.user.clone(),
@@ -215,10 +212,7 @@ pub(crate) struct CreateBoxNetworkSpec {
 }
 
 impl CreateBoxNetworkSpec {
-    fn from_options(
-        spec: &crate::runtime::options::NetworkSpec,
-        service_access: Option<&crate::runtime::options::ServiceAccess>,
-    ) -> Self {
+    fn from_options(spec: &crate::runtime::options::NetworkSpec) -> Self {
         let config = crate::runtime::options::NetworkConfig::from(spec);
         let mode = match config.mode {
             crate::runtime::options::NetworkMode::Enabled => "enabled",
@@ -227,7 +221,7 @@ impl CreateBoxNetworkSpec {
         Self {
             mode: mode.to_string(),
             allow_net: config.allow_net,
-            service_access: service_access.map(|access| access.as_str().into()),
+            service_access: config.service_access.map(|access| access.as_str().into()),
         }
     }
 }
@@ -640,10 +634,8 @@ mod tests {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
             cpus: Some(4),
             memory_mib: Some(1024),
-            network: NetworkSpec::Enabled {
-                allow_net: vec!["api.openai.com".into()],
-            },
-            service_access: Some(crate::runtime::options::ServiceAccess::Private),
+            network: NetworkSpec::enabled(vec!["api.openai.com".into()])
+                .with_service_access(Some(crate::runtime::options::ServiceAccess::Private)),
             secrets: vec![Secret {
                 name: "openai".into(),
                 value: "sk-test".into(),
@@ -741,7 +733,7 @@ mod tests {
 
         let opts = BoxOptions {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
-            network: NetworkSpec::Disabled,
+            network: NetworkSpec::disabled(),
             ..Default::default()
         };
 

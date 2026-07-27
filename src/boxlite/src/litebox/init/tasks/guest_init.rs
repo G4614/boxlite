@@ -11,6 +11,7 @@ use crate::net::constants::{GATEWAY_IP, GUEST_CIDR, GUEST_INTERFACE};
 use crate::pipeline::PipelineTask;
 use crate::portal::GuestSession;
 use crate::portal::interfaces::{ContainerInitConfig, GuestInitConfig, NetworkInitConfig};
+use crate::runtime::options::OutboundNetworkSpec;
 use async_trait::async_trait;
 use boxlite_shared::ContainerDevice;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
@@ -63,13 +64,13 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                 .take()
                 .ok_or_else(|| BoxliteError::Internal("vmm_spawn task must run first".into()))?;
 
-            let network = match &ctx.config.options.network {
-                crate::runtime::options::NetworkSpec::Enabled { .. } => Some(NetworkInitConfig {
+            let network = match &ctx.config.options.network.outbound {
+                OutboundNetworkSpec::Enabled { .. } => Some(NetworkInitConfig {
                     interface: GUEST_INTERFACE.to_string(),
                     ip: Some(GUEST_CIDR.to_string()),
                     gateway: Some(GATEWAY_IP.to_string()),
                 }),
-                crate::runtime::options::NetworkSpec::Disabled => None,
+                OutboundNetworkSpec::Disabled => None,
             };
             let bootstrap = GuestBootstrapConfig {
                 guest: GuestInitConfig {

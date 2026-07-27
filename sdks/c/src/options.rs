@@ -1,7 +1,8 @@
 use std::os::raw::{c_char, c_int};
 
 use boxlite::runtime::options::{
-    BoxOptions, NetworkSpec, PortProtocol, PortSpec, RootfsSpec, Secret, VolumeSpec,
+    BoxOptions, NetworkSpec, OutboundNetworkSpec, PortProtocol, PortSpec, RootfsSpec, Secret,
+    VolumeSpec,
 };
 
 use crate::error::{BoxliteErrorCode, FFIError, null_pointer_error, write_error};
@@ -403,9 +404,7 @@ pub unsafe fn options_add_port(
 pub unsafe fn options_set_network_enabled(handle: *mut OptionsHandle) {
     unsafe {
         if !handle.is_null() {
-            (*handle).options.network = NetworkSpec::Enabled {
-                allow_net: Vec::new(),
-            };
+            (*handle).options.network = NetworkSpec::enabled(Vec::new());
         }
     }
 }
@@ -413,7 +412,7 @@ pub unsafe fn options_set_network_enabled(handle: *mut OptionsHandle) {
 pub unsafe fn options_set_network_disabled(handle: *mut OptionsHandle) {
     unsafe {
         if !handle.is_null() {
-            (*handle).options.network = NetworkSpec::Disabled;
+            (*handle).options.network = NetworkSpec::disabled();
         }
     }
 }
@@ -424,7 +423,8 @@ pub unsafe fn options_add_network_allow(handle: *mut OptionsHandle, host: *const
             return;
         }
         if let Ok(h) = c_str_to_string(host)
-            && let NetworkSpec::Enabled { allow_net } = &mut (*handle).options.network
+            && let OutboundNetworkSpec::Enabled { allow_net } =
+                &mut (*handle).options.network.outbound
         {
             allow_net.push(h);
         }

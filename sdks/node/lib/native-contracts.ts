@@ -86,6 +86,8 @@ export interface JsVolumeSpec {
 export interface JsNetworkSpec {
   mode: "enabled" | "disabled";
   allowNet?: string[];
+  /** Whether inbound service endpoints are public or private. */
+  serviceAccess?: "public" | "private";
 }
 
 export interface JsPortSpec {
@@ -140,8 +142,6 @@ export interface JsBoxOptions {
   env?: JsEnvVar[];
   volumes?: JsVolumeSpec[];
   network?: JsNetworkSpec;
-  /** Whether service preview endpoints are public or private. */
-  serviceAccess?: "public" | "private";
   ports?: JsPortSpec[];
   /**
    * @deprecated Use autoDelete. Preserved for embedded remove-on-stop
