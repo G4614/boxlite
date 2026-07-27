@@ -12,8 +12,25 @@
 # Does NOT build or deploy the API or runner — the dev stack is
 # assumed to be already running the version you want to test against.
 #
-# Authentication: boxlite API key stored as GitHub repo secret
-# `BOXLITE_DEV_API_KEY`. No AWS credentials needed.
+# Authentication: GitHub OIDC → AWS STS → SSM, same account model as
+# e2e-local. The credential is the dev stack's ADMIN_API_KEY, which the
+# API provisions for itself on boot: initializeAdminUser() creates the
+# fixed `boxlite-admin` user and calls ensureApiKeyValue() with the env
+# value (apps/api/src/app.service.ts). bootstrap.sh does the identical
+# thing locally, minting ADMIN_API_KEY into /etc/boxlite-secrets.env.
+#
+# This replaces a repo secret holding a key issued to a *person*. Every
+# API key is primary-keyed on (organizationId, userId, name), and
+# ApiKeyStrategy re-reads the user on each request and 401s with
+# "User not found" if it is gone — so a personal key dies when its owner
+# is offboarded. `boxlite-admin` cannot die that way: it is recreated on
+# the next API boot if deleted.
+#
+# Required GitHub repo variables (Settings → Variables → Actions):
+#   - AWS_E2E_DEV_REGION       (optional, defaults to ap-southeast-1)
+#   - AWS_E2E_DEV_ROLE_ARN     (arn:aws:iam::<acct>:role/boxlite-e2e-dev-github-actions)
+# Required AWS resources:
+#   - SSM parameter `/boxlite/dev/admin-api-key` (SecureString)
 #
 # Triggers mirror e2e-local: push on main, a label-gated PR trigger, and
 # manual dispatch. The `e2e-dev` label is the cost gate — every run
@@ -21,13 +38,19 @@
 #
 # Fork PRs: DENIED, and this is the one place the model diverges from
 # e2e-local. There, untrusted code runs in a job holding no secrets, so a
-# maintainer label is purely a cost decision. Here the pytest suite needs
-# BOXLITE_DEV_API_KEY in the same job that builds and runs the PR's own
-# code, so a labeled fork run would hand arbitrary code the dev API key —
-# a conftest.py is enough. The event is still pull_request_target with
-# head-SHA pinning so the trigger surface matches e2e-local and forks can
-# be enabled later by relaxing one branch in `should-run`, but that must
-# not happen until the credential is out of the untrusted job.
+# maintainer label is purely a cost decision. Here the suite needs the
+# admin key in the same job that builds and runs the PR's own code, and
+# GitHub has no secret-safe way to hand a credential from a privileged
+# job to an unprivileged one — job outputs are plaintext. So a labeled
+# fork run would give arbitrary code a SystemRole.ADMIN credential for
+# the dev stack; a conftest.py is enough to exfiltrate it. Same-repo PRs
+# are allowed because their authors already have write access.
+#
+# The event is still pull_request_target with head-SHA pinning so the
+# trigger surface matches e2e-local. Enabling forks needs more than
+# relaxing `should-run`: the run would first have to mint a scoped,
+# short-lived key off the admin key (CreateApiKeyDto takes `permissions`
+# and `expiresAt`) and pass only that to the test step.
 #
 # Runbook: docs/ci/e2e-local.md covers the shared label/gate mechanics.
 
@@ -90,12 +113,15 @@ concurrency:
 env:
   BOXLITE_DEPS_STUB: "1"
   API_URL: ${{ inputs.api_url || 'https://api.dev.boxlite.ai/api' }}
+  STAGE: dev
+  AWS_REGION: ${{ vars.AWS_E2E_DEV_REGION || 'ap-southeast-1' }}
+  AWS_ROLE_ARN: ${{ vars.AWS_E2E_DEV_ROLE_ARN }}
 
 jobs:
   # =========================================================================
   # Gate: PRs require the 'e2e-dev' label (only maintainers can add it).
   # Same-repo PRs re-run while labeled. Fork PRs never run — see the header:
-  # this workflow's only job holds BOXLITE_DEV_API_KEY.
+  # this workflow's only job holds the dev stack's admin key.
   # =========================================================================
   should-run:
     runs-on: ubuntu-latest
@@ -121,7 +147,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Fork PRs cannot run E2E dev: the suite needs BOXLITE_DEV_API_KEY in the same job that runs the PR's code. Use workflow_dispatch from a maintainer branch instead."
+            echo "::notice::Fork PRs cannot run E2E dev: the suite needs the dev admin key in the same job that runs the PR's code. Use workflow_dispatch from a maintainer branch instead."
           fi
 
   e2e:
@@ -130,6 +156,11 @@ jobs:
     if: needs.should-run.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # OIDC token for the SSM read. The workflow-level grant stays
+    # contents: read; this is the only job that needs to assume a role.
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
         with:
@@ -187,21 +218,52 @@ jobs:
           pip install --break-system-packages --force-reinstall ../../target/wheels/boxlite-*.whl
           pip install --break-system-packages --quiet pytest pytest-asyncio pytest-timeout
 
+      # ── AWS OIDC ─────────────────────────────────────────────────
+      # Deliberately after the builds: nothing before this point needs
+      # AWS, so the STS session starts as late as possible.
+      - name: Check AWS role variable is set
+        run: |
+          [ -n "${AWS_ROLE_ARN}" ] || {
+            echo "::error::Repo variable AWS_E2E_DEV_ROLE_ARN is not set. Add it in Settings → Variables → Actions."
+            exit 1
+          }
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: e2e-dev-${{ github.run_id }}
+
       # ── Configure pytest credentials ─────────────────────────────
       - name: Configure pytest profile p1
-        env:
-          BOXLITE_DEV_API_KEY: ${{ secrets.BOXLITE_DEV_API_KEY }}
         run: |
           set -euo pipefail
 
-          if [ -z "$BOXLITE_DEV_API_KEY" ]; then
-            echo "::error::Secret BOXLITE_DEV_API_KEY is not set. Add it in repo Settings → Secrets."
+          ADMIN_KEY=$(aws ssm get-parameter \
+            --name "/boxlite/${STAGE}/admin-api-key" \
+            --with-decryption \
+            --query Parameter.Value --output text)
+          if [ -z "$ADMIN_KEY" ] || [ "$ADMIN_KEY" = "None" ]; then
+            echo "::error::SSM parameter /boxlite/${STAGE}/admin-api-key is missing or empty. It must hold the dev stack's ADMIN_API_KEY."
             exit 1
           fi
-          echo "::add-mask::$BOXLITE_DEV_API_KEY"
+          echo "::add-mask::$ADMIN_KEY"
 
-          PATH_PREFIX=$(curl -fsS -H "Authorization: Bearer $BOXLITE_DEV_API_KEY" \
-            "${API_URL}/v1/me" | python3 -c 'import json,sys; print(json.load(sys.stdin)["path_prefix"])')
+          # /v1/me is the auth smoke test, exactly as bootstrap.sh uses it
+          # locally: it exercises auth + DB + Redis in one call. A 401 here
+          # means the SSM value and the dev stack's ADMIN_API_KEY env have
+          # diverged — the API keys `boxlite-admin` off that env var on
+          # boot, so rotating one without the other breaks this step.
+          ME_HTTP=$(curl -sS -o /tmp/me.json -w '%{http_code}' \
+            -H "Authorization: Bearer $ADMIN_KEY" "${API_URL}/v1/me" || echo 000)
+          if [ "$ME_HTTP" != "200" ]; then
+            echo "::error::/v1/me returned HTTP ${ME_HTTP}. If 401, the SSM admin key no longer matches the dev stack's ADMIN_API_KEY."
+            exit 1
+          fi
+
+          PATH_PREFIX=$(python3 -c 'import json;print(json.load(open("/tmp/me.json"))["path_prefix"])')
+          rm -f /tmp/me.json
           [ -n "$PATH_PREFIX" ] || { echo "::error::Empty path_prefix from /v1/me"; exit 1; }
           echo "Resolved path_prefix=${PATH_PREFIX}"
 
@@ -210,7 +272,7 @@ jobs:
           {
               printf '[profiles.p1]\n'
               printf 'url = "%s"\n'         "$API_URL"
-              printf 'api_key = "%s"\n'     "$BOXLITE_DEV_API_KEY"
+              printf 'api_key = "%s"\n'     "$ADMIN_KEY"
               printf 'path_prefix = "%s"\n' "$PATH_PREFIX"
           } > ~/.boxlite/credentials.toml
           chmod 600 ~/.boxlite/credentials.toml
