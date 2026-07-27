@@ -328,30 +328,32 @@ impl TryFrom<PyNetworkSpec> for NetworkSpec {
     type Error = boxlite::BoxliteError;
 
     fn try_from(py_spec: PyNetworkSpec) -> Result<Self, Self::Error> {
-        if let Some(mode) = py_spec.mode {
-            return NetworkSpec::try_from(NetworkConfig {
-                mode: mode.parse::<NetworkMode>()?,
-                allow_net: py_spec.allow_net,
-                service_access: py_spec
-                    .service_access
-                    .as_deref()
-                    .map(str::parse)
-                    .transpose()?,
-            });
-        }
+        let PyNetworkSpec {
+            outbound,
+            inbound,
+            mode,
+            allow_net,
+            service_access,
+        } = py_spec;
 
-        let outbound = match py_spec.outbound {
+        let outbound = match outbound {
             Some(outbound) => outbound.try_into()?,
-            None => OutboundNetworkSpec::default(),
+            None => match mode {
+                Some(mode) => {
+                    NetworkSpec::try_from(NetworkConfig {
+                        mode: mode.parse::<NetworkMode>()?,
+                        allow_net,
+                        service_access: None,
+                    })?
+                    .outbound
+                }
+                None => OutboundNetworkSpec::default(),
+            },
         };
-        let inbound = match py_spec.inbound {
+        let inbound = match inbound {
             Some(inbound) => inbound.try_into()?,
             None => InboundNetworkSpec {
-                service_access: py_spec
-                    .service_access
-                    .as_deref()
-                    .map(str::parse)
-                    .transpose()?,
+                service_access: service_access.as_deref().map(str::parse).transpose()?,
             },
         };
         Ok(NetworkSpec { outbound, inbound })
@@ -1074,5 +1076,21 @@ mod tests {
 
         assert_eq!(opts.inbound.service_access, Some(ServiceAccess::Private));
         assert!(matches!(opts.outbound, OutboundNetworkSpec::Enabled { .. }));
+    }
+
+    #[test]
+    fn nested_inbound_wins_when_legacy_mode_is_also_set() {
+        let opts = NetworkSpec::try_from(PyNetworkSpec {
+            outbound: None,
+            inbound: Some(PyInboundNetworkSpec {
+                service_access: Some("private".into()),
+            }),
+            mode: Some("enabled".into()),
+            allow_net: Vec::new(),
+            service_access: Some("public".into()),
+        })
+        .unwrap();
+
+        assert_eq!(opts.inbound.service_access, Some(ServiceAccess::Private));
     }
 }

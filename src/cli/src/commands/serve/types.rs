@@ -78,9 +78,29 @@ pub(super) struct ContainerCapabilitiesRequest {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NetworkSpec {
+    #[serde(default)]
+    pub outbound: Option<OutboundNetworkSpec>,
+    #[serde(default)]
+    pub inbound: Option<InboundNetworkSpec>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub allow_net: Vec<String>,
+    #[serde(default)]
+    pub service_access: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OutboundNetworkSpec {
     pub mode: String,
     #[serde(default)]
     pub allow_net: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct InboundNetworkSpec {
     #[serde(default)]
     pub service_access: Option<String>,
 }

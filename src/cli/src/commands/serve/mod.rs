@@ -739,15 +739,39 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         .unwrap_or_default();
 
     let network = match &req.network {
-        Some(network) => NetworkSpec::try_from(NetworkConfig {
-            mode: network.mode.parse::<NetworkMode>()?,
-            allow_net: network.allow_net.clone(),
-            service_access: network
-                .service_access
-                .as_deref()
-                .map(str::parse)
-                .transpose()?,
-        })?,
+        Some(network) => {
+            let (mode, allow_net) = match &network.outbound {
+                Some(outbound) => (
+                    outbound.mode.parse::<NetworkMode>()?,
+                    outbound.allow_net.clone(),
+                ),
+                None => (
+                    network
+                        .mode
+                        .as_deref()
+                        .unwrap_or("enabled")
+                        .parse::<NetworkMode>()?,
+                    network.allow_net.clone(),
+                ),
+            };
+            let service_access = match &network.inbound {
+                Some(inbound) => inbound
+                    .service_access
+                    .as_deref()
+                    .map(str::parse)
+                    .transpose()?,
+                None => network
+                    .service_access
+                    .as_deref()
+                    .map(str::parse)
+                    .transpose()?,
+            };
+            NetworkSpec::try_from(NetworkConfig {
+                mode,
+                allow_net,
+                service_access,
+            })?
+        }
         None => NetworkSpec::default(),
     };
 
@@ -1385,6 +1409,38 @@ mod tests {
         )
         .expect("body with service_access must deserialize");
         let opts = build_box_options(&req).expect("build");
+        assert_eq!(
+            opts.network.inbound.service_access,
+            Some(ServiceAccess::Private)
+        );
+    }
+
+    #[test]
+    fn build_box_options_accepts_nested_network_spec() {
+        let req: super::types::CreateBoxRequest = serde_json::from_str(
+            r#"{
+                "image": "alpine:latest",
+                "network": {
+                    "outbound": {
+                        "mode": "enabled",
+                        "allow_net": ["api.openai.com"]
+                    },
+                    "inbound": {
+                        "service_access": "private"
+                    }
+                }
+            }"#,
+        )
+        .expect("nested network body must deserialize");
+        let opts = build_box_options(&req).expect("build");
+        match opts.network.outbound {
+            boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
+                assert_eq!(allow_net, vec!["api.openai.com"]);
+            }
+            boxlite::runtime::options::OutboundNetworkSpec::Disabled => {
+                panic!("network should be enabled")
+            }
+        }
         assert_eq!(
             opts.network.inbound.service_access,
             Some(ServiceAccess::Private)
