@@ -14,13 +14,50 @@
 #
 # Authentication: boxlite API key stored as GitHub repo secret
 # `BOXLITE_DEV_API_KEY`. No AWS credentials needed.
+#
+# Triggers mirror e2e-local: push on main, a label-gated PR trigger, and
+# manual dispatch. The `e2e-dev` label is the cost gate — every run
+# consumes dev-stack capacity, so PRs opt in rather than run by default.
+#
+# Fork PRs: DENIED, and this is the one place the model diverges from
+# e2e-local. There, untrusted code runs in a job holding no secrets, so a
+# maintainer label is purely a cost decision. Here the pytest suite needs
+# BOXLITE_DEV_API_KEY in the same job that builds and runs the PR's own
+# code, so a labeled fork run would hand arbitrary code the dev API key —
+# a conftest.py is enough. The event is still pull_request_target with
+# head-SHA pinning so the trigger surface matches e2e-local and forks can
+# be enabled later by relaxing one branch in `should-run`, but that must
+# not happen until the credential is out of the untrusted job.
+#
+# Runbook: docs/ci/e2e-local.md covers the shared label/gate mechanics.
 
 name: E2E dev
 
 on:
   push:
-    branches:
-      - chore/e2e-required-merge-gate
+    branches: [main]
+    paths:
+      - 'src/boxlite/**'
+      - 'src/shared/**'
+      - 'src/cli/**'
+      - 'src/guest/**'
+      - 'sdks/**'
+      - 'scripts/test/e2e/**'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/e2e-dev.yml'
+  pull_request_target:
+    types: [labeled, synchronize]
+    branches: [main]
+    paths:
+      - 'src/boxlite/**'
+      - 'src/shared/**'
+      - 'src/cli/**'
+      - 'src/guest/**'
+      - 'sdks/**'
+      - 'scripts/test/e2e/**'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
   workflow_dispatch:
     inputs:
       api_url:
@@ -29,24 +66,71 @@ on:
         required: false
         default: 'https://api.dev.boxlite.ai/api'
 
+# pull_request_target's default token is write-capable — keep the
+# inherited token read-only, as e2e-local does.
 permissions:
   contents: read
 
+# Single global group: every run targets the same dev stack, so two in
+# flight would race over shared boxes. A newer push queues behind the
+# in-progress run instead of cancelling it — cancelling mid-suite leaks
+# boxes on the dev stack that nothing then cleans up.
 concurrency:
   group: e2e-dev
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   BOXLITE_DEPS_STUB: "1"
   API_URL: ${{ inputs.api_url || 'https://api.dev.boxlite.ai/api' }}
 
 jobs:
+  # =========================================================================
+  # Gate: PRs require the 'e2e-dev' label (only maintainers can add it).
+  # Same-repo PRs re-run while labeled. Fork PRs never run — see the header:
+  # this workflow's only job holds BOXLITE_DEV_API_KEY.
+  # =========================================================================
+  should-run:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Check trigger conditions
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request_target" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"   # push / workflow_dispatch
+            exit 0
+          fi
+          if ! echo "$LABELS" | jq -e 'index("e2e-dev")' > /dev/null 2>&1; then
+            echo "run=false" >> "$GITHUB_OUTPUT"  # label is the cost gate
+            exit 0
+          fi
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Fork PRs cannot run E2E dev: the suite needs BOXLITE_DEV_API_KEY in the same job that runs the PR's code. Use workflow_dispatch from a maintainer branch instead."
+          fi
+
   e2e:
     name: E2E suite (dev)
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+        with:
+          # pull_request_target resolves to the BASE branch by default,
+          # which would silently test main instead of the PR. Pin the head
+          # SHA the maintainer approved when labeling; push/dispatch keep
+          # github.sha. Same-repo heads only — see `should-run`.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       # ── Health check ──────────────────────────────────────────────
       - name: Probe API health
