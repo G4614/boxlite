@@ -91,10 +91,10 @@ cargo build --release -p boxlite-cli --features kernel-net --no-default-features
 cargo build --release -p boxlite-cli --features kernel-net
 ```
 
-At runtime, `--kernel net` selects the net kernel (only available in dual or net-only builds):
+At runtime, `--kernel-variant net` selects the net kernel (only available in dual or net-only builds):
 
 ```bash
-boxlite run --kernel net alpine
+boxlite run --kernel-variant net alpine
 ```
 
 ### System Requirements

@@ -426,10 +426,10 @@ pub struct BoxOptions {
     #[serde(default)]
     pub secrets: Vec<Secret>,
 
-    /// Override the default kernel blob. "net" selects the embedded
-    /// net kernel. A file path uses a custom libkrunfw blob.
+    /// Select an embedded firmware variant. "net" selects the net
+    /// kernel; unset uses the default lean kernel.
     #[serde(default)]
-    pub kernel: Option<String>,
+    pub kernel_variant: Option<String>,
 }
 
 /// A secret for MITM proxy injection.
@@ -536,7 +536,7 @@ impl Default for BoxOptions {
             user: None,
             tty: false,
             secrets: Vec::new(),
-            kernel: None,
+            kernel_variant: None,
         }
     }
 }

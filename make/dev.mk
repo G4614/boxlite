@@ -6,7 +6,8 @@ _ensure-python-deps:
 		echo "📦 Creating virtual environment..."; \
 		python3 -m venv .venv || { echo "❌ Failed to create virtual environment"; exit 1; }; \
 	fi
-	@. .venv/bin/activate && pip install -q uv && (cd sdks/python && uv pip install --group dev --group sync)
+	@. .venv/bin/activate && { command -v uv >/dev/null || pip install -q uv; } && \
+		(cd sdks/python && uv pip install --group dev --group sync)
 
 # Ensure Node SDK dependencies are installed (lightweight, no build).
 _ensure-node-deps:
@@ -31,7 +32,8 @@ _ensure-apps-deps:
 # Build wheel locally with maturin + embedded runtime
 dev\:python: $(if $(SETUP_DONE),,runtime\:debug) _ensure-python-deps
 	@echo "🔨 Building wheel with maturin (embedded-runtime)..."
-	@. .venv/bin/activate && pip install -q maturin && cd sdks/python && maturin develop --uv
+	@. .venv/bin/activate && { command -v maturin >/dev/null || uv pip install maturin; } && \
+		cd sdks/python && maturin develop --uv
 
 dev\:c: $(if $(SETUP_DONE),,runtime\:debug)
 	@echo "🔨 Building C SDK (debug)..."

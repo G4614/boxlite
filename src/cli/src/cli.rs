@@ -490,13 +490,10 @@ pub struct ResourceFlags {
     #[arg(long = "disk-size", value_name = "GB")]
     pub disk_size_gb: Option<u64>,
 
-    /// Select the guest kernel. `net` uses the embedded net kernel
-    /// (netfilter/bridge modules; the binary must be built with
-    /// `--features kernel-net`). A file path loads a custom libkrunfw
-    /// blob at runtime — build one with `make libkrunfw-custom`. Omit
-    /// for the default lean kernel.
-    #[arg(long = "kernel", value_name = "net|PATH")]
-    pub kernel: Option<String>,
+    /// Select an embedded kernel variant. `net` requires a binary built
+    /// with `--features kernel-net`. Omit for the default lean kernel.
+    #[arg(long = "kernel-variant", value_parser = ["lean", "net"])]
+    pub kernel_variant: Option<String>,
 }
 
 impl ResourceFlags {
@@ -513,11 +510,8 @@ impl ResourceFlags {
         if let Some(gb) = self.disk_size_gb {
             opts.disk_size_gb = Some(gb);
         }
-        if let Some(ref k) = self.kernel {
-            match k.as_str() {
-                "default" | "lean" => {}
-                _ => opts.kernel = Some(k.clone()),
-            }
+        if self.kernel_variant.as_deref() == Some("net") {
+            opts.kernel_variant = Some("net".to_string());
         }
     }
 }
@@ -1132,7 +1126,7 @@ mod tests {
             cpus: Some(1000),
             memory: None,
             disk_size_gb: None,
-            kernel: None,
+            kernel_variant: None,
         };
 
         let mut opts = BoxOptions::default();
@@ -1152,7 +1146,7 @@ mod tests {
             cpus: None,
             memory: None,
             disk_size_gb: Some(10),
-            kernel: None,
+            kernel_variant: None,
         };
 
         let mut opts = BoxOptions::default();
@@ -1172,7 +1166,7 @@ mod tests {
             cpus: None,
             memory: None,
             disk_size_gb: None,
-            kernel: None,
+            kernel_variant: None,
         };
 
         let mut opts = BoxOptions::default();
@@ -1230,6 +1224,7 @@ mod tests {
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
 
             let help = error.to_string();
+            let help_without_variant = help.replace("--kernel-variant", "");
             for rc_flag in [
                 "--kernel",
                 "--kernel-format",
@@ -1237,7 +1232,7 @@ mod tests {
                 "--kernel-args",
             ] {
                 assert!(
-                    !help.contains(rc_flag),
+                    !help_without_variant.contains(rc_flag),
                     "{rc_flag} leaked into {command} help:\n{help}"
                 );
             }
@@ -1254,6 +1249,7 @@ mod tests {
             let mut output = Vec::new();
             generate_completion(&shell, &mut Cli::command(), "boxlite", &mut output);
             let completion = String::from_utf8(output).unwrap();
+            let completion_without_variant = completion.replace("kernel-variant", "");
 
             for name in ["kernel", "kernel-format", "initramfs", "kernel-args"] {
                 let rc_flag = match shell {
@@ -1261,7 +1257,7 @@ mod tests {
                     Shell::Bash | Shell::Zsh => format!("--{name}"),
                 };
                 assert!(
-                    !completion.contains(&rc_flag),
+                    !completion_without_variant.contains(&rc_flag),
                     "{rc_flag} leaked into {shell:?} completion"
                 );
             }
@@ -1426,11 +1422,11 @@ mod tests {
             cpus: None,
             memory: None,
             disk_size_gb: None,
-            kernel: Some("net".to_string()),
+            kernel_variant: Some("net".to_string()),
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts);
-        assert_eq!(opts.kernel.as_deref(), Some("net"));
+        assert_eq!(opts.kernel_variant.as_deref(), Some("net"));
     }
 
     #[test]
@@ -1439,24 +1435,11 @@ mod tests {
             cpus: None,
             memory: None,
             disk_size_gb: None,
-            kernel: Some("default".to_string()),
+            kernel_variant: Some("lean".to_string()),
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts);
-        assert!(opts.kernel.is_none());
-    }
-
-    #[test]
-    fn kernel_lean_flag_stays_none() {
-        let flags = ResourceFlags {
-            cpus: None,
-            memory: None,
-            disk_size_gb: None,
-            kernel: Some("lean".to_string()),
-        };
-        let mut opts = BoxOptions::default();
-        flags.apply_to(&mut opts);
-        assert!(opts.kernel.is_none());
+        assert!(opts.kernel_variant.is_none());
     }
 
     #[test]
@@ -1465,24 +1448,11 @@ mod tests {
             cpus: None,
             memory: None,
             disk_size_gb: None,
-            kernel: None,
+            kernel_variant: None,
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts);
-        assert!(opts.kernel.is_none());
-    }
-
-    #[test]
-    fn kernel_custom_path_passes_through() {
-        let flags = ResourceFlags {
-            cpus: None,
-            memory: None,
-            disk_size_gb: None,
-            kernel: Some("/tmp/my-kernel.so".to_string()),
-        };
-        let mut opts = BoxOptions::default();
-        flags.apply_to(&mut opts);
-        assert_eq!(opts.kernel.as_deref(), Some("/tmp/my-kernel.so"));
+        assert!(opts.kernel_variant.is_none());
     }
 
     #[test]

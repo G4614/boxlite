@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build the built-in "fat" libkrunfw variant required by `boxlite run --kernel net`.
+# Build the built-in "fat" libkrunfw variant required by
+# `boxlite run --kernel-variant net`.
 #
 # Thin wrapper over build-libkrunfw.sh: it pins the net overlay, a distinct
 # SONAME (so the net blob can sit next to the lean one in the embedded runtime
@@ -8,13 +9,10 @@
 #
 # Why not download a prebuilt: the net kernel adds ~2 MB of network subsystems
 # on top of the lean kernel. Until upstream boxlite-ai/libkrunfw publishes the
-# net variant in its releases, anyone iterating on `--kernel net` builds it
+# net variant in its releases, anyone iterating on `--kernel-variant net` builds it
 # locally. (Set BOXLITE_LIBKRUNFW_NET_PATH only when the blob lives outside the
 # workspace — e.g. CI cache, distro packaging.)
 #
-# To build a kernel with your OWN config instead, see `make libkrunfw-custom`
-# (src/deps/libkrun-sys/net-configs/README.md).
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,6 +32,6 @@ HINT="Rebuild boxlite to embed it (libkrun-sys/build.rs auto-detects this path):
 
    make cli
 
-Then \`boxlite run --kernel net\` loads this kernel instead of the lean one." \
+Then \`boxlite run --kernel-variant net\` loads this kernel instead of the lean one." \
 ARCH="$ARCH" \
   exec bash "$SCRIPT_DIR/build-libkrunfw.sh"

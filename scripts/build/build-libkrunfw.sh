@@ -1,26 +1,17 @@
 #!/usr/bin/env bash
-# Build a custom libkrunfw kernel blob from a config overlay.
+# Build a libkrunfw kernel blob from a config overlay.
 #
-# This is the generalized core behind `make libkrunfw-net` (the built-in
-# "net" variant) and `make libkrunfw-custom` (user-supplied overlay). It
-# merges a config overlay on top of the upstream lean libkrunfw config,
-# builds the kernel, stamps a SONAME, and stages the resulting `.so` at a
-# chosen path.
-#
-# A user-built blob is loaded at runtime with `boxlite run --kernel <path>`
-# (no rebuild needed — the runtime symlinks it into the box's libs dir and
-# dlopens it). The "net" variant instead stamps a distinct SONAME and lands
-# at the canonical path that `libkrun-sys/build.rs` embeds into the runtime.
+# This is the implementation behind `make libkrunfw-net`. It merges the net
+# config overlay on top of upstream's lean config, builds the kernel, stamps a
+# distinct SONAME, and stages the resulting `.so` for runtime embedding.
 #
 # Parameters (all via env):
 #   OVERLAY   path to a config overlay to append on top of the lean config.
 #             Required — it's what makes the kernel non-lean.
 #   KCONFIG   base libkrunfw config NAME under vendor/libkrunfw/
 #             (default: arch lean `config-libkrunfw_<arch>`).
-#   SONAME    ELF SONAME stamped on the output (default: `libkrunfw.so.5`,
-#             which is what `--kernel <path>` expects).
-#   OUT       output blob path
-#             (default: target/custom-kernel/lib64/libkrunfw-custom.so.5).
+#   SONAME    ELF SONAME stamped on the output.
+#   OUT       output blob path.
 #   HINT      optional one-line "next step" message printed after the build.
 #   DRY_RUN   if set, resolve + validate + merge the config and print the
 #             plan, but skip the (~10-20 min) kernel build and staging.
@@ -42,15 +33,14 @@ esac
 
 KCONFIG_NAME="${KCONFIG:-$DEFAULT_KCONFIG}"
 SONAME="${SONAME:-libkrunfw.so.5}"
-OUT="${OUT:-$REPO_ROOT/target/custom-kernel/lib64/libkrunfw-custom.so.5}"
+OUT="${OUT:-$REPO_ROOT/target/net-kernel/lib64/libkrunfw-net.so.5}"
 OVERLAY="${OVERLAY:-}"
 
 # ── Sanity ──────────────────────────────────────────────────────────────────
 
 if [ -z "$OVERLAY" ]; then
   echo "❌ OVERLAY is required (path to a config overlay to append)." >&2
-  echo "   Write a file of CONFIG_*=y lines for the subsystems you need," >&2
-  echo "   then: OVERLAY=/path/to/overlay make libkrunfw-custom" >&2
+  echo "   Set OVERLAY to a file of CONFIG_*=y lines." >&2
   exit 1
 fi
 if [ ! -f "$OVERLAY" ]; then

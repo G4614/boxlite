@@ -1,4 +1,4 @@
-//! E2E test: `--kernel net` selects the net kernel blob which includes
+//! E2E test: `--kernel-variant net` selects the net kernel blob which includes
 //! netfilter/iptables modules. The lean kernel does not have them.
 //!
 //! This test requires the binary to be built with `--features kernel-net`
@@ -21,7 +21,7 @@ fn run_in_box(home: &PerTestBoxHome, kernel: Option<&str>, script: &str) -> (Str
 
     let mut args = vec!["run", "--memory", "512", "--entrypoint", "sh"];
     if let Some(k) = kernel {
-        args.push("--kernel");
+        args.push("--kernel-variant");
         args.push(k);
     }
     args.extend([image.as_str(), "-c", script]);

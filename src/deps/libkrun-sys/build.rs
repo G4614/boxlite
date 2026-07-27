@@ -98,6 +98,9 @@ impl Fetcher {
         tarball_path: &Path,
         extract_dir: &Path,
     ) -> io::Result<()> {
+        if tarball_path.exists() && Self::verify_sha256(tarball_path, sha256).is_err() {
+            fs::remove_file(tarball_path)?;
+        }
         if !tarball_path.exists() {
             Self::download(url, tarball_path)?;
             Self::verify_sha256(tarball_path, sha256)?;
@@ -109,17 +112,30 @@ impl Fetcher {
     fn download(url: &str, dest: &Path) -> io::Result<()> {
         println!("cargo:warning=Downloading {}...", url);
 
+        let partial = dest.with_extension("partial");
         let output = Command::new("curl")
-            .args(["-fsSL", "-o", dest.to_str().unwrap(), url])
+            .args([
+                "-fsSL",
+                "--retry",
+                "5",
+                "--retry-all-errors",
+                "--connect-timeout",
+                "30",
+                "-o",
+                partial.to_str().unwrap(),
+                url,
+            ])
             .output()?;
 
         if !output.status.success() {
+            fs::remove_file(&partial).ok();
             return Err(io::Error::other(format!(
                 "curl failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
+        fs::rename(partial, dest)?;
         Ok(())
     }
 
@@ -180,7 +196,12 @@ impl Fetcher {
 #[cfg(target_os = "macos")]
 fn download_libkrunfw_prebuilt(out_dir: &Path) -> PathBuf {
     let versioned_dir = format!("libkrunfw-src-{LIBKRUNFW_VERSION}");
-    let tarball_path = out_dir.join(format!("libkrunfw-prebuilt-{LIBKRUNFW_VERSION}.tar.gz"));
+    let cache_dir = env::var_os("BOXLITE_BUILD_CACHE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| env::temp_dir().join("boxlite-build-cache"));
+    fs::create_dir_all(&cache_dir)
+        .unwrap_or_else(|e| panic!("Failed to create build cache directory: {e}"));
+    let tarball_path = cache_dir.join(format!("libkrunfw-prebuilt-{LIBKRUNFW_VERSION}.tar.gz"));
     let extract_dir = out_dir.join(&versioned_dir);
     let src_dir = extract_dir.join("libkrunfw");
 
@@ -212,7 +233,7 @@ fn download_libkrunfw_prebuilt(out_dir: &Path) -> PathBuf {
 /// - `kernel-lean` only (default): lean blob → `libkrunfw.so.5`
 /// - `kernel-net` only: net blob → `libkrunfw.so.5`
 /// - both: lean → `libkrunfw.so.5`, net → `libkrunfw-net.so.5`
-///   (runtime `--kernel net` selects via LD_LIBRARY_PATH override)
+///   (runtime `--kernel-variant net` selects via LD_LIBRARY_PATH override)
 #[cfg(target_os = "linux")]
 fn download_libkrunfw_so(install_dir: &Path) {
     let lib_dir = install_dir.join(LIB_DIR);

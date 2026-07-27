@@ -155,23 +155,24 @@ impl<'a> ShimSpawner<'a> {
             cmd.env("TEMP", &tmp_dir);
         }
 
-        // When --kernel net is requested, stage a per-box symlink to
+        // When --kernel-variant net is requested, stage a per-box symlink to
         // libkrunfw-net.so.5 and prepend to LD_LIBRARY_PATH so libkrun
         // picks it up instead of the default libkrunfw.so.5.
-        let prepend: Vec<PathBuf> = match self.options.kernel.as_deref() {
+        let prepend: Vec<PathBuf> = match self.options.kernel_variant.as_deref() {
             Some("net") => match self.stage_net_kernel()? {
                 Some(libs_dir) => self.activate_staged_kernel(libs_dir)?,
                 None => {
                     return Err(BoxliteError::Engine(
-                        "--kernel net requires libkrunfw-net.so.5 in the embedded \
+                        "--kernel-variant net requires libkrunfw-net.so.5 in the embedded \
                          runtime. Rebuild with `--features kernel-net`."
                             .to_string(),
                     ));
                 }
             },
-            Some(path) => {
-                let libs_dir = self.stage_custom_kernel(Path::new(path))?;
-                self.activate_staged_kernel(libs_dir)?
+            Some(variant) => {
+                return Err(BoxliteError::InvalidArgument(format!(
+                    "unsupported kernel variant: {variant}"
+                )));
             }
             None => vec![],
         };
@@ -206,10 +207,11 @@ impl<'a> ShimSpawner<'a> {
     /// Stage `<box>/libs/libkrunfw.so.5` → `libkrunfw-net.so.5` symlink.
     fn stage_net_kernel(&self) -> BoxliteResult<Option<PathBuf>> {
         #[cfg(feature = "embedded-runtime")]
-        let runtime_dir = crate::runtime::embedded::EmbeddedRuntime::get()
-            .ok_or_else(|| BoxliteError::Engine("embedded runtime unavailable".to_string()))?
-            .dir()
-            .to_path_buf();
+        let Some(runtime_dir) = crate::runtime::embedded::EmbeddedRuntime::get()
+            .map(|runtime| runtime.dir().to_path_buf())
+        else {
+            return Ok(None);
+        };
         #[cfg(not(feature = "embedded-runtime"))]
         let runtime_dir: PathBuf = return Ok(None);
 
@@ -248,41 +250,6 @@ impl<'a> ShimSpawner<'a> {
         })?;
 
         Ok(Some(libs_dir))
-    }
-
-    fn stage_custom_kernel(&self, blob_path: &Path) -> BoxliteResult<PathBuf> {
-        if !blob_path.exists() {
-            return Err(BoxliteError::Engine(format!(
-                "--kernel {}: file not found",
-                blob_path.display()
-            )));
-        }
-        let libs_dir = self.layout.root().join("libs");
-        std::fs::create_dir_all(&libs_dir)
-            .map_err(|e| BoxliteError::Storage(format!("Failed to create libs dir: {}", e)))?;
-        let symlink_path = libs_dir.join("libkrunfw.so.5");
-        match std::fs::symlink_metadata(&symlink_path) {
-            Ok(meta) if meta.file_type().is_symlink() => {
-                std::fs::remove_file(&symlink_path).ok();
-            }
-            Ok(_) => {
-                return Err(BoxliteError::Storage(format!(
-                    "Refusing to overwrite non-symlink at {}",
-                    symlink_path.display()
-                )));
-            }
-            Err(_) => {}
-        }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(blob_path, &symlink_path).map_err(|e| {
-            BoxliteError::Storage(format!(
-                "Failed to symlink {} → {}: {}",
-                symlink_path.display(),
-                blob_path.display(),
-                e
-            ))
-        })?;
-        Ok(libs_dir)
     }
 
     fn create_stderr_file(&self) -> BoxliteResult<std::fs::File> {
@@ -542,7 +509,7 @@ mod tests {
             false,
         );
         let options = BoxOptions {
-            kernel: Some("net".to_string()),
+            kernel_variant: Some("net".to_string()),
             ..BoxOptions::default()
         };
 
@@ -557,7 +524,7 @@ mod tests {
         let err = spawner.configure_env(&mut cmd).unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("--kernel net") && msg.contains("kernel-net"),
+            msg.contains("--kernel-variant net") && msg.contains("kernel-net"),
             "error must mention both the runtime flag and the build feature; got: {msg}"
         );
     }
@@ -573,7 +540,7 @@ mod tests {
             false,
         );
         let options = BoxOptions {
-            kernel: None,
+            kernel_variant: None,
             ..BoxOptions::default()
         };
 

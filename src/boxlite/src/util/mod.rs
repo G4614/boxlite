@@ -143,7 +143,7 @@ pub fn configure_library_env(cmd: &mut Command, addr: *const libc::c_void) {
 }
 
 /// Like [`configure_library_env`] but with caller-supplied directories
-/// PRE-pended to the loader search path. Used by `--kernel net` to
+/// PRE-pended to the loader search path. Used by `--kernel-variant net` to
 /// inject a per-box dir whose `libkrunfw.so.5` symlinks to the net blob.
 pub fn configure_library_env_with_prepend(
     cmd: &mut Command,
