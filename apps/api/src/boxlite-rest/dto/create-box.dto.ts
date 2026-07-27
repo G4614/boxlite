@@ -61,21 +61,6 @@ export class NetworkSpecDto {
   @ValidateNested()
   @Type(() => InboundNetworkSpecDto)
   inbound?: InboundNetworkSpecDto
-
-  @IsOptional()
-  @IsIn(['enabled', 'disabled'])
-  mode?: 'enabled' | 'disabled'
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(MAX_NETWORK_ALLOW_LIST_ENTRIES)
-  @IsString({ each: true })
-  @Validate(IsNetworkAllowEntryConstraint, { each: true })
-  allow_net?: string[]
-
-  @IsOptional()
-  @IsIn(['public', 'private'])
-  service_access?: 'public' | 'private'
 }
 
 export class CreateBoxDto {

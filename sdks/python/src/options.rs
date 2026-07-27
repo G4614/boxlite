@@ -6,8 +6,8 @@ use boxlite::runtime::advanced_options::{HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
     BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkSpec,
-    NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkSpec, PortProtocol, PortSpec,
-    RegistryTransport, RootfsSpec, VolumeSpec,
+    NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig, OutboundNetworkSpec,
+    PortProtocol, PortSpec, RegistryTransport, RootfsSpec, VolumeSpec,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -254,12 +254,6 @@ pub(crate) struct PyNetworkSpec {
     pub(crate) outbound: Option<PyOutboundNetworkSpec>,
     #[pyo3(get, set)]
     pub(crate) inbound: Option<PyInboundNetworkSpec>,
-    #[pyo3(get, set)]
-    pub(crate) mode: Option<String>,
-    #[pyo3(get, set)]
-    pub(crate) allow_net: Vec<String>,
-    #[pyo3(get, set)]
-    pub(crate) service_access: Option<String>,
 }
 
 #[pyclass(name = "OutboundNetworkSpec")]
@@ -281,21 +275,9 @@ pub(crate) struct PyInboundNetworkSpec {
 #[pymethods]
 impl PyNetworkSpec {
     #[new]
-    #[pyo3(signature = (outbound=None, inbound=None, mode=None, allow_net=vec![], service_access=None))]
-    fn new(
-        outbound: Option<PyOutboundNetworkSpec>,
-        inbound: Option<PyInboundNetworkSpec>,
-        mode: Option<String>,
-        allow_net: Vec<String>,
-        service_access: Option<String>,
-    ) -> Self {
-        Self {
-            outbound,
-            inbound,
-            mode,
-            allow_net,
-            service_access,
-        }
+    #[pyo3(signature = (outbound=None, inbound=None))]
+    fn new(outbound: Option<PyOutboundNetworkSpec>, inbound: Option<PyInboundNetworkSpec>) -> Self {
+        Self { outbound, inbound }
     }
 
     fn __repr__(&self) -> String {
@@ -328,33 +310,15 @@ impl TryFrom<PyNetworkSpec> for NetworkSpec {
     type Error = boxlite::BoxliteError;
 
     fn try_from(py_spec: PyNetworkSpec) -> Result<Self, Self::Error> {
-        let PyNetworkSpec {
-            outbound,
-            inbound,
-            mode,
-            allow_net,
-            service_access,
-        } = py_spec;
+        let PyNetworkSpec { outbound, inbound } = py_spec;
 
         let outbound = match outbound {
             Some(outbound) => outbound.try_into()?,
-            None => match mode {
-                Some(mode) => {
-                    NetworkSpec::try_from(NetworkConfig {
-                        mode: mode.parse::<NetworkMode>()?,
-                        allow_net,
-                        service_access: None,
-                    })?
-                    .outbound
-                }
-                None => OutboundNetworkSpec::default(),
-            },
+            None => OutboundNetworkSpec::default(),
         };
         let inbound = match inbound {
             Some(inbound) => inbound.try_into()?,
-            None => InboundNetworkSpec {
-                service_access: service_access.as_deref().map(str::parse).transpose()?,
-            },
+            None => InboundNetworkSpec::default(),
         };
         Ok(NetworkSpec { outbound, inbound })
     }
@@ -365,9 +329,11 @@ impl TryFrom<PyOutboundNetworkSpec> for OutboundNetworkSpec {
 
     fn try_from(py_spec: PyOutboundNetworkSpec) -> Result<Self, Self::Error> {
         let network = NetworkSpec::try_from(NetworkConfig {
-            mode: py_spec.mode.parse::<NetworkMode>()?,
-            allow_net: py_spec.allow_net,
-            service_access: None,
+            outbound: OutboundNetworkConfig {
+                mode: py_spec.mode.parse::<NetworkMode>()?,
+                allow_net: py_spec.allow_net,
+            },
+            inbound: Default::default(),
         })?;
         Ok(network.outbound)
     }
@@ -1064,30 +1030,12 @@ mod tests {
     use boxlite::runtime::options::ServiceAccess;
 
     #[test]
-    fn flat_service_access_without_mode_still_converts() {
-        let opts = NetworkSpec::try_from(PyNetworkSpec {
-            outbound: None,
-            inbound: None,
-            mode: None,
-            allow_net: Vec::new(),
-            service_access: Some("private".into()),
-        })
-        .unwrap();
-
-        assert_eq!(opts.inbound.service_access, Some(ServiceAccess::Private));
-        assert!(matches!(opts.outbound, OutboundNetworkSpec::Enabled { .. }));
-    }
-
-    #[test]
-    fn nested_inbound_wins_when_legacy_mode_is_also_set() {
+    fn nested_network_spec_converts() {
         let opts = NetworkSpec::try_from(PyNetworkSpec {
             outbound: None,
             inbound: Some(PyInboundNetworkSpec {
                 service_access: Some("private".into()),
             }),
-            mode: Some("enabled".into()),
-            allow_net: Vec::new(),
-            service_access: Some("public".into()),
         })
         .unwrap();
 

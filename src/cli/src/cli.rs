@@ -6,7 +6,10 @@ use boxlite::experimental::custom_kernel::{KernelFormat, KernelOptions, configur
 use boxlite::experimental::{
     EXPERIMENTAL_FEATURES_ENV, ExperimentalFeature, ExperimentalFeatures, RuntimeBuilder,
 };
-use boxlite::runtime::options::{NetworkConfig, NetworkMode, PortProtocol, PortSpec, VolumeSpec};
+use boxlite::runtime::options::{
+    InboundNetworkConfig, NetworkConfig, NetworkMode, OutboundNetworkConfig, PortProtocol,
+    PortSpec, VolumeSpec,
+};
 use boxlite::{
     BoxCommand, BoxOptions, BoxliteOptions, BoxliteRestOptions, BoxliteRuntime, ImageRegistry,
     NetworkSpec,
@@ -650,9 +653,11 @@ impl NetworkFlags {
             None => NetworkMode::Enabled,
         };
         opts.network = NetworkSpec::try_from(NetworkConfig {
-            mode,
-            allow_net: self.allow_net.clone(),
-            service_access: None,
+            outbound: OutboundNetworkConfig {
+                mode,
+                allow_net: self.allow_net.clone(),
+            },
+            inbound: InboundNetworkConfig::default(),
         })?;
         Ok(())
     }

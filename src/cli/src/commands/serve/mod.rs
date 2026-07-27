@@ -23,7 +23,9 @@ use tokio::sync::RwLock;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
-use boxlite::runtime::options::{NetworkConfig, NetworkMode};
+use boxlite::runtime::options::{
+    InboundNetworkConfig, NetworkConfig, NetworkMode, OutboundNetworkConfig,
+};
 use boxlite::{
     BoxCommand, BoxInfo, BoxOptions, BoxliteRuntime, ExecStdin, Execution, LiteBox, NetworkSpec,
     RootfsSpec,
@@ -747,11 +749,12 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
                 ),
                 None => (
                     network
+                        .legacy
                         .mode
                         .as_deref()
                         .unwrap_or("enabled")
                         .parse::<NetworkMode>()?,
-                    network.allow_net.clone(),
+                    network.legacy.allow_net.clone(),
                 ),
             };
             let service_access = match &network.inbound {
@@ -761,15 +764,15 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
                     .map(str::parse)
                     .transpose()?,
                 None => network
+                    .legacy
                     .service_access
                     .as_deref()
                     .map(str::parse)
                     .transpose()?,
             };
             NetworkSpec::try_from(NetworkConfig {
-                mode,
-                allow_net,
-                service_access,
+                outbound: OutboundNetworkConfig { mode, allow_net },
+                inbound: InboundNetworkConfig { service_access },
             })?
         }
         None => NetworkSpec::default(),

@@ -231,17 +231,20 @@ impl CreateBoxInboundNetworkSpec {
 impl CreateBoxNetworkSpec {
     fn from_options(spec: &crate::runtime::options::NetworkSpec) -> Self {
         let config = crate::runtime::options::NetworkConfig::from(spec);
-        let mode = match config.mode {
+        let mode = match config.outbound.mode {
             crate::runtime::options::NetworkMode::Enabled => "enabled",
             crate::runtime::options::NetworkMode::Disabled => "disabled",
         };
         Self {
             outbound: CreateBoxOutboundNetworkSpec {
                 mode: mode.to_string(),
-                allow_net: config.allow_net,
+                allow_net: config.outbound.allow_net,
             },
             inbound: CreateBoxInboundNetworkSpec {
-                service_access: config.service_access.map(|access| access.as_str().into()),
+                service_access: config
+                    .inbound
+                    .service_access
+                    .map(|access| access.as_str().into()),
             },
         }
     }

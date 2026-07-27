@@ -256,7 +256,6 @@ Configuration options for creating a box.
 
 - `outbound: OutboundNetworkSpec` - Guest egress policy
 - `inbound: InboundNetworkSpec` - Service access policy
-- `mode: str` and `allow_net: List[str]` - Deprecated flat form, still accepted during migration
 
 `allow_net` restricts both TCP and UDP egress. Hostname entries are enforced by
 inspecting TLS SNI / HTTP Host, which only TCP carries, so an `allow_net`

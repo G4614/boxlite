@@ -103,15 +103,6 @@ export interface NetworkSpec {
 
   /** Inbound service access policy. */
   inbound?: InboundNetworkSpec;
-
-  /** @deprecated Use outbound.mode. */
-  mode?: "enabled" | "disabled";
-
-  /** @deprecated Use outbound.allowNet. */
-  allowNet?: string[];
-
-  /** @deprecated Use inbound.serviceAccess. */
-  serviceAccess?: "public" | "private";
 }
 
 export interface OutboundNetworkSpec {

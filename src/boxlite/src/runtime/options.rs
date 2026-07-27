@@ -1455,9 +1455,13 @@ mod tests {
     #[test]
     fn test_network_config_enabled_converts_to_internal_network_spec() {
         let spec = NetworkSpec::try_from(NetworkConfig {
-            mode: NetworkMode::Enabled,
-            allow_net: vec!["example.com".to_string()],
-            service_access: Some(ServiceAccess::Public),
+            outbound: OutboundNetworkConfig {
+                mode: NetworkMode::Enabled,
+                allow_net: vec!["example.com".to_string()],
+            },
+            inbound: InboundNetworkConfig {
+                service_access: Some(ServiceAccess::Public),
+            },
         })
         .unwrap();
 
@@ -1473,9 +1477,11 @@ mod tests {
     #[test]
     fn test_network_config_disabled_rejects_allow_net() {
         let err = NetworkSpec::try_from(NetworkConfig {
-            mode: NetworkMode::Disabled,
-            allow_net: vec!["example.com".to_string()],
-            service_access: None,
+            outbound: OutboundNetworkConfig {
+                mode: NetworkMode::Disabled,
+                allow_net: vec!["example.com".to_string()],
+            },
+            inbound: InboundNetworkConfig::default(),
         })
         .unwrap_err()
         .to_string();
@@ -1486,8 +1492,8 @@ mod tests {
     #[test]
     fn test_network_spec_converts_to_public_network_config() {
         let config = NetworkConfig::from(&NetworkSpec::disabled());
-        assert_eq!(config.mode, NetworkMode::Disabled);
-        assert!(config.allow_net.is_empty());
+        assert_eq!(config.outbound.mode, NetworkMode::Disabled);
+        assert!(config.outbound.allow_net.is_empty());
     }
 
     #[test]

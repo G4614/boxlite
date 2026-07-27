@@ -82,6 +82,13 @@ pub(super) struct NetworkSpec {
     pub outbound: Option<OutboundNetworkSpec>,
     #[serde(default)]
     pub inbound: Option<InboundNetworkSpec>,
+    #[serde(flatten)]
+    pub legacy: LegacyNetworkSpec,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyNetworkSpec {
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]

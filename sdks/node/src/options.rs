@@ -5,7 +5,8 @@ use boxlite::runtime::advanced_options::{AdvancedBoxOptions, HealthCheckOptions,
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
     BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret, VolumeSpec,
+    NetworkSpec, OutboundNetworkConfig, PortProtocol, PortSpec, RegistryTransport, RootfsSpec,
+    Secret, VolumeSpec,
 };
 use napi::bindgen_prelude::Error;
 use napi_derive::napi;
@@ -327,17 +328,6 @@ pub struct JsNetworkSpec {
 
     /// Inbound service access policy.
     pub inbound: Option<JsInboundNetworkSpec>,
-
-    /// Deprecated: use outbound.mode.
-    pub mode: Option<String>,
-
-    /// Deprecated: use outbound.allowNet.
-    #[napi(js_name = "allowNet")]
-    pub allow_net: Option<Vec<String>>,
-
-    /// Deprecated: use inbound.serviceAccess.
-    #[napi(js_name = "serviceAccess")]
-    pub service_access: Option<String>,
 }
 
 #[napi(object)]
@@ -398,33 +388,15 @@ impl TryFrom<JsNetworkSpec> for NetworkSpec {
     type Error = boxlite_shared::errors::BoxliteError;
 
     fn try_from(js_spec: JsNetworkSpec) -> Result<Self, Self::Error> {
-        let JsNetworkSpec {
-            outbound,
-            inbound,
-            mode,
-            allow_net,
-            service_access,
-        } = js_spec;
+        let JsNetworkSpec { outbound, inbound } = js_spec;
 
         let outbound = match outbound {
             Some(outbound) => outbound.try_into()?,
-            None => match mode {
-                Some(mode) => {
-                    NetworkSpec::try_from(NetworkConfig {
-                        mode: mode.parse::<NetworkMode>()?,
-                        allow_net: allow_net.unwrap_or_default(),
-                        service_access: None,
-                    })?
-                    .outbound
-                }
-                None => boxlite::runtime::options::OutboundNetworkSpec::default(),
-            },
+            None => boxlite::runtime::options::OutboundNetworkSpec::default(),
         };
         let inbound = match inbound {
             Some(inbound) => inbound.try_into()?,
-            None => boxlite::runtime::options::InboundNetworkSpec {
-                service_access: service_access.as_deref().map(str::parse).transpose()?,
-            },
+            None => boxlite::runtime::options::InboundNetworkSpec::default(),
         };
         Ok(NetworkSpec { outbound, inbound })
     }
@@ -435,9 +407,11 @@ impl TryFrom<JsOutboundNetworkSpec> for boxlite::runtime::options::OutboundNetwo
 
     fn try_from(js_spec: JsOutboundNetworkSpec) -> Result<Self, Self::Error> {
         let network = NetworkSpec::try_from(NetworkConfig {
-            mode: js_spec.mode.parse::<NetworkMode>()?,
-            allow_net: js_spec.allow_net.unwrap_or_default(),
-            service_access: None,
+            outbound: OutboundNetworkConfig {
+                mode: js_spec.mode.parse::<NetworkMode>()?,
+                allow_net: js_spec.allow_net.unwrap_or_default(),
+            },
+            inbound: Default::default(),
         })?;
         Ok(network.outbound)
     }
@@ -838,9 +812,6 @@ mod tests {
                 inbound: Some(JsInboundNetworkSpec {
                     service_access: Some("public".into()),
                 }),
-                mode: None,
-                allow_net: None,
-                service_access: None,
             }),
             ports: None,
             auto_remove: None,
@@ -947,9 +918,6 @@ mod tests {
                 allow_net: Some(vec!["example.com".into()]),
             }),
             inbound: None,
-            mode: None,
-            allow_net: None,
-            service_access: None,
         })
         .unwrap_err();
 
@@ -957,61 +925,12 @@ mod tests {
     }
 
     #[test]
-    fn legacy_flat_network_spec_still_converts() {
-        let opts = NetworkSpec::try_from(JsNetworkSpec {
-            outbound: None,
-            inbound: None,
-            mode: Some("enabled".into()),
-            allow_net: Some(vec!["example.com".into()]),
-            service_access: Some("private".into()),
-        })
-        .unwrap();
-
-        assert_eq!(
-            opts.inbound.service_access,
-            Some(boxlite::runtime::options::ServiceAccess::Private)
-        );
-        match opts.outbound {
-            boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
-                assert_eq!(allow_net, vec!["example.com"]);
-            }
-            boxlite::runtime::options::OutboundNetworkSpec::Disabled => {
-                panic!("network should be enabled")
-            }
-        }
-    }
-
-    #[test]
-    fn flat_service_access_without_mode_still_converts() {
-        let opts = NetworkSpec::try_from(JsNetworkSpec {
-            outbound: None,
-            inbound: None,
-            mode: None,
-            allow_net: None,
-            service_access: Some("private".into()),
-        })
-        .unwrap();
-
-        assert_eq!(
-            opts.inbound.service_access,
-            Some(boxlite::runtime::options::ServiceAccess::Private)
-        );
-        assert!(matches!(
-            opts.outbound,
-            boxlite::runtime::options::OutboundNetworkSpec::Enabled { .. }
-        ));
-    }
-
-    #[test]
-    fn nested_inbound_wins_when_legacy_mode_is_also_set() {
+    fn nested_network_spec_converts() {
         let opts = NetworkSpec::try_from(JsNetworkSpec {
             outbound: None,
             inbound: Some(JsInboundNetworkSpec {
                 service_access: Some("private".into()),
             }),
-            mode: Some("enabled".into()),
-            allow_net: None,
-            service_access: Some("public".into()),
         })
         .unwrap();
 

@@ -46,12 +46,13 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   createDto.autoDelete = dto.auto_delete
   createDto.autoResume = dto.auto_resume
   if (dto.network) {
-    const outbound = dto.network.outbound ?? dto.network
-    const inbound = dto.network.inbound ?? dto.network
-    const allowNet = outbound.allow_net?.map((entry) => entry.trim()).filter(Boolean)
-    createDto.networkBlockAll = outbound.mode === 'disabled'
-    createDto.networkAllowList = outbound.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
-    createDto.public = inbound.service_access ? inbound.service_access === 'public' : undefined
+    const allowNet = dto.network.outbound?.allow_net?.map((entry) => entry.trim()).filter(Boolean)
+    createDto.networkBlockAll = dto.network.outbound?.mode === 'disabled'
+    createDto.networkAllowList =
+      dto.network.outbound?.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
+    createDto.public = dto.network.inbound?.service_access
+      ? dto.network.inbound.service_access === 'public'
+      : undefined
   }
   return createDto
 }

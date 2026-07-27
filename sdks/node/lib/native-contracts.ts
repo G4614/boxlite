@@ -86,12 +86,6 @@ export interface JsVolumeSpec {
 export interface JsNetworkSpec {
   outbound?: JsOutboundNetworkSpec;
   inbound?: JsInboundNetworkSpec;
-  /** @deprecated Use outbound.mode. */
-  mode?: "enabled" | "disabled";
-  /** @deprecated Use outbound.allowNet. */
-  allowNet?: string[];
-  /** @deprecated Use inbound.serviceAccess. */
-  serviceAccess?: "public" | "private";
 }
 
 export interface JsOutboundNetworkSpec {
