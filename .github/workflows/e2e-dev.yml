@@ -72,9 +72,17 @@ permissions:
   contents: read
 
 # Single global group: every run targets the same dev stack, so two in
-# flight would race over shared boxes. A newer push queues behind the
-# in-progress run instead of cancelling it — cancelling mid-suite leaks
-# boxes on the dev stack that nothing then cleans up.
+# flight would race over shared boxes.
+#
+# A newer push queues behind the in-progress run instead of cancelling
+# it. The `box` fixture's teardown is the only thing that deletes the
+# boxes a run creates: auto_remove is a no-op over REST (see
+# deprecated_auto_remove_does_not_change_rest_lifecycle_defaults) and the
+# API defaults autoDelete to disabled, so a run killed mid-suite strands
+# every box it had open — they auto-stop after 15 min but are never
+# deleted. Note this bounds the damage rather than eliminating it:
+# GitHub retains only the newest *pending* run per group, so intermediate
+# queued pushes are still superseded before they ever start.
 concurrency:
   group: e2e-dev
   cancel-in-progress: false
