@@ -416,7 +416,13 @@ impl TryFrom<JsNetworkSpec> for NetworkSpec {
         };
         let inbound = match js_spec.inbound {
             Some(inbound) => inbound.try_into()?,
-            None => boxlite::runtime::options::InboundNetworkSpec::default(),
+            None => boxlite::runtime::options::InboundNetworkSpec {
+                service_access: js_spec
+                    .service_access
+                    .as_deref()
+                    .map(str::parse)
+                    .transpose()?,
+            },
         };
         Ok(NetworkSpec { outbound, inbound })
     }
@@ -971,5 +977,26 @@ mod tests {
                 panic!("network should be enabled")
             }
         }
+    }
+
+    #[test]
+    fn flat_service_access_without_mode_still_converts() {
+        let opts = NetworkSpec::try_from(JsNetworkSpec {
+            outbound: None,
+            inbound: None,
+            mode: None,
+            allow_net: None,
+            service_access: Some("private".into()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            opts.inbound.service_access,
+            Some(boxlite::runtime::options::ServiceAccess::Private)
+        );
+        assert!(matches!(
+            opts.outbound,
+            boxlite::runtime::options::OutboundNetworkSpec::Enabled { .. }
+        ));
     }
 }

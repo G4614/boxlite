@@ -128,6 +128,16 @@ describe('CreateBoxDto network validation', () => {
     expect(JSON.stringify(errors)).toContain('isIn')
   })
 
+  it('rejects unsupported legacy flat network modes', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: { mode: 'public' },
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isIn')
+  })
+
   it.each(['public', 'private'])('accepts service_access=%s', async (access) => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {

@@ -346,7 +346,13 @@ impl TryFrom<PyNetworkSpec> for NetworkSpec {
         };
         let inbound = match py_spec.inbound {
             Some(inbound) => inbound.try_into()?,
-            None => InboundNetworkSpec::default(),
+            None => InboundNetworkSpec {
+                service_access: py_spec
+                    .service_access
+                    .as_deref()
+                    .map(str::parse)
+                    .transpose()?,
+            },
         };
         Ok(NetworkSpec { outbound, inbound })
     }
@@ -1047,5 +1053,26 @@ impl From<PyBoxliteRestOptions> for BoxliteRestOptions {
             opts = opts.with_path_prefix(path_prefix);
         }
         opts
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boxlite::runtime::options::ServiceAccess;
+
+    #[test]
+    fn flat_service_access_without_mode_still_converts() {
+        let opts = NetworkSpec::try_from(PyNetworkSpec {
+            outbound: None,
+            inbound: None,
+            mode: None,
+            allow_net: Vec::new(),
+            service_access: Some("private".into()),
+        })
+        .unwrap();
+
+        assert_eq!(opts.inbound.service_access, Some(ServiceAccess::Private));
+        assert!(matches!(opts.outbound, OutboundNetworkSpec::Enabled { .. }));
     }
 }
