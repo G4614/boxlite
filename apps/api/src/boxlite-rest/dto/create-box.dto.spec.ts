@@ -128,6 +128,20 @@ describe('CreateBoxDto network validation', () => {
     expect(JSON.stringify(errors)).toContain('isIn')
   })
 
+  it.each([
+    ['mode', { mode: 'disabled' }],
+    ['allow_net', { allow_net: ['api.openai.com'] }],
+    ['service_access', { service_access: 'private' }],
+  ])('rejects legacy flat network.%s', async (_field, network) => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network,
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isNestedNetworkSpec')
+  })
+
   it.each(['public', 'private'])('accepts service_access=%s', async (access) => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {

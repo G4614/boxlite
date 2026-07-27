@@ -33,6 +33,21 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
+@ValidatorConstraint({ name: 'isNestedNetworkSpec', async: false })
+class IsNestedNetworkSpecConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (value === undefined || value === null || typeof value !== 'object') {
+      return true
+    }
+    const network = value as Record<string, unknown>
+    return !('mode' in network || 'allow_net' in network || 'service_access' in network)
+  }
+
+  defaultMessage(): string {
+    return 'network must use nested outbound/inbound fields'
+  }
+}
+
 export class OutboundNetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
@@ -129,6 +144,7 @@ export class CreateBoxDto {
   auto_resume?: boolean
 
   @IsOptional()
+  @Validate(IsNestedNetworkSpecConstraint)
   @ValidateNested()
   @Type(() => NetworkSpecDto)
   network?: NetworkSpecDto
