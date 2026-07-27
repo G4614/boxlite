@@ -41,68 +41,66 @@ impl PipelineTask<InitCtx> for GuestInitTask {
         let task_name = self.name();
         let box_id = task_start(&ctx, task_name).await;
 
-        let (guest_session, volume_mgr, rootfs_init, container_mounts, bootstrap) = {
-            let mut ctx = ctx.lock().await;
-            let guest_session = ctx
-                .guest_session
-                .take()
-                .ok_or_else(|| BoxliteError::Internal("connect task must run first".into()))?;
-            let image = ctx
-                .container_image_config
-                .clone()
-                .ok_or_else(|| BoxliteError::Internal("rootfs task must run first".into()))?;
-            let volume_mgr = ctx
-                .volume_mgr
-                .take()
-                .ok_or_else(|| BoxliteError::Internal("vmm_spawn task must run first".into()))?;
-            let rootfs_init = ctx
-                .rootfs_init
-                .take()
-                .ok_or_else(|| BoxliteError::Internal("vmm_spawn task must run first".into()))?;
-            let container_mounts = ctx
-                .container_mounts
-                .take()
-                .ok_or_else(|| BoxliteError::Internal("vmm_spawn task must run first".into()))?;
+        let (guest_session, volume_mgr, rootfs_init, container_mounts, bootstrap) =
+            {
+                let mut ctx = ctx.lock().await;
+                let guest_session = ctx
+                    .guest_session
+                    .take()
+                    .ok_or_else(|| BoxliteError::Internal("connect task must run first".into()))?;
+                let image = ctx
+                    .container_image_config
+                    .clone()
+                    .ok_or_else(|| BoxliteError::Internal("rootfs task must run first".into()))?;
+                let volume_mgr = ctx.volume_mgr.take().ok_or_else(|| {
+                    BoxliteError::Internal("vmm_spawn task must run first".into())
+                })?;
+                let rootfs_init = ctx.rootfs_init.take().ok_or_else(|| {
+                    BoxliteError::Internal("vmm_spawn task must run first".into())
+                })?;
+                let container_mounts = ctx.container_mounts.take().ok_or_else(|| {
+                    BoxliteError::Internal("vmm_spawn task must run first".into())
+                })?;
 
-            let network = match &ctx.config.options.network.outbound {
-                OutboundNetworkSpec::Enabled { .. } => Some(NetworkInitConfig {
-                    interface: GUEST_INTERFACE.to_string(),
-                    ip: Some(GUEST_CIDR.to_string()),
-                    gateway: Some(GATEWAY_IP.to_string()),
-                }),
-                OutboundNetworkSpec::Disabled => None,
-            };
-            let bootstrap = GuestBootstrapConfig {
-                guest: GuestInitConfig {
-                    volumes: volume_mgr.build_guest_mounts(),
-                    network,
-                },
-                container: ContainerInitConfig {
-                    container_id: ctx.config.container.id.as_str().to_owned(),
-                    image,
-                    rootfs: rootfs_init.clone(),
-                    mounts: container_mounts.clone(),
-                    ca_certs: ctx.ca_cert_pem.iter().cloned().collect(),
-                    tty: ctx.config.options.tty,
-                    devices: if ctx.config.options.advanced.nested_virtualization {
-                        vec![kvm_device()]
-                    } else {
-                        Vec::new()
+                let network = match &ctx.config.options.network.outbound {
+                    OutboundNetworkSpec::Enabled { .. } => Some(NetworkInitConfig {
+                        interface: GUEST_INTERFACE.to_string(),
+                        ip: Some(GUEST_CIDR.to_string()),
+                        gateway: Some(GATEWAY_IP.to_string()),
+                    }),
+                    OutboundNetworkSpec::Disabled => None,
+                };
+                let bootstrap = GuestBootstrapConfig {
+                    guest: GuestInitConfig {
+                        volumes: volume_mgr.build_guest_mounts(),
+                        network,
                     },
-                    advanced: crate::portal::interfaces::container::ContainerAdvancedConfig {
-                        capabilities: ctx.config.options.advanced.capabilities.clone(),
+                    container: ContainerInitConfig {
+                        container_id: ctx.config.container.id.as_str().to_owned(),
+                        image,
+                        rootfs: rootfs_init.clone(),
+                        mounts: container_mounts.clone(),
+                        ca_certs: ctx.ca_cert_pem.iter().cloned().collect(),
+                        tty: ctx.config.options.tty,
+                        devices: if ctx.config.options.advanced.nested_virtualization {
+                            vec![kvm_device()]
+                        } else {
+                            Vec::new()
+                        },
+                        advanced: crate::portal::interfaces::container::ContainerAdvancedConfig {
+                            capabilities: ctx.config.options.advanced.capabilities.clone(),
+                        },
                     },
-                },
-            };
+                };
 
-            (
-                guest_session,
-                volume_mgr,
-                rootfs_init,
-                container_mounts,
-                bootstrap,
-            )
-        };
+                (
+                    guest_session,
+                    volume_mgr,
+                    rootfs_init,
+                    container_mounts,
+                    bootstrap,
+                )
+            };
 
         run_guest_init(guest_session.clone(), bootstrap)
             .await
