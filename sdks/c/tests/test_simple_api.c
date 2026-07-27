@@ -13,8 +13,9 @@
 static void assert_ok(BoxliteErrorCode code, CBoxliteError *error,
                       const char *operation) {
   if (code != Ok) {
-    printf("  ✗ %s failed: code=%d, message=%s\n", operation, code,
-           error && error->message ? error->message : "(null)");
+    fprintf(stderr, "  ERROR: %s failed: code=%d, message=%s\n", operation,
+            code, error && error->message ? error->message : "(null)");
+    fflush(stderr);
   }
   assert(code == Ok);
 }
