@@ -2,7 +2,7 @@ use std::os::raw::{c_char, c_int};
 
 use boxlite::runtime::options::{
     BoxOptions, NetworkSpec, OutboundNetworkSpec, PortProtocol, PortSpec, RootfsSpec, Secret,
-    VolumeSpec,
+    ServiceAccess, VolumeSpec,
 };
 
 use crate::error::{BoxliteErrorCode, FFIError, null_pointer_error, write_error};
@@ -131,6 +131,14 @@ pub unsafe extern "C" fn boxlite_options_add_network_allow(
     host: *const c_char,
 ) {
     options_add_network_allow(opts, host)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_options_set_network_service_access(
+    opts: *mut CBoxliteOptions,
+    service_access: *const c_char,
+) -> BoxliteErrorCode {
+    options_set_network_service_access(opts, service_access)
 }
 
 #[unsafe(no_mangle)]
@@ -428,6 +436,30 @@ pub unsafe fn options_add_network_allow(handle: *mut OptionsHandle, host: *const
         {
             allow_net.push(h);
         }
+    }
+}
+
+pub unsafe fn options_set_network_service_access(
+    handle: *mut OptionsHandle,
+    service_access: *const c_char,
+) -> BoxliteErrorCode {
+    unsafe {
+        if handle.is_null() {
+            return BoxliteErrorCode::InvalidArgument;
+        }
+        let access = if service_access.is_null() {
+            None
+        } else {
+            let Ok(value) = c_str_to_string(service_access) else {
+                return BoxliteErrorCode::InvalidArgument;
+            };
+            let Ok(access) = value.parse::<ServiceAccess>() else {
+                return BoxliteErrorCode::InvalidArgument;
+            };
+            Some(access)
+        };
+        (*handle).options.network.inbound.service_access = access;
+        BoxliteErrorCode::Ok
     }
 }
 

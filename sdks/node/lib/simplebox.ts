@@ -98,12 +98,31 @@ export interface Secret {
  * Structured network configuration for a box.
  */
 export interface NetworkSpec {
+  /** Outbound guest network policy. */
+  outbound?: OutboundNetworkSpec;
+
+  /** Inbound service access policy. */
+  inbound?: InboundNetworkSpec;
+
+  /** @deprecated Use outbound.mode. */
+  mode?: "enabled" | "disabled";
+
+  /** @deprecated Use outbound.allowNet. */
+  allowNet?: string[];
+
+  /** @deprecated Use inbound.serviceAccess. */
+  serviceAccess?: "public" | "private";
+}
+
+export interface OutboundNetworkSpec {
   /** Network mode. */
   mode: "enabled" | "disabled";
 
   /** Outbound allowlist when network is enabled. */
   allowNet?: string[];
+}
 
+export interface InboundNetworkSpec {
   /** Whether inbound service endpoints are public or private. */
   serviceAccess?: "public" | "private";
 }
@@ -387,13 +406,13 @@ export class SimpleBox {
 
     if (legacyOptions.allowNet !== undefined) {
       throw new TypeError(
-        "SimpleBoxOptions.allowNet was removed. Use network: { mode, allowNet }.",
+        "SimpleBoxOptions.allowNet was removed. Use network: { outbound: { mode, allowNet } }.",
       );
     }
 
     if (typeof legacyOptions.network === "string") {
       throw new TypeError(
-        "SimpleBoxOptions.network must be an object. Use network: { mode, allowNet }.",
+        "SimpleBoxOptions.network must be an object. Use network: { outbound, inbound }.",
       );
     }
 

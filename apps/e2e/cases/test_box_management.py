@@ -97,8 +97,8 @@ async def test_box_options_service_access_controls_preview_access(
             image=image,
             auto_remove=True,
             network=boxlite.NetworkSpec(
-                mode="enabled",
-                service_access=service_access,
+                outbound=boxlite.OutboundNetworkSpec(mode="enabled"),
+                inbound=boxlite.InboundNetworkSpec(service_access=service_access),
             ),
         ),
     )

@@ -33,9 +33,38 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
-export class NetworkSpecDto {
+export class OutboundNetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_NETWORK_ALLOW_LIST_ENTRIES)
+  @IsString({ each: true })
+  @Validate(IsNetworkAllowEntryConstraint, { each: true })
+  allow_net?: string[]
+}
+
+export class InboundNetworkSpecDto {
+  @IsOptional()
+  @IsIn(['public', 'private'])
+  service_access?: 'public' | 'private'
+}
+
+export class NetworkSpecDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OutboundNetworkSpecDto)
+  outbound?: OutboundNetworkSpecDto
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InboundNetworkSpecDto)
+  inbound?: InboundNetworkSpecDto
+
+  @IsOptional()
+  @IsIn(['enabled', 'disabled'])
+  mode?: 'enabled' | 'disabled'
 
   @IsOptional()
   @IsArray()

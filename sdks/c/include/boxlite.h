@@ -748,6 +748,12 @@ void boxlite_options_set_network_disabled(CBoxliteOptions *opts);
 // CIDR to keep UDP open.
 void boxlite_options_add_network_allow(CBoxliteOptions *opts, const char *host);
 
+// Set inbound service access policy. Pass "public", "private", or NULL to
+// clear the explicit policy and use the control-plane default.
+enum BoxliteErrorCode boxlite_options_set_network_service_access(
+    CBoxliteOptions *opts,
+    const char *service_access);
+
 void boxlite_options_add_secret(CBoxliteOptions *opts,
                                 const char *name,
                                 const char *value,

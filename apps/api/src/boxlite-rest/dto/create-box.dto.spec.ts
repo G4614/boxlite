@@ -74,8 +74,10 @@ describe('CreateBoxDto network validation', () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         network: {
-          mode: 'enabled',
-          allow_net: ['api.openai.com', '*.anthropic.com', '192.168.1.1', '10.0.0.0/8'],
+          outbound: {
+            mode: 'enabled',
+            allow_net: ['api.openai.com', '*.anthropic.com', '192.168.1.1', '10.0.0.0/8'],
+          },
         },
       }),
     )
@@ -89,8 +91,10 @@ describe('CreateBoxDto network validation', () => {
       const errors = await validate(
         plainToInstance(CreateBoxDto, {
           network: {
-            mode: 'enabled',
-            allow_net: [entry],
+            outbound: {
+              mode: 'enabled',
+              allow_net: [entry],
+            },
           },
         }),
       )
@@ -103,8 +107,10 @@ describe('CreateBoxDto network validation', () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         network: {
-          mode: 'enabled',
-          allow_net: Array.from({ length: 11 }, (_, index) => `api-${index}.example.com`),
+          outbound: {
+            mode: 'enabled',
+            allow_net: Array.from({ length: 11 }, (_, index) => `api-${index}.example.com`),
+          },
         },
       }),
     )
@@ -115,7 +121,7 @@ describe('CreateBoxDto network validation', () => {
   it('rejects unsupported network modes', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        network: { mode: 'public' },
+        network: { outbound: { mode: 'public' } },
       }),
     )
 
@@ -125,7 +131,21 @@ describe('CreateBoxDto network validation', () => {
   it.each(['public', 'private'])('accepts service_access=%s', async (access) => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        network: { mode: 'enabled', service_access: access },
+        network: { outbound: { mode: 'enabled' }, inbound: { service_access: access } },
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
+  })
+
+  it('accepts legacy flat network fields while clients migrate', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: {
+          mode: 'enabled',
+          allow_net: ['api.openai.com'],
+          service_access: 'public',
+        },
       }),
     )
 
@@ -135,7 +155,7 @@ describe('CreateBoxDto network validation', () => {
   it('rejects unsupported service_access values', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        network: { mode: 'enabled', service_access: 'shared' },
+        network: { outbound: { mode: 'enabled' }, inbound: { service_access: 'shared' } },
       }),
     )
 

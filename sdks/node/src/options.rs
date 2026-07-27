@@ -322,6 +322,27 @@ pub struct JsSecret {
 #[napi(object)]
 #[derive(Clone, Debug)]
 pub struct JsNetworkSpec {
+    /// Outbound guest network policy.
+    pub outbound: Option<JsOutboundNetworkSpec>,
+
+    /// Inbound service access policy.
+    pub inbound: Option<JsInboundNetworkSpec>,
+
+    /// Deprecated: use outbound.mode.
+    pub mode: Option<String>,
+
+    /// Deprecated: use outbound.allowNet.
+    #[napi(js_name = "allowNet")]
+    pub allow_net: Option<Vec<String>>,
+
+    /// Deprecated: use inbound.serviceAccess.
+    #[napi(js_name = "serviceAccess")]
+    pub service_access: Option<String>,
+}
+
+#[napi(object)]
+#[derive(Clone, Debug)]
+pub struct JsOutboundNetworkSpec {
     /// Network mode: "enabled" or "disabled".
     pub mode: String,
 
@@ -331,7 +352,11 @@ pub struct JsNetworkSpec {
     /// CIDR to keep UDP open.
     #[napi(js_name = "allowNet")]
     pub allow_net: Option<Vec<String>>,
+}
 
+#[napi(object)]
+#[derive(Clone, Debug)]
+pub struct JsInboundNetworkSpec {
     /// Whether inbound service endpoints are "public" or "private".
     #[napi(js_name = "serviceAccess")]
     pub service_access: Option<String>,
@@ -373,10 +398,48 @@ impl TryFrom<JsNetworkSpec> for NetworkSpec {
     type Error = boxlite_shared::errors::BoxliteError;
 
     fn try_from(js_spec: JsNetworkSpec) -> Result<Self, Self::Error> {
-        let mode = js_spec.mode.parse::<NetworkMode>()?;
-        NetworkSpec::try_from(NetworkConfig {
-            mode,
+        if let Some(mode) = js_spec.mode {
+            return NetworkSpec::try_from(NetworkConfig {
+                mode: mode.parse::<NetworkMode>()?,
+                allow_net: js_spec.allow_net.unwrap_or_default(),
+                service_access: js_spec
+                    .service_access
+                    .as_deref()
+                    .map(str::parse)
+                    .transpose()?,
+            });
+        }
+
+        let outbound = match js_spec.outbound {
+            Some(outbound) => outbound.try_into()?,
+            None => boxlite::runtime::options::OutboundNetworkSpec::default(),
+        };
+        let inbound = match js_spec.inbound {
+            Some(inbound) => inbound.try_into()?,
+            None => boxlite::runtime::options::InboundNetworkSpec::default(),
+        };
+        Ok(NetworkSpec { outbound, inbound })
+    }
+}
+
+impl TryFrom<JsOutboundNetworkSpec> for boxlite::runtime::options::OutboundNetworkSpec {
+    type Error = boxlite_shared::errors::BoxliteError;
+
+    fn try_from(js_spec: JsOutboundNetworkSpec) -> Result<Self, Self::Error> {
+        let network = NetworkSpec::try_from(NetworkConfig {
+            mode: js_spec.mode.parse::<NetworkMode>()?,
             allow_net: js_spec.allow_net.unwrap_or_default(),
+            service_access: None,
+        })?;
+        Ok(network.outbound)
+    }
+}
+
+impl TryFrom<JsInboundNetworkSpec> for boxlite::runtime::options::InboundNetworkSpec {
+    type Error = boxlite_shared::errors::BoxliteError;
+
+    fn try_from(js_spec: JsInboundNetworkSpec) -> Result<Self, Self::Error> {
+        Ok(Self {
             service_access: js_spec
                 .service_access
                 .as_deref()
@@ -760,9 +823,16 @@ mod tests {
             env: None,
             volumes: None,
             network: Some(JsNetworkSpec {
-                mode: "enabled".into(),
-                allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
-                service_access: Some("public".into()),
+                outbound: Some(JsOutboundNetworkSpec {
+                    mode: "enabled".into(),
+                    allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
+                }),
+                inbound: Some(JsInboundNetworkSpec {
+                    service_access: Some("public".into()),
+                }),
+                mode: None,
+                allow_net: None,
+                service_access: None,
             }),
             ports: None,
             auto_remove: None,
@@ -864,12 +934,42 @@ mod tests {
     #[test]
     fn disabled_network_rejects_allow_net() {
         let err = NetworkSpec::try_from(JsNetworkSpec {
-            mode: "disabled".into(),
-            allow_net: Some(vec!["example.com".into()]),
+            outbound: Some(JsOutboundNetworkSpec {
+                mode: "disabled".into(),
+                allow_net: Some(vec!["example.com".into()]),
+            }),
+            inbound: None,
+            mode: None,
+            allow_net: None,
             service_access: None,
         })
         .unwrap_err();
 
         assert!(err.to_string().contains("network.mode=\"disabled\""));
+    }
+
+    #[test]
+    fn legacy_flat_network_spec_still_converts() {
+        let opts = NetworkSpec::try_from(JsNetworkSpec {
+            outbound: None,
+            inbound: None,
+            mode: Some("enabled".into()),
+            allow_net: Some(vec!["example.com".into()]),
+            service_access: Some("private".into()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            opts.inbound.service_access,
+            Some(boxlite::runtime::options::ServiceAccess::Private)
+        );
+        match opts.outbound {
+            boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
+                assert_eq!(allow_net, vec!["example.com"]);
+            }
+            boxlite::runtime::options::OutboundNetworkSpec::Disabled => {
+                panic!("network should be enabled")
+            }
+        }
     }
 }

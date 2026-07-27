@@ -204,11 +204,28 @@ pub(crate) struct CreateBoxAdvancedOptions {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxNetworkSpec {
+    pub outbound: CreateBoxOutboundNetworkSpec,
+    #[serde(skip_serializing_if = "CreateBoxInboundNetworkSpec::is_empty")]
+    pub inbound: CreateBoxInboundNetworkSpec,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CreateBoxOutboundNetworkSpec {
     pub mode: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow_net: Vec<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub(crate) struct CreateBoxInboundNetworkSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_access: Option<String>,
+}
+
+impl CreateBoxInboundNetworkSpec {
+    fn is_empty(spec: &Self) -> bool {
+        spec.service_access.is_none()
+    }
 }
 
 impl CreateBoxNetworkSpec {
@@ -219,9 +236,13 @@ impl CreateBoxNetworkSpec {
             crate::runtime::options::NetworkMode::Disabled => "disabled",
         };
         Self {
-            mode: mode.to_string(),
-            allow_net: config.allow_net,
-            service_access: config.service_access.map(|access| access.as_str().into()),
+            outbound: CreateBoxOutboundNetworkSpec {
+                mode: mode.to_string(),
+                allow_net: config.allow_net,
+            },
+            inbound: CreateBoxInboundNetworkSpec {
+                service_access: config.service_access.map(|access| access.as_str().into()),
+            },
         }
     }
 }
@@ -592,9 +613,13 @@ mod tests {
             working_dir: None,
             env: None,
             network: Some(CreateBoxNetworkSpec {
-                mode: "enabled".into(),
-                allow_net: vec!["api.openai.com".into()],
-                service_access: Some("public".into()),
+                outbound: CreateBoxOutboundNetworkSpec {
+                    mode: "enabled".into(),
+                    allow_net: vec!["api.openai.com".into()],
+                },
+                inbound: CreateBoxInboundNetworkSpec {
+                    service_access: Some("public".into()),
+                },
             }),
             entrypoint: None,
             cmd: None,
@@ -617,9 +642,12 @@ mod tests {
         assert!(json.contains("\"image\":\"python:3.11\""));
         assert!(json.contains("\"cpus\":2"));
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["network"]["mode"], "enabled");
-        assert_eq!(value["network"]["allow_net"][0], "api.openai.com");
-        assert_eq!(value["network"]["service_access"], "public");
+        assert_eq!(value["network"]["outbound"]["mode"], "enabled");
+        assert_eq!(
+            value["network"]["outbound"]["allow_net"][0],
+            "api.openai.com"
+        );
+        assert_eq!(value["network"]["inbound"]["service_access"], "public");
         assert!(json.contains("\"secrets\""));
         // None fields should be skipped
         assert!(!json.contains("rootfs_path"));
@@ -653,15 +681,17 @@ mod tests {
         assert_eq!(req.cpus, Some(4));
         assert_eq!(req.memory_mib, Some(1024));
         assert_eq!(
-            req.network.as_ref().map(|n| n.mode.as_str()),
+            req.network.as_ref().map(|n| n.outbound.mode.as_str()),
             Some("enabled")
         );
         assert_eq!(
-            req.network.as_ref().map(|n| n.allow_net.clone()),
+            req.network.as_ref().map(|n| n.outbound.allow_net.clone()),
             Some(vec!["api.openai.com".into()])
         );
         assert_eq!(
-            req.network.as_ref().and_then(|n| n.service_access.clone()),
+            req.network
+                .as_ref()
+                .and_then(|n| n.inbound.service_access.clone()),
             Some("private".into())
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
@@ -739,11 +769,11 @@ mod tests {
 
         let req = CreateBoxRequest::from_options(&opts, None);
         assert_eq!(
-            req.network.as_ref().map(|n| n.mode.as_str()),
+            req.network.as_ref().map(|n| n.outbound.mode.as_str()),
             Some("disabled")
         );
-        assert!(req.network.as_ref().unwrap().allow_net.is_empty());
-        assert_eq!(req.network.as_ref().unwrap().service_access, None);
+        assert!(req.network.as_ref().unwrap().outbound.allow_net.is_empty());
+        assert_eq!(req.network.as_ref().unwrap().inbound.service_access, None);
     }
 
     /// REST is intentionally a "the server picks the security policy"

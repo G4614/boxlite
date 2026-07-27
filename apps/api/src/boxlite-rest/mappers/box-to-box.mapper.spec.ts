@@ -13,12 +13,26 @@ describe('BoxLite lifecycle policy mapper', () => {
   ])('maps service_access=%s to control-plane public=%s', (access, expected) => {
     const mapped = createBoxToCreateBox({
       network: {
-        mode: 'enabled',
-        service_access: access as 'public' | 'private',
+        outbound: { mode: 'enabled' },
+        inbound: { service_access: access as 'public' | 'private' },
       },
     })
 
     expect(mapped.public).toBe(expected)
+  })
+
+  it('keeps accepting legacy flat network fields', () => {
+    const mapped = createBoxToCreateBox({
+      network: {
+        mode: 'enabled',
+        allow_net: ['api.openai.com'],
+        service_access: 'public',
+      },
+    })
+
+    expect(mapped.networkBlockAll).toBe(false)
+    expect(mapped.networkAllowList).toBe('api.openai.com')
+    expect(mapped.public).toBe(true)
   })
 
   it('maps second-based create fields into the control-plane DTO', () => {
