@@ -406,6 +406,16 @@ export class SimpleBox {
         "SimpleBoxOptions.network must be an object. Use network: { outbound, inbound }.",
       );
     }
+    if (
+      legacyOptions.network !== undefined &&
+      legacyOptions.network !== null &&
+      typeof legacyOptions.network === "object" &&
+      ("mode" in legacyOptions.network || "allowNet" in legacyOptions.network)
+    ) {
+      throw new TypeError(
+        "SimpleBoxOptions.network must use outbound/inbound. Use network: { outbound: { mode, allowNet }, inbound }.",
+      );
+    }
 
     // Use provided runtime or get global default
     if (options.runtime) {
