@@ -117,6 +117,8 @@ pub(crate) struct CreateBoxRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<CreateBoxSecret>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub volumes: Option<Vec<CreateBoxVolumeSpec>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detach: Option<bool>,
     /// A terminal for the main command (`run -t`). Only sent when asked for:
     /// the server rejects unknown fields, so an older one would 400 on it —
@@ -157,6 +159,17 @@ impl CreateBoxRequest {
         } else {
             Some(options.secrets.iter().map(CreateBoxSecret::from).collect())
         };
+        let volumes = if options.volumes.is_empty() {
+            None
+        } else {
+            Some(
+                options
+                    .volumes
+                    .iter()
+                    .map(CreateBoxVolumeSpec::from)
+                    .collect(),
+            )
+        };
 
         // SecurityOptions is intentionally NOT carried on the wire.
         // Sandbox security is the operator's policy and is set
@@ -180,6 +193,7 @@ impl CreateBoxRequest {
             cmd: options.cmd.clone(),
             user: options.user.clone(),
             secrets,
+            volumes,
             detach: Some(options.detach),
             tty: options.tty.then_some(true),
             advanced: (!options.advanced.capabilities.is_empty()).then(|| {
@@ -200,6 +214,23 @@ impl CreateBoxRequest {
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxAdvancedOptions {
     pub capabilities: ContainerCapabilities,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CreateBoxVolumeSpec {
+    pub host_path: String,
+    pub guest_path: String,
+    pub read_only: bool,
+}
+
+impl From<&crate::runtime::options::VolumeSpec> for CreateBoxVolumeSpec {
+    fn from(volume: &crate::runtime::options::VolumeSpec) -> Self {
+        Self {
+            host_path: volume.host_path.clone(),
+            guest_path: volume.guest_path.clone(),
+            read_only: volume.read_only,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -602,6 +633,7 @@ mod tests {
                 hosts: vec!["api.openai.com".into()],
                 placeholder: "<BOXLITE_SECRET:openai>".into(),
             }]),
+            volumes: None,
             detach: None,
             advanced: None,
             auto_stop: Some(900),
@@ -623,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_create_box_request_from_options() {
-        use crate::runtime::options::{BoxOptions, NetworkSpec, RootfsSpec, Secret};
+        use crate::runtime::options::{BoxOptions, NetworkSpec, RootfsSpec, Secret, VolumeSpec};
 
         let opts = BoxOptions {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
@@ -637,6 +669,11 @@ mod tests {
                 value: "sk-test".into(),
                 hosts: vec!["api.openai.com".into()],
                 placeholder: "<BOXLITE_SECRET:openai>".into(),
+            }],
+            volumes: vec![VolumeSpec {
+                host_path: "volume-123".into(),
+                guest_path: "/data".into(),
+                read_only: false,
             }],
             auto_stop: Some(1800),
             auto_delete: Some(604800),
@@ -657,6 +694,10 @@ mod tests {
             Some(vec!["api.openai.com".into()])
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
+        let volume = &req.volumes.as_ref().unwrap()[0];
+        assert_eq!(volume.host_path, "volume-123");
+        assert_eq!(volume.guest_path, "/data");
+        assert!(!volume.read_only);
         assert_eq!(req.auto_stop, Some(1800));
         assert_eq!(req.auto_delete, Some(604800));
         assert_eq!(
