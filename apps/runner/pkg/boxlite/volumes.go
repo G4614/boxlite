@@ -80,8 +80,8 @@ func (c *Client) getVolumeMounts(ctx context.Context, boxID string, volumes []dt
 
 		if !fuseMountedVolumes[volumeIdPrefixed] {
 			var err error
-			if backend == "ebs" {
-				err = c.ensureEBSVolumeMounted(ctx, boxID, vol.VolumeId, vol.ProviderResourceID, baseMountPath)
+			if backend == "efs" {
+				err = c.ensureEFSVolumeMounted(ctx, vol.VolumeId, vol.ProviderResourceID, baseMountPath)
 			} else {
 				err = c.ensureVolumeFuseMounted(ctx, volumeIdPrefixed, baseMountPath)
 			}
@@ -349,14 +349,6 @@ func (c *Client) releaseBoxVolumeMounts(ctx context.Context, boxID string) error
 	var record boxVolumeMountRecord
 	if err := json.Unmarshal(data, &record); err != nil {
 		return err
-	}
-	for _, volume := range record.Volumes {
-		if volume.Backend != "ebs" {
-			continue
-		}
-		if err := c.releaseEBSVolume(ctx, boxID, volume.VolumeID, volume.ProviderResourceID, volume.Path); err != nil {
-			return err
-		}
 	}
 	return c.removeBoxVolumeMountRecord(ctx, boxID)
 }

@@ -21,14 +21,14 @@ type VolumeBackend string
 // List of VolumeBackend
 const (
 	VOLUMEBACKEND_S3 VolumeBackend = "s3"
-	VOLUMEBACKEND_EBS VolumeBackend = "ebs"
+	VOLUMEBACKEND_EFS VolumeBackend = "efs"
 	VOLUMEBACKEND_UNKNOWN_DEFAULT_OPEN_API VolumeBackend = "unknown_default_open_api"
 )
 
 // All allowed values of VolumeBackend enum
 var AllowedVolumeBackendEnumValues = []VolumeBackend{
 	"s3",
-	"ebs",
+	"efs",
 	"unknown_default_open_api",
 }
 

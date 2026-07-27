@@ -5,7 +5,7 @@
 
 * `S3` (value: `'s3'`)
 
-* `EBS` (value: `'ebs'`)
+* `EFS` (value: `'efs'`)
 
 * `UNKNOWN_DEFAULT_OPEN_API` (value: `'11184809'`)
 

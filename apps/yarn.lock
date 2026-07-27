@@ -805,20 +805,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@aws-sdk/client-ec2@npm:^3.787.0":
-  version: 3.1089.0
-  resolution: "@aws-sdk/client-ec2@npm:3.1089.0"
+"@aws-sdk/client-efs@npm:^3.787.0":
+  version: 3.1090.0
+  resolution: "@aws-sdk/client-efs@npm:3.1090.0"
   dependencies:
     "@aws-sdk/core": "npm:^3.975.3"
     "@aws-sdk/credential-provider-node": "npm:^3.972.70"
-    "@aws-sdk/middleware-sdk-ec2": "npm:^3.972.47"
     "@aws-sdk/types": "npm:^3.974.2"
     "@smithy/core": "npm:^3.29.4"
     "@smithy/fetch-http-handler": "npm:^5.6.6"
     "@smithy/node-http-handler": "npm:^4.9.6"
     "@smithy/types": "npm:^4.16.1"
     tslib: "npm:^2.6.2"
-  checksum: 10c0/80e41e56400179c0e079d344ff43e5bfbb5d004a9ea20d9c518a57df85f0990bf6e18f723496ebb7e1f96f05a817c33f789d2e29073f3a89651bf8e2c8281024
+  checksum: 10c0/9eb8ca0a679b819286593eb789ef1694ce8d1a54bd751889f7390499771c4b97ad58310a91e737571ccd646486931bd3d6b569b7e016846f15390d5a1bb81bc9
   languageName: node
   linkType: hard
 
@@ -1439,20 +1438,6 @@ __metadata:
     "@aws-sdk/core": "npm:^3.974.11"
     tslib: "npm:^2.6.2"
   checksum: 10c0/ea6204cc0dbe37567dad5fbc3905718fcecb0344dfdd8001ef3fe2dafc838219014d0f4439c4eb69c935b3deef98d1484efab6924bed09a48a8b1127c03c2ae9
-  languageName: node
-  linkType: hard
-
-"@aws-sdk/middleware-sdk-ec2@npm:^3.972.47":
-  version: 3.972.47
-  resolution: "@aws-sdk/middleware-sdk-ec2@npm:3.972.47"
-  dependencies:
-    "@aws-sdk/core": "npm:^3.975.3"
-    "@aws-sdk/types": "npm:^3.974.2"
-    "@smithy/core": "npm:^3.29.4"
-    "@smithy/signature-v4": "npm:^5.6.5"
-    "@smithy/types": "npm:^4.16.1"
-    tslib: "npm:^2.6.2"
-  checksum: 10c0/241e9976ebc03c729852fdd0830afb2cdf4008c5404a667fdf276dd82e4d5d17e2672d627e4695ab2049bcef0787589070c24ecb7e52f54e929357a8e979568c
   languageName: node
   linkType: hard
 
@@ -17619,7 +17604,7 @@ __metadata:
     "@astrojs/starlight-tailwind": "npm:^2.0.1"
     "@astrojs/tailwind": "npm:5.1.0"
     "@aws-sdk/client-cloudwatch-logs": "npm:^3.787.0"
-    "@aws-sdk/client-ec2": "npm:^3.787.0"
+    "@aws-sdk/client-efs": "npm:^3.787.0"
     "@aws-sdk/client-s3": "npm:^3.787.0"
     "@aws-sdk/client-sts": "npm:^3.803.0"
     "@aws-sdk/credential-provider-node": "npm:^3.901.0"

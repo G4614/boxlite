@@ -23,6 +23,7 @@ var _ MappedNullable = &CreateVolume{}
 type CreateVolume struct {
 	Name string `json:"name"`
 	Backend *string `json:"backend,omitempty"`
+	// Logical capacity limit in GiB
 	SizeGiB *float32 `json:"sizeGiB,omitempty"`
 	AdditionalProperties map[string]interface{}
 }

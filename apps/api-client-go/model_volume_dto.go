@@ -30,7 +30,7 @@ type VolumeDto struct {
 	// Volume state
 	State VolumeState `json:"state"`
 	Backend VolumeBackend `json:"backend"`
-	// Provisioned capacity in GiB
+	// Logical capacity limit in GiB
 	SizeGiB float32 `json:"sizeGiB"`
 	// Creation timestamp
 	CreatedAt string `json:"createdAt"`

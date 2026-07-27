@@ -6,13 +6,22 @@
 
 import { ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 import { VolumeManager } from './volume.manager'
-import { EC2Client, CreateVolumeCommand, DeleteVolumeCommand } from '@aws-sdk/client-ec2'
+import {
+  CreateAccessPointCommand,
+  DeleteAccessPointCommand,
+  DescribeAccessPointsCommand,
+  EFSClient,
+} from '@aws-sdk/client-efs'
 import { VolumeBackend } from '../enums/volume-backend.enum'
+import { rm } from 'node:fs/promises'
 
 const mockSend = jest.fn()
-const mockEc2Send = jest.fn()
-const mockWaitAvailable = jest.fn()
-const mockWaitDeleted = jest.fn()
+const mockEfsSend = jest.fn()
+const mockRm = rm as jest.MockedFunction<typeof rm>
+
+jest.mock('node:fs/promises', () => ({
+  rm: jest.fn(),
+}))
 
 jest.mock('@aws-sdk/client-s3', () => ({
   S3Client: jest.fn().mockImplementation(() => ({ send: mockSend })),
@@ -21,12 +30,11 @@ jest.mock('@aws-sdk/client-s3', () => ({
   PutBucketTaggingCommand: jest.fn().mockImplementation((input) => ({ input })),
 }))
 
-jest.mock('@aws-sdk/client-ec2', () => ({
-  EC2Client: jest.fn().mockImplementation(() => ({ send: mockEc2Send })),
-  CreateVolumeCommand: jest.fn().mockImplementation((input) => ({ input })),
-  DeleteVolumeCommand: jest.fn().mockImplementation((input) => ({ input })),
-  waitUntilVolumeAvailable: (...args: unknown[]) => mockWaitAvailable(...args),
-  waitUntilVolumeDeleted: (...args: unknown[]) => mockWaitDeleted(...args),
+jest.mock('@aws-sdk/client-efs', () => ({
+  EFSClient: jest.fn().mockImplementation(() => ({ send: mockEfsSend })),
+  CreateAccessPointCommand: jest.fn().mockImplementation((input) => ({ input })),
+  DeleteAccessPointCommand: jest.fn().mockImplementation((input) => ({ input })),
+  DescribeAccessPointsCommand: jest.fn().mockImplementation((input) => ({ operation: 'describe', input })),
 }))
 
 describe('VolumeManager S3 client setup', () => {
@@ -102,16 +110,16 @@ describe('VolumeManager S3 client setup', () => {
   })
 })
 
-describe('VolumeManager EBS backend', () => {
+describe('VolumeManager EFS backend', () => {
   afterEach(() => {
     jest.clearAllMocks()
   })
 
   function buildManager() {
     const values = {
-      'ebs.region': 'ap-southeast-1',
-      'ebs.availabilityZone': 'ap-southeast-1a',
-      'ebs.volumeType': 'gp3',
+      'efs.region': 'ap-southeast-1',
+      'efs.fileSystemId': 'fs-0123456789abcdef0',
+      'efs.mountPath': '/mnt/boxlite-volumes',
       environment: 'test',
     }
     const configService = {
@@ -125,41 +133,52 @@ describe('VolumeManager EBS backend', () => {
     return new VolumeManager({} as any, configService as any, {} as any, {} as any, {} as any)
   }
 
-  it('creates an encrypted volume in the runner availability zone and records the provider id', async () => {
-    mockEc2Send.mockResolvedValue({ VolumeId: 'vol-0123456789abcdef0' })
-    mockWaitAvailable.mockResolvedValue({ state: 'SUCCESS' })
+  it('creates an isolated access point and records the provider id', async () => {
+    mockEfsSend
+      .mockResolvedValueOnce({ AccessPointId: 'fsap-0123456789abcdef0' })
+      .mockResolvedValueOnce({ AccessPoints: [{ LifeCycleState: 'available' }] })
     const manager = buildManager()
     const volume = {
       id: '7dbd27bb-4465-4d13-98e6-bc1f00ab94b8',
       organizationId: 'cc8c56eb-4b9d-4b7c-93d2-bdc6055c83fb',
-      backend: VolumeBackend.EBS,
+      backend: VolumeBackend.EFS,
       sizeGiB: 20,
     } as any
 
-    await (manager as any).createEbsVolume(volume)
+    await (manager as any).createEfsVolume(volume)
 
-    expect(EC2Client).toHaveBeenCalledWith({ region: 'ap-southeast-1' })
-    expect(CreateVolumeCommand).toHaveBeenCalledWith(
+    expect(EFSClient).toHaveBeenCalledWith({ region: 'ap-southeast-1' })
+    expect(CreateAccessPointCommand).toHaveBeenCalledWith(
       expect.objectContaining({
-        AvailabilityZone: 'ap-southeast-1a',
+        FileSystemId: 'fs-0123456789abcdef0',
         ClientToken: volume.id,
-        Encrypted: true,
-        Size: 20,
-        VolumeType: 'gp3',
+        PosixUser: { Uid: 1000, Gid: 1000 },
+        RootDirectory: expect.objectContaining({ Path: `/boxlite-volumes/${volume.id}` }),
       }),
     )
-    expect(volume.providerResourceId).toBe('vol-0123456789abcdef0')
-    expect(mockWaitAvailable).toHaveBeenCalled()
+    expect(volume.providerResourceId).toBe('fsap-0123456789abcdef0')
+    expect(DescribeAccessPointsCommand).toHaveBeenCalledWith({ AccessPointId: 'fsap-0123456789abcdef0' })
   })
 
-  it('deletes the provider volume and waits until it is gone', async () => {
-    mockEc2Send.mockResolvedValue({})
-    mockWaitDeleted.mockResolvedValue({ state: 'SUCCESS' })
+  it('deletes the access point and waits until it is gone', async () => {
+    mockEfsSend
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(Object.assign(new Error('not found'), { name: 'AccessPointNotFound' }))
     const manager = buildManager()
 
-    await (manager as any).deleteEbsVolume({ id: 'volume-id', providerResourceId: 'vol-deadbeef' })
+    await (manager as any).deleteEfsVolume({ id: 'volume-id', providerResourceId: 'fsap-deadbeef' })
 
-    expect(DeleteVolumeCommand).toHaveBeenCalledWith({ VolumeId: 'vol-deadbeef' })
-    expect(mockWaitDeleted).toHaveBeenCalled()
+    expect(DeleteAccessPointCommand).toHaveBeenCalledWith({ AccessPointId: 'fsap-deadbeef' })
+    expect(DescribeAccessPointsCommand).toHaveBeenCalledWith({ AccessPointId: 'fsap-deadbeef' })
+    expect(mockRm).toHaveBeenCalledWith('/mnt/boxlite-volumes/volume-id', { recursive: true, force: true })
+  })
+
+  it('removes an orphaned directory when access-point creation was incomplete', async () => {
+    const manager = buildManager()
+
+    await (manager as any).deleteEfsVolume({ id: 'orphaned-volume' })
+
+    expect(mockRm).toHaveBeenCalledWith('/mnt/boxlite-volumes/orphaned-volume', { recursive: true, force: true })
+    expect(DeleteAccessPointCommand).not.toHaveBeenCalled()
   })
 })

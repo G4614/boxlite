@@ -7292,7 +7292,7 @@ components:
     VolumeBackend:
       enum:
       - s3
-      - ebs
+      - efs
       type: string
     VolumeDto:
       example:
@@ -7328,7 +7328,7 @@ components:
           allOf:
           - $ref: "#/components/schemas/VolumeBackend"
         sizeGiB:
-          description: Provisioned capacity in GiB
+          description: Logical capacity limit in GiB
           type: number
         createdAt:
           description: Creation timestamp
@@ -7371,10 +7371,11 @@ components:
           default: s3
           enum:
           - s3
-          - ebs
+          - efs
           type: string
         sizeGiB:
           default: 10
+          description: Logical capacity limit in GiB
           maximum: 16384
           minimum: 1
           type: number

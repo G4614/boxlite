@@ -41,7 +41,7 @@ export class VolumeDto {
   @ApiProperty({ enum: VolumeBackend, enumName: 'VolumeBackend' })
   backend: VolumeBackend
 
-  @ApiProperty({ description: 'Provisioned capacity in GiB' })
+  @ApiProperty({ description: 'Logical capacity limit in GiB' })
   sizeGiB: number
 
   @ApiProperty({

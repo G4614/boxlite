@@ -39,7 +39,7 @@ export interface VolumeDto {
     'state': VolumeState;
     'backend': VolumeBackend;
     /**
-     * Provisioned capacity in GiB
+     * Logical capacity limit in GiB
      */
     'sizeGiB': number;
     /**

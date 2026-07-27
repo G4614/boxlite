@@ -41,8 +41,8 @@ export class VolumeService {
     if (backend === VolumeBackend.S3 && !this.configService.get('s3.endpoint')) {
       throw new ServiceUnavailableException('S3 volume storage is not configured')
     }
-    if (backend === VolumeBackend.EBS && !this.configService.get('ebs.availabilityZone')) {
-      throw new ServiceUnavailableException('EBS volume storage is not configured')
+    if (backend === VolumeBackend.EFS && !this.configService.get('efs.fileSystemId')) {
+      throw new ServiceUnavailableException('EFS volume storage is not configured')
     }
 
     this.organizationService.assertOrganizationIsNotSuspended(organization)

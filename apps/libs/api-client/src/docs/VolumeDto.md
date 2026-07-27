@@ -10,7 +10,7 @@ Name | Type | Description | Notes
 **organizationId** | **string** | Organization ID | [default to undefined]
 **state** | [**VolumeState**](VolumeState.md) | Volume state | [default to undefined]
 **backend** | [**VolumeBackend**](VolumeBackend.md) |  | [default to undefined]
-**sizeGiB** | **number** | Provisioned capacity in GiB | [default to undefined]
+**sizeGiB** | **number** | Logical capacity limit in GiB | [default to undefined]
 **createdAt** | **string** | Creation timestamp | [default to undefined]
 **updatedAt** | **string** | Last update timestamp | [default to undefined]
 **lastUsedAt** | **string** | Last used timestamp | [optional] [default to undefined]

@@ -94,11 +94,10 @@ const configuration = {
     accountId: process.env.S3_ACCOUNT_ID,
     roleName: process.env.S3_ROLE_NAME,
   },
-  ebs: {
-    region: process.env.EBS_REGION || process.env.AWS_REGION,
-    availabilityZone: process.env.EBS_AVAILABILITY_ZONE,
-    volumeType: process.env.EBS_VOLUME_TYPE || 'gp3',
-    kmsKeyId: process.env.EBS_KMS_KEY_ID,
+  efs: {
+    region: process.env.EFS_REGION || process.env.AWS_REGION,
+    fileSystemId: process.env.EFS_FILE_SYSTEM_ID,
+    mountPath: process.env.EFS_MOUNT_PATH,
   },
   volumeDefaultBackend: process.env.VOLUME_DEFAULT_BACKEND || 's3',
   notificationGatewayDisabled: process.env.NOTIFICATION_GATEWAY_DISABLED === 'true',

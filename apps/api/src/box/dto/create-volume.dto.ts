@@ -20,7 +20,13 @@ export class CreateVolumeDto {
   @IsOptional()
   backend?: VolumeBackend
 
-  @ApiProperty({ minimum: 1, maximum: 16384, default: 10, required: false })
+  @ApiProperty({
+    description: 'Logical capacity limit in GiB',
+    minimum: 1,
+    maximum: 16384,
+    default: 10,
+    required: false,
+  })
   @IsInt()
   @Min(1)
   @Max(16384)

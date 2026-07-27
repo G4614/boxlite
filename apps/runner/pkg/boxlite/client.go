@@ -33,9 +33,9 @@ type Client struct {
 	awsEndpointUrl     string
 	awsAccessKeyId     string
 	awsSecretAccessKey string
+	efsFileSystemID    string
 	volumeMutexes      map[string]*sync.Mutex
 	volumeMutexesMutex sync.Mutex
-	ebsAttachMutex     sync.Mutex
 	volumeCleanupMutex sync.Mutex
 	lastVolumeCleanup  time.Time
 	volumeCleanup      volumeCleanupConfig
@@ -54,6 +54,7 @@ type ClientConfig struct {
 	AWSEndpointUrl               string
 	AWSAccessKeyId               string
 	AWSSecretAccessKey           string
+	EFSFileSystemID              string
 	VolumeCleanupInterval        time.Duration
 	VolumeCleanupDryRun          bool
 	VolumeCleanupExclusionPeriod time.Duration
@@ -178,6 +179,7 @@ func NewClient(ctx context.Context, config ClientConfig) (*Client, error) {
 		awsEndpointUrl:     config.AWSEndpointUrl,
 		awsAccessKeyId:     config.AWSAccessKeyId,
 		awsSecretAccessKey: config.AWSSecretAccessKey,
+		efsFileSystemID:    config.EFSFileSystemID,
 		volumeMutexes:      make(map[string]*sync.Mutex),
 		volumeCleanup: volumeCleanupConfig{
 			interval:        config.VolumeCleanupInterval,

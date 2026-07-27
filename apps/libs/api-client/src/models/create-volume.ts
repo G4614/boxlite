@@ -17,12 +17,15 @@
 export interface CreateVolume {
     'name': string;
     'backend'?: CreateVolumeBackendEnum;
+    /**
+     * Logical capacity limit in GiB
+     */
     'sizeGiB'?: number;
 }
 
 export const CreateVolumeBackendEnum = {
     S3: 's3',
-    EBS: 'ebs',
+    EFS: 'efs',
     UNKNOWN_DEFAULT_OPEN_API: '11184809',
 } as const;
 
