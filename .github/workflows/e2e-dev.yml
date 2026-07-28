@@ -31,6 +31,11 @@
 # starts 401-ing for no apparent reason, that is the first thing to
 # check — the preflight below says so explicitly.
 #
+# Last known-good: run 29995466177 (2026-07-23) authenticated fine — its
+# credential step passed, and that step is what calls /v1/me. The four
+# failures in that run were test failures, not auth. So a 401 after this
+# date means something changed since, not that the setup never worked.
+#
 # The durable alternative is a key on a principal that is not a person:
 # `boxlite-admin`, which the API provisions for itself on boot
 # (initializeAdminUser in apps/api/src/app.service.ts), or a dedicated
