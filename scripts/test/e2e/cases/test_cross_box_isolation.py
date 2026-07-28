@@ -53,14 +53,17 @@ async def test_box_b_cannot_read_box_a_filesystem(rt, image):
         )
 
         # And the marker must not appear anywhere reachable from B's rootfs.
+        # Exclude /proc and /sys: grep -rl over their virtual files (e.g.
+        # /proc/kcore) can stall past the exec timeout. `grep -rl` prints
+        # matching *paths*, so any path line at all is a breach — the only
+        # acceptable output is the DONE sentinel on its own line.
         rc, out, _ = await _run(
             b,
-            f"grep -rl '{MARKER}' / 2>/dev/null | head -n1; echo DONE",
+            f"grep -rl '{MARKER}' --exclude-dir=proc --exclude-dir=sys / "
+            "2>/dev/null | head -n1; echo DONE",
         )
-        assert MARKER not in out, f"ISOLATION BREACH: marker found in box B: {out!r}"
-        assert out.strip().splitlines()[-1] == "DONE", (
-            f"unexpected grep output: {out!r}"
-        )
+        lines = out.strip().splitlines()
+        assert lines == ["DONE"], f"ISOLATION BREACH: marker found in box B: {out!r}"
     finally:
         await rt.remove(a.id, force=True)
         await rt.remove(b.id, force=True)

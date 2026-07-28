@@ -7,6 +7,12 @@ assistant relies on for its authoritative Conversation/Memory/Task store.
 
 `auto_remove=False` so that stopping the box does not delete it; the box is
 removed explicitly in teardown.
+
+Scope note: the writer process exits before `stop()`, so `db.close()`
+checkpoints the WAL into the main database file — this asserts that a
+*committed* row is durable across restart (the actual requirement), not that
+an un-checkpointed `-wal` sidecar survives (which a workload restart can't
+exercise, since the writing process is already gone).
 """
 
 from __future__ import annotations
@@ -22,7 +28,8 @@ SENTINEL = "persist-across-restart-a91f2c"
 FILE_PATH = "/root/e2e_persist.txt"
 DB_PATH = "/root/e2e_persist.db"
 
-# Write a marker file and a committed WAL-mode SQLite row.
+# Write a marker file and a committed SQLite row (WAL journal mode, as the
+# assistant uses). On close the WAL is checkpointed into the main .db file.
 _WRITE = (
     "import sqlite3\n"
     f"open({FILE_PATH!r}, 'w').write({SENTINEL!r})\n"
