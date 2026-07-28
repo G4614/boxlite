@@ -13,6 +13,7 @@
 static void assert_ok(BoxliteErrorCode code, CBoxliteError *error,
                       const char *operation) {
   if (code != Ok) {
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
     printf("  ERROR: %s failed: code=%d, message=%s\n", operation, code,
            error && error->message ? error->message : "(null)");
     fflush(stdout);
