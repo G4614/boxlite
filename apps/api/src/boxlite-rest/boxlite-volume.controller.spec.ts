@@ -1,5 +1,6 @@
 import { BoxliteVolumeController } from './boxlite-volume.controller'
 import { VolumeService } from '../box/services/volume.service'
+import { NotFoundException } from '@nestjs/common'
 
 describe('BoxliteVolumeController', () => {
   const createdAt = new Date('2026-07-27T00:00:00.000Z')
@@ -9,6 +10,8 @@ describe('BoxliteVolumeController', () => {
     const volumeService = {
       create: jest.fn().mockResolvedValue(volume),
       findAll: jest.fn().mockResolvedValue([volume]),
+      findOne: jest.fn().mockResolvedValue(volume),
+      delete: jest.fn().mockResolvedValue(undefined),
     }
     return {
       controller: new BoxliteVolumeController(volumeService as unknown as VolumeService),
@@ -46,5 +49,47 @@ describe('BoxliteVolumeController', () => {
       ],
     })
     expect(volumeService.findAll).toHaveBeenCalledWith('org-1')
+  })
+
+  it('gets a volume by ID', async () => {
+    const { controller, volumeService } = createController()
+
+    await expect(controller.get(volume.id)).resolves.toEqual({
+      id: volume.id,
+      created_at: createdAt.toISOString(),
+      size_bytes: 0,
+    })
+    expect(volumeService.findOne).toHaveBeenCalledWith(volume.id)
+  })
+
+  it('deletes a volume by ID', async () => {
+    const { controller, volumeService } = createController()
+
+    await expect(controller.remove(volume.id)).resolves.toBeUndefined()
+    expect(volumeService.delete).toHaveBeenCalledWith(volume.id)
+  })
+
+  it('propagates a missing-volume error without force', async () => {
+    const { controller, volumeService } = createController()
+    const error = new NotFoundException('Volume not found')
+    volumeService.delete.mockRejectedValueOnce(error)
+
+    await expect(controller.remove(volume.id)).rejects.toBe(error)
+  })
+
+  it('treats a missing volume as deleted when force is true', async () => {
+    const { controller, volumeService } = createController()
+    volumeService.delete.mockRejectedValueOnce(new NotFoundException('Volume not found'))
+
+    await expect(controller.remove(volume.id, 'true')).resolves.toBeUndefined()
+    expect(volumeService.delete).toHaveBeenCalledWith(volume.id)
+  })
+
+  it('propagates non-not-found errors when force is true', async () => {
+    const { controller, volumeService } = createController()
+    const error = new Error('S3 unavailable')
+    volumeService.delete.mockRejectedValueOnce(error)
+
+    await expect(controller.remove(volume.id, 'true')).rejects.toBe(error)
   })
 })
