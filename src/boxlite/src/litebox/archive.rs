@@ -77,11 +77,13 @@ pub struct ArchiveManifest {
 // ── Build ───────────────────────────────────────────────────────────────
 
 /// Build a zstd-compressed tar archive.
+///
+/// Carries the manifest and the container disk only. The guest rootfs disk is
+/// not exported — see `do_export_flatten`.
 pub(crate) fn build_zstd_tar_archive(
     output_path: &Path,
     manifest_path: &Path,
     container_disk: &Path,
-    guest_disk: Option<&Path>,
     compression_level: i32,
 ) -> BoxliteResult<()> {
     let file = std::fs::File::create(output_path).map_err(|e| {
@@ -96,7 +98,7 @@ pub(crate) fn build_zstd_tar_archive(
         .map_err(|e| BoxliteError::Storage(format!("Failed to create zstd encoder: {}", e)))?;
 
     let mut builder = tar::Builder::new(encoder);
-    append_archive_files(&mut builder, manifest_path, container_disk, guest_disk)?;
+    append_archive_files(&mut builder, manifest_path, container_disk)?;
 
     let encoder = builder
         .into_inner()
@@ -112,7 +114,6 @@ fn append_archive_files<W: Write>(
     builder: &mut tar::Builder<W>,
     manifest_path: &Path,
     container_disk: &Path,
-    guest_disk: Option<&Path>,
 ) -> BoxliteResult<()> {
     builder
         .append_path_with_name(manifest_path, MANIFEST_FILENAME)
@@ -123,14 +124,6 @@ fn append_archive_files<W: Write>(
         .map_err(|e| {
             BoxliteError::Storage(format!("Failed to add container disk to archive: {}", e))
         })?;
-
-    if let Some(guest) = guest_disk {
-        builder
-            .append_path_with_name(guest, disk_filenames::GUEST_ROOTFS_DISK)
-            .map_err(|e| {
-                BoxliteError::Storage(format!("Failed to add guest rootfs disk to archive: {}", e))
-            })?;
-    }
 
     Ok(())
 }
@@ -458,7 +451,7 @@ mod tests {
         std::fs::write(&manifest_path, r#"{"version":2}"#).unwrap();
         std::fs::write(&container_path, "fake-container-disk").unwrap();
 
-        build_zstd_tar_archive(&archive_path, &manifest_path, &container_path, None, 3).unwrap();
+        build_zstd_tar_archive(&archive_path, &manifest_path, &container_path, 3).unwrap();
         extract_archive(&archive_path, &extract_dir).unwrap();
 
         assert_eq!(
