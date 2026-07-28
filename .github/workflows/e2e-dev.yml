@@ -47,7 +47,7 @@
 # Fork PRs: DENIED, and this is the one place the model diverges from
 # e2e-local. There, untrusted code runs in a job holding no secrets, so a
 # maintainer label is purely a cost decision. Here the suite needs the
-# admin key in the same job that builds and runs the PR's own code, and
+# API key in the same job that builds and runs the PR's own code, and
 # GitHub has no secret-safe way to hand a credential from a privileged
 # job to an unprivileged one — job outputs are plaintext. So a labeled
 # fork run would hand arbitrary code a live maintainer credential for
