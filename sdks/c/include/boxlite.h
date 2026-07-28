@@ -748,11 +748,14 @@ void boxlite_options_set_network_disabled(CBoxliteOptions *opts);
 // CIDR to keep UDP open.
 void boxlite_options_add_network_allow(CBoxliteOptions *opts, const char *host);
 
-// Set inbound service access policy. Pass "public", "private", or NULL to
-// clear the explicit policy and use the control-plane default.
-enum BoxliteErrorCode boxlite_options_set_network_service_access(
-    CBoxliteOptions *opts,
-    const char *service_access);
+// Set the inbound service access policy for box services.
+//
+// `service_access` accepts `"public"` or `"private"`. Passing null clears the
+// explicit policy so the control plane can apply its default. A null `opts`
+// pointer is rejected with `BoxliteInvalidArgument`, and unknown policy values
+// return `BoxliteInvalidArgument` without mutating the options.
+enum BoxliteErrorCode boxlite_options_set_network_service_access(CBoxliteOptions *opts,
+                                                                 const char *service_access);
 
 void boxlite_options_add_secret(CBoxliteOptions *opts,
                                 const char *name,
@@ -764,10 +767,22 @@ void boxlite_options_add_secret(CBoxliteOptions *opts,
 // Deprecated: use `boxlite_options_set_auto_delete_interval`.
 void boxlite_options_set_auto_remove(CBoxliteOptions *opts, int val);
 
+// Set how long an idle box may remain paused before the runtime pauses it.
+//
+// The value is expressed in seconds. `0` preserves the runtime/control-plane
+// default. A null options pointer is treated as a no-op.
 void boxlite_options_set_auto_stop_interval(CBoxliteOptions *opts, uint32_t seconds);
 
+// Set how long a stopped box may remain before the runtime deletes it.
+//
+// The value is expressed in seconds. `0` disables automatic deletion for
+// persistent boxes. A null options pointer is treated as a no-op.
 void boxlite_options_set_auto_delete_interval(CBoxliteOptions *opts, uint32_t seconds);
 
+// Configure whether stopped boxes may automatically resume on demand.
+//
+// Any non-zero `val` enables auto-resume; `0` disables it. A null options
+// pointer is treated as a no-op.
 void boxlite_options_set_auto_resume_enabled(CBoxliteOptions *opts, int val);
 
 void boxlite_options_set_detach(CBoxliteOptions *opts, int val);

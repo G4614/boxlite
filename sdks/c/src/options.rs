@@ -133,6 +133,12 @@ pub unsafe extern "C" fn boxlite_options_add_network_allow(
     options_add_network_allow(opts, host)
 }
 
+/// Set the inbound service access policy for box services.
+///
+/// `service_access` accepts `"public"` or `"private"`. Passing null clears the
+/// explicit policy so the control plane can apply its default. A null `opts`
+/// pointer is rejected with `BoxliteInvalidArgument`, and unknown policy values
+/// return `BoxliteInvalidArgument` without mutating the options.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_network_service_access(
     opts: *mut CBoxliteOptions,
@@ -159,6 +165,10 @@ pub unsafe extern "C" fn boxlite_options_set_auto_remove(opts: *mut CBoxliteOpti
     options_set_auto_remove(opts, val)
 }
 
+/// Set how long an idle box may remain paused before the runtime pauses it.
+///
+/// The value is expressed in seconds. `0` preserves the runtime/control-plane
+/// default. A null options pointer is treated as a no-op.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_auto_stop_interval(
     opts: *mut CBoxliteOptions,
@@ -167,6 +177,10 @@ pub unsafe extern "C" fn boxlite_options_set_auto_stop_interval(
     options_set_auto_stop_interval(opts, seconds)
 }
 
+/// Set how long a stopped box may remain before the runtime deletes it.
+///
+/// The value is expressed in seconds. `0` disables automatic deletion for
+/// persistent boxes. A null options pointer is treated as a no-op.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_auto_delete_interval(
     opts: *mut CBoxliteOptions,
@@ -175,6 +189,10 @@ pub unsafe extern "C" fn boxlite_options_set_auto_delete_interval(
     options_set_auto_delete_interval(opts, seconds)
 }
 
+/// Configure whether stopped boxes may automatically resume on demand.
+///
+/// Any non-zero `val` enables auto-resume; `0` disables it. A null options
+/// pointer is treated as a no-op.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn boxlite_options_set_auto_resume_enabled(
     opts: *mut CBoxliteOptions,

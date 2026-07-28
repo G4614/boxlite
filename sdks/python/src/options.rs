@@ -247,6 +247,10 @@ impl From<PyCopyOptions> for CopyOptions {
 // NetworkSpec
 // ============================================================================
 
+/// Network policy for a box.
+///
+/// Prefer the nested `outbound` and `inbound` fields. The constructor also
+/// accepts legacy `mode` and `allow_net` keywords as a compatibility shim.
 #[pyclass(name = "NetworkSpec")]
 #[derive(Clone, Debug)]
 pub(crate) struct PyNetworkSpec {
@@ -256,6 +260,10 @@ pub(crate) struct PyNetworkSpec {
     pub(crate) inbound: Option<PyInboundNetworkSpec>,
 }
 
+/// Outbound network policy.
+///
+/// `mode` accepts `"enabled"` or `"disabled"`. `allow_net` contains the host
+/// patterns allowed when outbound networking is enabled.
 #[pyclass(name = "OutboundNetworkSpec")]
 #[derive(Clone, Debug)]
 pub(crate) struct PyOutboundNetworkSpec {
@@ -265,6 +273,10 @@ pub(crate) struct PyOutboundNetworkSpec {
     pub(crate) allow_net: Vec<String>,
 }
 
+/// Inbound service access policy.
+///
+/// `service_access` accepts `"public"`, `"private"`, or `None` to use the
+/// control-plane default for preview/service access.
 #[pyclass(name = "InboundNetworkSpec")]
 #[derive(Clone, Debug)]
 pub(crate) struct PyInboundNetworkSpec {
@@ -274,6 +286,10 @@ pub(crate) struct PyInboundNetworkSpec {
 
 #[pymethods]
 impl PyNetworkSpec {
+    /// Create a network policy from nested specs or legacy outbound keywords.
+    ///
+    /// Passing `outbound` together with legacy `mode` or `allow_net` raises
+    /// `ValueError`; callers should use one shape per request.
     #[new]
     #[pyo3(signature = (outbound=None, inbound=None, mode=None, allow_net=None))]
     fn new(
@@ -312,6 +328,10 @@ impl PyNetworkSpec {
 
 #[pymethods]
 impl PyOutboundNetworkSpec {
+    /// Create an outbound network policy.
+    ///
+    /// `mode` defaults to `"enabled"` and `allow_net` defaults to an empty
+    /// allow list, which means no additional host allow-list restriction.
     #[new]
     #[pyo3(signature = (mode="enabled".to_string(), allow_net=vec![]))]
     fn new(mode: String, allow_net: Vec<String>) -> Self {
@@ -321,6 +341,10 @@ impl PyOutboundNetworkSpec {
 
 #[pymethods]
 impl PyInboundNetworkSpec {
+    /// Create an inbound service access policy.
+    ///
+    /// Use `"public"` for unauthenticated preview access, `"private"` for
+    /// authenticated access, or `None` for the control-plane default.
     #[new]
     #[pyo3(signature = (service_access=None))]
     fn new(service_access: Option<String>) -> Self {
