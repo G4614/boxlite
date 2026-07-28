@@ -22,7 +22,7 @@
 #   scripts/deploy/runner-update-binary.sh --tarball dist/boxlite-runner-v0.9.7-dev-123-58d8f01bcd02-linux-amd64.tar.gz
 #   AWS_REGION=us-west-2 scripts/deploy/runner-update-binary.sh
 #   STAGE=production scripts/deploy/runner-update-binary.sh
-#   RUNNER_INSTANCE_ID=i-0123456789abcdef0 scripts/deploy/runner-update-binary.sh
+#   BOXLITE_RUNNER_INSTANCE_ID=i-0123456789abcdef0 scripts/deploy/runner-update-binary.sh
 #   PROD_RUNNER_INSTANCE_ID=i-0123456789abcdef0 STAGE=production scripts/deploy/runner-update-binary.sh
 
 set -euo pipefail
@@ -35,14 +35,14 @@ PROD_AWS_REGION="${PROD_AWS_REGION:-us-west-2}"
 PROD_RUNNER_INSTANCE_NAME="${PROD_RUNNER_INSTANCE_NAME:-boxlite-prod-runner-default}"
 PROD_RUNNER_INSTANCE_ID="${PROD_RUNNER_INSTANCE_ID:-}"
 AWS_REGION="${AWS_REGION:-}"
-RUNNER_INSTANCE_NAME="${RUNNER_INSTANCE_NAME:-}"
-RUNNER_INSTANCE_ID="${RUNNER_INSTANCE_ID:-}"
+BOXLITE_RUNNER_INSTANCE_NAME="${BOXLITE_RUNNER_INSTANCE_NAME:-}"
+BOXLITE_RUNNER_INSTANCE_ID="${BOXLITE_RUNNER_INSTANCE_ID:-}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ARTIFACT_DIR="${RUNNER_ARTIFACT_DIR:-$REPO_ROOT/dist}"
-RUNNER_ARTIFACT_S3_URI="${RUNNER_ARTIFACT_S3_URI:-}"
-RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="${RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-15}"
-RUNNER_DOWNLOAD_MAX_TIME_SECONDS="${RUNNER_DOWNLOAD_MAX_TIME_SECONDS:-600}"
-RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS="${RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS:-120}"
+ARTIFACT_DIR="${BOXLITE_RUNNER_ARTIFACT_DIR:-$REPO_ROOT/dist}"
+BOXLITE_RUNNER_ARTIFACT_S3_URI="${BOXLITE_RUNNER_ARTIFACT_S3_URI:-}"
+BOXLITE_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="${BOXLITE_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-15}"
+BOXLITE_RUNNER_DOWNLOAD_MAX_TIME_SECONDS="${BOXLITE_RUNNER_DOWNLOAD_MAX_TIME_SECONDS:-600}"
+BOXLITE_RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS="${BOXLITE_RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS:-120}"
 SSM_WAIT_TIMEOUT_SECONDS="${SSM_WAIT_TIMEOUT_SECONDS:-1800}"
 SSM_WAIT_POLL_SECONDS="${SSM_WAIT_POLL_SECONDS:-10}"
 VERSION=""
@@ -104,13 +104,13 @@ esac
 case "$STAGE" in
   dev)
     AWS_REGION="${AWS_REGION:-$DEV_AWS_REGION}"
-    RUNNER_INSTANCE_ID="${RUNNER_INSTANCE_ID:-$DEV_RUNNER_INSTANCE_ID}"
-    RUNNER_INSTANCE_NAME="${RUNNER_INSTANCE_NAME:-$DEV_RUNNER_INSTANCE_NAME}"
+    BOXLITE_RUNNER_INSTANCE_ID="${BOXLITE_RUNNER_INSTANCE_ID:-$DEV_RUNNER_INSTANCE_ID}"
+    BOXLITE_RUNNER_INSTANCE_NAME="${BOXLITE_RUNNER_INSTANCE_NAME:-$DEV_RUNNER_INSTANCE_NAME}"
     ;;
   production)
     AWS_REGION="${AWS_REGION:-$PROD_AWS_REGION}"
-    RUNNER_INSTANCE_ID="${RUNNER_INSTANCE_ID:-$PROD_RUNNER_INSTANCE_ID}"
-    RUNNER_INSTANCE_NAME="${RUNNER_INSTANCE_NAME:-$PROD_RUNNER_INSTANCE_NAME}"
+    BOXLITE_RUNNER_INSTANCE_ID="${BOXLITE_RUNNER_INSTANCE_ID:-$PROD_RUNNER_INSTANCE_ID}"
+    BOXLITE_RUNNER_INSTANCE_NAME="${BOXLITE_RUNNER_INSTANCE_NAME:-$PROD_RUNNER_INSTANCE_NAME}"
     ;;
 esac
 
@@ -143,7 +143,7 @@ fi
 if [[ "$IS_DEV_VERSION" -eq 1 ]]; then
   if [[ ! -f "$LOCAL_TARBALL" ]]; then
     echo "error: local dev runner tarball not found: $LOCAL_TARBALL" >&2
-    echo "       run scripts/deploy/build-runner-binary.sh first, or set --output-dir/RUNNER_ARTIFACT_DIR" >&2
+    echo "       run scripts/deploy/build-runner-binary.sh first, or set --output-dir/BOXLITE_RUNNER_ARTIFACT_DIR" >&2
     exit 1
   fi
   if [[ ! -f "$LOCAL_SHA" ]]; then
@@ -159,11 +159,11 @@ else
   echo "==> Upgrading boxlite-runner from GitHub release v$VERSION on stage=$STAGE region=$AWS_REGION"
 fi
 
-if [[ -n "$RUNNER_INSTANCE_ID" ]]; then
-  INSTANCE_ID="$RUNNER_INSTANCE_ID"
+if [[ -n "$BOXLITE_RUNNER_INSTANCE_ID" ]]; then
+  INSTANCE_ID="$BOXLITE_RUNNER_INSTANCE_ID"
 else
   INSTANCE_FILTERS=(
-    "Name=tag:Name,Values=${RUNNER_INSTANCE_NAME}"
+    "Name=tag:Name,Values=${BOXLITE_RUNNER_INSTANCE_NAME}"
     "Name=instance-state-name,Values=running"
   )
   INSTANCE_IDS=()
@@ -175,11 +175,11 @@ else
 
   if [[ "${#INSTANCE_IDS[@]}" -ne 1 ]]; then
     echo "error: expected exactly one running runner instance, found ${#INSTANCE_IDS[@]}" >&2
-    echo "       region=$AWS_REGION stage=$STAGE name=$RUNNER_INSTANCE_NAME" >&2
+    echo "       region=$AWS_REGION stage=$STAGE name=$BOXLITE_RUNNER_INSTANCE_NAME" >&2
     if [[ "${#INSTANCE_IDS[@]}" -gt 0 ]]; then
       printf '       matches: %s\n' "${INSTANCE_IDS[*]}" >&2
     fi
-    echo "       set RUNNER_INSTANCE_ID=i-... to target an instance explicitly" >&2
+    echo "       set BOXLITE_RUNNER_INSTANCE_ID=i-... to target an instance explicitly" >&2
     exit 1
   fi
   INSTANCE_ID="${INSTANCE_IDS[0]}"
@@ -187,13 +187,13 @@ fi
 echo "    instance: $INSTANCE_ID"
 
 if [[ "$IS_DEV_VERSION" -eq 1 ]]; then
-  if [[ -z "$RUNNER_ARTIFACT_S3_URI" ]]; then
+  if [[ -z "$BOXLITE_RUNNER_ARTIFACT_S3_URI" ]]; then
     ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-    RUNNER_ARTIFACT_S3_URI="s3://boxlite-${STAGE}-runner-builds/tmp/runner-rollouts/${ACCOUNT_ID}/${VERSION}/$(date -u +%Y%m%dT%H%M%SZ)"
+    BOXLITE_RUNNER_ARTIFACT_S3_URI="s3://boxlite-${STAGE}-runner-builds/tmp/runner-rollouts/${ACCOUNT_ID}/${VERSION}/$(date -u +%Y%m%dT%H%M%SZ)"
   fi
-  REMOTE_TARBALL_URL="${RUNNER_ARTIFACT_S3_URI%/}/$ASSET_TARBALL"
+  REMOTE_TARBALL_URL="${BOXLITE_RUNNER_ARTIFACT_S3_URI%/}/$ASSET_TARBALL"
   REMOTE_SHA_URL="$REMOTE_TARBALL_URL.sha256"
-  echo "==> Uploading local artifact to $RUNNER_ARTIFACT_S3_URI"
+  echo "==> Uploading local artifact to $BOXLITE_RUNNER_ARTIFACT_S3_URI"
   aws s3 cp --region "$AWS_REGION" "$LOCAL_TARBALL" "$REMOTE_TARBALL_URL"
   aws s3 cp --region "$AWS_REGION" "$LOCAL_SHA" "$REMOTE_SHA_URL"
   DOWNLOAD_TARBALL_URL=$(aws s3 presign --region "$AWS_REGION" "$REMOTE_TARBALL_URL" --expires-in 3600)
@@ -594,13 +594,13 @@ WORK=\$(mktemp -d)
 trap 'rm -rf "\$WORK"; rm -f "\$HOT_SNAPSHOT"' EXIT
 curl -fL --show-error --silent \
   --retry 5 --retry-delay 2 --retry-connrefused \
-  --connect-timeout "${RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" \
-  --max-time "${RUNNER_DOWNLOAD_MAX_TIME_SECONDS}" \
+  --connect-timeout "${BOXLITE_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" \
+  --max-time "${BOXLITE_RUNNER_DOWNLOAD_MAX_TIME_SECONDS}" \
   "${DOWNLOAD_TARBALL_URL}" -o "\$WORK/runner.tar.gz"
 if curl -fL --show-error --silent \
   --retry 3 --retry-delay 2 --retry-connrefused \
-  --connect-timeout "${RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" \
-  --max-time "${RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS}" \
+  --connect-timeout "${BOXLITE_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS}" \
+  --max-time "${BOXLITE_RUNNER_CHECKSUM_DOWNLOAD_MAX_TIME_SECONDS}" \
   "${DOWNLOAD_SHA_URL}" -o "\$WORK/runner.sha256"; then
   EXPECTED=\$(awk '{print \$1}' "\$WORK/runner.sha256")
   ACTUAL=\$(sha256sum "\$WORK/runner.tar.gz" | awk '{print \$1}')
