@@ -342,4 +342,18 @@ export class BoxRepository extends BaseRepository<Box> {
       )
     }
   }
+  /**
+   * Emit cache invalidation and update events for a Box change that has
+   * already been committed. Callers that own their own transaction use this
+   * instead of the write helpers, so nothing is published until the
+   * transaction it belongs to has actually landed.
+   */
+  publishCommittedUpdate(
+    updatedBox: Box,
+    previousBox: Pick<Box, 'state' | 'desiredState' | 'public' | 'organizationId' | 'name' | 'authToken'>,
+  ): void {
+    this.invalidateLookupCacheOnUpdate(updatedBox, previousBox)
+    this.emitUpdateEvents(updatedBox, previousBox)
+  }
+
 }
