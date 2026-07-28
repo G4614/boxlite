@@ -229,12 +229,20 @@ impl BoxImpl {
 struct FlattenResult {
     temp_dir: tempfile::TempDir,
     flat_container: std::path::PathBuf,
-    flat_guest: Option<std::path::PathBuf>,
     flatten_ms: u64,
 }
 
-/// Phase 1: Flatten qcow2 disk chains into standalone images.
+/// Phase 1: Flatten the container disk chain into a standalone image.
 /// Runs inside the quiesce bracket — this is the only part that needs disk consistency.
+///
+/// The guest rootfs disk is deliberately not exported. It is a thin COW overlay
+/// over the host-global guest rootfs cache (`bases/{id}.ext4`, keyed by the
+/// bootstrap image + guest binary version), holds no user state, and is
+/// recreated from the importing host's own cache on first start — the same way
+/// clone and snapshot-restore already treat it. Shipping it would both bloat the
+/// archive with a host-independent blob and, because flattening strips its
+/// backing reference, make the imported box boot from the archived copy instead
+/// of the importing host's correctly-versioned cache.
 fn do_export_flatten(
     box_home: &std::path::Path,
     runtime_layout: &crate::runtime::layout::FilesystemLayout,
@@ -244,7 +252,6 @@ fn do_export_flatten(
 
     let disks_dir = box_home.join("disks");
     let container_disk = disks_dir.join(disk_filenames::CONTAINER_DISK);
-    let guest_disk = disks_dir.join(disk_filenames::GUEST_ROOTFS_DISK);
 
     if !container_disk.exists() {
         return Err(BoxliteError::Storage(format!(
@@ -259,20 +266,11 @@ fn do_export_flatten(
     let t_flatten = Instant::now();
     let flat_container = temp_dir.path().join(disk_filenames::CONTAINER_DISK);
     Qcow2Helper::flatten(&container_disk, &flat_container)?;
-
-    let flat_guest = if guest_disk.exists() {
-        let flat = temp_dir.path().join(disk_filenames::GUEST_ROOTFS_DISK);
-        Qcow2Helper::flatten(&guest_disk, &flat)?;
-        Some(flat)
-    } else {
-        None
-    };
     let flatten_ms = t_flatten.elapsed().as_millis() as u64;
 
     Ok(FlattenResult {
         temp_dir,
         flat_container,
-        flat_guest,
         flatten_ms,
     })
 }
@@ -300,10 +298,6 @@ fn do_export_finalize(
 
     let t_checksum = Instant::now();
     let container_disk_checksum = sha256_file(&flatten.flat_container)?;
-    let guest_disk_checksum = match flatten.flat_guest {
-        Some(ref fg) => sha256_file(fg)?,
-        None => String::new(),
-    };
     let checksum_ms = t_checksum.elapsed().as_millis() as u64;
 
     let image = match &config_options.rootfs {
@@ -316,7 +310,9 @@ fn do_export_finalize(
         box_name: config_name.map(|s| s.to_string()),
         image,
         box_options: Some(config_options.clone()),
-        guest_disk_checksum,
+        // Kept for wire compatibility with importers that still expect the
+        // field; the guest rootfs disk is no longer exported.
+        guest_disk_checksum: String::new(),
         container_disk_checksum,
         exported_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -327,13 +323,7 @@ fn do_export_finalize(
     std::fs::write(&manifest_path, manifest_json)?;
 
     let t_archive = Instant::now();
-    build_zstd_tar_archive(
-        &output_path,
-        &manifest_path,
-        &flatten.flat_container,
-        flatten.flat_guest.as_deref(),
-        3,
-    )?;
+    build_zstd_tar_archive(&output_path, &manifest_path, &flatten.flat_container, 3)?;
     let archive_ms = t_archive.elapsed().as_millis() as u64;
 
     tracing::info!(
@@ -346,4 +336,73 @@ fn do_export_finalize(
     );
 
     Ok(crate::runtime::options::BoxArchive::new(output_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::layout::{FilesystemLayout, FsLayoutConfig};
+
+    /// Entry paths inside a built `.boxlite` archive.
+    fn archive_entry_names(archive_path: &std::path::Path) -> Vec<String> {
+        let file = std::fs::File::open(archive_path).expect("open archive");
+        let decoder = zstd::Decoder::new(file).expect("zstd decoder");
+        let mut archive = tar::Archive::new(decoder);
+        archive
+            .entries()
+            .expect("read entries")
+            .map(|e| {
+                e.expect("entry")
+                    .path()
+                    .expect("entry path")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect()
+    }
+
+    /// The guest rootfs disk is host-global state that the importing host
+    /// rebuilds from its own version-keyed cache, so it must never travel
+    /// inside an archive — shipping it also lets the archived copy win over
+    /// that cache, since flattening strips its backing reference.
+    #[test]
+    fn export_omits_the_guest_rootfs_disk() {
+        let home = tempfile::tempdir_in("/tmp").expect("home dir");
+        let layout = FilesystemLayout::new(home.path().to_path_buf(), FsLayoutConfig::default());
+        std::fs::create_dir_all(layout.temp_dir()).expect("temp dir");
+
+        // A box home carrying both disks, as any started box does.
+        let box_home = home.path().join("box");
+        let disks = box_home.join("disks");
+        std::fs::create_dir_all(&disks).expect("disks dir");
+        Qcow2Helper::create_disk(&disks.join(disk_filenames::CONTAINER_DISK), true)
+            .expect("container disk")
+            .leak();
+        Qcow2Helper::create_disk(&disks.join(disk_filenames::GUEST_ROOTFS_DISK), true)
+            .expect("guest disk")
+            .leak();
+
+        let flattened = do_export_flatten(&box_home, &layout).expect("flatten");
+        let dest = home.path().join("out.boxlite");
+        let archive = do_export_finalize(
+            flattened,
+            Some("some-box"),
+            &crate::runtime::options::BoxOptions::default(),
+            "box-id",
+            &dest,
+        )
+        .expect("finalize");
+
+        let entries = archive_entry_names(archive.path());
+        assert!(
+            entries.iter().any(|e| e == disk_filenames::CONTAINER_DISK),
+            "archive must carry the container disk, got {entries:?}"
+        );
+        assert!(
+            !entries
+                .iter()
+                .any(|e| e == disk_filenames::GUEST_ROOTFS_DISK),
+            "archive must not carry the guest rootfs disk, got {entries:?}"
+        );
+    }
 }

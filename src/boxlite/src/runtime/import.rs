@@ -174,32 +174,27 @@ fn extract_and_validate(
         }
     }
 
-    let extracted_guest = temp_dir.path().join(disk_filenames::GUEST_ROOTFS_DISK);
-    if extracted_guest.exists() && !manifest.guest_disk_checksum.is_empty() {
-        let actual = sha256_file(&extracted_guest)?;
-        if actual != manifest.guest_disk_checksum {
-            return Err(BoxliteError::Storage(format!(
-                "Guest disk checksum mismatch: expected {}, got {}",
-                manifest.guest_disk_checksum, actual
-            )));
-        }
-    }
+    // A guest rootfs disk carried by an older archive is ignored, so it is
+    // neither checksummed nor installed — see `install_disks`.
 
     Ok((manifest, temp_dir))
 }
 
-/// Validate disk security and move disks into box_home/disks/.
+/// Validate disk security and move the container disk into box_home/disks/.
+///
+/// The guest rootfs disk is never installed, even when an older archive carries
+/// one. It holds no user state, and letting an archived copy win would bypass
+/// the importing host's own version-keyed guest rootfs cache: export flattens
+/// the overlay, so the archived disk has no backing reference and
+/// `validate_reusable_guest_rootfs_disk` would accept it verbatim. Leaving it
+/// absent makes the next start rebuild the overlay from the local cache, which
+/// is what clone and snapshot-restore already do.
 fn install_disks(temp_dir: &Path, box_home: &Path) -> BoxliteResult<()> {
     // Security: Reject imported disks that reference backing files.
     // A crafted archive could include a qcow2 with a backing reference to
     // /etc/shadow or another box's disk, leaking data on first read.
     let extracted_container = temp_dir.join(disk_filenames::CONTAINER_DISK);
     validate_no_backing_references(&extracted_container)?;
-
-    let extracted_guest = temp_dir.join(disk_filenames::GUEST_ROOTFS_DISK);
-    if extracted_guest.exists() {
-        validate_no_backing_references(&extracted_guest)?;
-    }
 
     let disks_dir = box_home.join("disks");
     std::fs::create_dir_all(&disks_dir).map_err(|e| {
@@ -214,13 +209,6 @@ fn install_disks(temp_dir: &Path, box_home: &Path) -> BoxliteResult<()> {
         &extracted_container,
         &disks_dir.join(disk_filenames::CONTAINER_DISK),
     )?;
-
-    if extracted_guest.exists() {
-        move_file(
-            &extracted_guest,
-            &disks_dir.join(disk_filenames::GUEST_ROOTFS_DISK),
-        )?;
-    }
 
     Ok(())
 }
