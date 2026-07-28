@@ -239,22 +239,24 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: e2e-dev-${{ github.run_id }}
 
-      # ── Fixture + pytest credentials ─────────────────────────────
-      # fixture_setup.py is the shared path: make test:e2e:setup
-      # (make/test.mk) and scripts/test/e2e/run.sh both call it, so
-      # e2e-local and e2e-stack configure the suite exactly this way.
-      # Beyond writing [profiles.p1] it also registers the snapshots the
-      # cases need and lifts the admin org's per-box quotas off zero —
-      # the hand-rolled credentials.toml this replaces did neither, which
-      # would fail the suite even with a valid key.
+      # ── Configure pytest credentials ─────────────────────────────
+      # NOT scripts/test/e2e/fixture_setup.py, which the local entry
+      # points (make test:e2e:setup, run.sh) use. That script talks to the
+      # stack's Postgres directly — `psql -h localhost -d boxlite_dev` for
+      # snapshot state, and an `UPDATE organization SET max_*_per_box`
+      # for quotas — because, as its own comment puts it, the fixture
+      # lives next to the DB. e2e-local and e2e-stack run on a host that
+      # bootstrapped that DB; this workflow runs on a GitHub runner
+      # against a remote API, so there is no localhost Postgres and
+      # fixture_setup would exit on the quota patch.
       #
-      # It takes the key from BOXLITE_E2E_ADMIN_KEY, falling back to
-      # /etc/boxlite-secrets.env — that fallback is how a bootstrapped
-      # host feeds it. There is no such file here, so the SSM value is
-      # passed explicitly, per-command, never via GITHUB_ENV.
-      - name: Configure fixture + pytest profile p1
-        env:
-          BOXLITE_E2E_API_URL: ${{ env.API_URL }}
+      # The consequence is deliberate: this workflow only READS from the
+      # dev stack's control plane. It registers no snapshots and rewrites
+      # no quotas — a deployed dev stack is expected to already have both,
+      # and silently UPDATE-ing a shared environment's org rows from CI
+      # would be worse than failing. The only writes are the boxes the
+      # suite itself creates and deletes.
+      - name: Configure pytest profile p1
         run: |
           set -euo pipefail
 
@@ -268,21 +270,32 @@ jobs:
           fi
           echo "::add-mask::$ADMIN_KEY"
 
-          # Preflight before fixture_setup so an auth failure reports as
-          # auth rather than as a confusing fixture error. bootstrap.sh
-          # probes /v1/me for the same reason: it exercises auth + DB +
-          # Redis in one call. A 401 means the SSM value and the stack's
-          # ADMIN_API_KEY env have diverged — the API keys `boxlite-admin`
-          # off that env var on boot, so rotating one without the other
-          # breaks here.
-          ME_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' \
+          # /v1/me is the auth smoke test, exactly as bootstrap.sh uses it
+          # locally: it exercises auth + DB + Redis in one call. A 401 here
+          # means the SSM value and the dev stack's ADMIN_API_KEY env have
+          # diverged — the API keys `boxlite-admin` off that env var on
+          # boot, so rotating one without the other breaks this step.
+          ME_HTTP=$(curl -sS -o /tmp/me.json -w '%{http_code}' \
             -H "Authorization: Bearer $ADMIN_KEY" "${API_URL}/v1/me" || echo 000)
           if [ "$ME_HTTP" != "200" ]; then
             echo "::error::/v1/me returned HTTP ${ME_HTTP}. If 401, the SSM admin key no longer matches the dev stack's ADMIN_API_KEY."
             exit 1
           fi
 
-          BOXLITE_E2E_ADMIN_KEY="$ADMIN_KEY" python3 scripts/test/e2e/fixture_setup.py
+          PATH_PREFIX=$(python3 -c 'import json;print(json.load(open("/tmp/me.json"))["path_prefix"])')
+          rm -f /tmp/me.json
+          [ -n "$PATH_PREFIX" ] || { echo "::error::Empty path_prefix from /v1/me"; exit 1; }
+          echo "Resolved path_prefix=${PATH_PREFIX}"
+
+          mkdir -p ~/.boxlite
+          chmod 700 ~/.boxlite
+          {
+              printf '[profiles.p1]\n'
+              printf 'url = "%s"\n'         "$API_URL"
+              printf 'api_key = "%s"\n'     "$ADMIN_KEY"
+              printf 'path_prefix = "%s"\n' "$PATH_PREFIX"
+          } > ~/.boxlite/credentials.toml
+          chmod 600 ~/.boxlite/credentials.toml
 
       # ── Run pytest ───────────────────────────────────────────────
       # --ignore rationale:
