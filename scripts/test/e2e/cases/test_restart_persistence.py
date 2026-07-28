@@ -1,0 +1,84 @@
+"""E2E P0 (durable filesystem): on-box data survives a workload restart.
+
+Requirement (Sandbox platform §5.3 / §12.1.8): after the box is stopped and
+started again, files written to the rootfs — including a committed SQLite
+database — must still be there. This is the durability guarantee the
+assistant relies on for its authoritative Conversation/Memory/Task store.
+
+`auto_remove=False` so that stopping the box does not delete it; the box is
+removed explicitly in teardown.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from conftest import drain
+
+import boxlite
+
+SENTINEL = "persist-across-restart-a91f2c"
+FILE_PATH = "/root/e2e_persist.txt"
+DB_PATH = "/root/e2e_persist.db"
+
+# Write a marker file and a committed WAL-mode SQLite row.
+_WRITE = (
+    "import sqlite3\n"
+    f"open({FILE_PATH!r}, 'w').write({SENTINEL!r})\n"
+    f"db = sqlite3.connect({DB_PATH!r})\n"
+    "db.execute('PRAGMA journal_mode=WAL')\n"
+    "db.execute('CREATE TABLE IF NOT EXISTS t(v TEXT)')\n"
+    f"db.execute('INSERT INTO t(v) VALUES(?)', ({SENTINEL!r},))\n"
+    "db.commit()\n"
+    "db.close()\n"
+    "print('WROTE')\n"
+)
+
+# Read both back and report in a single blob.
+_READ = (
+    "import sqlite3\n"
+    "try:\n"
+    f"    file_val = open({FILE_PATH!r}).read()\n"
+    "except Exception as e:\n"
+    "    file_val = 'FILE_ERR:%s' % e\n"
+    f"db = sqlite3.connect({DB_PATH!r})\n"
+    "rows = db.execute('SELECT v FROM t').fetchall()\n"
+    "db.close()\n"
+    "print('FILE=%s' % file_val)\n"
+    "print('ROWS=%d' % len(rows))\n"
+    "print('DBVAL=%s' % (rows[0][0] if rows else '<none>'))\n"
+)
+
+
+async def _run_py(box, script: str) -> tuple[int, str, str]:
+    ex = await box.exec("python3", ["-c", script], None)
+    out, err = await drain(ex)
+    rc = await asyncio.wait_for(ex.wait(), timeout=30)
+    return rc.exit_code, out, err
+
+
+@pytest.mark.asyncio
+async def test_file_and_sqlite_survive_stop_start(rt, image):
+    b = await rt.create(boxlite.BoxOptions(image=image, auto_remove=False))
+    try:
+        # 1) Write file + committed SQLite row.
+        rc, out, err = await _run_py(b, _WRITE)
+        assert rc == 0 and "WROTE" in out, (
+            f"write failed rc={rc} out={out!r} err={err!r}"
+        )
+
+        # 2) Restart the workload: stop then start the same box.
+        await b.stop()
+        await b.start()
+
+        # 3) Both must still be there.
+        rc, out, err = await _run_py(b, _READ)
+        assert rc == 0, f"read failed rc={rc} out={out!r} err={err!r}"
+        assert f"FILE={SENTINEL}" in out, f"file did not survive restart → {out!r}"
+        assert "ROWS=1" in out, f"SQLite row did not survive restart → {out!r}"
+        assert f"DBVAL={SENTINEL}" in out, (
+            f"SQLite value corrupted across restart → {out!r}"
+        )
+    finally:
+        await rt.remove(b.id, force=True)
