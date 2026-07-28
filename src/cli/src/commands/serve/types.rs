@@ -86,6 +86,14 @@ pub(super) struct NetworkSpec {
     pub legacy: LegacyNetworkSpec,
 }
 
+impl NetworkSpec {
+    pub(super) fn uses_legacy_fields(&self) -> bool {
+        self.legacy.mode.is_some()
+            || !self.legacy.allow_net.is_empty()
+            || self.legacy.service_access.is_some()
+    }
+}
+
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LegacyNetworkSpec {

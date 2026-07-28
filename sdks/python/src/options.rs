@@ -9,7 +9,7 @@ use boxlite::runtime::options::{
     NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig, OutboundNetworkSpec,
     PortProtocol, PortSpec, RegistryTransport, RootfsSpec, VolumeSpec,
 };
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyDict, PyTuple};
 
@@ -275,9 +275,31 @@ pub(crate) struct PyInboundNetworkSpec {
 #[pymethods]
 impl PyNetworkSpec {
     #[new]
-    #[pyo3(signature = (outbound=None, inbound=None))]
-    fn new(outbound: Option<PyOutboundNetworkSpec>, inbound: Option<PyInboundNetworkSpec>) -> Self {
-        Self { outbound, inbound }
+    #[pyo3(signature = (outbound=None, inbound=None, mode=None, allow_net=None))]
+    fn new(
+        outbound: Option<PyOutboundNetworkSpec>,
+        inbound: Option<PyInboundNetworkSpec>,
+        mode: Option<String>,
+        allow_net: Option<Vec<String>>,
+    ) -> PyResult<Self> {
+        let legacy_outbound = if mode.is_some() || allow_net.is_some() {
+            if outbound.is_some() {
+                return Err(PyValueError::new_err(
+                    "NetworkSpec cannot mix outbound with legacy mode/allow_net",
+                ));
+            }
+            Some(PyOutboundNetworkSpec {
+                mode: mode.unwrap_or_else(|| "enabled".to_string()),
+                allow_net: allow_net.unwrap_or_default(),
+            })
+        } else {
+            None
+        };
+
+        Ok(Self {
+            outbound: outbound.or(legacy_outbound),
+            inbound,
+        })
     }
 
     fn __repr__(&self) -> String {

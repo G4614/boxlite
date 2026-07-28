@@ -742,6 +742,15 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
 
     let network = match &req.network {
         Some(network) => {
+            if network.uses_legacy_fields()
+                && (network.outbound.is_some() || network.inbound.is_some())
+            {
+                return Err(boxlite::BoxliteError::InvalidArgument(
+                    "network must use either nested outbound/inbound fields or legacy flat fields, not both"
+                        .into(),
+                ));
+            }
+
             let (mode, allow_net) = match &network.outbound {
                 Some(outbound) => (
                     outbound.mode.parse::<NetworkMode>()?,
@@ -1447,6 +1456,28 @@ mod tests {
         assert_eq!(
             opts.network.inbound.service_access,
             Some(ServiceAccess::Private)
+        );
+    }
+
+    #[test]
+    fn build_box_options_rejects_mixed_legacy_and_nested_network_spec() {
+        let req: super::types::CreateBoxRequest = serde_json::from_str(
+            r#"{
+                "image": "alpine:latest",
+                "network": {
+                    "mode": "enabled",
+                    "outbound": {
+                        "mode": "enabled",
+                        "allow_net": ["api.openai.com"]
+                    }
+                }
+            }"#,
+        )
+        .expect("mixed network body still deserializes for compatibility validation");
+        let err = build_box_options(&req).expect_err("mixed network body must fail");
+        assert!(
+            matches!(err, boxlite::BoxliteError::InvalidArgument(ref msg) if msg.contains("either nested")),
+            "unexpected error: {err}"
         );
     }
 
