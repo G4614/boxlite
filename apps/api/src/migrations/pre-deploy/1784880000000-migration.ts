@@ -71,6 +71,10 @@ export class Migration1784880000000 implements MigrationInterface {
     await queryRunner.query(`ALTER TABLE "runner" ADD "runtimeIncarnation" bigint NOT NULL DEFAULT '0'`)
     await queryRunner.query(`ALTER TABLE "runner" ADD "runtimeSequence" bigint NOT NULL DEFAULT '0'`)
 
+    // Which runner epoch a job was dispatched under, so a result arriving
+    // from a superseded epoch can be recognised and dropped.
+    await queryRunner.query(`ALTER TABLE "job" ADD "executionEpoch" uuid`)
+
     await queryRunner.query(`ALTER TABLE "box" ADD "lifecycleJobId" uuid`)
     await queryRunner.query(`ALTER TABLE "box" ADD "runtimeGeneration" bigint NOT NULL DEFAULT '0'`)
     await queryRunner.query(`ALTER TABLE "box" ADD "runtimeAuthorized" boolean NOT NULL DEFAULT false`)
@@ -86,6 +90,7 @@ export class Migration1784880000000 implements MigrationInterface {
     await queryRunner.query(`ALTER TABLE "box" DROP COLUMN "runtimeAuthorized"`)
     await queryRunner.query(`ALTER TABLE "box" DROP COLUMN "runtimeGeneration"`)
     await queryRunner.query(`ALTER TABLE "box" DROP COLUMN "lifecycleJobId"`)
+    await queryRunner.query(`ALTER TABLE "job" DROP COLUMN "executionEpoch"`)
     await queryRunner.query(`ALTER TABLE "runner" DROP COLUMN "runtimeSequence"`)
     await queryRunner.query(`ALTER TABLE "runner" DROP COLUMN "runtimeIncarnation"`)
     await queryRunner.query(`ALTER TABLE "runner" DROP COLUMN "runtimeEpoch"`)
