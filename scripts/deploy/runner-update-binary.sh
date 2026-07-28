@@ -24,6 +24,17 @@
 #   STAGE=production scripts/deploy/runner-update-binary.sh
 #   BOXLITE_RUNNER_INSTANCE_ID=i-0123456789abcdef0 scripts/deploy/runner-update-binary.sh
 #   PROD_RUNNER_INSTANCE_ID=i-0123456789abcdef0 STAGE=production scripts/deploy/runner-update-binary.sh
+#
+# Env vars this script reads from CI use the BOXLITE_RUNNER_ prefix, not
+# RUNNER_. GitHub Actions reserves the RUNNER_ prefix for the runner's own
+# variables and drops step env vars named RUNNER_*, so a RUNNER_-prefixed
+# knob is silently unset in every Actions caller. The reusable rollout
+# workflow in boxlite-ai/boxlite-app-env documents the same constraint and
+# already passes BOXLITE_RUNNER_INSTANCE_ID on that basis.
+#
+# The RUNNER_* names further down live inside the here-doc shipped to the
+# instance over SSM. Those are evaluated on the EC2 host, never by
+# Actions, so the prefix rule does not apply to them.
 
 set -euo pipefail
 
