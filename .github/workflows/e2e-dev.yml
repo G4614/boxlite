@@ -189,46 +189,6 @@ jobs:
                -o /dev/null "${API_URL}/health"
           echo "::notice::${API_URL}/health returned 2xx"
 
-      # ── System deps ──────────────────────────────────────────────
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends protobuf-compiler
-
-      # ── Rust toolchain ───────────────────────────────────────────
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      # ── CLI (cargo build, warms the shared boxlite core) ─────────
-      - name: Build CLI
-        run: |
-          cargo build --release -p boxlite-cli
-          sudo install -m 0755 target/release/boxlite /usr/local/bin/boxlite
-          boxlite --version
-
-      # ── Node SDK (napi-rs) ───────────────────────────────────────
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Build Node SDK (napi + tsc)
-        run: |
-          cd sdks/node
-          npm install --ignore-scripts
-          npm run build:native
-          npm run build
-          ls -lh native/ dist/
-
-      # ── Python SDK (maturin + PyO3) ──────────────────────────────
-      - name: Build & install Python SDK
-        run: |
-          cd sdks/python
-          pip install --break-system-packages --quiet maturin
-          maturin build --release
-          pip install --break-system-packages --force-reinstall ../../target/wheels/boxlite-*.whl
-          pip install --break-system-packages --quiet pytest pytest-asyncio pytest-timeout
-
       # ── Configure pytest credentials ─────────────────────────────
       # Written here rather than by scripts/test/e2e/fixture_setup.py,
       # which the local entry points (make test:e2e:setup, run.sh) use.
@@ -286,6 +246,46 @@ jobs:
               printf 'path_prefix = "%s"\n' "$PATH_PREFIX"
           } > ~/.boxlite/credentials.toml
           chmod 600 ~/.boxlite/credentials.toml
+
+      # ── System deps ──────────────────────────────────────────────
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends protobuf-compiler
+
+      # ── Rust toolchain ───────────────────────────────────────────
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # ── CLI (cargo build, warms the shared boxlite core) ─────────
+      - name: Build CLI
+        run: |
+          cargo build --release -p boxlite-cli
+          sudo install -m 0755 target/release/boxlite /usr/local/bin/boxlite
+          boxlite --version
+
+      # ── Node SDK (napi-rs) ───────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Node SDK (napi + tsc)
+        run: |
+          cd sdks/node
+          npm install --ignore-scripts
+          npm run build:native
+          npm run build
+          ls -lh native/ dist/
+
+      # ── Python SDK (maturin + PyO3) ──────────────────────────────
+      - name: Build & install Python SDK
+        run: |
+          cd sdks/python
+          pip install --break-system-packages --quiet maturin
+          maturin build --release
+          pip install --break-system-packages --force-reinstall ../../target/wheels/boxlite-*.whl
+          pip install --break-system-packages --quiet pytest pytest-asyncio pytest-timeout
 
       # ── Run pytest ───────────────────────────────────────────────
       # --ignore rationale:
