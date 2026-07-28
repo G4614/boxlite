@@ -19,6 +19,9 @@
 # `path_prefix` is derived from the same key via /v1/me, not a second
 # credential. No AWS, no OIDC.
 #
+# Optional repo variable (Settings → Variables → Actions):
+#   - BOXLITE_DEV_API_URL   target stack; defaults to api.dev.boxlite.ai
+#
 # The key is issued to a maintainer, deliberately. It is therefore
 # mortal: API keys are primary-keyed on (organizationId, userId, name)
 # and ApiKeyStrategy re-reads the user on every request, throwing
@@ -89,10 +92,13 @@ on:
   workflow_dispatch:
     inputs:
       api_url:
-        description: 'Dev API base URL'
+        description: 'Dev API base URL (blank = repo variable BOXLITE_DEV_API_URL)'
         type: string
         required: false
-        default: 'https://api.dev.boxlite.ai/api'
+        # Deliberately no default. A default would make inputs.api_url
+        # always non-empty on a dispatch run, so BOXLITE_DEV_API_URL
+        # would be silently ignored exactly when someone is trying to
+        # dispatch against the configured stack.
 
 # pull_request_target's default token is write-capable — keep the
 # inherited token read-only, as e2e-local does.
@@ -117,7 +123,10 @@ concurrency:
 
 env:
   BOXLITE_DEPS_STUB: "1"
-  API_URL: ${{ inputs.api_url || 'https://api.dev.boxlite.ai/api' }}
+  # Precedence: a dispatch input overrides for one run; otherwise the
+  # repo variable is the configured stack; otherwise the built-in
+  # default, so the workflow still runs with nothing configured.
+  API_URL: ${{ inputs.api_url || vars.BOXLITE_DEV_API_URL || 'https://api.dev.boxlite.ai/api' }}
 
 jobs:
   # =========================================================================
