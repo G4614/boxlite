@@ -64,15 +64,6 @@ pub(crate) fn archive_version_for_options(options: &crate::runtime::options::Box
     }
 }
 
-/// Archive manifest stored as `manifest.json` inside exported archives.
-///
-/// v1: plain tar, no checksums
-/// v2: tar.zst with checksums
-/// v3: adds `box_options` for full configuration preservation
-/// v4: `box_options.advanced` carries a custom capability policy
-/// v5: `ports` carry publication semantics (automatic host port, bind IP)
-/// v6: the container disk travels as a chain of content-addressed layers
-
 /// Format of a layer blob, which decides how its child references it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -98,6 +89,14 @@ pub struct ArchiveLayer {
     pub virtual_size: u64,
 }
 
+/// Archive manifest stored as `manifest.json` inside exported archives.
+///
+/// v1: plain tar, no checksums
+/// v2: tar.zst with checksums
+/// v3: adds `box_options` for full configuration preservation
+/// v4: `box_options.advanced` carries a custom capability policy
+/// v5: `ports` carry publication semantics (automatic host port, bind IP)
+/// v6: the container disk travels as a chain of content-addressed layers
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ArchiveManifest {
     /// Archive format version (1 through 6).
