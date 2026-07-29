@@ -167,11 +167,20 @@ pub struct SecurityOptions {
     /// If None, uses the built-in modular sandbox profile.
     pub sandbox_profile: Option<PathBuf>,
 
-    /// Allow network access inside the sandbox profile.
+    /// Allow IP networking inside the HOST jailer's sandbox profile.
     ///
-    /// Cross-platform: feeds the macOS seatbelt network policy and the Linux
-    /// landlock TCP rules (false = deny all TCP).
+    /// This is not a guest-networking switch — use [`network.mode`] for that.
+    /// It only gates host-side grants: the macOS seatbelt network policy and
+    /// the Linux Landlock TCP rules (false = deny all TCP to the shim). The
+    /// shim's own AF_UNIX control plane is granted separately and is never
+    /// affected. Setting this to `false` while `network.mode` is `enabled`
+    /// starves the running network backend instead of disabling the guest, so
+    /// [`BoxOptions::sanitize_common`] rejects that combination.
+    ///
     /// Default: true (needed for gvproxy VM networking).
+    ///
+    /// [`network.mode`]: crate::runtime::options::NetworkMode
+    /// [`BoxOptions::sanitize_common`]: crate::runtime::options::BoxOptions
     pub network_enabled: bool,
 }
 
