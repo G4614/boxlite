@@ -18,7 +18,12 @@
 //! | Base capabilities (process, sysctl, mach, iokit) | `seatbelt_base_policy.sbpl` |
 //! | Static system file read/write paths | `seatbelt_file_read_policy.sbpl`, `seatbelt_file_write_policy.sbpl` |
 //! | Dynamic file read/write paths | Computed from [`PathAccess`] in `build_sandbox_policy()` |
-//! | Network access (optional) | `seatbelt_network_policy.sbpl` when `network_enabled=true` |
+//! | Unix-domain socket endpoints (always) | Computed from writable [`PathAccess`] in `build_unix_socket_grants()` |
+//! | IP networking (optional) | `seatbelt_network_policy.sbpl` when `network_enabled=true` |
+//!
+//! Unix-domain sockets and IP networking are granted separately on purpose:
+//! the shim's own control plane is AF_UNIX and must work even for a box with
+//! no guest network. See [`build_unix_socket_grants`].
 //!
 //! ## Debugging Sandbox Violations
 //!
@@ -232,11 +237,15 @@ fn build_sandbox_policy(paths: &[PathAccess], binary_path: &Path, network_enable
     policy.push_str(&build_dynamic_write_paths(paths));
     policy.push('\n');
 
-    // 6. Network policy (optional)
+    // 6. Unix-domain socket endpoints (always — not gated on network_enabled)
+    policy.push_str(&build_unix_socket_grants(paths));
+    policy.push('\n');
+
+    // 7. IP networking (optional)
     if network_enabled {
         policy.push_str(SEATBELT_NETWORK_POLICY);
     } else {
-        policy.push_str("; Network disabled\n");
+        policy.push_str("; IP networking disabled\n");
     }
 
     policy
@@ -318,6 +327,48 @@ fn build_dynamic_write_paths(paths: &[PathAccess]) -> String {
     }
 
     policy.push_str(")\n");
+    policy
+}
+
+/// Grant the shim's own AF_UNIX endpoints, independent of `network_enabled`.
+///
+/// A box's host-side control plane is Unix-domain only — the gRPC control
+/// socket, the guest-ready socket, and the network backend's datagram pair
+/// (see [`BoxSockets`](crate::net::socket_path::BoxSockets)) — and the shim
+/// binds and dials it even for a box with no guest network. macOS gates
+/// AF_UNIX `bind()` under `network-bind` and `connect()` under
+/// `network-outbound`; `system-socket` does not apply. Folding those grants
+/// into `seatbelt_network_policy.sbpl` therefore made `network_enabled=false`
+/// kill every box a millisecond after start (issue #1072).
+///
+/// Scope: the directories the profile already grants `file-write*`. A Unix
+/// socket is a filesystem node, so binding one where the shim can already
+/// create files adds no authority. Both operations are path-filtered, and a
+/// path filter never matches an AF_INET/AF_INET6 socket — so this grants no
+/// IP networking, which stays the sole responsibility of `network_enabled`.
+fn build_unix_socket_grants(paths: &[PathAccess]) -> String {
+    // Only directories: sockets are bound as nodes inside them, and the
+    // dir/file split mirrors the read/write policies above.
+    let dirs: Vec<PathBuf> = paths
+        .iter()
+        .filter(|pa| pa.writable && pa.path.is_dir())
+        .map(|pa| canonicalize_or_original(&pa.path))
+        .collect();
+
+    if dirs.is_empty() {
+        return String::from("; No writable directories — no Unix-domain socket endpoints\n");
+    }
+
+    let mut policy =
+        String::from("; Unix-domain socket endpoints (AF_UNIX only — filtered by path)\n");
+    // bind() for listeners the shim owns, connect() for the ones the host owns.
+    for operation in ["network-bind", "network-outbound"] {
+        policy.push_str(&format!("(allow {operation}\n"));
+        for dir in &dirs {
+            policy.push_str(&format!("    (subpath \"{}\")\n", dir.display()));
+        }
+        policy.push_str(")\n");
+    }
     policy
 }
 
@@ -503,8 +554,86 @@ mod tests {
 
         let policy = build_sandbox_policy(&paths, &binary_path, false);
 
-        assert!(!policy.contains("(allow network-outbound)"));
-        assert!(policy.contains("Network disabled"));
+        // Unfiltered grants are the IP-networking ones; they must be absent.
+        for grant in [
+            "(allow network-outbound)",
+            "(allow network-inbound)",
+            "(allow system-socket)",
+        ] {
+            assert!(!policy.contains(grant), "must not emit `{grant}`");
+        }
+        assert!(policy.contains("IP networking disabled"));
+    }
+
+    /// #1072: the shim's AF_UNIX control plane must be granted regardless of
+    /// `network_enabled` — it is how the host talks to the box at all.
+    #[test]
+    fn test_unix_socket_grants_are_independent_of_network_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let sockets_dir = dir.path().join("sockets");
+        std::fs::create_dir_all(&sockets_dir).unwrap();
+        let expected = format!(
+            "(subpath \"{}\")",
+            canonicalize_or_original(&sockets_dir).display()
+        );
+
+        let paths = vec![PathAccess {
+            path: sockets_dir,
+            writable: true,
+        }];
+        let binary_path = PathBuf::from("/usr/local/bin/boxlite-shim");
+
+        for network_enabled in [true, false] {
+            let policy = build_sandbox_policy(&paths, &binary_path, network_enabled);
+            let grants = policy
+                .split("(allow ")
+                .filter(|section| {
+                    section.starts_with("network-bind\n")
+                        || section.starts_with("network-outbound\n")
+                })
+                .count();
+            assert_eq!(
+                grants, 2,
+                "network_enabled={network_enabled} must emit path-filtered \
+                 network-bind and network-outbound blocks:\n{policy}"
+            );
+            assert!(
+                policy.contains(&expected),
+                "network_enabled={network_enabled} must scope them to the \
+                 writable sockets dir {expected}:\n{policy}"
+            );
+        }
+    }
+
+    /// Read-only paths must not become bindable just because they are in the
+    /// profile — the grant follows `file-write*`, nothing wider.
+    #[test]
+    fn test_unix_socket_grants_skip_read_only_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let ro_dir = dir.path().join("rootfs");
+        let rw_dir = dir.path().join("sockets");
+        std::fs::create_dir_all(&ro_dir).unwrap();
+        std::fs::create_dir_all(&rw_dir).unwrap();
+
+        let policy = build_unix_socket_grants(&[
+            PathAccess {
+                path: ro_dir,
+                writable: false,
+            },
+            PathAccess {
+                path: rw_dir,
+                writable: true,
+            },
+        ]);
+
+        assert!(
+            !policy.contains("rootfs"),
+            "read-only path granted: {policy}"
+        );
+        assert!(
+            policy.contains("sockets"),
+            "writable path missing: {policy}"
+        );
     }
 
     #[test]
@@ -1019,5 +1148,148 @@ mod tests {
             "Expected sandbox denial, got stderr: {}",
             stderr
         );
+    }
+
+    /// Listener probe binary. Part of the macOS base system; the probes skip
+    /// themselves rather than misreport a denial if it is ever absent.
+    #[cfg(target_os = "macos")]
+    const PROBE_BIN: &str = "/usr/bin/nc";
+
+    /// What a listener probe did under a generated profile.
+    #[cfg(target_os = "macos")]
+    enum ProbeOutcome {
+        /// Acquired the socket and kept running.
+        Listening,
+        /// Exited immediately; carries the probe's stderr.
+        Denied(String),
+    }
+
+    /// Run `/usr/bin/nc` as a listener under a generated profile.
+    ///
+    /// `nc` blocks once it owns the socket and exits at once when the sandbox
+    /// denies the bind, so the two outcomes are unambiguous. `bound_marker` is
+    /// the node that appears on success, letting the allow case finish as soon
+    /// as it shows up instead of waiting out the deadline.
+    #[cfg(target_os = "macos")]
+    fn probe_listener(
+        paths: &[PathAccess],
+        network_enabled: bool,
+        nc_args: &[&str],
+        bound_marker: Option<&Path>,
+    ) -> ProbeOutcome {
+        use std::io::Read;
+        use std::time::{Duration, Instant};
+
+        let (sandbox_cmd, sandbox_args) =
+            build_sandbox_exec_args(paths, Path::new(PROBE_BIN), network_enabled, None);
+        let mut child = Command::new(sandbox_cmd)
+            .args(sandbox_args)
+            .arg(PROBE_BIN)
+            .args(nc_args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn sandbox-exec");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let outcome = loop {
+            if bound_marker.is_some_and(|marker| marker.exists()) {
+                break ProbeOutcome::Listening;
+            }
+            match child.try_wait().expect("poll nc") {
+                Some(_) => {
+                    let mut stderr = String::new();
+                    if let Some(mut pipe) = child.stderr.take() {
+                        let _ = pipe.read_to_string(&mut stderr);
+                    }
+                    break ProbeOutcome::Denied(stderr.trim().to_string());
+                }
+                None if Instant::now() >= deadline => break ProbeOutcome::Listening,
+                None => std::thread::sleep(Duration::from_millis(20)),
+            }
+        };
+
+        let _ = child.kill();
+        let _ = child.wait();
+        outcome
+    }
+
+    /// Regression guard for #1072: `security.network_enabled = false` must not
+    /// take the shim's own AF_UNIX control plane down with it. Before the fix
+    /// this bind failed with EPERM and every box died ~1ms after start.
+    ///
+    /// Probes under `/private/tmp` for two reasons: `sun_path` caps the whole
+    /// socket path at 104 bytes, and it keeps the probe off the deep workspace
+    /// path a checkout may sit under.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_seatbelt_runtime_allows_unix_socket_bind_without_network() {
+        if !is_sandbox_available() || !Path::new(PROBE_BIN).exists() {
+            eprintln!("Skipping: sandbox-exec or {PROBE_BIN} not available");
+            return;
+        }
+
+        let dir = tempfile::tempdir_in("/private/tmp").expect("tempdir");
+        let sockets_dir = dir.path().join("sockets");
+        std::fs::create_dir_all(&sockets_dir).expect("create sockets dir");
+        let sock = sockets_dir.join("net.sock");
+        assert!(
+            sock.as_os_str().len() < 104,
+            "probe path must fit sun_path: {}",
+            sock.display()
+        );
+
+        let paths = vec![PathAccess {
+            path: sockets_dir,
+            writable: true,
+        }];
+
+        match probe_listener(
+            &paths,
+            false,
+            &["-lU", sock.to_str().expect("utf-8 socket path")],
+            Some(&sock),
+        ) {
+            ProbeOutcome::Listening => assert!(
+                sock.exists(),
+                "probe kept running but bound no socket at {}",
+                sock.display()
+            ),
+            ProbeOutcome::Denied(stderr) => panic!(
+                "network_enabled=false denied the AF_UNIX bind at {}: {stderr}",
+                sock.display()
+            ),
+        }
+    }
+
+    /// The Unix-domain grants are filtered by path, so they must not smuggle
+    /// in IP networking — `network_enabled` stays the only switch for that.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_seatbelt_runtime_still_denies_tcp_without_network() {
+        if !is_sandbox_available() || !Path::new(PROBE_BIN).exists() {
+            eprintln!("Skipping: sandbox-exec or {PROBE_BIN} not available");
+            return;
+        }
+
+        let dir = tempfile::tempdir_in("/private/tmp").expect("tempdir");
+        let sockets_dir = dir.path().join("sockets");
+        std::fs::create_dir_all(&sockets_dir).expect("create sockets dir");
+
+        let paths = vec![PathAccess {
+            path: sockets_dir,
+            writable: true,
+        }];
+
+        match probe_listener(&paths, false, &["-l", "127.0.0.1", "53535"], None) {
+            ProbeOutcome::Denied(stderr) => assert!(
+                stderr.contains("Operation not permitted"),
+                "expected a sandbox denial, got: {stderr}"
+            ),
+            ProbeOutcome::Listening => {
+                panic!("network_enabled=false must still deny TCP listeners")
+            }
+        }
     }
 }
