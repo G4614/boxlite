@@ -66,7 +66,7 @@ describe('BoxliteVolumeController', () => {
     const { controller, volumeService } = createController()
 
     await expect(controller.remove(volume.id)).resolves.toBeUndefined()
-    expect(volumeService.delete).toHaveBeenCalledWith(volume.id)
+    expect(volumeService.delete).toHaveBeenCalledWith(volume.id, false)
   })
 
   it('propagates a missing-volume error without force', async () => {
@@ -77,12 +77,11 @@ describe('BoxliteVolumeController', () => {
     await expect(controller.remove(volume.id)).rejects.toBe(error)
   })
 
-  it('treats a missing volume as deleted when force is true', async () => {
+  it('passes force deletion semantics to the volume service', async () => {
     const { controller, volumeService } = createController()
-    volumeService.delete.mockRejectedValueOnce(new NotFoundException('Volume not found'))
 
     await expect(controller.remove(volume.id, 'true')).resolves.toBeUndefined()
-    expect(volumeService.delete).toHaveBeenCalledWith(volume.id)
+    expect(volumeService.delete).toHaveBeenCalledWith(volume.id, true)
   })
 
   it('propagates non-not-found errors when force is true', async () => {

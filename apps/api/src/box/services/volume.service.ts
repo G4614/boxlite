@@ -71,7 +71,7 @@ export class VolumeService {
     return savedVolume
   }
 
-  async delete(volumeId: string): Promise<void> {
+  async delete(volumeId: string, force = false): Promise<void> {
     const volume = await this.volumeRepository.findOne({
       where: {
         id: volumeId,
@@ -79,7 +79,14 @@ export class VolumeService {
     })
 
     if (!volume) {
+      if (force) {
+        return
+      }
       throw new NotFoundException(`Volume with ID ${volumeId} not found`)
+    }
+
+    if (force && [VolumeState.PENDING_DELETE, VolumeState.DELETING, VolumeState.DELETED].includes(volume.state)) {
+      return
     }
 
     if (volume.state !== VolumeState.READY && volume.state !== VolumeState.ERROR) {

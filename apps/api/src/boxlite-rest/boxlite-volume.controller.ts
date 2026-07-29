@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, HttpCode, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { Controller, Delete, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiExcludeController } from '@nestjs/swagger'
 import { CombinedAuthGuard } from '../auth/combined-auth.guard'
 import { OrganizationResourceActionGuard } from '../organization/guards/organization-resource-action.guard'
@@ -47,14 +47,7 @@ export class BoxliteVolumeController {
   @RequiredOrganizationResourcePermissions([OrganizationResourcePermission.DELETE_VOLUMES])
   @UseGuards(VolumeAccessGuard)
   async remove(@Param('volumeId') volumeId: string, @Query('force') force?: string): Promise<void> {
-    try {
-      await this.volumeService.delete(volumeId)
-    } catch (error) {
-      if (force === 'true' && error instanceof NotFoundException) {
-        return
-      }
-      throw error
-    }
+    await this.volumeService.delete(volumeId, force === 'true')
   }
 
   private toResponse(volume: Awaited<ReturnType<VolumeService['findOne']>>): RestVolumeResponse {
