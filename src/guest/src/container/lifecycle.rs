@@ -29,6 +29,7 @@ const DEFAULT_INIT_PTY: PtyConfig = PtyConfig {
     cols: 80,
     x_pixels: 0,
     y_pixels: 0,
+    modes: Vec::new(),
 };
 
 /// OCI container
