@@ -698,6 +698,15 @@ mod tests {
         assert_eq!(volume.host_path, "volume-123");
         assert_eq!(volume.guest_path, "/data");
         assert!(!volume.read_only);
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            json["volumes"],
+            serde_json::json!([{
+                "host_path": "volume-123",
+                "guest_path": "/data",
+                "read_only": false
+            }])
+        );
         assert_eq!(req.auto_stop, Some(1800));
         assert_eq!(req.auto_delete, Some(604800));
         assert_eq!(

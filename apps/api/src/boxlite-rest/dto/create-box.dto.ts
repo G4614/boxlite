@@ -16,6 +16,7 @@ import {
   Min,
   IsIn,
   Validate,
+  ValidateIf,
   ValidateNested,
   ValidatorConstraint,
   ValidatorConstraintInterface,
@@ -52,7 +53,7 @@ export class VolumeSpecDto {
   @IsString()
   guest_path: string
 
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
   @IsIn([false])
   read_only?: false
 }
