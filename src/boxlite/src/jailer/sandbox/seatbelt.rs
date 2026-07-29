@@ -18,7 +18,7 @@
 //! | Base capabilities (process, sysctl, mach, iokit) | `seatbelt_base_policy.sbpl` |
 //! | Static system file read/write paths | `seatbelt_file_read_policy.sbpl`, `seatbelt_file_write_policy.sbpl` |
 //! | Dynamic file read/write paths | Computed from [`PathAccess`] in `build_sandbox_policy()` |
-//! | Unix-domain socket endpoints (always) | Computed from writable [`PathAccess`] in `build_unix_socket_grants()` |
+//! | Unix-domain socket endpoints (always) | Explicit socket paths in [`SandboxContext`] |
 //! | IP networking (optional) | `seatbelt_network_policy.sbpl` when `network_enabled=true` |
 //!
 //! Unix-domain sockets and IP networking are granted separately on purpose:
@@ -114,6 +114,7 @@ impl Sandbox for SeatbeltSandbox {
         let binary_path = std::path::Path::new(&binary);
         let (sandbox_cmd, sandbox_args) = build_sandbox_exec_args(
             &ctx.paths,
+            &ctx.unix_socket_paths,
             binary_path,
             ctx.network_enabled,
             ctx.sandbox_profile,
@@ -158,6 +159,7 @@ pub fn get_network_policy() -> &'static str {
 /// Returns the command and arguments to prepend when spawning the shim.
 fn build_sandbox_exec_args(
     paths: &[PathAccess],
+    unix_socket_paths: &[PathBuf],
     binary_path: &Path,
     network_enabled: bool,
     sandbox_profile: Option<&Path>,
@@ -170,7 +172,7 @@ fn build_sandbox_exec_args(
         args.push(profile_path.display().to_string());
     } else {
         // Build strict modular policy: base + file permissions + optional network
-        let policy = build_sandbox_policy(paths, binary_path, network_enabled);
+        let policy = build_sandbox_policy(paths, unix_socket_paths, binary_path, network_enabled);
         if std::env::var_os("BOXLITE_DEBUG_PRINT_SEATBELT").is_some() {
             eprintln!(
                 "BOXLITE_DEBUG seatbelt policy for {}:\n{}",
@@ -200,7 +202,12 @@ fn build_sandbox_exec_args(
 // ============================================================================
 
 /// Build the complete sandbox policy by combining static .sbpl files + dynamic paths.
-fn build_sandbox_policy(paths: &[PathAccess], binary_path: &Path, network_enabled: bool) -> String {
+fn build_sandbox_policy(
+    paths: &[PathAccess],
+    unix_socket_paths: &[PathBuf],
+    binary_path: &Path,
+    network_enabled: bool,
+) -> String {
     let mut policy = String::new();
 
     // Header
@@ -238,7 +245,7 @@ fn build_sandbox_policy(paths: &[PathAccess], binary_path: &Path, network_enable
     policy.push('\n');
 
     // 6. Unix-domain socket endpoints (always — not gated on network_enabled)
-    policy.push_str(&build_unix_socket_grants(paths));
+    policy.push_str(&build_unix_socket_grants(unix_socket_paths));
     policy.push('\n');
 
     // 7. IP networking (optional)
@@ -341,22 +348,20 @@ fn build_dynamic_write_paths(paths: &[PathAccess]) -> String {
 /// into `seatbelt_network_policy.sbpl` therefore made `network_enabled=false`
 /// kill every box a millisecond after start (issue #1072).
 ///
-/// Scope: the directories the profile already grants `file-write*`. A Unix
-/// socket is a filesystem node, so binding one where the shim can already
-/// create files adds no authority. Both operations are path-filtered, and a
-/// path filter never matches an AF_INET/AF_INET6 socket — so this grants no
-/// IP networking, which stays the sole responsibility of `network_enabled`.
-fn build_unix_socket_grants(paths: &[PathAccess]) -> String {
-    // Only directories: sockets are bound as nodes inside them, and the
-    // dir/file split mirrors the read/write policies above.
+/// Scope: only the shim socket directories pre-computed by the jailer (the real
+/// socket inode directory and the short binding symlink). Both operations are
+/// path-filtered, and a path filter never matches an AF_INET/AF_INET6 socket —
+/// so this grants no IP networking, which stays the sole responsibility of
+/// `network_enabled`.
+fn build_unix_socket_grants(paths: &[PathBuf]) -> String {
     let dirs: Vec<PathBuf> = paths
         .iter()
-        .filter(|pa| pa.writable && pa.path.is_dir())
-        .map(|pa| canonicalize_or_original(&pa.path))
+        .filter(|path| path.is_dir())
+        .map(|path| canonicalize_or_original(path))
         .collect();
 
     if dirs.is_empty() {
-        return String::from("; No writable directories — no Unix-domain socket endpoints\n");
+        return String::from("; No Unix-domain socket endpoints\n");
     }
 
     let mut policy =
@@ -487,7 +492,7 @@ mod tests {
         }];
         let binary_path = PathBuf::from("/usr/local/bin/boxlite-shim");
 
-        let (cmd, _args) = build_sandbox_exec_args(&paths, &binary_path, true, None);
+        let (cmd, _args) = build_sandbox_exec_args(&paths, &[], &binary_path, true, None);
 
         assert_eq!(cmd, "/usr/bin/sandbox-exec");
     }
@@ -539,7 +544,7 @@ mod tests {
         }];
         let binary_path = PathBuf::from("/usr/local/bin/boxlite-shim");
 
-        let policy = build_sandbox_policy(&paths, &binary_path, true);
+        let policy = build_sandbox_policy(&paths, &[], &binary_path, true);
 
         assert!(policy.contains("(allow network-outbound)"));
     }
@@ -552,7 +557,7 @@ mod tests {
         }];
         let binary_path = PathBuf::from("/usr/local/bin/boxlite-shim");
 
-        let policy = build_sandbox_policy(&paths, &binary_path, false);
+        let policy = build_sandbox_policy(&paths, &[], &binary_path, false);
 
         // Unfiltered grants are the IP-networking ones; they must be absent.
         for grant in [
@@ -581,10 +586,12 @@ mod tests {
             path: sockets_dir,
             writable: true,
         }];
+        let unix_socket_paths = vec![paths[0].path.clone()];
         let binary_path = PathBuf::from("/usr/local/bin/boxlite-shim");
 
         for network_enabled in [true, false] {
-            let policy = build_sandbox_policy(&paths, &binary_path, network_enabled);
+            let policy =
+                build_sandbox_policy(&paths, &unix_socket_paths, &binary_path, network_enabled);
             let grants = policy
                 .split("(allow ")
                 .filter(|section| {
@@ -605,34 +612,40 @@ mod tests {
         }
     }
 
-    /// Read-only paths must not become bindable just because they are in the
-    /// profile — the grant follows `file-write*`, nothing wider.
+    /// File-write paths must not become bindable just because they are in the
+    /// profile. AF_UNIX grants follow the explicit shim socket path list.
     #[test]
-    fn test_unix_socket_grants_skip_read_only_paths() {
+    fn test_unix_socket_grants_only_include_explicit_socket_paths() {
         let dir = tempfile::tempdir().unwrap();
-        let ro_dir = dir.path().join("rootfs");
-        let rw_dir = dir.path().join("sockets");
-        std::fs::create_dir_all(&ro_dir).unwrap();
-        std::fs::create_dir_all(&rw_dir).unwrap();
+        let writable_volume = dir.path().join("volume");
+        let sockets_dir = dir.path().join("sockets");
+        std::fs::create_dir_all(&writable_volume).unwrap();
+        std::fs::create_dir_all(&sockets_dir).unwrap();
 
-        let policy = build_unix_socket_grants(&[
-            PathAccess {
-                path: ro_dir,
-                writable: false,
-            },
-            PathAccess {
-                path: rw_dir,
+        let policy = build_sandbox_policy(
+            &[PathAccess {
+                path: writable_volume.clone(),
                 writable: true,
-            },
-        ]);
+            }],
+            &[sockets_dir],
+            &PathBuf::from("/usr/local/bin/boxlite-shim"),
+            false,
+        );
+        let socket_grant_sections = policy
+            .split("(allow ")
+            .filter(|section| {
+                section.starts_with("network-bind\n") || section.starts_with("network-outbound\n")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
 
         assert!(
-            !policy.contains("rootfs"),
-            "read-only path granted: {policy}"
+            !socket_grant_sections.contains(writable_volume.to_string_lossy().as_ref()),
+            "writable non-socket path received AF_UNIX grant: {policy}"
         );
         assert!(
             policy.contains("sockets"),
-            "writable path missing: {policy}"
+            "explicit socket path missing: {policy}"
         );
     }
 
@@ -740,7 +753,7 @@ mod tests {
         }];
         let binary_path = PathBuf::from("/tmp/test/boxlite-shim");
 
-        let policy = build_sandbox_policy(&paths, &binary_path, false);
+        let policy = build_sandbox_policy(&paths, &[], &binary_path, false);
 
         assert!(
             !policy.contains("(subpath \"/usr\")"),
@@ -924,7 +937,7 @@ mod tests {
 
         let paths = crate::jailer::build_path_access(&layout, &[]);
         let binary = PathBuf::from("/usr/local/bin/boxlite-shim");
-        let policy = build_sandbox_policy(&paths, &binary, false);
+        let policy = build_sandbox_policy(&paths, &[], &binary, false);
 
         let mounts_str = mounts_base.to_string_lossy().to_string();
         assert!(
@@ -1002,7 +1015,7 @@ mod tests {
         arg: &std::path::Path,
     ) -> std::process::Output {
         let (sandbox_cmd, sandbox_args) =
-            build_sandbox_exec_args(paths, std::path::Path::new("/bin/sh"), false, None);
+            build_sandbox_exec_args(paths, &[], std::path::Path::new("/bin/sh"), false, None);
         std::process::Command::new(sandbox_cmd)
             .args(sandbox_args)
             .arg("/bin/sh")
@@ -1066,7 +1079,7 @@ mod tests {
         }];
 
         let (sandbox_cmd, sandbox_args) =
-            build_sandbox_exec_args(&paths, std::path::Path::new("/bin/sh"), false, None);
+            build_sandbox_exec_args(&paths, &[], std::path::Path::new("/bin/sh"), false, None);
         let output = std::process::Command::new(sandbox_cmd)
             .args(sandbox_args)
             .arg("/bin/sh")
@@ -1173,6 +1186,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     fn probe_listener(
         paths: &[PathAccess],
+        unix_socket_paths: &[PathBuf],
         network_enabled: bool,
         nc_args: &[&str],
         bound_marker: Option<&Path>,
@@ -1180,8 +1194,13 @@ mod tests {
         use std::io::Read;
         use std::time::{Duration, Instant};
 
-        let (sandbox_cmd, sandbox_args) =
-            build_sandbox_exec_args(paths, Path::new(PROBE_BIN), network_enabled, None);
+        let (sandbox_cmd, sandbox_args) = build_sandbox_exec_args(
+            paths,
+            unix_socket_paths,
+            Path::new(PROBE_BIN),
+            network_enabled,
+            None,
+        );
         let mut child = Command::new(sandbox_cmd)
             .args(sandbox_args)
             .arg(PROBE_BIN)
@@ -1247,6 +1266,7 @@ mod tests {
 
         match probe_listener(
             &paths,
+            &[paths[0].path.clone()],
             false,
             &["-lU", sock.to_str().expect("utf-8 socket path")],
             Some(&sock),
@@ -1281,8 +1301,21 @@ mod tests {
             path: sockets_dir,
             writable: true,
         }];
+        let port_guard =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("reserve TCP probe port");
+        let port = port_guard
+            .local_addr()
+            .expect("read TCP probe port")
+            .port()
+            .to_string();
 
-        match probe_listener(&paths, false, &["-l", "127.0.0.1", "53535"], None) {
+        match probe_listener(
+            &paths,
+            &[paths[0].path.clone()],
+            false,
+            &["-l", "127.0.0.1", &port],
+            None,
+        ) {
             ProbeOutcome::Denied(stderr) => assert!(
                 stderr.contains("Operation not permitted"),
                 "expected a sandbox denial, got: {stderr}"

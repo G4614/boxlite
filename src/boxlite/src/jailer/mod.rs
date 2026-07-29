@@ -400,6 +400,17 @@ impl<S: Sandbox> Jail for Jailer<S> {
         if !self.security.jailer_enabled {
             return Ok(());
         }
+
+        // Socket paths are part of the sandbox policy itself. Prepare them
+        // before building SandboxContext so failures stop the spawn instead of
+        // producing a profile with missing AF_UNIX grants.
+        std::fs::create_dir_all(self.layout.sockets_dir()).map_err(|e| {
+            boxlite_shared::errors::BoxliteError::Storage(format!(
+                "failed to create sockets dir: {e}"
+            ))
+        })?;
+        self.layout.sockets().ensure()?;
+
         self.sandbox.setup(&self.context())
     }
 
@@ -539,6 +550,16 @@ impl<S: Sandbox> Jailer<S> {
     fn context(&self) -> SandboxContext<'_> {
         let mut paths = build_path_access(&self.layout, &self.volumes);
         paths.extend_from_slice(&self.additional_path_access);
+        let unix_socket_paths = if self.layout.sockets_dir().exists() {
+            self.layout
+                .sockets()
+                .policy_paths()
+                .into_iter()
+                .filter_map(|(path, writable)| writable.then_some(path))
+                .collect()
+        } else {
+            Vec::new()
+        };
         tracing::debug!(
             box_id = %self.box_id,
             path_count = paths.len(),
@@ -552,6 +573,7 @@ impl<S: Sandbox> Jailer<S> {
         SandboxContext {
             id: &self.box_id,
             paths,
+            unix_socket_paths,
             resource_limits: &self.security.resource_limits,
             network_enabled: self.security.network_enabled,
             sandbox_profile: self.security.sandbox_profile.as_deref(),
@@ -1043,12 +1065,54 @@ mod tests {
             "logs_dir should be created by command()"
         );
         assert!(
+            layout.sockets_dir().exists(),
+            "sockets_dir should be created by prepare() before policy generation"
+        );
+        let binding_meta = std::fs::symlink_metadata(layout.sockets().binding_dir())
+            .expect("socket binding path should exist after prepare()");
+        assert!(
+            binding_meta.file_type().is_symlink(),
+            "socket binding path should be a symlink after prepare()"
+        );
+        assert_eq!(
+            std::fs::read_link(layout.sockets().binding_dir())
+                .expect("socket binding symlink should be readable"),
+            layout.sockets_dir(),
+            "socket binding symlink should target sockets_dir()"
+        );
+        assert!(
             layout.exit_file_path().exists(),
             "exit file should be created by command()"
         );
         assert!(
             layout.console_output_path().exists(),
             "console.log should be created by command()"
+        );
+    }
+
+    #[test]
+    fn test_prepare_reports_socket_setup_failures() {
+        use crate::jailer::builder::JailerBuilder;
+        use crate::runtime::advanced_options::SecurityOptions;
+
+        let dir = tempdir().unwrap();
+        let layout = test_layout(dir.path().to_path_buf());
+        std::fs::write(layout.sockets_dir(), b"not a directory").unwrap();
+
+        let jail = JailerBuilder::new()
+            .with_box_id("bad-sockets")
+            .with_layout(layout)
+            .with_security(SecurityOptions {
+                jailer_enabled: true,
+                ..SecurityOptions::default()
+            })
+            .build()
+            .unwrap();
+
+        let error = jail.prepare().unwrap_err().to_string();
+        assert!(
+            error.contains("failed to create sockets dir") || error.contains("Not a directory"),
+            "socket setup failure should be reported before command construction: {error}"
         );
     }
 }
