@@ -181,30 +181,33 @@ impl BoxImpl {
         let box_home = self.config.box_home.clone();
         let runtime_layout = self.runtime.layout.clone();
 
-        // Phase 1: Flatten disks inside quiesce bracket (VM paused only for this).
-        // Flatten reads live qcow2 chains and must see consistent disk state.
-        let flatten_result = self
+        // Phase 1: Capture the chain inside the quiesce bracket (VM paused).
+        // Only the top overlay is live, so only it has to be copied; the bases
+        // below it are immutable and are read in place at archive time.
+        let capture = self
             .with_quiesce_async(async {
                 let bh = box_home.clone();
                 let rl = runtime_layout.clone();
-                tokio::task::spawn_blocking(move || do_export_flatten(&bh, &rl))
+                tokio::task::spawn_blocking(move || do_export_capture(&bh, &rl))
                     .await
                     .map_err(|e| {
-                        BoxliteError::Internal(format!("Export flatten task panicked: {}", e))
+                        BoxliteError::Internal(format!("Export capture task panicked: {}", e))
                     })?
             })
             .await?;
 
-        // Phase 2: Checksum + manifest + archive run with VM resumed.
-        // These only read static temp files, no disk consistency needed.
+        // Phase 2: Digest + manifest + archive run with the VM resumed. Every
+        // input is now either a temp copy or an immutable base.
         let config_name = self.config.name.clone();
         let config_options = self.config.options.clone();
         let box_id_str = self.id().to_string();
         let dest = dest.to_path_buf();
+        let base_disk_mgr = self.runtime.base_disk_mgr.clone();
 
         let result = tokio::task::spawn_blocking(move || {
             do_export_finalize(
-                flatten_result,
+                capture,
+                &base_disk_mgr,
                 config_name.as_deref(),
                 &config_options,
                 &box_id_str,
@@ -225,30 +228,36 @@ impl BoxImpl {
     }
 }
 
-/// Intermediate result from flatten phase, passed to finalize phase.
-struct FlattenResult {
+/// The box's disk chain as captured under quiesce, base first and top last.
+struct ChainCapture {
     temp_dir: tempfile::TempDir,
-    flat_container: std::path::PathBuf,
-    flatten_ms: u64,
+    /// Files to read each layer from. The last entry is a temp copy of the
+    /// live top overlay; the rest are immutable bases read in place.
+    layer_paths: Vec<std::path::PathBuf>,
+    capture_ms: u64,
 }
 
-/// Phase 1: Flatten the container disk chain into a standalone image.
+/// Phase 1: Capture the container disk's layer chain.
 /// Runs inside the quiesce bracket — this is the only part that needs disk consistency.
+///
+/// The chain is exported as layers rather than flattened into one image. The
+/// layers below the top are immutable and shared: every box's container disk is
+/// a COW child of the image disk, so the image layer is identical across every
+/// box built from it and an importer that already holds it skips the transfer
+/// entirely. Flattening would erase exactly that structure, and measured on a
+/// real box it does not even buy a smaller archive.
 ///
 /// The guest rootfs disk is deliberately not exported. It is a thin COW overlay
 /// over the host-global guest rootfs cache (`bases/{id}.ext4`, keyed by the
 /// bootstrap image + guest binary version), holds no user state, and is
 /// recreated from the importing host's own cache on first start — the same way
-/// clone and snapshot-restore already treat it. Shipping it would both bloat the
-/// archive with a host-independent blob and, because flattening strips its
-/// backing reference, make the imported box boot from the archived copy instead
-/// of the importing host's correctly-versioned cache.
-fn do_export_flatten(
+/// clone and snapshot-restore already treat it.
+fn do_export_capture(
     box_home: &std::path::Path,
     runtime_layout: &crate::runtime::layout::FilesystemLayout,
-) -> BoxliteResult<FlattenResult> {
-    use crate::disk::Qcow2Helper;
+) -> BoxliteResult<ChainCapture> {
     use crate::disk::constants::filenames as disk_filenames;
+    use crate::disk::read_backing_chain;
 
     let disks_dir = box_home.join("disks");
     let container_disk = disks_dir.join(disk_filenames::CONTAINER_DISK);
@@ -263,31 +272,61 @@ fn do_export_flatten(
     let temp_dir = tempfile::tempdir_in(runtime_layout.temp_dir())
         .map_err(|e| BoxliteError::Storage(format!("Failed to create temp directory: {}", e)))?;
 
-    let t_flatten = Instant::now();
-    let flat_container = temp_dir.path().join(disk_filenames::CONTAINER_DISK);
-    Qcow2Helper::flatten(&container_disk, &flat_container)?;
-    let flatten_ms = t_flatten.elapsed().as_millis() as u64;
+    let t_capture = Instant::now();
 
-    Ok(FlattenResult {
+    // Only the top overlay can still be written to, so it is the only layer
+    // that has to be copied while the VM is paused.
+    let top_copy = temp_dir.path().join(disk_filenames::CONTAINER_DISK);
+    std::fs::copy(&container_disk, &top_copy).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Failed to copy container disk {}: {}",
+            container_disk.display(),
+            e
+        ))
+    })?;
+
+    // read_backing_chain yields the backing files below `container_disk`,
+    // nearest first, so reversing puts the deepest base at index 0.
+    let mut layer_paths: Vec<std::path::PathBuf> = read_backing_chain(&container_disk)
+        .into_iter()
+        .rev()
+        .collect();
+    layer_paths.push(top_copy);
+
+    let capture_ms = t_capture.elapsed().as_millis() as u64;
+
+    Ok(ChainCapture {
         temp_dir,
-        flat_container,
-        flatten_ms,
+        layer_paths,
+        capture_ms,
     })
+}
+
+/// Whether a file starts with the qcow2 magic, deciding how a child references it.
+fn is_qcow2(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    f.read_exact(&mut magic).is_ok() && u32::from_be_bytes(magic) == 0x5146_49fb
 }
 
 /// Phase 2: Checksum, manifest, and archive.
 /// Runs after the VM resumes — only reads static temp files.
 fn do_export_finalize(
-    flatten: FlattenResult,
+    capture: ChainCapture,
+    base_disk_mgr: &crate::disk::BaseDiskManager,
     config_name: Option<&str>,
     config_options: &crate::runtime::options::BoxOptions,
     box_id_str: &str,
     dest: &std::path::Path,
 ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
     use super::archive::{
-        ArchiveManifest, MANIFEST_FILENAME, archive_version_for_options, build_zstd_tar_archive,
-        sha256_file,
+        ArchiveLayer, ArchiveManifest, LAYERED_ARCHIVE_VERSION, LayerFormat, MANIFEST_FILENAME,
+        archive_version_for_options, build_layered_archive, sha256_file,
     };
+    use crate::disk::Qcow2Helper;
 
     let output_path = if dest.is_dir() {
         let name = config_name.unwrap_or("box");
@@ -296,9 +335,37 @@ fn do_export_finalize(
         dest.to_path_buf()
     };
 
-    let t_checksum = Instant::now();
-    let container_disk_checksum = sha256_file(&flatten.flat_container)?;
-    let checksum_ms = t_checksum.elapsed().as_millis() as u64;
+    let t_digest = Instant::now();
+    let last = capture.layer_paths.len().saturating_sub(1);
+    let mut layers = Vec::with_capacity(capture.layer_paths.len());
+    let mut blobs = Vec::with_capacity(capture.layer_paths.len());
+
+    for (i, path) in capture.layer_paths.iter().enumerate() {
+        // Bases are immutable, so their digest is cached in the store and
+        // repeat exports of boxes sharing a base do not re-read them. The top
+        // layer is a fresh temp copy with nothing to cache it against.
+        let digest = match base_disk_mgr.digest_of(path)? {
+            Some(cached) if i != last => cached,
+            _ => sha256_file(path)?,
+        };
+
+        let qcow2 = is_qcow2(path);
+        layers.push(ArchiveLayer {
+            digest: digest.clone(),
+            format: if qcow2 {
+                LayerFormat::Qcow2
+            } else {
+                LayerFormat::Raw
+            },
+            virtual_size: if qcow2 {
+                Qcow2Helper::qcow2_virtual_size(path).unwrap_or(0)
+            } else {
+                0
+            },
+        });
+        blobs.push((digest, path.clone()));
+    }
+    let digest_ms = t_digest.elapsed().as_millis() as u64;
 
     let image = match &config_options.rootfs {
         crate::runtime::options::RootfsSpec::Image(img) => img.clone(),
@@ -306,33 +373,37 @@ fn do_export_finalize(
     };
 
     let manifest = ArchiveManifest {
-        version: archive_version_for_options(config_options),
+        // A layered archive is unreadable to a pre-v6 importer, so it is
+        // stamped v6 regardless of what the options alone would need.
+        version: archive_version_for_options(config_options).max(LAYERED_ARCHIVE_VERSION),
         box_name: config_name.map(|s| s.to_string()),
         image,
         box_options: Some(config_options.clone()),
         // Kept for wire compatibility with importers that still expect the
-        // field; the guest rootfs disk is no longer exported.
+        // fields; v6 carries per-layer digests instead.
         guest_disk_checksum: String::new(),
-        container_disk_checksum,
+        container_disk_checksum: String::new(),
+        layers,
         exported_at: chrono::Utc::now().to_rfc3339(),
     };
 
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| BoxliteError::Internal(format!("Failed to serialize manifest: {}", e)))?;
-    let manifest_path = flatten.temp_dir.path().join(MANIFEST_FILENAME);
+    let manifest_path = capture.temp_dir.path().join(MANIFEST_FILENAME);
     std::fs::write(&manifest_path, manifest_json)?;
 
     let t_archive = Instant::now();
-    build_zstd_tar_archive(&output_path, &manifest_path, &flatten.flat_container, 3)?;
+    build_layered_archive(&output_path, &manifest_path, &blobs, 3)?;
     let archive_ms = t_archive.elapsed().as_millis() as u64;
 
     tracing::info!(
         box_id = %box_id_str,
         output = %output_path.display(),
-        flatten_ms = flatten.flatten_ms,
-        checksum_ms,
+        layers = blobs.len(),
+        capture_ms = capture.capture_ms,
+        digest_ms,
         archive_ms,
-        "Exported box to archive"
+        "Exported box to layered archive"
     );
 
     Ok(crate::runtime::options::BoxArchive::new(output_path))
@@ -361,48 +432,123 @@ mod tests {
             .collect()
     }
 
-    /// The guest rootfs disk is host-global state that the importing host
-    /// rebuilds from its own version-keyed cache, so it must never travel
-    /// inside an archive — shipping it also lets the archived copy win over
-    /// that cache, since flattening strips its backing reference.
-    #[test]
-    fn export_omits_the_guest_rootfs_disk() {
-        let home = tempfile::tempdir_in("/tmp").expect("home dir");
-        let layout = FilesystemLayout::new(home.path().to_path_buf(), FsLayoutConfig::default());
-        std::fs::create_dir_all(layout.temp_dir()).expect("temp dir");
+    /// Build a manager over a real store in `home`.
+    fn test_base_disk_mgr(home: &std::path::Path) -> crate::disk::BaseDiskManager {
+        let bases_dir = home.join("bases");
+        std::fs::create_dir_all(&bases_dir).unwrap();
+        let db = crate::db::Database::open(&home.join("boxlite.db")).unwrap();
+        crate::disk::BaseDiskManager::new(bases_dir, crate::db::base_disk::BaseDiskStore::new(db))
+    }
 
-        // A box home carrying both disks, as any started box does.
-        let box_home = home.path().join("box");
+    /// A box home holding a two-layer chain: `disk.qcow2` over a base.
+    fn chained_box_home(home: &std::path::Path) -> std::path::PathBuf {
+        let box_home = home.join("box");
         let disks = box_home.join("disks");
-        std::fs::create_dir_all(&disks).expect("disks dir");
-        Qcow2Helper::create_disk(&disks.join(disk_filenames::CONTAINER_DISK), true)
-            .expect("container disk")
-            .leak();
-        Qcow2Helper::create_disk(&disks.join(disk_filenames::GUEST_ROOTFS_DISK), true)
-            .expect("guest disk")
-            .leak();
+        std::fs::create_dir_all(&disks).unwrap();
 
-        let flattened = do_export_flatten(&box_home, &layout).expect("flatten");
-        let dest = home.path().join("out.boxlite");
-        let archive = do_export_finalize(
-            flattened,
+        let base = home.join("base.qcow2");
+        let vsize = Qcow2Helper::create_disk(&base, true).unwrap().leak();
+        let vsize = Qcow2Helper::qcow2_virtual_size(&vsize).unwrap();
+        Qcow2Helper::create_cow_child_disk(
+            &base,
+            crate::disk::BackingFormat::Qcow2,
+            &disks.join(disk_filenames::CONTAINER_DISK),
+            vsize,
+        )
+        .unwrap()
+        .leak();
+
+        // Present, as on any started box — and never exported.
+        Qcow2Helper::create_disk(&disks.join(disk_filenames::GUEST_ROOTFS_DISK), true)
+            .unwrap()
+            .leak();
+        box_home
+    }
+
+    fn export_to_archive(home: &std::path::Path) -> crate::runtime::options::BoxArchive {
+        let layout = FilesystemLayout::new(home.to_path_buf(), FsLayoutConfig::default());
+        std::fs::create_dir_all(layout.temp_dir()).unwrap();
+        let box_home = chained_box_home(home);
+        let capture = do_export_capture(&box_home, &layout).expect("capture");
+        do_export_finalize(
+            capture,
+            &test_base_disk_mgr(home),
             Some("some-box"),
             &crate::runtime::options::BoxOptions::default(),
             "box-id",
-            &dest,
+            &home.join("out.boxlite"),
         )
-        .expect("finalize");
+        .expect("finalize")
+    }
+
+    /// Export ships the disk chain as layers instead of flattening it, so an
+    /// importer that already holds a layer can skip transferring it.
+    #[test]
+    fn export_emits_one_blob_per_chain_layer() {
+        let home = tempfile::tempdir_in("/tmp").expect("home dir");
+        let archive = export_to_archive(home.path());
+
+        let entries = archive_entry_names(archive.path());
+        let blobs: Vec<_> = entries
+            .iter()
+            .filter(|e| e.starts_with("layers/"))
+            .collect();
+        assert_eq!(
+            blobs.len(),
+            2,
+            "expected one blob per chain layer (base + overlay), got {entries:?}"
+        );
+        assert!(
+            !entries.iter().any(|e| e == disk_filenames::CONTAINER_DISK),
+            "a layered archive carries no flattened disk, got {entries:?}"
+        );
+    }
+
+    /// The guest rootfs disk is host-global state the importing host rebuilds
+    /// from its own version-keyed cache, so it must never travel in an archive.
+    #[test]
+    fn export_omits_the_guest_rootfs_disk() {
+        let home = tempfile::tempdir_in("/tmp").expect("home dir");
+        let archive = export_to_archive(home.path());
 
         let entries = archive_entry_names(archive.path());
         assert!(
-            entries.iter().any(|e| e == disk_filenames::CONTAINER_DISK),
-            "archive must carry the container disk, got {entries:?}"
-        );
-        assert!(
             !entries
                 .iter()
-                .any(|e| e == disk_filenames::GUEST_ROOTFS_DISK),
+                .any(|e| e.ends_with(disk_filenames::GUEST_ROOTFS_DISK)),
             "archive must not carry the guest rootfs disk, got {entries:?}"
+        );
+    }
+
+    /// Layers are ordered base first, so an importer can materialize each
+    /// layer's parent before relinking it.
+    #[test]
+    fn manifest_orders_layers_base_first() {
+        let home = tempfile::tempdir_in("/tmp").expect("home dir");
+        let archive = export_to_archive(home.path());
+
+        let file = std::fs::File::open(archive.path()).unwrap();
+        let mut tar = tar::Archive::new(zstd::Decoder::new(file).unwrap());
+        let mut manifest_json = String::new();
+        for entry in tar.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            if entry.path().unwrap().to_string_lossy() == super::super::archive::MANIFEST_FILENAME {
+                use std::io::Read;
+                entry.read_to_string(&mut manifest_json).unwrap();
+            }
+        }
+        let manifest: super::super::archive::ArchiveManifest =
+            serde_json::from_str(&manifest_json).unwrap();
+
+        assert_eq!(manifest.layers.len(), 2, "{:?}", manifest.layers);
+        // The base has no backing file of its own; the overlay sits on top.
+        assert_eq!(
+            manifest.version,
+            super::super::archive::LAYERED_ARCHIVE_VERSION
+        );
+        assert!(
+            manifest.layers[0].digest != manifest.layers[1].digest,
+            "layers must be distinct blobs"
         );
     }
 }

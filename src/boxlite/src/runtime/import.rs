@@ -1,6 +1,6 @@
 //! Box import from `.boxlite` archives.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
@@ -8,10 +8,11 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use crate::disk::constants::filenames as disk_filenames;
 use crate::litebox::LiteBox;
 use crate::litebox::archive::{
-    ArchiveManifest, MANIFEST_FILENAME, MAX_SUPPORTED_VERSION, PUBLISHED_PORTS_ARCHIVE_VERSION,
-    extract_archive, move_file, sha256_file,
+    ArchiveLayer, ArchiveManifest, MANIFEST_FILENAME, MAX_SUPPORTED_VERSION,
+    PUBLISHED_PORTS_ARCHIVE_VERSION, extract_archive, layer_entry_name, move_file, sha256_file,
 };
 use crate::runtime::advanced_options::SecurityOptions;
+use crate::runtime::id::BaseDiskID;
 use crate::runtime::options::{
     ArchiveImportPolicy, BoxArchive, BoxOptions, RootfsSpec, normalize_legacy_ports,
 };
@@ -52,13 +53,39 @@ pub(crate) async fn import_box(
     let staging_dir = temp_dir.path().join("staging");
     let temp_path = temp_dir.path().to_path_buf();
     let staging_clone = staging_dir.clone();
-    tokio::task::spawn_blocking(move || install_disks(&temp_path, &staging_clone))
-        .await
-        .map_err(|e| BoxliteError::Internal(format!("Import install task panicked: {}", e)))??;
+    let layers = manifest.layers.clone();
+    let base_disk_mgr = runtime.base_disk_mgr.clone();
+    let installed = tokio::task::spawn_blocking(move || {
+        if layers.is_empty() {
+            install_disks(&temp_path, &staging_clone).map(|()| Vec::new())
+        } else {
+            install_layers(&layers, &temp_path, &staging_clone, &base_disk_mgr)
+        }
+    })
+    .await
+    .map_err(|e| BoxliteError::Internal(format!("Import install task panicked: {}", e)))??;
 
     let litebox = runtime
         .provision_box(staging_dir, name, options, BoxStatus::Stopped)
         .await?;
+
+    // Keep every base the imported box now reads through alive: the GC drops a
+    // base once no box references it, and this box is the only reference a
+    // freshly materialized layer has.
+    for base_id in &installed {
+        if let Err(e) = runtime
+            .base_disk_mgr
+            .store()
+            .add_ref(base_id, litebox.id().as_ref())
+        {
+            tracing::warn!(
+                box_id = %litebox.id(),
+                base_disk_id = %base_id,
+                error = %e,
+                "Failed to record base disk ref for imported box"
+            );
+        }
+    }
 
     tracing::info!(
         box_id = %litebox.id(),
@@ -155,6 +182,12 @@ fn extract_and_validate(
         )));
     }
 
+    // A layered archive carries `layers/` blobs instead of a flattened disk;
+    // each is checked against its own digest as it is installed.
+    if !manifest.layers.is_empty() {
+        return Ok((manifest, temp_dir));
+    }
+
     let extracted_container = temp_dir.path().join(disk_filenames::CONTAINER_DISK);
     if !extracted_container.exists() {
         return Err(BoxliteError::Storage(format!(
@@ -178,6 +211,132 @@ fn extract_and_validate(
     // neither checksummed nor installed — see `install_disks`.
 
     Ok((manifest, temp_dir))
+}
+
+/// Materialize a layered archive's chain and relink it, returning the ids of
+/// the base disks the imported box now depends on.
+///
+/// A layer already present locally — same content digest — is reused as-is and
+/// its blob is never written, which is where cross-box dedup comes from: every
+/// box built from an image shares that image's layer.
+///
+/// Security: the manifest carries digests, never paths. Each child is relinked
+/// to a path *this* function chose and canonicalized locally, and the resulting
+/// header is read back and checked, so a crafted archive cannot aim a backing
+/// file at a host path of its choosing. Every blob is verified against its
+/// declared digest before anything points at it.
+fn install_layers(
+    layers: &[ArchiveLayer],
+    temp_dir: &Path,
+    box_home: &Path,
+    base_disk_mgr: &crate::disk::BaseDiskManager,
+) -> BoxliteResult<Vec<BaseDiskID>> {
+    let Some((top, bases)) = layers.split_last() else {
+        return Err(BoxliteError::Storage(
+            "Invalid archive: layered manifest has no layers".to_string(),
+        ));
+    };
+
+    let disks_dir = box_home.join("disks");
+    std::fs::create_dir_all(&disks_dir).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Failed to create disks directory {}: {}",
+            disks_dir.display(),
+            e
+        ))
+    })?;
+
+    // Materialize the bases bottom-up, so each layer's parent already exists
+    // by the time it is relinked.
+    let mut base_ids = Vec::new();
+    let mut parent: Option<PathBuf> = None;
+    for layer in bases {
+        let (path, id) = resolve_layer(layer, temp_dir, base_disk_mgr)?;
+        if let Some(id) = id {
+            base_ids.push(id);
+        }
+        if let Some(parent_path) = &parent {
+            relink(&path, parent_path)?;
+        }
+        parent = Some(path);
+    }
+
+    // The top layer is the box's own container disk.
+    let container = disks_dir.join(disk_filenames::CONTAINER_DISK);
+    let blob = extracted_layer_path(temp_dir, top);
+    verify_layer_digest(&blob, &top.digest)?;
+    move_file(&blob, &container)?;
+
+    match &parent {
+        Some(parent_path) => relink(&container, parent_path)?,
+        // A single-layer chain stands alone, so it must not reference anything.
+        None => validate_no_backing_references(&container)?,
+    }
+
+    Ok(base_ids)
+}
+
+/// Path a layer blob was extracted to.
+fn extracted_layer_path(temp_dir: &Path, layer: &ArchiveLayer) -> PathBuf {
+    temp_dir.join(layer_entry_name(&layer.digest))
+}
+
+/// Fail unless a blob hashes to the digest the manifest declared for it.
+fn verify_layer_digest(path: &Path, digest: &str) -> BoxliteResult<()> {
+    if !path.exists() {
+        return Err(BoxliteError::Storage(format!(
+            "Invalid archive: layer {digest} is missing from the archive"
+        )));
+    }
+    let actual = sha256_file(path)?;
+    if actual != digest {
+        return Err(BoxliteError::Storage(format!(
+            "Layer digest mismatch: expected {digest}, got {actual}"
+        )));
+    }
+    Ok(())
+}
+
+/// Return where a layer lives locally, installing it if this host lacks it.
+///
+/// The returned id is `Some` only when a base disk record exists to reference,
+/// which is what keeps a newly installed layer from being garbage-collected.
+fn resolve_layer(
+    layer: &ArchiveLayer,
+    temp_dir: &Path,
+    base_disk_mgr: &crate::disk::BaseDiskManager,
+) -> BoxliteResult<(PathBuf, Option<BaseDiskID>)> {
+    if let Some(existing) = base_disk_mgr.store().find_by_digest(&layer.digest)? {
+        let path = PathBuf::from(&existing.disk.disk_info.base_path);
+        if path.exists() {
+            tracing::debug!(digest = %layer.digest, "Layer already present, skipping transfer");
+            return Ok((path, Some(existing.disk.id)));
+        }
+        // The record outlived its file; fall through and reinstall the blob.
+    }
+
+    let blob = extracted_layer_path(temp_dir, layer);
+    verify_layer_digest(&blob, &layer.digest)?;
+    let installed = base_disk_mgr.install_layer(&blob, &layer.digest)?;
+    Ok((installed.disk_info.to_path_buf(), Some(installed.id)))
+}
+
+/// Point a child qcow2 at a parent path chosen by this host, then prove it took.
+fn relink(child: &Path, parent: &Path) -> BoxliteResult<()> {
+    crate::disk::set_backing_file_path(child, parent)?;
+
+    let expected = parent
+        .canonicalize()
+        .unwrap_or_else(|_| parent.to_path_buf());
+    match crate::disk::read_backing_file_path(child)? {
+        Some(actual) if Path::new(&actual) == expected => Ok(()),
+        other => Err(BoxliteError::InvalidState(format!(
+            "Refusing imported disk '{}': backing file is {:?} after relink, expected {}",
+            child.display(),
+            other,
+            expected.display()
+        ))),
+    }
 }
 
 /// Validate disk security and move the container disk into box_home/disks/.
@@ -239,6 +398,7 @@ mod tests {
             box_options: Some(options),
             guest_disk_checksum: String::new(),
             container_disk_checksum: String::new(),
+            layers: Vec::new(),
             exported_at: "2026-07-26T00:00:00Z".to_string(),
         }
     }
@@ -397,6 +557,7 @@ mod tests {
             }),
             guest_disk_checksum: String::new(),
             container_disk_checksum: String::new(),
+            layers: Vec::new(),
             exported_at: "2026-01-01T00:00:00Z".into(),
         };
 

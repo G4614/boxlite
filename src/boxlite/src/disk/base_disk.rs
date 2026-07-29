@@ -64,8 +64,22 @@ pub struct BaseDisk {
     #[serde(flatten)]
     pub disk_info: super::DiskInfo,
     pub created_at: i64,
+    /// Content digest (`sha256:<hex>`) of the layer file, or `None` until one
+    /// is needed.
+    ///
+    /// Computed lazily rather than at creation: `create_base_disk` forks a
+    /// layer with a `rename(2)`, and hashing there would turn an O(1)
+    /// operation into a full read of the disk on every clone. A base is
+    /// immutable once created, so the digest is stable and only has to be
+    /// computed once — see [`BaseDiskManager::digest_of`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 use crate::disk::constants::filenames as disk_filenames;
+
+/// Sentinel `source_box_id` for layers that arrived in an archive rather than
+/// being forked from a box on this host.
+const IMPORTED_SOURCE: &str = "__imported__";
 
 /// Manages the lifecycle of clone base disks.
 ///
@@ -321,6 +335,7 @@ impl BaseDiskManager {
             kind,
             disk_info,
             created_at: now,
+            digest: None,
         };
         self.store.insert(&disk)?;
 
@@ -328,6 +343,76 @@ impl BaseDiskManager {
         self.store.add_ref(&disk.id, source_box_id)?;
 
         Ok(disk)
+    }
+
+    /// Install an already-verified layer blob as a base disk with a known digest.
+    ///
+    /// Used by import: the caller has checked the blob hashes to `digest`, so
+    /// the digest is recorded up front rather than lazily. The blob is moved,
+    /// not copied — it lives in the import's temp directory and is about to be
+    /// discarded.
+    pub(crate) fn install_layer(&self, blob: &Path, digest: &str) -> BoxliteResult<BaseDisk> {
+        let base_disk_id = BaseDiskIDMint::mint();
+        let base_file = self.bases_dir.join(format!("{}.qcow2", base_disk_id));
+
+        crate::litebox::archive::move_file(blob, &base_file)?;
+
+        let size_bytes = std::fs::metadata(&base_file).map(|m| m.len()).unwrap_or(0);
+        let disk = BaseDisk {
+            id: base_disk_id,
+            // Not forked from any box on this host — it arrived in an archive.
+            source_box_id: IMPORTED_SOURCE.to_string(),
+            name: None,
+            kind: BaseDiskKind::CloneBase,
+            disk_info: super::DiskInfo {
+                base_path: base_file
+                    .canonicalize()
+                    .unwrap_or(base_file.clone())
+                    .to_string_lossy()
+                    .to_string(),
+                container_disk_bytes: size_bytes,
+                size_bytes,
+            },
+            created_at: chrono::Utc::now().timestamp(),
+            digest: Some(digest.to_string()),
+        };
+        self.store.insert(&disk)?;
+        Ok(disk)
+    }
+
+    /// The content digest of a layer already registered in the store,
+    /// computing and caching it on first call.
+    ///
+    /// A base is immutable, so the digest is stable and the hash is paid once
+    /// per layer for the lifetime of the store — which is what keeps repeat
+    /// exports of boxes sharing a base cheap.
+    ///
+    /// Returns `None` for a path that is not a registered base (an image
+    /// backing file, a raw rootfs), whose digest the caller must compute
+    /// itself; nothing durable exists to cache it against.
+    pub(crate) fn digest_of(&self, layer_path: &Path) -> BoxliteResult<Option<String>> {
+        let canonical = layer_path
+            .canonicalize()
+            .unwrap_or_else(|_| layer_path.to_path_buf());
+        let Some(record) = self.store.find_by_base_path(&canonical.to_string_lossy())? else {
+            return Ok(None);
+        };
+
+        if let Some(digest) = record.disk.digest {
+            return Ok(Some(digest));
+        }
+
+        let digest = crate::litebox::archive::sha256_file(&canonical)?;
+        // A cache write that loses a race is harmless: the digest is a pure
+        // function of immutable content, so both writers store the same value.
+        if let Err(e) = self.store.set_digest(&record.disk.id, &digest) {
+            tracing::warn!(
+                base_disk_id = %record.disk.id,
+                error = %e,
+                "Failed to cache base disk digest; it will be recomputed next time"
+            );
+        }
+        Ok(Some(digest))
     }
 
     /// Attempt to garbage-collect a clone base by ID and cascade to parent.
@@ -627,6 +712,7 @@ mod tests {
                 size_bytes: 0,
             },
             created_at: 0,
+            digest: None,
         };
         mgr.store().insert(&disk).unwrap();
 
@@ -666,6 +752,7 @@ mod tests {
                 size_bytes: 0,
             },
             created_at: 0,
+            digest: None,
         };
         mgr.store().insert(&bd1).unwrap();
 
@@ -683,6 +770,7 @@ mod tests {
                 size_bytes: 0,
             },
             created_at: 0,
+            digest: None,
         };
         mgr.store().insert(&bd2).unwrap();
 
@@ -726,6 +814,7 @@ mod tests {
                 size_bytes: 0,
             },
             created_at: 0,
+            digest: None,
         };
         mgr.store().insert(&disk).unwrap();
 
@@ -760,6 +849,7 @@ mod tests {
                 size_bytes: 0,
             },
             created_at: 0,
+            digest: None,
         };
         mgr.store().insert(&disk).unwrap();
 
