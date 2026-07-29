@@ -250,6 +250,13 @@ impl Qcow2Helper {
     /// Equivalent to: `qemu-img convert -O qcow2 <src> <dst>`
     ///
     /// Errors on compressed clusters (bit 62 in L2 entries).
+    ///
+    /// Retained with no caller since export switched to shipping layers:
+    /// `MAX_BACKING_CHAIN_DEPTH` caps a chain at 8, so collapsing a chain back
+    /// into one image is the compaction step that keeps clone-heavy lineages
+    /// under the cap. Deleting it would only mean rewriting it — see
+    /// `docs/investigations/incremental-export-import.md`.
+    #[allow(dead_code)]
     pub fn flatten(src: &Path, dst: &Path) -> BoxliteResult<()> {
         use std::io::{Seek, SeekFrom, Write};
 
@@ -478,6 +485,7 @@ impl Qcow2Helper {
     /// Open the full backing chain starting from `path`.
     ///
     /// Returns layers from top (index 0) to base (last index).
+    #[allow(dead_code)]
     fn open_flatten_chain(path: &Path) -> BoxliteResult<Vec<FlattenLayer>> {
         let mut chain = Vec::new();
         let mut current_path = path.to_path_buf();
@@ -1167,6 +1175,7 @@ pub fn is_backing_dependency(target: &Path, chain_root: &Path) -> bool {
 const QCOW2_MAGIC: u32 = 0x514649fb;
 
 /// A layer in a QCOW2 backing chain, used during flatten.
+#[allow(dead_code)]
 enum FlattenLayer {
     /// A QCOW2 layer with L1/L2 indirection.
     Qcow2 {

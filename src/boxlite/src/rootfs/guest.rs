@@ -528,6 +528,7 @@ impl GuestRootfsManager {
                 size_bytes,
             },
             created_at: chrono::Utc::now().timestamp(),
+            digest: None,
         };
 
         if let Err(e) = self.base_disk_mgr.store().insert(&disk) {
@@ -811,6 +812,7 @@ mod tests {
                     size_bytes: 100,
                 },
                 created_at: chrono::Utc::now().timestamp(),
+                digest: None,
             })
             .unwrap();
     }

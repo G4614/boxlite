@@ -3167,6 +3167,7 @@ mod tests {
                 size_bytes: 0,
             },
             created_at: 0,
+            digest: None,
         };
         runtime.base_disk_mgr.store().insert(&base_disk).unwrap();
         runtime
@@ -3251,6 +3252,7 @@ mod tests {
                 size_bytes: 0,
             },
             created_at: 0,
+            digest: None,
         };
         runtime.base_disk_mgr.store().insert(&base_disk).unwrap();
         runtime

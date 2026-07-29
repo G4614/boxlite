@@ -3,14 +3,11 @@
 //! Handles `.boxlite` archive files: zstd-compressed tarballs containing
 //! disk images and a JSON manifest.
 
-use std::io::Write;
 use std::path::Path;
 
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-use crate::disk::constants::filenames as disk_filenames;
 
 /// Manifest filename inside the archive.
 pub(crate) const MANIFEST_FILENAME: &str = "manifest.json";
@@ -34,8 +31,27 @@ pub(crate) const CAPABILITY_POLICY_ARCHIVE_VERSION: u32 = 4;
 /// v5, and the importer canonicalizes anything below it.
 pub(crate) const PUBLISHED_PORTS_ARCHIVE_VERSION: u32 = 5;
 
+/// First archive version that carries the box's disk as a layer chain.
+///
+/// Up to v5 an archive held one flattened `disk.qcow2`. A v6 archive holds
+/// `layers/` blobs plus the order to relink them in, which an older importer
+/// cannot reassemble — it would find no container disk at all — so stamping v6
+/// makes it refuse the archive rather than fail obscurely.
+pub(crate) const LAYERED_ARCHIVE_VERSION: u32 = 6;
+
 /// Maximum archive version this build can import.
-pub(crate) const MAX_SUPPORTED_VERSION: u32 = PUBLISHED_PORTS_ARCHIVE_VERSION;
+pub(crate) const MAX_SUPPORTED_VERSION: u32 = LAYERED_ARCHIVE_VERSION;
+
+/// Directory holding layer blobs inside a layered archive.
+pub(crate) const LAYERS_DIR: &str = "layers";
+
+/// Tar entry name for a layer blob, derived from its digest.
+///
+/// The `sha256:` prefix is dropped so the name stays a plain path component.
+pub(crate) fn layer_entry_name(digest: &str) -> String {
+    let hex = digest.strip_prefix("sha256:").unwrap_or(digest);
+    format!("{LAYERS_DIR}/{hex}")
+}
 
 /// Pick the archive format an exported box needs.
 pub(crate) fn archive_version_for_options(options: &crate::runtime::options::BoxOptions) -> u32 {
@@ -55,9 +71,36 @@ pub(crate) fn archive_version_for_options(options: &crate::runtime::options::Box
 /// v3: adds `box_options` for full configuration preservation
 /// v4: `box_options.advanced` carries a custom capability policy
 /// v5: `ports` carry publication semantics (automatic host port, bind IP)
+/// v6: the container disk travels as a chain of content-addressed layers
+
+/// Format of a layer blob, which decides how its child references it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayerFormat {
+    Qcow2,
+    /// A raw image, only ever the bottom of a chain (the image disk).
+    Raw,
+}
+
+/// One layer of a box's disk chain, addressed by content.
+///
+/// Carries no path: an importer resolves a layer against its own store and
+/// picks where it lands, so nothing an archive says can point a backing file
+/// at a host path of the archive's choosing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchiveLayer {
+    /// `sha256:<hex>` of the layer blob.
+    pub digest: String,
+    /// Format of this layer's blob.
+    pub format: LayerFormat,
+    /// Virtual size in bytes (qcow2 layers only; 0 for raw).
+    #[serde(default)]
+    pub virtual_size: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ArchiveManifest {
-    /// Archive format version (1 through 5).
+    /// Archive format version (1 through 6).
     pub version: u32,
     /// Original box name (optional, may be renamed on import).
     pub box_name: Option<String>,
@@ -70,20 +113,25 @@ pub struct ArchiveManifest {
     pub guest_disk_checksum: String,
     /// SHA-256 checksum of the container disk.
     pub container_disk_checksum: String,
+    /// The container disk's layer chain, ordered base first, top last (v6+).
+    ///
+    /// Empty for v1–v5, whose container disk is a single flattened image.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<ArchiveLayer>,
     /// Timestamp when the archive was created.
     pub exported_at: String,
 }
 
 // ── Build ───────────────────────────────────────────────────────────────
 
-/// Build a zstd-compressed tar archive.
+/// Build a zstd-compressed tar archive holding a manifest and layer blobs.
 ///
-/// Carries the manifest and the container disk only. The guest rootfs disk is
-/// not exported — see `do_export_flatten`.
-pub(crate) fn build_zstd_tar_archive(
+/// `layers` pairs each layer's digest with the file to read it from, in the
+/// same order as the manifest's layer list.
+pub(crate) fn build_layered_archive(
     output_path: &Path,
     manifest_path: &Path,
-    container_disk: &Path,
+    layers: &[(String, std::path::PathBuf)],
     compression_level: i32,
 ) -> BoxliteResult<()> {
     let file = std::fs::File::create(output_path).map_err(|e| {
@@ -96,9 +144,19 @@ pub(crate) fn build_zstd_tar_archive(
 
     let encoder = zstd::Encoder::new(file, compression_level)
         .map_err(|e| BoxliteError::Storage(format!("Failed to create zstd encoder: {}", e)))?;
-
     let mut builder = tar::Builder::new(encoder);
-    append_archive_files(&mut builder, manifest_path, container_disk)?;
+
+    builder
+        .append_path_with_name(manifest_path, MANIFEST_FILENAME)
+        .map_err(|e| BoxliteError::Storage(format!("Failed to add manifest to archive: {}", e)))?;
+
+    for (digest, path) in layers {
+        builder
+            .append_path_with_name(path, layer_entry_name(digest))
+            .map_err(|e| {
+                BoxliteError::Storage(format!("Failed to add layer {} to archive: {}", digest, e))
+            })?;
+    }
 
     let encoder = builder
         .into_inner()
@@ -106,24 +164,6 @@ pub(crate) fn build_zstd_tar_archive(
     encoder
         .finish()
         .map_err(|e| BoxliteError::Storage(format!("Failed to finish zstd compression: {}", e)))?;
-
-    Ok(())
-}
-
-fn append_archive_files<W: Write>(
-    builder: &mut tar::Builder<W>,
-    manifest_path: &Path,
-    container_disk: &Path,
-) -> BoxliteResult<()> {
-    builder
-        .append_path_with_name(manifest_path, MANIFEST_FILENAME)
-        .map_err(|e| BoxliteError::Storage(format!("Failed to add manifest to archive: {}", e)))?;
-
-    builder
-        .append_path_with_name(container_disk, disk_filenames::CONTAINER_DISK)
-        .map_err(|e| {
-            BoxliteError::Storage(format!("Failed to add container disk to archive: {}", e))
-        })?;
 
     Ok(())
 }
@@ -445,18 +485,33 @@ mod tests {
         let extract_dir = dir.path().join("extracted");
         std::fs::create_dir_all(&extract_dir).unwrap();
 
-        // Create test files
         let manifest_path = dir.path().join(MANIFEST_FILENAME);
-        let container_path = dir.path().join("container.qcow2");
-        std::fs::write(&manifest_path, r#"{"version":2}"#).unwrap();
-        std::fs::write(&container_path, "fake-container-disk").unwrap();
+        let base = dir.path().join("base.bin");
+        let top = dir.path().join("top.bin");
+        std::fs::write(&manifest_path, r#"{"version":6}"#).unwrap();
+        std::fs::write(&base, "fake-base-layer").unwrap();
+        std::fs::write(&top, "fake-top-layer").unwrap();
 
-        build_zstd_tar_archive(&archive_path, &manifest_path, &container_path, 3).unwrap();
+        let layers = vec![
+            ("sha256:aaa".to_string(), base),
+            ("sha256:bbb".to_string(), top),
+        ];
+        build_layered_archive(&archive_path, &manifest_path, &layers, 3).unwrap();
         extract_archive(&archive_path, &extract_dir).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(extract_dir.join(MANIFEST_FILENAME)).unwrap(),
-            r#"{"version":2}"#
+            r#"{"version":6}"#
+        );
+        // Each layer lands under the name its digest implies, which is how the
+        // importer finds a blob it only knows by content.
+        assert_eq!(
+            std::fs::read_to_string(extract_dir.join(layer_entry_name("sha256:aaa"))).unwrap(),
+            "fake-base-layer"
+        );
+        assert_eq!(
+            std::fs::read_to_string(extract_dir.join(layer_entry_name("sha256:bbb"))).unwrap(),
+            "fake-top-layer"
         );
     }
 }
