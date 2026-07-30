@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 
-use super::box_impl::BoxImpl;
+use super::box_impl::{BoxImpl, QuiescePolicy};
 use crate::disk::BaseDiskKind;
 use crate::disk::constants::filenames as disk_filenames;
 use crate::disk::{BackingFormat, Qcow2Helper};
@@ -184,8 +184,17 @@ impl BoxImpl {
         // Phase 1: Capture the chain inside the quiesce bracket (VM paused).
         // Only the top overlay is live, so only it has to be copied; the bases
         // below it are immutable and are read in place at archive time.
+        //
+        // An archive is expected to restore into a working box, so a failed
+        // freeze is refused rather than silently downgraded: SIGSTOP alone
+        // pauses the vCPUs but leaves the guest's dirty page cache unwritten,
+        // producing the disk equivalent of pulling the power cord. That archive
+        // is indistinguishable from a good one, which makes it worse than no
+        // archive at all. Clone and snapshot keep the best-effort policy —
+        // their output is a COW fork the caller boots immediately, not an
+        // artifact someone will restore from months later.
         let capture = self
-            .with_quiesce_async(async {
+            .with_quiesce_policy(QuiescePolicy::RequireFrozen, async {
                 let bh = box_home.clone();
                 let rl = runtime_layout.clone();
                 tokio::task::spawn_blocking(move || do_export_capture(&bh, &rl))
