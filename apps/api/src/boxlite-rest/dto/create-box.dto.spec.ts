@@ -142,6 +142,20 @@ describe('CreateBoxDto network validation', () => {
     expect(JSON.stringify(errors)).toContain('isNestedNetworkSpec')
   })
 
+  it.each([
+    ['network', []],
+    ['network.outbound', { outbound: [] }],
+    ['network.inbound', { inbound: [] }],
+  ])('rejects array-valued %s', async (_field, network) => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network,
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isObject')
+  })
+
   it.each(['public', 'private'])('accepts service_access=%s', async (access) => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {

@@ -68,11 +68,13 @@ export class InboundNetworkSpecDto {
 
 export class NetworkSpecDto {
   @IsOptional()
+  @IsObject()
   @ValidateNested()
   @Type(() => OutboundNetworkSpecDto)
   outbound?: OutboundNetworkSpecDto
 
   @IsOptional()
+  @IsObject()
   @ValidateNested()
   @Type(() => InboundNetworkSpecDto)
   inbound?: InboundNetworkSpecDto
@@ -144,6 +146,7 @@ export class CreateBoxDto {
   auto_resume?: boolean
 
   @IsOptional()
+  @IsObject()
   @Validate(IsNestedNetworkSpecConstraint)
   @ValidateNested()
   @Type(() => NetworkSpecDto)

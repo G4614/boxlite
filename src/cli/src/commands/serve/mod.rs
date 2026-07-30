@@ -763,7 +763,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
                         .as_deref()
                         .unwrap_or("enabled")
                         .parse::<NetworkMode>()?,
-                    network.legacy.allow_net.clone(),
+                    network.legacy.allow_net.clone().unwrap_or_default(),
                 ),
             };
             let service_access = match &network.inbound {
@@ -1469,6 +1469,27 @@ mod tests {
                     "outbound": {
                         "mode": "enabled",
                         "allow_net": ["api.openai.com"]
+                    }
+                }
+            }"#,
+        )
+        .expect("mixed network body still deserializes for compatibility validation");
+        let err = build_box_options(&req).expect_err("mixed network body must fail");
+        assert!(
+            matches!(err, boxlite::BoxliteError::InvalidArgument(ref msg) if msg.contains("either nested")),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn build_box_options_rejects_empty_legacy_allow_net_mixed_with_nested_network_spec() {
+        let req: super::types::CreateBoxRequest = serde_json::from_str(
+            r#"{
+                "image": "alpine:latest",
+                "network": {
+                    "allow_net": [],
+                    "outbound": {
+                        "mode": "enabled"
                     }
                 }
             }"#,

@@ -120,6 +120,37 @@ export interface InboundNetworkSpec {
 
 const MAX_SAFE_U64_NUMBER = Number.MAX_SAFE_INTEGER;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertNetworkSpecShape(value: unknown): void {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new TypeError(
+      "SimpleBoxOptions.network must be an object. Use network: { outbound, inbound }.",
+    );
+  }
+  if ("mode" in value || "allowNet" in value) {
+    throw new TypeError(
+      "SimpleBoxOptions.network must use outbound/inbound. Use network: { outbound: { mode, allowNet }, inbound }.",
+    );
+  }
+  if (!("outbound" in value) && !("inbound" in value)) {
+    throw new TypeError(
+      "SimpleBoxOptions.network must include outbound or inbound.",
+    );
+  }
+  if ("outbound" in value && !isRecord(value.outbound)) {
+    throw new TypeError("SimpleBoxOptions.network.outbound must be an object.");
+  }
+  if ("inbound" in value && !isRecord(value.inbound)) {
+    throw new TypeError("SimpleBoxOptions.network.inbound must be an object.");
+  }
+}
+
 function normalizeU64Limit(
   value: number | undefined,
   field: string,
@@ -401,21 +432,7 @@ export class SimpleBox {
       );
     }
 
-    if (typeof legacyOptions.network === "string") {
-      throw new TypeError(
-        "SimpleBoxOptions.network must be an object. Use network: { outbound, inbound }.",
-      );
-    }
-    if (
-      legacyOptions.network !== undefined &&
-      legacyOptions.network !== null &&
-      typeof legacyOptions.network === "object" &&
-      ("mode" in legacyOptions.network || "allowNet" in legacyOptions.network)
-    ) {
-      throw new TypeError(
-        "SimpleBoxOptions.network must use outbound/inbound. Use network: { outbound: { mode, allowNet }, inbound }.",
-      );
-    }
+    assertNetworkSpecShape(legacyOptions.network);
 
     // Use provided runtime or get global default
     if (options.runtime) {

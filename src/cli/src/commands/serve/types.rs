@@ -89,7 +89,7 @@ pub(super) struct NetworkSpec {
 impl NetworkSpec {
     pub(super) fn uses_legacy_fields(&self) -> bool {
         self.legacy.mode.is_some()
-            || !self.legacy.allow_net.is_empty()
+            || self.legacy.allow_net.is_some()
             || self.legacy.service_access.is_some()
     }
 }
@@ -100,7 +100,7 @@ pub(super) struct LegacyNetworkSpec {
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
-    pub allow_net: Vec<String>,
+    pub allow_net: Option<Vec<String>>,
     #[serde(default)]
     pub service_access: Option<String>,
 }

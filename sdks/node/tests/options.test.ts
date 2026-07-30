@@ -197,6 +197,37 @@ describe("SimpleBoxOptions", () => {
     expect(opts.network?.outbound?.mode).toBe("disabled");
   });
 
+  test.each([
+    ["array", []],
+    ["number", 42],
+    ["boolean", true],
+  ])("rejects malformed network %s", async (_name, network) => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(() => new SimpleBox({ network } as any)).toThrow(
+      "SimpleBoxOptions.network must be an object",
+    );
+  });
+
+  test("rejects empty network objects", async () => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(() => new SimpleBox({ network: {} } as any)).toThrow(
+      "SimpleBoxOptions.network must include outbound or inbound",
+    );
+  });
+
+  test.each([
+    ["outbound", { outbound: [] }],
+    ["inbound", { inbound: [] }],
+  ])("rejects array-valued network.%s", async (field, network) => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(() => new SimpleBox({ network } as any)).toThrow(
+      `SimpleBoxOptions.network.${field} must be an object`,
+    );
+  });
+
   test("accepts secrets", () => {
     const secret: Secret = {
       name: "openai",
