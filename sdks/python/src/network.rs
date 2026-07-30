@@ -153,11 +153,15 @@ impl PyBoxConnection {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut writer = writer.lock().await;
             if let Some(mut stream) = writer.take() {
-                stream.shutdown().await.map_err(|error| {
-                    map_err(boxlite::BoxliteError::Network(format!(
-                        "close tunnel connection: {error}"
-                    )))
-                })?;
+                match stream.shutdown().await {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotConnected => {}
+                    Err(error) => {
+                        return Err(map_err(boxlite::BoxliteError::Network(format!(
+                            "close tunnel connection: {error}"
+                        ))));
+                    }
+                }
             }
             reader.lock().await.take();
             Ok(())

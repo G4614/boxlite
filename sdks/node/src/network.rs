@@ -123,10 +123,15 @@ impl JsBoxConnection {
     pub async fn close(&self) -> Result<()> {
         let mut writer = self.writer.lock().await;
         if let Some(mut stream) = writer.take() {
-            stream
-                .shutdown()
-                .await
-                .map_err(|error| Error::from_reason(format!("close tunnel connection: {error}")))?;
+            match stream.shutdown().await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotConnected => {}
+                Err(error) => {
+                    return Err(Error::from_reason(format!(
+                        "close tunnel connection: {error}"
+                    )));
+                }
+            }
         }
         self.reader.lock().await.take();
         Ok(())
