@@ -161,6 +161,11 @@ impl BaseDiskManager {
     /// the digest is recorded up front rather than lazily. The blob is moved,
     /// not copied — it lives in the import's temp directory and is about to be
     /// discarded.
+    ///
+    /// The digest stays valid after the caller relinks the installed file,
+    /// because it names the layer's canonical (backing-cleared) form rather
+    /// than the bytes currently on disk — see
+    /// [`crate::litebox::archive::CanonicalLayer`].
     pub(crate) fn install_layer(&self, blob: &Path, digest: &str) -> BoxliteResult<BaseDisk> {
         let base_disk_id = BaseDiskIDMint::mint();
         let base_file = self.bases_dir.join(format!("{}.qcow2", base_disk_id));
@@ -212,7 +217,7 @@ impl BaseDiskManager {
             return Ok(Some(digest));
         }
 
-        let digest = crate::litebox::archive::sha256_file(&canonical)?;
+        let digest = crate::litebox::archive::CanonicalLayer::open(&canonical)?.digest()?;
         // A cache write that loses a race is harmless: the digest is a pure
         // function of immutable content, so both writers store the same value.
         if let Err(e) = self.store.set_digest(&record.disk.id, &digest) {

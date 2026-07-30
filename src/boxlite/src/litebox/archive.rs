@@ -123,10 +123,129 @@ pub struct ArchiveManifest {
 
 // ── Build ───────────────────────────────────────────────────────────────
 
+/// A layer's bytes with its backing-file pointer zeroed.
+///
+/// A qcow2's digest covers its header, and the header holds the *absolute
+/// local path* of its parent. Hashing a layer as it sits on disk would
+/// therefore mix in where that host happens to keep the parent, so the same
+/// logical layer would hash differently on every machine and content
+/// addressing could never match anything across hosts. It would also go stale
+/// the moment an importer relinks the file, and leak the exporting host's
+/// directory layout into the archive.
+///
+/// The canonical form is what travels and what gets hashed: identical to the
+/// file except `backing_file_offset`, `backing_file_size`, and the path string
+/// they point at read as zeroes. Length is unchanged, so this streams — no
+/// temporary copy of a multi-hundred-megabyte layer.
+pub(crate) struct CanonicalLayer {
+    file: std::fs::File,
+    len: u64,
+    pos: u64,
+    /// Byte ranges to serve as zeroes, in ascending order.
+    holes: Vec<(u64, u64)>,
+}
+
+impl CanonicalLayer {
+    /// Header bytes covering `backing_file_size` only.
+    ///
+    /// `backing_file_offset` is deliberately preserved: it is a location
+    /// *within* the file, identical on every host for a layer boxlite wrote,
+    /// and an importer needs it to know where to put the parent path it picks.
+    /// The size is zeroed because it would otherwise leak — and make the digest
+    /// depend on — how long the exporting host's path happened to be.
+    const BACKING_SIZE_FIELD: (u64, u64) = (16, 20);
+
+    pub(crate) fn open(path: &Path) -> BoxliteResult<Self> {
+        use std::io::Read;
+
+        let mut file = std::fs::File::open(path).map_err(|e| {
+            BoxliteError::Storage(format!("Failed to open layer {}: {}", path.display(), e))
+        })?;
+        let len = file
+            .metadata()
+            .map_err(|e| {
+                BoxliteError::Storage(format!("Failed to stat layer {}: {}", path.display(), e))
+            })?
+            .len();
+
+        let mut head = [0u8; 20];
+        let holes = match file.read_exact(&mut head) {
+            Ok(()) if u32::from_be_bytes(head[0..4].try_into().unwrap()) == 0x5146_49fb => {
+                let backing_offset = u64::from_be_bytes(head[8..16].try_into().unwrap());
+                let backing_size = u32::from_be_bytes(head[16..20].try_into().unwrap()) as u64;
+                let mut holes = vec![Self::BACKING_SIZE_FIELD];
+                if backing_offset != 0 && backing_size != 0 {
+                    holes.push((backing_offset, backing_offset + backing_size));
+                }
+                holes.sort_unstable();
+                holes
+            }
+            // A raw layer (the image disk) has no header to normalize.
+            _ => Vec::new(),
+        };
+
+        use std::io::Seek;
+        file.rewind().map_err(|e| {
+            BoxliteError::Storage(format!("Failed to rewind {}: {}", path.display(), e))
+        })?;
+
+        Ok(Self {
+            file,
+            len,
+            pos: 0,
+            holes,
+        })
+    }
+
+    pub(crate) fn len(&self) -> u64 {
+        self.len
+    }
+
+    /// The layer's canonical digest, consuming the reader.
+    pub(crate) fn digest(mut self) -> BoxliteResult<String> {
+        use std::io::Read;
+
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = self
+                .read(&mut buf)
+                .map_err(|e| BoxliteError::Storage(format!("Failed to read layer: {}", e)))?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        Ok(format!("sha256:{:x}", hasher.finalize()))
+    }
+}
+
+impl std::io::Read for CanonicalLayer {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.file.read(buf)?;
+        let start = self.pos;
+        let end = start + n as u64;
+
+        for &(hole_start, hole_end) in &self.holes {
+            let from = hole_start.max(start);
+            let to = hole_end.min(end);
+            if from < to {
+                let lo = (from - start) as usize;
+                let hi = (to - start) as usize;
+                buf[lo..hi].fill(0);
+            }
+        }
+
+        self.pos = end;
+        Ok(n)
+    }
+}
+
 /// Build a zstd-compressed tar archive holding a manifest and layer blobs.
 ///
 /// `layers` pairs each layer's digest with the file to read it from, in the
-/// same order as the manifest's layer list.
+/// same order as the manifest's layer list. Each layer travels in its
+/// [`CanonicalLayer`] form.
 pub(crate) fn build_layered_archive(
     output_path: &Path,
     manifest_path: &Path,
@@ -150,8 +269,13 @@ pub(crate) fn build_layered_archive(
         .map_err(|e| BoxliteError::Storage(format!("Failed to add manifest to archive: {}", e)))?;
 
     for (digest, path) in layers {
+        let layer = CanonicalLayer::open(path)?;
+        let mut header = tar::Header::new_gnu();
+        header.set_size(layer.len());
+        header.set_mode(0o600);
+        header.set_cksum();
         builder
-            .append_path_with_name(path, layer_entry_name(digest))
+            .append_data(&mut header, layer_entry_name(digest), layer)
             .map_err(|e| {
                 BoxliteError::Storage(format!("Failed to add layer {} to archive: {}", digest, e))
             })?;

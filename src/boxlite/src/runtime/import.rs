@@ -8,8 +8,9 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use crate::disk::constants::filenames as disk_filenames;
 use crate::litebox::LiteBox;
 use crate::litebox::archive::{
-    ArchiveLayer, ArchiveManifest, MANIFEST_FILENAME, MAX_SUPPORTED_VERSION,
-    PUBLISHED_PORTS_ARCHIVE_VERSION, extract_archive, layer_entry_name, move_file, sha256_file,
+    ArchiveLayer, ArchiveManifest, CanonicalLayer, LayerFormat, MANIFEST_FILENAME,
+    MAX_SUPPORTED_VERSION, PUBLISHED_PORTS_ARCHIVE_VERSION, extract_archive, layer_entry_name,
+    move_file, sha256_file,
 };
 use crate::runtime::advanced_options::SecurityOptions;
 use crate::runtime::id::BaseDiskID;
@@ -55,23 +56,51 @@ pub(crate) async fn import_box(
     let staging_clone = staging_dir.clone();
     let layers = manifest.layers.clone();
     let base_disk_mgr = runtime.base_disk_mgr.clone();
-    let installed = tokio::task::spawn_blocking(move || {
+    // Layers are pinned to this token the moment each one lands, and the token
+    // is only released once the box owns them. Without it a layer sits
+    // unreferenced between installation and provisioning, where a concurrent
+    // `box rm` would GC it out from under this import — and anything installed
+    // before a mid-way failure would leak, since nothing else ever collects a
+    // base with no dependents.
+    let token = format!("__importing__{}", uuid::Uuid::new_v4());
+    let token_for_task = token.clone();
+    let install = tokio::task::spawn_blocking(move || {
         if layers.is_empty() {
             install_disks(&temp_path, &staging_clone).map(|()| Vec::new())
         } else {
-            install_layers(&layers, &temp_path, &staging_clone, &base_disk_mgr)
+            install_layers(
+                &layers,
+                &temp_path,
+                &staging_clone,
+                &base_disk_mgr,
+                &token_for_task,
+            )
         }
     })
     .await
-    .map_err(|e| BoxliteError::Internal(format!("Import install task panicked: {}", e)))??;
+    .map_err(|e| BoxliteError::Internal(format!("Import install task panicked: {}", e)))?;
 
-    let litebox = runtime
+    let installed = match install {
+        Ok(installed) => installed,
+        Err(e) => {
+            release_import_token(runtime, &token);
+            return Err(e);
+        }
+    };
+
+    let litebox = match runtime
         .provision_box(staging_dir, name, options, BoxStatus::Stopped)
-        .await?;
+        .await
+    {
+        Ok(litebox) => litebox,
+        Err(e) => {
+            release_import_token(runtime, &token);
+            return Err(e);
+        }
+    };
 
-    // Keep every base the imported box now reads through alive: the GC drops a
-    // base once no box references it, and this box is the only reference a
-    // freshly materialized layer has.
+    // Hand ownership to the box before dropping the token, so the layers are
+    // never momentarily unreferenced.
     for base_id in &installed {
         if let Err(e) = runtime
             .base_disk_mgr
@@ -86,6 +115,7 @@ pub(crate) async fn import_box(
             );
         }
     }
+    release_import_token(runtime, &token);
 
     tracing::info!(
         box_id = %litebox.id(),
@@ -94,6 +124,26 @@ pub(crate) async fn import_box(
     );
 
     Ok(litebox)
+}
+
+/// Drop an import's provisional refs and collect anything they were the last
+/// reference to.
+///
+/// After a successful import the box holds its own refs, so this only releases
+/// the token. After a failure it is what stops half-installed layers from
+/// accumulating in `bases/` forever.
+fn release_import_token(runtime: &Arc<RuntimeImpl>, token: &str) {
+    let store = runtime.base_disk_mgr.store();
+    let released = match store.remove_all_refs_for_box(token) {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to release import token refs");
+            return;
+        }
+    };
+    for id in released {
+        runtime.base_disk_mgr.try_gc_base(&id);
+    }
 }
 
 /// Read the persisted configuration, falling back to the v1/v2 image field.
@@ -230,6 +280,7 @@ fn install_layers(
     temp_dir: &Path,
     box_home: &Path,
     base_disk_mgr: &crate::disk::BaseDiskManager,
+    token: &str,
 ) -> BoxliteResult<Vec<BaseDiskID>> {
     let Some((top, bases)) = layers.split_last() else {
         return Err(BoxliteError::Storage(
@@ -251,12 +302,23 @@ fn install_layers(
     let mut base_ids = Vec::new();
     let mut parent: Option<PathBuf> = None;
     for layer in bases {
-        let (path, id) = resolve_layer(layer, temp_dir, base_disk_mgr)?;
+        let (path, id, freshly_installed) =
+            resolve_layer(layer, temp_dir, base_disk_mgr, parent.as_deref())?;
         if let Some(id) = id {
+            // Pin immediately — before any later layer can fail — so the token
+            // is enough to find and collect everything this import installed.
+            base_disk_mgr.store().add_ref(&id, token)?;
             base_ids.push(id);
         }
-        if let Some(parent_path) = &parent {
-            relink(&path, parent_path)?;
+        if freshly_installed {
+            match &parent {
+                Some(parent_path) => relink(&path, parent_path)?,
+                // The deepest layer stands alone. Without this an archive
+                // could ship a base whose header already points at any host
+                // path — the chain is granted to the sandbox at start, so that
+                // would hand the guest an arbitrary file.
+                None => validate_no_backing_references(&path)?,
+            }
         }
         parent = Some(path);
     }
@@ -265,6 +327,7 @@ fn install_layers(
     let container = disks_dir.join(disk_filenames::CONTAINER_DISK);
     let blob = extracted_layer_path(temp_dir, top);
     verify_layer_digest(&blob, &top.digest)?;
+    verify_layer_format(&blob, top)?;
     move_file(&blob, &container)?;
 
     match &parent {
@@ -288,7 +351,9 @@ fn verify_layer_digest(path: &Path, digest: &str) -> BoxliteResult<()> {
             "Invalid archive: layer {digest} is missing from the archive"
         )));
     }
-    let actual = sha256_file(path)?;
+    // Compare canonical forms: a shipped blob has its backing pointer zeroed,
+    // and so does the digest that names it.
+    let actual = CanonicalLayer::open(path)?.digest()?;
     if actual != digest {
         return Err(BoxliteError::Storage(format!(
             "Layer digest mismatch: expected {digest}, got {actual}"
@@ -297,28 +362,89 @@ fn verify_layer_digest(path: &Path, digest: &str) -> BoxliteResult<()> {
     Ok(())
 }
 
+/// Fail unless a blob's on-disk format is the one the manifest declared.
+///
+/// Only the deepest layer may be raw; anything above it must be qcow2 to carry
+/// a backing pointer at all. Checking here keeps a mislabelled layer from
+/// reaching `relink`, whose failure would be reported as a rebase error rather
+/// than as the malformed archive it is.
+fn verify_layer_format(path: &Path, layer: &ArchiveLayer) -> BoxliteResult<()> {
+    let is_qcow2 = qcow2_magic(path);
+    let declared_qcow2 = layer.format == LayerFormat::Qcow2;
+    if is_qcow2 != declared_qcow2 {
+        return Err(BoxliteError::Storage(format!(
+            "Layer {} declares format {:?} but its blob is {}",
+            layer.digest,
+            layer.format,
+            if is_qcow2 { "qcow2" } else { "raw" }
+        )));
+    }
+    Ok(())
+}
+
+fn qcow2_magic(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    f.read_exact(&mut magic).is_ok() && u32::from_be_bytes(magic) == 0x5146_49fb
+}
+
 /// Return where a layer lives locally, installing it if this host lacks it.
+///
+/// A local layer is reused only when its chain already matches the one the
+/// archive describes — that is, its backing file is exactly `parent`. A layer's
+/// digest names its canonical form, which says nothing about which parent it
+/// sits on, so the same layer can legitimately exist over different parents.
+/// Relinking a reused base to satisfy this archive would rewrite a file other
+/// boxes and snapshots are actively backed by, silently re-pointing them at
+/// content this archive supplied; installing a private copy instead costs
+/// space but cannot corrupt anything.
 ///
 /// The returned id is `Some` only when a base disk record exists to reference,
 /// which is what keeps a newly installed layer from being garbage-collected.
+/// The bool reports whether the file was freshly installed, and so is safe for
+/// the caller to relink.
 fn resolve_layer(
     layer: &ArchiveLayer,
     temp_dir: &Path,
     base_disk_mgr: &crate::disk::BaseDiskManager,
-) -> BoxliteResult<(PathBuf, Option<BaseDiskID>)> {
+    parent: Option<&Path>,
+) -> BoxliteResult<(PathBuf, Option<BaseDiskID>, bool)> {
     if let Some(existing) = base_disk_mgr.store().find_by_digest(&layer.digest)? {
         let path = PathBuf::from(&existing.disk.disk_info.base_path);
-        if path.exists() {
+        if path.exists() && backing_matches(&path, parent) {
             tracing::debug!(digest = %layer.digest, "Layer already present, skipping transfer");
-            return Ok((path, Some(existing.disk.id)));
+            return Ok((path, Some(existing.disk.id), false));
         }
-        // The record outlived its file; fall through and reinstall the blob.
+        // Either the record outlived its file, or the local copy sits on a
+        // different parent; install a private copy below.
     }
 
     let blob = extracted_layer_path(temp_dir, layer);
     verify_layer_digest(&blob, &layer.digest)?;
+    verify_layer_format(&blob, layer)?;
     let installed = base_disk_mgr.install_layer(&blob, &layer.digest)?;
-    Ok((installed.disk_info.to_path_buf(), Some(installed.id)))
+    Ok((installed.disk_info.to_path_buf(), Some(installed.id), true))
+}
+
+/// Whether `path`'s backing file is already exactly `parent`.
+fn backing_matches(path: &Path, parent: Option<&Path>) -> bool {
+    let actual = crate::disk::read_backing_file_path(path)
+        .ok()
+        .flatten()
+        .map(PathBuf::from);
+    match (actual, parent) {
+        (None, None) => true,
+        (Some(actual), Some(parent)) => {
+            let expected = parent
+                .canonicalize()
+                .unwrap_or_else(|_| parent.to_path_buf());
+            actual == expected
+        }
+        _ => false,
+    }
 }
 
 /// Point a child qcow2 at a parent path chosen by this host, then prove it took.
@@ -383,6 +509,156 @@ pub(crate) fn validate_no_backing_references(disk_path: &Path) -> BoxliteResult<
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[cfg(test)]
+mod layered_install_tests {
+    use super::*;
+    use crate::litebox::archive::CanonicalLayer;
+
+    fn mgr(home: &Path) -> crate::disk::BaseDiskManager {
+        let bases = home.join("bases");
+        std::fs::create_dir_all(&bases).unwrap();
+        let db = crate::db::Database::open(&home.join("boxlite.db")).unwrap();
+        crate::disk::BaseDiskManager::new(bases, crate::db::base_disk::BaseDiskStore::new(db))
+    }
+
+    /// Write a blob into the extracted-archive layout and describe it.
+    ///
+    /// `tag` makes each layer's content unique, so distinct layers get distinct
+    /// digests. A layer that will be relinked must be staged with some backing
+    /// path — `set_backing_file_path` can only rewrite a pointer that exists,
+    /// which is also true of the real layers this stands in for: every layer
+    /// above the image disk is a COW child.
+    fn stage(temp: &Path, tag: u8, backing: Option<&str>) -> ArchiveLayer {
+        let scratch = temp.join("scratch.qcow2");
+        crate::disk::qcow2::write_test_qcow2(&scratch, backing);
+        // Perturb a byte outside the header and the backing-path region so the
+        // canonical digests differ per layer.
+        let mut bytes = std::fs::read(&scratch).unwrap();
+        bytes[900] = tag;
+        std::fs::write(&scratch, &bytes).unwrap();
+
+        let digest = CanonicalLayer::open(&scratch).unwrap().digest().unwrap();
+        let layer = ArchiveLayer {
+            digest: digest.clone(),
+            format: LayerFormat::Qcow2,
+            virtual_size: 0,
+        };
+        let dest = temp.join(layer_entry_name(&digest));
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::fs::rename(&scratch, &dest).unwrap();
+        layer
+    }
+
+    /// A stand-in for the exporter's local backing path, which import must
+    /// replace with one of its own choosing.
+    const FOREIGN_PARENT: &str = "/exporter/bases/whatever.qcow2";
+
+    /// The deepest layer's backing pointer is attacker-controlled data. The
+    /// chain is granted to the sandbox at start, so honouring it would hand the
+    /// guest an arbitrary host file.
+    #[test]
+    fn a_bottom_layer_pointing_at_a_host_path_is_refused() {
+        let home = tempfile::tempdir_in("/tmp").unwrap();
+        let temp = home.path().join("extracted");
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let evil = stage(&temp, 1, Some("/etc/shadow"));
+        let top = stage(&temp, 2, Some(FOREIGN_PARENT));
+
+        let err = install_layers(
+            &[evil, top],
+            &temp,
+            &home.path().join("box"),
+            &mgr(home.path()),
+            "tok",
+        )
+        .expect_err("a bottom layer with a backing reference must be refused");
+        let msg = err.to_string();
+        assert!(msg.contains("backing file reference"), "got: {msg}");
+        assert!(msg.contains("/etc/shadow"), "got: {msg}");
+    }
+
+    /// A layer already held locally may sit on a different parent than this
+    /// archive describes. Relinking it would rewrite a file other boxes are
+    /// backed by, re-pointing them at content this archive supplied.
+    #[test]
+    fn a_reused_layer_on_a_different_parent_is_copied_not_rewritten() {
+        let home = tempfile::tempdir_in("/tmp").unwrap();
+        let temp = home.path().join("extracted");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mgr = mgr(home.path());
+
+        // A shared base already installed locally, backed by nothing.
+        let shared = stage(&temp, 1, Some(FOREIGN_PARENT));
+        let shared_blob = temp.join(layer_entry_name(&shared.digest));
+        let victim_copy = temp.join("victim-source.qcow2");
+        std::fs::copy(&shared_blob, &victim_copy).unwrap();
+        let installed = mgr.install_layer(&victim_copy, &shared.digest).unwrap();
+        let victim_path = installed.disk_info.to_path_buf();
+        let victim_before = std::fs::read(&victim_path).unwrap();
+
+        // An archive that puts that same layer on top of a new parent.
+        let new_parent = stage(&temp, 2, None);
+        let top = stage(&temp, 3, Some(FOREIGN_PARENT));
+        install_layers(
+            &[new_parent, shared, top],
+            &temp,
+            &home.path().join("box"),
+            &mgr,
+            "tok",
+        )
+        .expect("import should succeed by copying, not by rewriting");
+
+        assert_eq!(
+            std::fs::read(&victim_path).unwrap(),
+            victim_before,
+            "the pre-existing shared base must not be modified"
+        );
+    }
+
+    /// A digest names the canonical form, so relinking an installed layer must
+    /// not invalidate it — otherwise re-exporting an imported box yields an
+    /// archive no other host can read.
+    #[test]
+    fn a_relinked_layer_still_matches_its_recorded_digest() {
+        let home = tempfile::tempdir_in("/tmp").unwrap();
+        let temp = home.path().join("extracted");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mgr = mgr(home.path());
+
+        let bottom = stage(&temp, 1, None);
+        let middle = stage(&temp, 2, Some(FOREIGN_PARENT));
+        let middle_digest = middle.digest.clone();
+        let top = stage(&temp, 3, Some(FOREIGN_PARENT));
+
+        install_layers(
+            &[bottom, middle, top],
+            &temp,
+            &home.path().join("box"),
+            &mgr,
+            "tok",
+        )
+        .expect("install");
+
+        // The middle layer was relinked onto the bottom one; its canonical
+        // digest must be unchanged.
+        let record = mgr
+            .store()
+            .find_by_digest(&middle_digest)
+            .unwrap()
+            .expect("middle layer recorded under its digest");
+        let on_disk = CanonicalLayer::open(&record.disk.disk_info.to_path_buf())
+            .unwrap()
+            .digest()
+            .unwrap();
+        assert_eq!(
+            on_disk, middle_digest,
+            "canonical digest must survive relinking"
+        );
+    }
 }
 
 #[cfg(test)]
