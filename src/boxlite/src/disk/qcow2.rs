@@ -1018,9 +1018,12 @@ pub fn set_backing_file_path(qcow2_path: &Path, new_backing: &Path) -> BoxliteRe
     let backing_offset = u64::from_be_bytes(header[8..16].try_into().unwrap());
     let old_backing_size = u32::from_be_bytes(header[16..20].try_into().unwrap());
 
+    // A zero size with a valid offset is the canonical form an archive ships:
+    // the path was blanked so the layer hashes the same on every host, but the
+    // region it lived in is still reserved, so a new path can be written there.
     if backing_offset == 0 {
         return Err(BoxliteError::Storage(format!(
-            "Cannot rebase {}: no existing backing file reference",
+            "Cannot rebase {}: no reserved backing file region",
             qcow2_path.display()
         )));
     }
@@ -1631,7 +1634,48 @@ mod tests {
         let result = set_backing_file_path(&qcow2_path, &new_backing);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("no existing backing file reference"));
+        assert!(
+            err.contains("no reserved backing file region"),
+            "got: {err}"
+        );
+    }
+
+    /// A layer shipped in an archive has its backing path blanked but the
+    /// region it occupied still reserved, so an importer can write the parent
+    /// it chose. Rebasing must accept that, or every layered import fails.
+    #[test]
+    fn test_set_backing_file_path_accepts_a_blanked_reservation() {
+        let dir = TempDir::new().unwrap();
+        let qcow2_path = dir.path().join("canonical.qcow2");
+
+        // A real child, then blanked the way CanonicalLayer presents it:
+        // offset preserved, size zeroed, path bytes zeroed.
+        write_qcow2_with_backing(&qcow2_path, Some("/exporter/bases/parent.qcow2"));
+        let mut bytes = std::fs::read(&qcow2_path).unwrap();
+        let offset = u64::from_be_bytes(bytes[8..16].try_into().unwrap()) as usize;
+        let size = u32::from_be_bytes(bytes[16..20].try_into().unwrap()) as usize;
+        bytes[16..20].fill(0);
+        bytes[offset..offset + size].fill(0);
+        std::fs::write(&qcow2_path, &bytes).unwrap();
+
+        assert_eq!(
+            read_backing_file_path(&qcow2_path).unwrap(),
+            None,
+            "a blanked reservation must read as having no backing file"
+        );
+
+        let new_backing = dir.path().join("local-parent.qcow2");
+        std::fs::write(&new_backing, vec![0u8; 512]).unwrap();
+        set_backing_file_path(&qcow2_path, &new_backing)
+            .expect("rebase onto a blanked reservation");
+
+        let expected = new_backing.canonicalize().unwrap();
+        assert_eq!(
+            read_backing_file_path(&qcow2_path)
+                .unwrap()
+                .map(std::path::PathBuf::from),
+            Some(expected)
+        );
     }
 
     #[test]

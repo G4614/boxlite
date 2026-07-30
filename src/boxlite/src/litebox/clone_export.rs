@@ -323,8 +323,8 @@ fn do_export_finalize(
     dest: &std::path::Path,
 ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
     use super::archive::{
-        ArchiveLayer, ArchiveManifest, LAYERED_ARCHIVE_VERSION, LayerFormat, MANIFEST_FILENAME,
-        archive_version_for_options, build_layered_archive, sha256_file,
+        ArchiveLayer, ArchiveManifest, CanonicalLayer, LAYERED_ARCHIVE_VERSION, LayerFormat,
+        MANIFEST_FILENAME, archive_version_for_options, build_layered_archive,
     };
     use crate::disk::Qcow2Helper;
 
@@ -346,7 +346,7 @@ fn do_export_finalize(
         // layer is a fresh temp copy with nothing to cache it against.
         let digest = match base_disk_mgr.digest_of(path)? {
             Some(cached) if i != last => cached,
-            _ => sha256_file(path)?,
+            _ => CanonicalLayer::open(path)?.digest()?,
         };
 
         let qcow2 = is_qcow2(path);
