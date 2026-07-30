@@ -97,3 +97,98 @@ async def test_allowlist_permits_only_listed_host(rt, image):
         )
     finally:
         await rt.remove(b.id, force=True)
+
+
+# ── UDP egress ──────────────────────────────────────────────────────────────
+# UDP has no handshake, so we use an observable responder: a DNS query to a
+# resolver's IP. A reply means the datagram was forwarded; a timeout means it
+# was dropped. We hit the resolver IP directly (not the gateway resolver), so
+# gvproxy's UDP allow_net filter — not the DNS sinkhole — is what decides.
+#
+# NOTE: `test_allowlist_applies_to_udp` is a regression for the TCP-only
+# allow_net gap fixed in PR #1090. Before that fix UDP ignored the allowlist,
+# so the BLOCKED_IP assertion is expected to FAIL on a runner that predates
+# #1090 — that red is the gap, not a flaky test.
+
+# Minimal DNS A-query for cloudflare.com; prints UDP_RESP / UDP_NORESP:<err>.
+_UDP_PROBE = (
+    "import socket, sys, struct\n"
+    "host, port = sys.argv[1], int(sys.argv[2])\n"
+    "qid = 0x1234\n"
+    "header = struct.pack('>HHHHHH', qid, 0x0100, 1, 0, 0, 0)\n"
+    "qname = b''\n"
+    "for part in b'cloudflare.com'.split(b'.'):\n"
+    "    qname += bytes([len(part)]) + part\n"
+    "qname += b'\\x00'\n"
+    "query = header + qname + struct.pack('>HH', 1, 1)\n"
+    "s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+    "s.settimeout(6)\n"
+    "try:\n"
+    "    s.sendto(query, (host, port))\n"
+    "    data, _ = s.recvfrom(512)\n"
+    "    print('UDP_RESP' if data[:2] == struct.pack('>H', qid) else 'UDP_BADRESP')\n"
+    "except Exception as e:\n"
+    "    print('UDP_NORESP:%s' % type(e).__name__)\n"
+    "finally:\n"
+    "    s.close()\n"
+)
+
+
+async def _udp_probe(box, ip: str) -> str:
+    """Return the guest's UDP_RESP / UDP_NORESP line for a DNS query to ip:53."""
+    ex = await box.exec("python3", ["-c", _UDP_PROBE, ip, "53"], None)
+    out, err = await drain(ex)
+    rc = await asyncio.wait_for(ex.wait(), timeout=30)
+    assert rc.exit_code == 0, (
+        f"udp probe process failed rc={rc.exit_code} stderr={err!r}"
+    )
+    line = out.strip()
+    assert line.startswith(("UDP_RESP", "UDP_NORESP", "UDP_BADRESP")), (
+        f"unexpected udp probe output: {out!r}"
+    )
+    return line
+
+
+@pytest.mark.asyncio
+async def test_network_disabled_blocks_udp_egress(rt, image):
+    """`mode="disabled"` → no UDP datagram leaves the guest either."""
+    b = await rt.create(
+        boxlite.BoxOptions(
+            image=image,
+            auto_remove=True,
+            network=boxlite.NetworkSpec(mode="disabled"),
+        )
+    )
+    try:
+        result = await _udp_probe(b, ALLOWED_IP)
+        assert result.startswith("UDP_NORESP"), (
+            f"UDP egress must be blocked with network disabled → {result!r}"
+        )
+    finally:
+        await rt.remove(b.id, force=True)
+
+
+@pytest.mark.asyncio
+async def test_allowlist_applies_to_udp(rt, image):
+    """`allow_net=[ALLOWED_IP/32]` must gate UDP the same as TCP: the listed
+    resolver answers, a non-listed one is dropped. Regression for PR #1090 —
+    before that fix UDP to BLOCKED_IP was forwarded regardless of the
+    allowlist."""
+    b = await rt.create(
+        boxlite.BoxOptions(
+            image=image,
+            auto_remove=True,
+            network=boxlite.NetworkSpec(mode="enabled", allow_net=[f"{ALLOWED_IP}/32"]),
+        )
+    )
+    try:
+        allowed = await _udp_probe(b, ALLOWED_IP)
+        blocked = await _udp_probe(b, BLOCKED_IP)
+        assert allowed.startswith("UDP_RESP"), (
+            f"allow-listed resolver {ALLOWED_IP} must answer over UDP → {allowed!r}"
+        )
+        assert blocked.startswith("UDP_NORESP"), (
+            f"non-allow-listed {BLOCKED_IP} must be dropped over UDP → {blocked!r}"
+        )
+    finally:
+        await rt.remove(b.id, force=True)
