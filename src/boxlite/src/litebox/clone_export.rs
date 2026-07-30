@@ -341,12 +341,18 @@ fn do_export_finalize(
     let mut blobs = Vec::with_capacity(capture.layer_paths.len());
 
     for (i, path) in capture.layer_paths.iter().enumerate() {
-        // Bases are immutable, so their digest is cached in the store and
-        // repeat exports of boxes sharing a base do not re-read them. The top
-        // layer is a fresh temp copy with nothing to cache it against.
-        let digest = match base_disk_mgr.digest_of(path)? {
-            Some(cached) if i != last => cached,
-            _ => CanonicalLayer::open(path)?.digest()?,
+        // Every layer below the top is immutable, so its digest is cached and a
+        // repeat export never re-reads it — which matters most for the image
+        // disk, usually the largest layer in the chain. The top layer is a
+        // fresh temp copy that will be gone in a moment, so there is nothing to
+        // cache it against and no point trying.
+        let digest = if i == last {
+            CanonicalLayer::open(path)?.digest()?
+        } else {
+            match base_disk_mgr.digest_of(path)? {
+                Some(cached) => cached,
+                None => CanonicalLayer::open(path)?.digest()?,
+            }
         };
 
         let qcow2 = is_qcow2(path);
