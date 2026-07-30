@@ -78,6 +78,41 @@ use crate::disk::constants::filenames as disk_filenames;
 /// being forked from a box on this host.
 const IMPORTED_SOURCE: &str = "__imported__";
 
+/// Canonical digest of an immutable layer that has no store record, cached in a
+/// file beside it.
+///
+/// The image disk is the case this exists for: it lives in the image cache
+/// under a path derived from its image digest, nothing rewrites it, and it is
+/// typically the largest layer in a chain. Hashing it on every export is the
+/// single most expensive thing export does.
+///
+/// A stale sidecar is not a risk here — the file it names is addressed by
+/// content and installed atomically, so a given path always holds the same
+/// bytes. The write is best-effort: losing it only costs a rehash.
+fn sidecar_digest(path: &Path) -> BoxliteResult<String> {
+    let sidecar = path.with_extension(format!(
+        "{}.digest",
+        path.extension().unwrap_or_default().to_string_lossy()
+    ));
+
+    if let Ok(cached) = std::fs::read_to_string(&sidecar) {
+        let cached = cached.trim();
+        if cached.starts_with("sha256:") {
+            return Ok(cached.to_string());
+        }
+    }
+
+    let digest = crate::litebox::archive::CanonicalLayer::open(path)?.digest()?;
+    if let Err(e) = std::fs::write(&sidecar, &digest) {
+        tracing::debug!(
+            path = %sidecar.display(),
+            error = %e,
+            "Could not cache layer digest; it will be recomputed next export"
+        );
+    }
+    Ok(digest)
+}
+
 /// Manages the lifecycle of clone base disks.
 ///
 /// All base disks are flat files under `bases_dir/` named by `BaseDiskID`.
@@ -210,7 +245,12 @@ impl BaseDiskManager {
             .canonicalize()
             .unwrap_or_else(|_| layer_path.to_path_buf());
         let Some(record) = self.store.find_by_base_path(&canonical.to_string_lossy())? else {
-            return Ok(None);
+            // Not a registered base — the image disk is the one that matters
+            // here, and it is the largest layer in a chain. Its own cache is
+            // keyed by image digest and its contents never change, so a sidecar
+            // is enough to keep export from re-reading hundreds of megabytes
+            // every time.
+            return sidecar_digest(&canonical).map(Some);
         };
 
         if let Some(digest) = record.disk.digest {
@@ -333,6 +373,33 @@ mod tests {
         let store = BaseDiskStore::new(db);
         let mgr = BaseDiskManager::new(bases_dir, store);
         (dir, mgr)
+    }
+
+    /// A layer outside the base store — the image disk — must not be re-read on
+    /// every export; it is the largest layer in a typical chain.
+    #[test]
+    fn digest_of_an_unregistered_layer_is_cached_beside_it() {
+        let (dir, mgr) = setup();
+        let image_disk = dir.path().join("sha256-abc.ext4");
+        std::fs::write(&image_disk, b"raw ext4 bytes").unwrap();
+
+        let first = mgr.digest_of(&image_disk).unwrap().expect("a digest");
+
+        // Prove the second call answers from the sidecar rather than the file:
+        // replace the file's contents and require the answer not to change.
+        let sidecar = dir.path().join("sha256-abc.ext4.digest");
+        assert!(
+            sidecar.exists(),
+            "expected a sidecar at {}",
+            sidecar.display()
+        );
+        std::fs::write(&image_disk, b"different bytes entirely").unwrap();
+
+        let second = mgr.digest_of(&image_disk).unwrap().expect("a digest");
+        assert_eq!(
+            first, second,
+            "the cached digest must be returned without re-reading the layer"
+        );
     }
 
     /// Helper: create a minimal qcow2 file with an optional backing file path.
