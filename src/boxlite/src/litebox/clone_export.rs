@@ -212,11 +212,13 @@ impl BoxImpl {
         let box_id_str = self.id().to_string();
         let dest = dest.to_path_buf();
         let base_disk_mgr = self.runtime.base_disk_mgr.clone();
+        let image_disks_dir = self.runtime.layout.image_layout().disk_images_dir();
 
         let result = tokio::task::spawn_blocking(move || {
             do_export_finalize(
                 capture,
                 &base_disk_mgr,
+                &image_disks_dir,
                 config_name.as_deref(),
                 &config_options,
                 &box_id_str,
@@ -311,6 +313,25 @@ fn do_export_capture(
     })
 }
 
+/// The OCI image digest a layer is the disk for, if it is one.
+///
+/// Image disks live in the image cache under a filename derived from the image
+/// digest (`images/image_disk.rs`), so the digest is read back from the path
+/// rather than by resolving the image again — export must not depend on the
+/// registry being reachable.
+fn image_digest_of(path: &std::path::Path, image_disks_dir: &std::path::Path) -> Option<String> {
+    if path.parent() != Some(image_disks_dir) {
+        return None;
+    }
+    let stem = path.file_stem()?.to_str()?;
+    // `sha256:<hex>` is stored as `sha256-<hex>.ext4`.
+    let (algo, hex) = stem.split_once('-')?;
+    if algo != "sha256" || hex.is_empty() {
+        return None;
+    }
+    Some(format!("{algo}:{hex}"))
+}
+
 /// Whether a file starts with the qcow2 magic, deciding how a child references it.
 fn is_qcow2(path: &std::path::Path) -> bool {
     use std::io::Read;
@@ -326,6 +347,7 @@ fn is_qcow2(path: &std::path::Path) -> bool {
 fn do_export_finalize(
     capture: ChainCapture,
     base_disk_mgr: &crate::disk::BaseDiskManager,
+    image_disks_dir: &std::path::Path,
     config_name: Option<&str>,
     config_options: &crate::runtime::options::BoxOptions,
     box_id_str: &str,
@@ -366,6 +388,7 @@ fn do_export_finalize(
 
         let qcow2 = is_qcow2(path);
         layers.push(ArchiveLayer {
+            image_digest: image_digest_of(path, image_disks_dir),
             digest: digest.clone(),
             format: if qcow2 {
                 LayerFormat::Qcow2
@@ -488,6 +511,7 @@ mod tests {
         do_export_finalize(
             capture,
             &test_base_disk_mgr(home),
+            &home.join("images").join("disk-images"),
             Some("some-box"),
             &crate::runtime::options::BoxOptions::default(),
             "box-id",

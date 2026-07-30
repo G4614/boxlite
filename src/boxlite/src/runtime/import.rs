@@ -56,6 +56,7 @@ pub(crate) async fn import_box(
     let staging_clone = staging_dir.clone();
     let layers = manifest.layers.clone();
     let base_disk_mgr = runtime.base_disk_mgr.clone();
+    let image_disks_dir = runtime.layout.image_layout().disk_images_dir();
     // Layers are pinned to this token the moment each one lands, and the token
     // is only released once the box owns them. Without it a layer sits
     // unreferenced between installation and provisioning, where a concurrent
@@ -74,6 +75,7 @@ pub(crate) async fn import_box(
                 &staging_clone,
                 &base_disk_mgr,
                 &token_for_task,
+                &image_disks_dir,
             )
         }
     })
@@ -281,6 +283,7 @@ fn install_layers(
     box_home: &Path,
     base_disk_mgr: &crate::disk::BaseDiskManager,
     token: &str,
+    image_disks_dir: &Path,
 ) -> BoxliteResult<Vec<BaseDiskID>> {
     let Some((top, bases)) = layers.split_last() else {
         return Err(BoxliteError::Storage(
@@ -302,8 +305,13 @@ fn install_layers(
     let mut base_ids = Vec::new();
     let mut parent: Option<PathBuf> = None;
     for layer in bases {
-        let (path, id, freshly_installed) =
-            resolve_layer(layer, temp_dir, base_disk_mgr, parent.as_deref())?;
+        let (path, id, freshly_installed) = resolve_layer(
+            layer,
+            temp_dir,
+            base_disk_mgr,
+            parent.as_deref(),
+            image_disks_dir,
+        )?;
         if let Some(id) = id {
             // Pin immediately — before any later layer can fail — so the token
             // is enough to find and collect everything this import installed.
@@ -411,7 +419,27 @@ fn resolve_layer(
     temp_dir: &Path,
     base_disk_mgr: &crate::disk::BaseDiskManager,
     parent: Option<&Path>,
+    image_disks_dir: &Path,
 ) -> BoxliteResult<(PathBuf, Option<BaseDiskID>, bool)> {
+    // An image disk this host already built is preferred over the archived
+    // copy, and is the only cross-host reuse available for that layer: its
+    // bytes differ on every host (mke2fs writes a random UUID), so `digest`
+    // cannot match, but the image digest can. Reusing it also keeps the box on
+    // the host's own correctly-built disk rather than a foreign one.
+    //
+    // No base disk id is returned because the image cache owns this file and
+    // manages its own lifecycle — it must not be pulled into base-disk GC.
+    if let Some(image_digest) = &layer.image_digest {
+        let local = image_disks_dir.join(format!("{}.ext4", image_digest.replace(':', "-")));
+        if local.exists() {
+            tracing::debug!(
+                image_digest = %image_digest,
+                "Image disk already built locally, skipping the archived copy"
+            );
+            return Ok((local, None, false));
+        }
+    }
+
     if let Some(existing) = base_disk_mgr.store().find_by_digest(&layer.digest)? {
         let path = PathBuf::from(&existing.disk.disk_info.base_path);
         if path.exists() && backing_matches(&path, parent) {
@@ -542,6 +570,7 @@ mod layered_install_tests {
 
         let digest = CanonicalLayer::open(&scratch).unwrap().digest().unwrap();
         let layer = ArchiveLayer {
+            image_digest: None,
             digest: digest.clone(),
             format: LayerFormat::Qcow2,
             virtual_size: 0,
@@ -550,6 +579,60 @@ mod layered_install_tests {
         std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
         std::fs::rename(&scratch, &dest).unwrap();
         layer
+    }
+
+    /// The image layer's bytes differ on every host, so content addressing can
+    /// never reuse it. Its image digest can — and the host's own build is the
+    /// one the box should sit on.
+    #[test]
+    fn a_locally_built_image_disk_is_used_instead_of_the_archived_one() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let images = home.path().join("images");
+        std::fs::create_dir_all(&images).unwrap();
+
+        // This host already built the image disk.
+        let image_digest = "sha256:feedface";
+        let local = images.join("sha256-feedface.ext4");
+        std::fs::write(&local, b"the host's own build").unwrap();
+
+        // The archive carries its own, byte-different copy of that layer.
+        let mut bottom = stage(&temp, 1, None);
+        bottom.image_digest = Some(image_digest.to_string());
+        let archived_blob = temp.join(layer_entry_name(&bottom.digest));
+        let top = stage(&temp, 2, Some(FOREIGN_PARENT));
+
+        install_layers(
+            &[bottom, top],
+            &temp,
+            &home.path().join("box"),
+            &mgr(home.path()),
+            "tok",
+            &images,
+        )
+        .expect("import");
+
+        // The archived blob is still sitting in the extract dir: nothing
+        // consumed it, because the local image disk won.
+        assert!(
+            archived_blob.exists(),
+            "the archived image layer must be left untouched"
+        );
+        assert_eq!(
+            std::fs::read(&local).unwrap(),
+            b"the host's own build",
+            "the local image disk must not be overwritten"
+        );
+        // And the box's disk is chained onto that local copy.
+        let container = home.path().join("box").join("disks").join("disk.qcow2");
+        assert_eq!(
+            crate::disk::read_backing_file_path(&container)
+                .unwrap()
+                .map(PathBuf::from),
+            Some(local.canonicalize().unwrap()),
+            "the imported box must read through the host's own image disk"
+        );
     }
 
     /// A stand-in for the exporter's local backing path, which import must
@@ -574,6 +657,7 @@ mod layered_install_tests {
             &home.path().join("box"),
             &mgr(home.path()),
             "tok",
+            &temp.join("images"),
         )
         .expect_err("a bottom layer with a backing reference must be refused");
         let msg = err.to_string();
@@ -609,6 +693,7 @@ mod layered_install_tests {
             &home.path().join("box"),
             &mgr,
             "tok",
+            &temp.join("images"),
         )
         .expect("import should succeed by copying, not by rewriting");
 
@@ -640,6 +725,7 @@ mod layered_install_tests {
             &home.path().join("box"),
             &mgr,
             "tok",
+            &temp.join("images"),
         )
         .expect("install");
 

@@ -87,6 +87,17 @@ pub struct ArchiveLayer {
     /// Virtual size in bytes (qcow2 layers only; 0 for raw).
     #[serde(default)]
     pub virtual_size: u64,
+    /// The OCI image this layer is the disk for, when it is one.
+    ///
+    /// The bottom of every chain is the image's ext4, and `mke2fs` writes a
+    /// random filesystem UUID and timestamps into it — so two hosts building
+    /// the same image produce different bytes and `digest` can never match
+    /// across them. The image digest can: it is a hash of the OCI layer
+    /// digests (images/object.rs), identical everywhere. An importer that
+    /// already holds this image's disk uses its own copy and never writes the
+    /// blob, which is the only form of cross-host reuse this layer can have.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_digest: Option<String>,
 }
 
 /// Archive manifest stored as `manifest.json` inside exported archives.
