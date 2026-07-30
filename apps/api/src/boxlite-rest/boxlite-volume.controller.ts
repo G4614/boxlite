@@ -24,7 +24,7 @@ export class BoxliteVolumeController {
   @RequiredOrganizationResourcePermissions([OrganizationResourcePermission.WRITE_VOLUMES])
   async create(@AuthContext() authContext: OrganizationAuthContext): Promise<RestVolumeResponse> {
     const volume = await this.volumeService.create(authContext.organization, {})
-    return this.toResponse(volume)
+    return this.toResponse(await this.volumeService.waitForReady(volume.id, 30))
   }
 
   @Get()

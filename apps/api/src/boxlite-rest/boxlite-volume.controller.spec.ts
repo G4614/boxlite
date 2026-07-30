@@ -9,6 +9,7 @@ describe('BoxliteVolumeController', () => {
   function createController() {
     const volumeService = {
       create: jest.fn().mockResolvedValue(volume),
+      waitForReady: jest.fn().mockResolvedValue(volume),
       findAll: jest.fn().mockResolvedValue([volume]),
       findOne: jest.fn().mockResolvedValue(volume),
       delete: jest.fn().mockResolvedValue(undefined),
@@ -33,6 +34,7 @@ describe('BoxliteVolumeController', () => {
       created_at: createdAt.toISOString(),
     })
     expect(volumeService.create).toHaveBeenCalledWith(organization, {})
+    expect(volumeService.waitForReady).toHaveBeenCalledWith(volume.id, 30)
   })
 
   it('lists volumes for the authenticated organization', async () => {
