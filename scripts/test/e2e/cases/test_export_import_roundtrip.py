@@ -51,17 +51,22 @@ async def test_data_survives_export_import_to_new_box(rt, image):
                 f"export produced no archive at {out_path!r}"
             )
 
-            # 3) Import the archive into a brand-new box.
-            dst = await rt.import_box(out_path, None, False)
+            # 3) Import the archive into a brand-new box. `untrusted` is a
+            # keyword-only arg on the binding.
+            dst = await rt.import_box(out_path, None, untrusted=False)
             assert dst.id != src.id, "import must create a distinct box"
 
-            # 4) The new box must carry the marker, byte-for-byte.
+            # 4) The new box must carry the marker, byte-for-byte (exact match;
+            # the payload was written with `printf '%s'`, so no trailing newline).
             rc, out, err = await _run(dst, f"cat {DATA_PATH}")
             assert rc == 0, f"imported box read failed: rc={rc} stderr={err!r}"
-            assert out.strip() == SENTINEL, (
-                f"payload did not survive export→import → {out!r}"
-            )
+            assert out == SENTINEL, f"payload did not survive export→import → {out!r}"
         finally:
-            await rt.remove(src.id, force=True)
-            if dst is not None:
-                await rt.remove(dst.id, force=True)
+            # Remove both boxes independently so a failure on one still cleans
+            # up the other (no leaked box contaminating later e2e tests).
+            for leftover in (src, dst):
+                if leftover is not None:
+                    try:
+                        await rt.remove(leftover.id, force=True)
+                    except Exception:
+                        pass

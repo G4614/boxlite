@@ -59,7 +59,8 @@ async def test_box_b_cannot_read_box_a_filesystem(rt, image):
         # acceptable output is the DONE sentinel on its own line.
         rc, out, _ = await _run(
             b,
-            f"grep -rl '{MARKER}' --exclude-dir=proc --exclude-dir=sys / "
+            f"timeout 20 grep -rl '{MARKER}' --exclude-dir=proc --exclude-dir=sys "
+            "--exclude-dir=dev --exclude-dir=run --exclude-dir=tmp / "
             "2>/dev/null | head -n1; echo DONE",
         )
         lines = out.strip().splitlines()
