@@ -31,7 +31,6 @@ describe('BoxliteVolumeController', () => {
     ).resolves.toEqual({
       id: volume.id,
       created_at: createdAt.toISOString(),
-      size_bytes: 0,
     })
     expect(volumeService.create).toHaveBeenCalledWith(organization, {})
   })
@@ -44,7 +43,6 @@ describe('BoxliteVolumeController', () => {
         {
           id: volume.id,
           created_at: createdAt.toISOString(),
-          size_bytes: 0,
         },
       ],
     })
@@ -57,7 +55,6 @@ describe('BoxliteVolumeController', () => {
     await expect(controller.get(volume.id)).resolves.toEqual({
       id: volume.id,
       created_at: createdAt.toISOString(),
-      size_bytes: 0,
     })
     expect(volumeService.findOne).toHaveBeenCalledWith(volume.id)
   })

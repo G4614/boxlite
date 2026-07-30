@@ -12,7 +12,6 @@ import { VolumeAccessGuard } from '../box/guards/volume-access.guard'
 type RestVolumeResponse = {
   id: string
   created_at: string
-  size_bytes: number
 }
 
 @Controller(['v1/volumes', 'v1/:prefix/volumes'])
@@ -54,7 +53,6 @@ export class BoxliteVolumeController {
     return {
       id: volume.id,
       created_at: volume.createdAt.toISOString(),
-      size_bytes: 0,
     }
   }
 }
