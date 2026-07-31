@@ -59,7 +59,10 @@ mod tests {
 
     #[test]
     fn export_options_from_js() {
-        let js = JsExportOptions { as_directory: None, archive_name: None };
+        let js = JsExportOptions {
+            as_directory: None,
+            archive_name: None,
+        };
         let _opts: ExportOptions = js.into();
     }
 
