@@ -351,16 +351,11 @@ fn install_layers(
             layer,
             blobs,
             base_disk_mgr,
+            token,
             parent.as_deref(),
             image_disks_dir,
         )?;
         if let Some(id) = id {
-            // Pin immediately — before any later layer can fail — so the token
-            // is enough to find and collect everything this import installed.
-            if let Err(error) = base_disk_mgr.store().add_ref(&id, token) {
-                base_disk_mgr.try_gc_base(&id);
-                return Err(error);
-            }
             base_ids.push(id);
         }
         if freshly_installed {
@@ -527,6 +522,7 @@ fn resolve_layer(
     layer: &ArchiveLayer,
     blobs: &LayerBlobs,
     base_disk_mgr: &crate::disk::BaseDiskManager,
+    token: &str,
     parent: Option<&Path>,
     image_disks_dir: &Path,
 ) -> BoxliteResult<(PathBuf, Option<BaseDiskID>, bool)> {
@@ -552,9 +548,14 @@ fn resolve_layer(
         }
     }
 
+    // Keep lookup/install and the provisional ref pin indivisible with GC.
+    // Otherwise GC can observe a zero-ref record between the lookup and pin,
+    // then delete the file while this import is adopting it.
+    let lifecycle = base_disk_mgr.lock_lifecycle();
     if let Some(existing) = base_disk_mgr.store().find_by_digest(&layer.digest)? {
         let path = PathBuf::from(&existing.disk.disk_info.base_path);
         if path.exists() && backing_matches(&path, parent) {
+            base_disk_mgr.store().add_ref(&existing.disk.id, token)?;
             tracing::debug!(digest = %layer.digest, "Layer already present, skipping transfer");
             return Ok((path, Some(existing.disk.id), false));
         }
@@ -566,6 +567,11 @@ fn resolve_layer(
     verify_layer_digest(&blob, &layer.digest)?;
     verify_layer_format(&blob, layer)?;
     let installed = base_disk_mgr.install_layer(&blob, &layer.digest)?;
+    if let Err(error) = base_disk_mgr.store().add_ref(&installed.id, token) {
+        drop(lifecycle);
+        base_disk_mgr.try_gc_base(&installed.id);
+        return Err(error);
+    }
     Ok((installed.disk_info.to_path_buf(), Some(installed.id), true))
 }
 

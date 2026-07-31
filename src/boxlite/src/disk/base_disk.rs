@@ -19,9 +19,11 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use boxlite_shared::errors::BoxliteResult;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::db::base_disk::BaseDiskStore;
@@ -138,6 +140,7 @@ fn sidecar_digest(path: &Path) -> BoxliteResult<String> {
 pub(crate) struct BaseDiskManager {
     bases_dir: PathBuf,
     store: BaseDiskStore,
+    lifecycle_lock: Arc<Mutex<()>>,
 }
 
 impl BaseDiskManager {
@@ -151,12 +154,20 @@ impl BaseDiskManager {
         let bases_dir = bases_dir
             .canonicalize()
             .unwrap_or_else(|_| bases_dir.clone());
-        Self { bases_dir, store }
+        Self {
+            bases_dir,
+            store,
+            lifecycle_lock: Arc::new(Mutex::new(())),
+        }
     }
 
     /// Expose the underlying store for direct queries (list, find, etc.).
     pub(crate) fn store(&self) -> &BaseDiskStore {
         &self.store
+    }
+
+    pub(crate) fn lock_lifecycle(&self) -> parking_lot::MutexGuard<'_, ()> {
+        self.lifecycle_lock.lock()
     }
 
     /// The bases root directory.
@@ -476,6 +487,11 @@ impl BaseDiskManager {
     /// Queries the `base_disk_ref` table for dependents. If none exist,
     /// deletes the base (DB record + file) and cascades to the parent base.
     pub(crate) fn try_gc_base(&self, base_disk_id: &BaseDiskID) {
+        let _lifecycle = self.lifecycle_lock.lock();
+        self.try_gc_base_locked(base_disk_id);
+    }
+
+    fn try_gc_base_locked(&self, base_disk_id: &BaseDiskID) {
         let record = match self.store.find_by_id(base_disk_id) {
             Ok(Some(r)) => r,
             _ => return,
@@ -509,7 +525,7 @@ impl BaseDiskManager {
             && let Ok(Some(parent_record)) =
                 self.store.find_by_base_path(&parent_path.to_string_lossy())
         {
-            self.try_gc_base(parent_record.id());
+            self.try_gc_base_locked(parent_record.id());
         }
     }
 
