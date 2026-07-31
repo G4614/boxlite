@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use boxlite::litebox::{BoxEndpoint, BoxTunnel};
 use boxlite::LiteBox;
+use boxlite::litebox::{BoxEndpoint, BoxTunnel};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
