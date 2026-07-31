@@ -28,6 +28,18 @@ SENTINEL = "persist-across-restart-a91f2c"
 FILE_PATH = "/root/e2e_persist.txt"
 DB_PATH = "/root/e2e_persist.db"
 
+# Every boot gets a fresh kernel boot id. Printing it on both sides is the
+# positive control for this test: without it, a `stop()`/`start()` pair that
+# silently did nothing would leave the data in place and the test would pass
+# while proving nothing about durability.
+_BOOT_ID = (
+    "try:\n"
+    "    boot = open('/proc/sys/kernel/random/boot_id').read().strip()\n"
+    "except Exception as e:\n"
+    "    boot = 'ERR:%s' % e\n"
+    "print('BOOT=%s' % boot)\n"
+)
+
 # Write a marker file and a committed SQLite row (WAL journal mode, as the
 # assistant uses). On close the WAL is checkpointed into the main .db file.
 _WRITE = (
@@ -40,7 +52,7 @@ _WRITE = (
     "db.commit()\n"
     "db.close()\n"
     "print('WROTE')\n"
-)
+) + _BOOT_ID
 
 # Read both back and report in a single blob.
 _READ = (
@@ -55,7 +67,15 @@ _READ = (
     "print('FILE=%s' % file_val)\n"
     "print('ROWS=%d' % len(rows))\n"
     "print('DBVAL=%s' % (rows[0][0] if rows else '<none>'))\n"
-)
+) + _BOOT_ID
+
+
+def _boot_id(out: str) -> str:
+    """Pull the BOOT= line out of a probe blob."""
+    for line in out.splitlines():
+        if line.startswith("BOOT="):
+            return line[len("BOOT=") :]
+    return "<missing>"
 
 
 async def _run_py(box, script: str) -> tuple[int, str, str]:
@@ -74,6 +94,10 @@ async def test_file_and_sqlite_survive_stop_start(rt, image):
         assert rc == 0 and "WROTE" in out, (
             f"write failed rc={rc} out={out!r} err={err!r}"
         )
+        boot_before = _boot_id(out)
+        assert boot_before not in ("<missing>", "") and not boot_before.startswith(
+            "ERR:"
+        ), f"could not read the guest boot id before restart → {out!r}"
 
         # 2) Restart the workload: stop then start the same box.
         await b.stop()
@@ -82,6 +106,15 @@ async def test_file_and_sqlite_survive_stop_start(rt, image):
         # 3) Both must still be there.
         rc, out, err = await _run_py(b, _READ)
         assert rc == 0, f"read failed rc={rc} out={out!r} err={err!r}"
+
+        # The box must actually have rebooted — otherwise "the data is still
+        # there" says nothing about durability.
+        boot_after = _boot_id(out)
+        assert boot_after != boot_before, (
+            "box did not reboot across stop()/start() (boot id unchanged: "
+            f"{boot_before!r}); the persistence assertions below would be vacuous"
+        )
+
         assert f"FILE={SENTINEL}" in out, f"file did not survive restart → {out!r}"
         assert "ROWS=1" in out, f"SQLite row did not survive restart → {out!r}"
         assert f"DBVAL={SENTINEL}" in out, (

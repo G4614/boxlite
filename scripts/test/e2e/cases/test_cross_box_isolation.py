@@ -53,18 +53,29 @@ async def test_box_b_cannot_read_box_a_filesystem(rt, image):
         )
 
         # And the marker must not appear anywhere reachable from B's rootfs.
-        # Exclude /proc and /sys: grep -rl over their virtual files (e.g.
-        # /proc/kcore) can stall past the exec timeout. `grep -rl` prints
-        # matching *paths*, so any path line at all is a breach — the only
-        # acceptable output is the DONE sentinel on its own line.
+        # Exclude the virtual filesystems: grep -rl over /proc (e.g.
+        # /proc/kcore) can stall past the exec timeout.
+        #
+        # grep's exit status is the signal, NOT its stdout. A sentinel echoed
+        # after the pipeline runs unconditionally, so "no output" cannot tell a
+        # clean search apart from one that never ran — a missing `timeout`
+        # binary, a grep error, or a kill at the timeout all produce the same
+        # empty stdout and would pass silently.
+        #   1   searched, no match  → the only acceptable outcome
+        #   0   match               → isolation breach
+        #   >=2 grep error, 124 killed by timeout → inconclusive, must fail
         rc, out, _ = await _run(
             b,
-            f"timeout 20 grep -rl '{MARKER}' --exclude-dir=proc --exclude-dir=sys "
-            "--exclude-dir=dev --exclude-dir=run --exclude-dir=tmp / "
-            "2>/dev/null | head -n1; echo DONE",
+            f"hits=$(timeout 20 grep -rl '{MARKER}' "
+            "--exclude-dir=proc --exclude-dir=sys --exclude-dir=dev "
+            "--exclude-dir=run --exclude-dir=tmp / 2>/dev/null); "
+            'echo "GREP_RC=$?"; printf %s "$hits" | head -n1',
         )
-        lines = out.strip().splitlines()
-        assert lines == ["DONE"], f"ISOLATION BREACH: marker found in box B: {out!r}"
+        assert "GREP_RC=1" in out, (
+            "marker search over box B did not finish as 'searched, found "
+            "nothing' (GREP_RC=1). GREP_RC=0 means ISOLATION BREACH; >=2 means "
+            f"grep errored; 124 means it hit the 20s timeout → {out!r}"
+        )
     finally:
         await rt.remove(a.id, force=True)
         await rt.remove(b.id, force=True)

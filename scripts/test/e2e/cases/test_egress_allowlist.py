@@ -105,10 +105,10 @@ async def test_allowlist_permits_only_listed_host(rt, image):
 # was dropped. We hit the resolver IP directly (not the gateway resolver), so
 # gvproxy's UDP allow_net filter — not the DNS sinkhole — is what decides.
 #
-# NOTE: `test_allowlist_applies_to_udp` is a regression for the TCP-only
-# allow_net gap fixed in PR #1090. Before that fix UDP ignored the allowlist,
-# so the BLOCKED_IP assertion is expected to FAIL on a runner that predates
-# #1090 — that red is the gap, not a flaky test.
+# NOTE: `test_allowlist_applies_to_udp` is a regression guard for the TCP-only
+# allow_net gap fixed in PR #1090 (merged 2026-07-30). It asserts unconditionally,
+# as a regression test should: a red here means the runner under test predates
+# the fix and needs upgrading, not that the assertion is wrong.
 
 # Minimal DNS A-query for cloudflare.com; prints UDP_RESP / UDP_NORESP:<err>.
 _UDP_PROBE = (
@@ -171,8 +171,8 @@ async def test_network_disabled_blocks_udp_egress(rt, image):
 @pytest.mark.asyncio
 async def test_allowlist_applies_to_udp(rt, image):
     """`allow_net=[ALLOWED_IP/32]` must gate UDP the same as TCP: the listed
-    resolver answers, a non-listed one is dropped. Regression for PR #1090 —
-    before that fix UDP to BLOCKED_IP was forwarded regardless of the
+    resolver answers, a non-listed one is dropped. Regression guard for PR
+    #1090 — before that fix UDP to BLOCKED_IP was forwarded regardless of the
     allowlist."""
     b = await rt.create(
         boxlite.BoxOptions(

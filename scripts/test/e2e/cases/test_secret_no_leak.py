@@ -26,6 +26,16 @@ import boxlite
 # A value that is easy to grep for and would never occur by accident.
 SECRET_SENTINEL = "s3cr3t-e2e-DO-NOT-LEAK-9f13ab"
 
+# What the guest is supposed to see instead. The runtime derives both from
+# `Secret.name`: the placeholder defaults to `<BOXLITE_SECRET:{name}>` and is
+# exported under `BOXLITE_SECRET_{NAME}` (Secret::env_pair, applied in
+# litebox/init/tasks/container_rootfs.rs). Asserting the placeholder IS present
+# is what makes the non-leak assertions meaningful — without it a build that
+# dropped `secrets=` on the floor entirely would pass this test.
+SECRET_NAME = "e2e_probe"
+SECRET_PLACEHOLDER = f"<BOXLITE_SECRET:{SECRET_NAME}>"
+SECRET_ENV_KEY = f"BOXLITE_SECRET_{SECRET_NAME.upper()}"
+
 # Dump every guest-visible surface a leaked secret could land in, one blob.
 _DUMP = (
     "import os, sys\n"
@@ -65,7 +75,7 @@ async def test_secret_value_and_api_token_never_visible_in_guest(rt, image, e2e_
             auto_remove=True,
             secrets=[
                 boxlite.Secret(
-                    name="e2e_probe",
+                    name=SECRET_NAME,
                     value=SECRET_SENTINEL,
                     hosts=["api.openai.com"],
                 )
@@ -78,6 +88,19 @@ async def test_secret_value_and_api_token_never_visible_in_guest(rt, image, e2e_
         rc = await asyncio.wait_for(ex.wait(), timeout=30)
         assert rc.exit_code == 0, (
             f"dump process failed rc={rc.exit_code} stderr={err!r}"
+        )
+
+        # 0) Positive controls. Both negative assertions below are satisfied by
+        #    a box that never received the secret at all, so first prove the
+        #    surfaces were really inspected and the secret really was wired in.
+        assert "\nPID1\n" in out, (
+            "/proc/1/environ was not readable, so the strongest leak surface "
+            f"went uninspected → {out[:400]!r}"
+        )
+        assert f"{SECRET_ENV_KEY}={SECRET_PLACEHOLDER}" in out, (
+            f"expected the guest to carry {SECRET_ENV_KEY}={SECRET_PLACEHOLDER}; "
+            "without it the secret was never injected and the non-leak "
+            f"assertions below prove nothing → {out[:400]!r}"
         )
 
         # 1) The real secret value must never reach the guest.

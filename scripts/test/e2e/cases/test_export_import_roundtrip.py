@@ -63,10 +63,17 @@ async def test_data_survives_export_import_to_new_box(rt, image):
             assert out == SENTINEL, f"payload did not survive export→import → {out!r}"
         finally:
             # Remove both boxes independently so a failure on one still cleans
-            # up the other (no leaked box contaminating later e2e tests).
+            # up the other (no leaked box contaminating later e2e tests), but
+            # surface what failed instead of swallowing it — a box that will not
+            # delete is exactly the kind of leak later cases trip over.
+            cleanup_errors = []
             for leftover in (src, dst):
-                if leftover is not None:
-                    try:
-                        await rt.remove(leftover.id, force=True)
-                    except Exception:
-                        pass
+                if leftover is None:
+                    continue
+                try:
+                    await rt.remove(leftover.id, force=True)
+                except Exception as exc:  # noqa: BLE001 - reported below
+                    cleanup_errors.append(f"{leftover.id}: {exc!r}")
+            assert not cleanup_errors, (
+                "failed to remove e2e boxes: " + "; ".join(cleanup_errors)
+            )
