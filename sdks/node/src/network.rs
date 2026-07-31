@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use boxlite::LiteBox;
 use boxlite::litebox::{BoxEndpoint, BoxTunnel};
+use boxlite::LiteBox;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -11,6 +11,22 @@ use crate::util::map_err;
 
 type ConnectionReader = tokio::io::ReadHalf<Box<dyn boxlite::BoxConnection>>;
 type ConnectionWriter = tokio::io::WriteHalf<Box<dyn boxlite::BoxConnection>>;
+
+async fn close_streams(
+    reader: &tokio::sync::Mutex<Option<ConnectionReader>>,
+    writer: &tokio::sync::Mutex<Option<ConnectionWriter>>,
+) -> std::io::Result<()> {
+    let mut writer = writer.lock().await;
+    if let Some(mut stream) = writer.take() {
+        match stream.shutdown().await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotConnected => {}
+            Err(error) => return Err(error),
+        }
+    }
+    reader.lock().await.take();
+    Ok(())
+}
 
 /// Handle for network operations on a box.
 #[napi]
@@ -125,20 +141,9 @@ impl JsBoxConnection {
     /// other writer shutdown errors are returned.
     #[napi]
     pub async fn close(&self) -> Result<()> {
-        let mut writer = self.writer.lock().await;
-        if let Some(mut stream) = writer.take() {
-            match stream.shutdown().await {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotConnected => {}
-                Err(error) => {
-                    return Err(Error::from_reason(format!(
-                        "close tunnel connection: {error}"
-                    )));
-                }
-            }
-        }
-        self.reader.lock().await.take();
-        Ok(())
+        close_streams(&self.reader, &self.writer)
+            .await
+            .map_err(|error| Error::from_reason(format!("close tunnel connection: {error}")))
     }
 
     #[napi]
@@ -151,5 +156,58 @@ impl JsBoxConnection {
                 .map_err(|error| Error::from_reason(format!("shut down tunnel writer: {error}")))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+    struct DisconnectedStream;
+
+    impl AsyncRead for DisconnectedStream {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _buf: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for DisconnectedStream {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::NotConnected)))
+        }
+    }
+
+    #[test]
+    fn close_tolerates_not_connected_and_clears_both_halves() {
+        futures::executor::block_on(async {
+            let connection: Box<dyn boxlite::BoxConnection> = Box::new(DisconnectedStream);
+            let (reader, writer) = tokio::io::split(connection);
+            let reader = tokio::sync::Mutex::new(Some(reader));
+            let writer = tokio::sync::Mutex::new(Some(writer));
+
+            close_streams(&reader, &writer).await.unwrap();
+
+            assert!(reader.lock().await.is_none());
+            assert!(writer.lock().await.is_none());
+        });
     }
 }
