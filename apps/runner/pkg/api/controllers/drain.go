@@ -15,7 +15,9 @@ type DrainRequest struct {
 }
 
 type DrainStatusResponse struct {
-	Draining          bool  `json:"draining"`
+	Draining bool `json:"draining"`
+	// ActiveAttachCount counts streaming connections that must finish before
+	// restart. Running boxes are stopped safely by runtime shutdown on SIGTERM.
 	ActiveAttachCount int64 `json:"active_attach_count"`
 }
 
