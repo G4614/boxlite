@@ -122,6 +122,50 @@ async fn test_export_import_roundtrip() {
 }
 
 #[tokio::test]
+async fn test_directory_export_import_roundtrip() {
+    let home = boxlite_test_utils::home::PerTestBoxHome::new();
+    let runtime = BoxliteRuntime::new(BoxliteOptions {
+        home_dir: home.path.clone(),
+        image_registries: common::test_registries(),
+    })
+    .expect("create runtime");
+    let source = create_stopped_box(&runtime).await;
+
+    let export_dir = TempDir::new_in("/tmp").unwrap();
+    let mirror = export_dir.path().join("mirror");
+
+    let archive = source
+        .export(ExportOptions { as_directory: true }, &mirror)
+        .await
+        .expect("Failed to export box as directory");
+
+    // The archive is the directory itself: a manifest beside layer objects.
+    assert!(archive.path().is_dir());
+    assert!(archive.path().join("manifest.json").exists());
+    let objects = std::fs::read_dir(archive.path().join("layers"))
+        .expect("layers dir")
+        .count();
+    assert!(objects >= 1, "expected at least one layer object");
+
+    let imported = runtime
+        .import_box(archive, Some("imported-from-dir".to_string()))
+        .await
+        .expect("Failed to import box from directory");
+
+    let info = imported.info().await.expect("get imported box info");
+    assert_eq!(info.name.as_deref(), Some("imported-from-dir"));
+    assert_eq!(info.status, BoxStatus::Stopped);
+
+    imported
+        .start()
+        .await
+        .expect("Failed to start imported box");
+    imported.stop().await.expect("Failed to stop imported box");
+
+    let _ = runtime.shutdown(Some(common::TEST_SHUTDOWN_TIMEOUT)).await;
+}
+
+#[tokio::test]
 async fn test_export_import_preserves_box_options() {
     let home = boxlite_test_utils::home::PerTestBoxHome::new();
     let runtime = BoxliteRuntime::new(BoxliteOptions {

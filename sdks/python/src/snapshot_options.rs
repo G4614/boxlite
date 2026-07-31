@@ -22,22 +22,31 @@ impl From<PySnapshotOptions> for SnapshotOptions {
     }
 }
 
-/// Options for exporting a box (forward-compatible placeholder).
+/// Options for exporting a box.
 #[pyclass(name = "ExportOptions")]
 #[derive(Clone)]
-pub(crate) struct PyExportOptions {}
+pub(crate) struct PyExportOptions {
+    /// Write a directory of content-addressed objects instead of one
+    /// `.boxlite` file, so mirroring it to object storage transfers only the
+    /// objects the destination lacks.
+    #[pyo3(get, set)]
+    pub(crate) as_directory: bool,
+}
 
 #[pymethods]
 impl PyExportOptions {
     #[new]
-    fn new() -> Self {
-        Self {}
+    #[pyo3(signature = (as_directory = false))]
+    fn new(as_directory: bool) -> Self {
+        Self { as_directory }
     }
 }
 
 impl From<PyExportOptions> for ExportOptions {
-    fn from(_py: PyExportOptions) -> Self {
-        ExportOptions {}
+    fn from(py: PyExportOptions) -> Self {
+        ExportOptions {
+            as_directory: py.as_directory,
+        }
     }
 }
 

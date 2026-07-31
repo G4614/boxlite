@@ -65,13 +65,23 @@ pub(crate) async fn import_box(
     // base with no dependents.
     let token = format!("__importing__{}", uuid::Uuid::new_v4());
     let token_for_task = token.clone();
+    // The directory form keeps its objects where they are; the scratch dir is
+    // only where the ones actually wanted get unpacked.
+    let blobs = if archive.path().is_dir() {
+        LayerBlobs::Directory {
+            archive_dir: archive.path().to_path_buf(),
+            scratch: temp_path.clone(),
+        }
+    } else {
+        LayerBlobs::Extracted(temp_path.clone())
+    };
     let install = tokio::task::spawn_blocking(move || {
         if layers.is_empty() {
             install_disks(&temp_path, &staging_clone).map(|()| Vec::new())
         } else {
             install_layers(
                 &layers,
-                &temp_path,
+                &blobs,
                 &staging_clone,
                 &base_disk_mgr,
                 &token_for_task,
@@ -214,9 +224,19 @@ fn extract_and_validate(
     let temp_dir = tempfile::tempdir_in(layout.temp_dir())
         .map_err(|e| BoxliteError::Storage(format!("Failed to create temp directory: {}", e)))?;
 
-    extract_archive(archive_path, temp_dir.path())?;
+    // A mirrored archive directory is already in the layout an extraction
+    // would produce, except its layers are still compressed and are unpacked
+    // one at a time, only if wanted. Copying it here first would throw that
+    // away, so only the single-file form is extracted.
+    if !archive_path.is_dir() {
+        extract_archive(archive_path, temp_dir.path())?;
+    }
 
-    let manifest_path = temp_dir.path().join(MANIFEST_FILENAME);
+    let manifest_path = if archive_path.is_dir() {
+        archive_path.join(MANIFEST_FILENAME)
+    } else {
+        temp_dir.path().join(MANIFEST_FILENAME)
+    };
     if !manifest_path.exists() {
         return Err(BoxliteError::Storage(
             "Invalid archive: manifest.json not found".to_string(),
@@ -279,7 +299,7 @@ fn extract_and_validate(
 /// declared digest before anything points at it.
 fn install_layers(
     layers: &[ArchiveLayer],
-    temp_dir: &Path,
+    blobs: &LayerBlobs,
     box_home: &Path,
     base_disk_mgr: &crate::disk::BaseDiskManager,
     token: &str,
@@ -307,7 +327,7 @@ fn install_layers(
     for layer in bases {
         let (path, id, freshly_installed) = resolve_layer(
             layer,
-            temp_dir,
+            blobs,
             base_disk_mgr,
             parent.as_deref(),
             image_disks_dir,
@@ -333,7 +353,7 @@ fn install_layers(
 
     // The top layer is the box's own container disk.
     let container = disks_dir.join(disk_filenames::CONTAINER_DISK);
-    let blob = extracted_layer_path(temp_dir, top);
+    let blob = blobs.materialize(top)?;
     verify_layer_digest(&blob, &top.digest)?;
     verify_layer_format(&blob, top)?;
     move_file(&blob, &container)?;
@@ -347,9 +367,42 @@ fn install_layers(
     Ok(base_ids)
 }
 
-/// Path a layer blob was extracted to.
-fn extracted_layer_path(temp_dir: &Path, layer: &ArchiveLayer) -> PathBuf {
-    temp_dir.join(layer_entry_name(&layer.digest))
+/// Where a layer's bytes come from while an archive is being installed.
+///
+/// The two forms differ in *when* a blob costs anything. A `.boxlite` file is
+/// one stream, so every layer is already unpacked by the time anything is
+/// decided. A mirrored directory holds each layer as its own object, so a
+/// layer the host already has is never opened — which is the only reason the
+/// directory form saves work rather than just rearranging it.
+enum LayerBlobs {
+    Extracted(PathBuf),
+    Directory {
+        archive_dir: PathBuf,
+        scratch: PathBuf,
+    },
+}
+
+impl LayerBlobs {
+    /// Produce a path to this layer's bytes, unpacking it only if needed.
+    fn materialize(&self, layer: &ArchiveLayer) -> BoxliteResult<PathBuf> {
+        match self {
+            Self::Extracted(dir) => Ok(dir.join(layer_entry_name(&layer.digest))),
+            Self::Directory {
+                archive_dir,
+                scratch,
+            } => {
+                let dest = scratch.join(layer_entry_name(&layer.digest));
+                if !dest.exists() {
+                    crate::litebox::archive::extract_layer_object(
+                        archive_dir,
+                        &layer.digest,
+                        &dest,
+                    )?;
+                }
+                Ok(dest)
+            }
+        }
+    }
 }
 
 /// Fail unless a blob hashes to the digest the manifest declared for it.
@@ -416,7 +469,7 @@ fn qcow2_magic(path: &Path) -> bool {
 /// the caller to relink.
 fn resolve_layer(
     layer: &ArchiveLayer,
-    temp_dir: &Path,
+    blobs: &LayerBlobs,
     base_disk_mgr: &crate::disk::BaseDiskManager,
     parent: Option<&Path>,
     image_disks_dir: &Path,
@@ -450,7 +503,7 @@ fn resolve_layer(
         // different parent; install a private copy below.
     }
 
-    let blob = extracted_layer_path(temp_dir, layer);
+    let blob = blobs.materialize(layer)?;
     verify_layer_digest(&blob, &layer.digest)?;
     verify_layer_format(&blob, layer)?;
     let installed = base_disk_mgr.install_layer(&blob, &layer.digest)?;
@@ -581,6 +634,68 @@ mod layered_install_tests {
         layer
     }
 
+    /// A directory archive's objects are opened only when actually wanted.
+    ///
+    /// The host already holds the bottom layer, so its object in the mirror is
+    /// replaced with garbage that would fail digest verification the moment
+    /// anything read it. The import must succeed anyway — proof the object was
+    /// never opened, which is what makes the directory form cheaper than the
+    /// single file rather than just differently shaped.
+    #[test]
+    fn a_layer_the_host_already_holds_is_never_read_from_the_directory() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mgr = mgr(home.path());
+
+        // First import, single-file form: installs both layers locally.
+        let bottom = stage(&temp, 1, None);
+        let top = stage(&temp, 2, Some(FOREIGN_PARENT));
+        // Read before the first install consumes the blob by moving it.
+        let top_blob = std::fs::read(temp.join(layer_entry_name(&top.digest))).unwrap();
+        install_layers(
+            &[bottom.clone(), top.clone()],
+            &LayerBlobs::Extracted(temp.clone()),
+            &home.path().join("box1"),
+            &mgr,
+            "tok1",
+            &home.path().join("images"),
+        )
+        .expect("first import");
+
+        // Second import of the same box, directory form. The bottom's object
+        // is garbage; the top's object is real (a top layer is always fresh).
+        let mirror = home.path().join("mirror");
+        let layers_dir = mirror.join("layers");
+        std::fs::create_dir_all(&layers_dir).unwrap();
+        let hex = |d: &str| d.strip_prefix("sha256:").unwrap().to_string();
+        std::fs::write(
+            layers_dir.join(format!("{}.zst", hex(&bottom.digest))),
+            b"not zstd, not the layer, not anything",
+        )
+        .unwrap();
+        std::fs::write(
+            layers_dir.join(format!("{}.zst", hex(&top.digest))),
+            zstd::encode_all(&top_blob[..], 3).unwrap(),
+        )
+        .unwrap();
+
+        let scratch = home.path().join("scratch");
+        std::fs::create_dir_all(&scratch).unwrap();
+        install_layers(
+            &[bottom, top],
+            &LayerBlobs::Directory {
+                archive_dir: mirror,
+                scratch,
+            },
+            &home.path().join("box2"),
+            &mgr,
+            "tok2",
+            &home.path().join("images"),
+        )
+        .expect("a held layer's garbage object must never be read");
+    }
+
     /// The image layer's bytes differ on every host, so content addressing can
     /// never reuse it. Its image digest can — and the host's own build is the
     /// one the box should sit on.
@@ -605,7 +720,7 @@ mod layered_install_tests {
 
         install_layers(
             &[bottom, top],
-            &temp,
+            &LayerBlobs::Extracted(temp.clone()),
             &home.path().join("box"),
             &mgr(home.path()),
             "tok",
@@ -653,7 +768,7 @@ mod layered_install_tests {
 
         let err = install_layers(
             &[evil, top],
-            &temp,
+            &LayerBlobs::Extracted(temp.clone()),
             &home.path().join("box"),
             &mgr(home.path()),
             "tok",
@@ -689,7 +804,7 @@ mod layered_install_tests {
         let top = stage(&temp, 3, Some(FOREIGN_PARENT));
         install_layers(
             &[new_parent, shared, top],
-            &temp,
+            &LayerBlobs::Extracted(temp.clone()),
             &home.path().join("box"),
             &mgr,
             "tok",
@@ -721,7 +836,7 @@ mod layered_install_tests {
 
         install_layers(
             &[bottom, middle, top],
-            &temp,
+            &LayerBlobs::Extracted(temp.clone()),
             &home.path().join("box"),
             &mgr,
             "tok",
