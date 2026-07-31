@@ -14,6 +14,8 @@ mod common;
 
 use boxlite::runtime::options::{BoxliteOptions, ExportOptions};
 use boxlite::{BoxCommand, BoxliteRuntime};
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
@@ -46,16 +48,17 @@ fn minio_available() -> bool {
 }
 
 fn sha256(path: &Path) -> String {
-    let out = Command::new("shasum")
-        .args(["-a", "256"])
-        .arg(path)
-        .output()
-        .expect("shasum");
-    String::from_utf8_lossy(&out.stdout)
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_string()
+    let mut file = std::fs::File::open(path).expect("open archive for hashing");
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).expect("read archive for hashing");
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    hex::encode(hasher.finalize())
 }
 
 #[tokio::test]
