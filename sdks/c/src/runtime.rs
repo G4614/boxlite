@@ -606,6 +606,18 @@ unsafe fn dispatch_event(event: RuntimeEvent) {
                 user_data,
                 result,
             } => dispatch_unit_event(result, user_data, cb),
+            RuntimeEvent::ExportBox {
+                cb,
+                user_data,
+                result,
+            } => {
+                dispatch_handle_event::<crate::archive::CArchiveExportResult>(result, user_data, cb)
+            }
+            RuntimeEvent::ImportBox {
+                cb,
+                user_data,
+                result,
+            } => dispatch_handle_event::<crate::CBoxHandle>(result, user_data, cb),
             RuntimeEvent::Info {
                 cb,
                 user_data,

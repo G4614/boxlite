@@ -149,13 +149,39 @@ typedef struct FFIError {
   char *message;
 } FFIError;
 
-typedef struct RuntimeHandle CBoxliteRuntime;
-
-typedef struct OptionsHandle CBoxliteOptions;
-
 typedef struct BoxHandle CBoxHandle;
 
+// Options for exporting a box archive.
+typedef struct CArchiveExportOptions {
+  // Non-zero writes a mirrorable directory archive; zero writes one
+  // `.boxlite` file.
+  int as_directory;
+} CArchiveExportOptions;
+
+// Exported archive metadata.
+//
+// `path` and `sha256` are owned C strings. Release the whole result with
+// `boxlite_free_archive_export_result`.
+typedef struct CArchiveExportResult {
+  char *path;
+  char *sha256;
+  uint64_t size_bytes;
+  uint32_t archive_version;
+} CArchiveExportResult;
+
 typedef struct FFIError CBoxliteError;
+
+// Box archive export completion. On success the callback owns the result and
+// must release it with `boxlite_free_archive_export_result`.
+typedef void (*CBoxExportCb)(struct CArchiveExportResult*, CBoxliteError*, void*);
+
+typedef struct RuntimeHandle CBoxliteRuntime;
+
+// Box archive import completion. On success the callback owns the returned
+// box handle and must release it with `boxlite_box_free`.
+typedef void (*CBoxImportCb)(CBoxHandle*, CBoxliteError*, void*);
+
+typedef struct OptionsHandle CBoxliteOptions;
 
 // Box creation completion.
 typedef void (*CBoxCreateBoxCb)(CBoxHandle*, CBoxliteError*, void*);
@@ -468,6 +494,22 @@ enum BoxliteErrorCode boxlite_advanced_options_set_capabilities_add(CAdvancedBox
 enum BoxliteErrorCode boxlite_advanced_options_set_capabilities_drop(CAdvancedBoxOptions *opts,
                                                                      const char *const *capabilities,
                                                                      int count);
+
+enum BoxliteErrorCode boxlite_box_export(CBoxHandle *handle,
+                                         const char *dest_path,
+                                         struct CArchiveExportOptions options,
+                                         CBoxExportCb cb,
+                                         void *user_data,
+                                         CBoxliteError *out_error);
+
+enum BoxliteErrorCode boxlite_runtime_import_box(CBoxliteRuntime *runtime,
+                                                 const char *archive_path,
+                                                 const char *name,
+                                                 CBoxImportCb cb,
+                                                 void *user_data,
+                                                 CBoxliteError *out_error);
+
+void boxlite_free_archive_export_result(struct CArchiveExportResult *result);
 
 enum BoxliteErrorCode boxlite_create_box(CBoxliteRuntime *runtime,
                                          CBoxliteOptions *opts,

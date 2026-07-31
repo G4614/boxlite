@@ -138,13 +138,7 @@ async fn test_directory_export_import_roundtrip() {
     let mirror = export_dir.path().join("mirror");
 
     let archive = source
-        .export(
-            ExportOptions {
-                as_directory: true,
-                ..Default::default()
-            },
-            &mirror,
-        )
+        .export(ExportOptions { as_directory: true }, &mirror)
         .await
         .expect("Failed to export box as directory");
 
@@ -313,13 +307,7 @@ async fn test_export_running_box() {
 
     let mirror = export_dir.path().join("running-mirror");
     let directory_archive = source
-        .export(
-            ExportOptions {
-                as_directory: true,
-                ..Default::default()
-            },
-            &mirror,
-        )
+        .export(ExportOptions { as_directory: true }, &mirror)
         .await
         .expect("Directory export on running box should succeed");
     assert!(directory_archive.path().join("manifest.json").exists());

@@ -18,6 +18,8 @@ extern CBoxStartBoxCb cbStartBox(void);
 extern CBoxStopBoxCb cbStopBox(void);
 extern CBoxRemoveBoxCb cbRemoveBox(void);
 extern CBoxCopyCb cbCopy(void);
+extern CBoxExportCb cbExportBox(void);
+extern CBoxImportCb cbImportBox(void);
 
 extern CBoxImagePullCb cbImagePull(void);
 extern CBoxImageListCb cbImageList(void);
