@@ -11,7 +11,7 @@ import (
 )
 
 type DrainRequest struct {
-	Draining bool `json:"draining"`
+	Draining *bool `json:"draining" binding:"required"`
 }
 
 type DrainStatusResponse struct {
@@ -32,7 +32,7 @@ func SetDrain(ctx *gin.Context) {
 		return
 	}
 
-	if req.Draining {
+	if *req.Draining {
 		drain.Enable()
 	} else {
 		drain.Disable()

@@ -136,10 +136,11 @@ func BoxliteExecAttach(ctx *gin.Context) {
 	boxId := ctx.Param("boxId")
 	execId := ctx.Param("execId")
 
-	if drain.IsDraining() {
+	if !drain.TryBeginAttach() {
 		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "runner is draining"})
 		return
 	}
+	defer drain.EndAttach()
 
 	target, ok := resolveAttachExec(execId, boxId)
 	if !ok {
@@ -161,9 +162,6 @@ func BoxliteExecAttach(ctx *gin.Context) {
 		target.MarkDisconnected()
 		return
 	}
-
-	drain.BeginAttach()
-	defer drain.EndAttach()
 
 	runAttachLoop(ctx.Request.Context(), conn, target)
 }

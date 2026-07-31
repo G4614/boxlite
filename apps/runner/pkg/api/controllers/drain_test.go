@@ -38,3 +38,24 @@ func TestSetDrainAndStatus(t *testing.T) {
 		t.Fatalf("expected draining=true, got %+v", status)
 	}
 }
+
+func TestSetDrainRejectsMissingValue(t *testing.T) {
+	drain.Enable()
+	t.Cleanup(drain.Disable)
+
+	for _, body := range []string{`{}`, `{"draining":null}`} {
+		w := runHandler(
+			http.MethodPost,
+			"/admin/drain",
+			"/admin/drain",
+			strings.NewReader(body),
+			SetDrain,
+		)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("body %s: expected 400, got %d", body, w.Code)
+		}
+		if !drain.IsDraining() {
+			t.Fatalf("body %s must not disable an active drain", body)
+		}
+	}
+}

@@ -96,8 +96,7 @@ func (s *Service) Start(ctx context.Context) {
 
 func (s *Service) sendHealthcheck(ctx context.Context) error {
 	if drain.IsDraining() {
-		s.log.DebugContext(ctx, "Skipping healthcheck while runner is draining")
-		return nil
+		s.log.DebugContext(ctx, "Sending healthcheck while runner is draining")
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, s.timeout)

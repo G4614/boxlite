@@ -3,18 +3,26 @@
 
 package drain
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 var (
 	draining     atomic.Bool
 	activeAttach atomic.Int64
+	attachGate   sync.Mutex
 )
 
 func Enable() {
+	attachGate.Lock()
+	defer attachGate.Unlock()
 	draining.Store(true)
 }
 
 func Disable() {
+	attachGate.Lock()
+	defer attachGate.Unlock()
 	draining.Store(false)
 }
 
@@ -22,8 +30,14 @@ func IsDraining() bool {
 	return draining.Load()
 }
 
-func BeginAttach() {
+func TryBeginAttach() bool {
+	attachGate.Lock()
+	defer attachGate.Unlock()
+	if draining.Load() {
+		return false
+	}
 	activeAttach.Add(1)
+	return true
 }
 
 func EndAttach() {
