@@ -275,6 +275,12 @@ fn extract_and_validate(
     // A layered archive carries `layers/` blobs instead of a flattened disk;
     // each is checked against its own digest as it is installed.
     if !manifest.layers.is_empty() {
+        for layer in &manifest.layers {
+            validate_sha256_digest(&layer.digest, "layer")?;
+            if let Some(image_digest) = &layer.image_digest {
+                validate_sha256_digest(image_digest, "image")?;
+            }
+        }
         return Ok((manifest, temp_dir));
     }
 
@@ -406,6 +412,7 @@ enum LayerBlobs {
 impl LayerBlobs {
     /// Produce a path to this layer's bytes, unpacking it only if needed.
     fn materialize(&self, layer: &ArchiveLayer) -> BoxliteResult<PathBuf> {
+        validate_sha256_digest(&layer.digest, "layer")?;
         match self {
             Self::Extracted(dir) => Ok(dir.join(layer_entry_name(&layer.digest))),
             Self::Directory {
@@ -425,6 +432,15 @@ impl LayerBlobs {
             }
         }
     }
+}
+
+fn validate_sha256_digest<'a>(digest: &'a str, kind: &str) -> BoxliteResult<&'a str> {
+    digest
+        .strip_prefix("sha256:")
+        .filter(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            BoxliteError::Storage(format!("Invalid archive: malformed {kind} digest {digest}"))
+        })
 }
 
 /// Fail unless a blob hashes to the digest the manifest declared for it.
@@ -496,6 +512,8 @@ fn resolve_layer(
     parent: Option<&Path>,
     image_disks_dir: &Path,
 ) -> BoxliteResult<(PathBuf, Option<BaseDiskID>, bool)> {
+    validate_sha256_digest(&layer.digest, "layer")?;
+
     // An image disk this host already built is preferred over the archived
     // copy, and is the only cross-host reuse available for that layer: its
     // bytes differ on every host (mke2fs writes a random UUID), so `digest`
@@ -505,14 +523,7 @@ fn resolve_layer(
     // No base disk id is returned because the image cache owns this file and
     // manages its own lifecycle — it must not be pulled into base-disk GC.
     if let Some(image_digest) = &layer.image_digest {
-        let Some(hex) = image_digest
-            .strip_prefix("sha256:")
-            .filter(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        else {
-            return Err(BoxliteError::Storage(format!(
-                "Invalid archive: malformed image digest {image_digest}"
-            )));
-        };
+        let hex = validate_sha256_digest(image_digest, "image")?;
         let local = image_disks_dir.join(format!("sha256-{hex}.ext4"));
         if local.is_file() {
             tracing::debug!(
@@ -670,9 +681,10 @@ mod layered_install_tests {
         let temp = home.path().join("extract");
         std::fs::create_dir_all(&temp).unwrap();
         let mgr = mgr(home.path());
-        let layer = stage(&temp, 1, None);
+        let bottom = stage(&temp, 1, None);
+        let top = stage(&temp, 2, Some(FOREIGN_PARENT));
         let installed = install_layers(
-            &[layer],
+            &[bottom, top],
             &LayerBlobs::Extracted(temp),
             &home.path().join("box"),
             &mgr,
@@ -680,6 +692,7 @@ mod layered_install_tests {
             &home.path().join("images"),
         )
         .expect("install");
+        assert!(!installed.is_empty(), "the bottom layer must be installed");
 
         let conn = rusqlite::Connection::open(home.path().join("boxlite.db")).unwrap();
         conn.execute_batch(
@@ -881,6 +894,32 @@ mod layered_install_tests {
             error.to_string().contains("malformed image digest"),
             "got: {error}"
         );
+    }
+
+    #[test]
+    fn a_malformed_layer_digest_cannot_escape_the_scratch_directory() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let archive_dir = home.path().join("archive");
+        let scratch = home.path().join("scratch");
+        std::fs::create_dir_all(&archive_dir).unwrap();
+        std::fs::create_dir_all(&scratch).unwrap();
+        let escaped = home.path().join("escaped");
+        let layer = ArchiveLayer {
+            digest: "sha256:../../escaped".to_string(),
+            format: LayerFormat::Raw,
+            virtual_size: 1,
+            image_digest: None,
+        };
+
+        let error = LayerBlobs::Directory {
+            archive_dir,
+            scratch,
+        }
+        .materialize(&layer)
+        .expect_err("a malformed digest must be rejected before filesystem access");
+
+        assert!(error.to_string().contains("malformed layer digest"));
+        assert!(!escaped.exists(), "validation must happen before any write");
     }
 
     /// A stand-in for the exporter's local backing path, which import must
