@@ -853,6 +853,9 @@ pub(crate) enum ArchiveImportPolicy {
 pub struct BoxArchive {
     path: PathBuf,
     import_policy: ArchiveImportPolicy,
+    sha256: Option<String>,
+    size_bytes: Option<u64>,
+    archive_version: Option<u32>,
 }
 
 impl BoxArchive {
@@ -865,7 +868,19 @@ impl BoxArchive {
         Self {
             path: path.into(),
             import_policy: ArchiveImportPolicy::Trusted,
+            sha256: None,
+            size_bytes: None,
+            archive_version: None,
         }
+    }
+
+    /// Attach export metadata that callers can persist before moving the
+    /// archive through object storage.
+    pub fn with_metadata(mut self, sha256: String, size_bytes: u64, archive_version: u32) -> Self {
+        self.sha256 = Some(sha256);
+        self.size_bytes = Some(size_bytes);
+        self.archive_version = Some(archive_version);
+        self
     }
 
     /// Create an archive handle for bytes received across an untrusted server
@@ -879,12 +894,37 @@ impl BoxArchive {
         Self {
             path: path.into(),
             import_policy: ArchiveImportPolicy::UntrustedRemote,
+            sha256: None,
+            size_bytes: None,
+            archive_version: None,
         }
     }
 
     /// Path to the archive file.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// SHA-256 digest of the exported artifact.
+    ///
+    /// For single-file archives this is the digest of the `.boxlite` file. For
+    /// directory-form archives this is the digest of `manifest.json`; layer
+    /// digests are recorded inside that manifest.
+    pub fn sha256(&self) -> Option<&str> {
+        self.sha256.as_deref()
+    }
+
+    /// Size of the exported artifact in bytes.
+    ///
+    /// Directory-form archives report the sum of regular files under the
+    /// archive directory.
+    pub fn size_bytes(&self) -> Option<u64> {
+        self.size_bytes
+    }
+
+    /// Archive manifest version.
+    pub fn archive_version(&self) -> Option<u32> {
+        self.archive_version
     }
 
     pub(crate) fn import_policy(&self) -> ArchiveImportPolicy {
@@ -910,14 +950,6 @@ pub struct ExportOptions {
     /// between the two ends. The single-file form cannot do that: it is one
     /// opaque blob that changes completely between exports.
     pub as_directory: bool,
-    /// Publish into a shared layer store under this archive name.
-    ///
-    /// Requires `as_directory`. `dest` is then the store root: the manifest
-    /// lands at `archives/<name>.json` and the layers join the store's shared
-    /// `layers/` pool, so archives of different boxes share every layer they
-    /// have in common. What holds a layer in the pool is the manifests that
-    /// name it; `ArchiveStore::gc` sweeps the rest.
-    pub archive_name: Option<String>,
 }
 
 /// Forward-compatible options for cloning a box.

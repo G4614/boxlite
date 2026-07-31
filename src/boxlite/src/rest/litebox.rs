@@ -410,15 +410,6 @@ impl BoxBackend for RestBox {
     ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
         self.client.require_export_enabled().await?;
 
-        // The wire format is one HTTP body; a directory of objects has no
-        // representation there. Refusing is better than silently handing back
-        // a single file the caller intends to mirror somewhere.
-        if options.as_directory || options.archive_name.is_some() {
-            return Err(BoxliteError::Unsupported(
-                "directory-form export is not available over REST; export locally and mirror the directory".into(),
-            ));
-        }
-
         let box_id = self.box_id_str();
         let path = format!("/boxes/{}/export", box_id);
         let req = ExportBoxRequest::from_options(&options);

@@ -360,19 +360,7 @@ export interface NativeBoxConnection {
 
 export type JsCloneOptions = Record<string, never>;
 
-export interface JsExportOptions {
-  /**
-   * Write a directory of content-addressed objects instead of one `.boxlite`
-   * file, so mirroring it to object storage transfers only the objects the
-   * destination lacks.
-   */
-  asDirectory?: boolean;
-  /**
-   * Publish into a shared layer store under this archive name (requires
-   * `asDirectory`; the destination is then the store root).
-   */
-  archiveName?: string;
-}
+export type JsExportOptions = Record<string, never>;
 
 export interface JsBox {
   readonly id: string;

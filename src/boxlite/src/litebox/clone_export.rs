@@ -212,15 +212,6 @@ impl BoxImpl {
         let box_id_str = self.id().to_string();
         let dest = dest.to_path_buf();
         let as_directory = options.as_directory;
-        let archive_name = options.archive_name.clone();
-        // A store publish is a directory-form export with a different landing
-        // spot for the manifest; without as_directory the name has no meaning.
-        if archive_name.is_some() && !as_directory {
-            return Err(BoxliteError::InvalidArgument(
-                "archive_name requires as_directory: a store is a directory of layer objects"
-                    .into(),
-            ));
-        }
         let base_disk_mgr = self.runtime.base_disk_mgr.clone();
         let image_disks_dir = self.runtime.layout.image_layout().disk_images_dir();
 
@@ -232,10 +223,10 @@ impl BoxImpl {
                 config_name.as_deref(),
                 &config_options,
                 &box_id_str,
-                match (archive_name.as_deref(), as_directory) {
-                    (Some(name), _) => ExportDest::Store { root: &dest, name },
-                    (None, true) => ExportDest::Directory(&dest),
-                    (None, false) => ExportDest::File(&dest),
+                if as_directory {
+                    ExportDest::Directory(&dest)
+                } else {
+                    ExportDest::File(&dest)
                 },
             )
         })
@@ -369,12 +360,6 @@ enum ExportDest<'a> {
     File(&'a std::path::Path),
     /// A mirrorable directory of layer objects, used exactly as given.
     Directory(&'a std::path::Path),
-    /// A shared layer store: the manifest lands at `archives/<name>.json`
-    /// and the layers join the store's pool.
-    Store {
-        root: &'a std::path::Path,
-        name: &'a str,
-    },
 }
 
 /// Phase 2: Checksum, manifest, and archive.
@@ -391,7 +376,7 @@ fn do_export_finalize(
     use super::archive::{
         ArchiveLayer, ArchiveManifest, CanonicalLayer, LAYERED_ARCHIVE_VERSION, LayerFormat,
         MANIFEST_FILENAME, archive_version_for_options, build_layered_archive,
-        build_layered_directory, build_store_archive,
+        build_layered_directory, sha256_file,
     };
     use crate::disk::Qcow2Helper;
 
@@ -400,7 +385,7 @@ fn do_export_finalize(
     // repeat exports into the same place, which is what makes the transfer
     // incremental.
     let output_path = match dest {
-        ExportDest::Directory(dir) | ExportDest::Store { root: dir, .. } => dir.to_path_buf(),
+        ExportDest::Directory(dir) => dir.to_path_buf(),
         ExportDest::File(path) if path.is_dir() => {
             let name = config_name.unwrap_or("box");
             path.join(format!("{}.boxlite", name))
@@ -472,9 +457,6 @@ fn do_export_finalize(
 
     let t_archive = Instant::now();
     let output_path = match dest {
-        ExportDest::Store { name, .. } => {
-            build_store_archive(&output_path, name, &manifest_json, &blobs, 3)?
-        }
         ExportDest::Directory(_) => {
             build_layered_directory(&output_path, &manifest_json, &blobs, 3)?;
             output_path
@@ -498,7 +480,57 @@ fn do_export_finalize(
         "Exported box to layered archive"
     );
 
-    Ok(crate::runtime::options::BoxArchive::new(output_path))
+    let (sha256, size_bytes) = match dest {
+        ExportDest::Directory(_) => (
+            sha256_file(&output_path.join(MANIFEST_FILENAME))?,
+            directory_size(&output_path)?,
+        ),
+        ExportDest::File(_) => {
+            let size = std::fs::metadata(&output_path)
+                .map_err(|e| {
+                    BoxliteError::Storage(format!(
+                        "Failed to stat archive {}: {}",
+                        output_path.display(),
+                        e
+                    ))
+                })?
+                .len();
+            (sha256_file(&output_path)?, size)
+        }
+    };
+
+    Ok(
+        crate::runtime::options::BoxArchive::new(output_path).with_metadata(
+            sha256,
+            size_bytes,
+            manifest.version,
+        ),
+    )
+}
+
+fn directory_size(path: &std::path::Path) -> BoxliteResult<u64> {
+    let mut total = 0u64;
+    for entry in walkdir::WalkDir::new(path) {
+        let entry =
+            entry.map_err(|e| BoxliteError::Storage(format!("Failed to walk archive: {e}")))?;
+        if entry.file_type().is_file() {
+            total = total
+                .checked_add(
+                    entry
+                        .metadata()
+                        .map_err(|e| {
+                            BoxliteError::Storage(format!(
+                                "Failed to stat archive entry {}: {}",
+                                entry.path().display(),
+                                e
+                            ))
+                        })?
+                        .len(),
+                )
+                .ok_or_else(|| BoxliteError::Storage("archive size overflow".into()))?;
+        }
+    }
+    Ok(total)
 }
 
 #[cfg(test)]
@@ -593,57 +625,6 @@ mod tests {
         assert!(out.join("manifest.json").exists());
     }
 
-    /// Publishing the same chain under two names shares every object; the
-    /// pool empties only when the last manifest referencing it is gone.
-    #[test]
-    fn a_store_frees_a_layer_only_with_its_last_reference() {
-        let temp = tempfile::TempDir::new_in("/tmp").unwrap();
-        let home = temp.path();
-        let store_root = home.join("store");
-
-        let first = export_named(home, &store_root, true, Some("monday"));
-        assert!(first.path().ends_with("archives/monday.json"));
-        let objects: Vec<_> = std::fs::read_dir(store_root.join("layers"))
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect();
-        assert!(!objects.is_empty());
-        let stamps: Vec<_> = objects
-            .iter()
-            .map(|p| std::fs::metadata(p).unwrap().modified().unwrap())
-            .collect();
-
-        export_named(home, &store_root, true, Some("tuesday"));
-        for (path, before) in objects.iter().zip(&stamps) {
-            assert_eq!(
-                &std::fs::metadata(path).unwrap().modified().unwrap(),
-                before,
-                "{} was rewritten by the second publish",
-                path.display()
-            );
-        }
-
-        let store = crate::ArchiveStore::open(&store_root).unwrap();
-        let mut names = store.archives().unwrap();
-        names.sort();
-        assert_eq!(names, ["monday", "tuesday"]);
-
-        // Identical chains: dropping one name must free nothing.
-        assert!(store.remove("monday").unwrap());
-        let report = store.gc(std::time::Duration::ZERO).unwrap();
-        assert_eq!(report.swept, 0, "tuesday still references every layer");
-
-        assert!(store.remove("tuesday").unwrap());
-        let report = store.gc(std::time::Duration::ZERO).unwrap();
-        assert_eq!(report.swept, objects.len());
-        assert_eq!(
-            std::fs::read_dir(store_root.join("layers"))
-                .unwrap()
-                .count(),
-            0
-        );
-    }
-
     fn export_to_archive(home: &std::path::Path) -> crate::runtime::options::BoxArchive {
         export_with(home, &home.join("out.boxlite"), false)
     }
@@ -652,15 +633,6 @@ mod tests {
         home: &std::path::Path,
         dest: &std::path::Path,
         as_directory: bool,
-    ) -> crate::runtime::options::BoxArchive {
-        export_named(home, dest, as_directory, None)
-    }
-
-    fn export_named(
-        home: &std::path::Path,
-        dest: &std::path::Path,
-        as_directory: bool,
-        archive_name: Option<&str>,
     ) -> crate::runtime::options::BoxArchive {
         let layout = FilesystemLayout::new(home.to_path_buf(), FsLayoutConfig::default());
         std::fs::create_dir_all(layout.temp_dir()).unwrap();
@@ -673,10 +645,10 @@ mod tests {
             Some("some-box"),
             &crate::runtime::options::BoxOptions::default(),
             "box-id",
-            match (archive_name, as_directory) {
-                (Some(name), _) => ExportDest::Store { root: dest, name },
-                (None, true) => ExportDest::Directory(dest),
-                (None, false) => ExportDest::File(dest),
+            if as_directory {
+                ExportDest::Directory(dest)
+            } else {
+                ExportDest::File(dest)
             },
         )
         .expect("finalize")
