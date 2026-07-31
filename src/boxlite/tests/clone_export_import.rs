@@ -359,6 +359,34 @@ async fn test_export_running_box() {
     imported.start().await.expect("Start imported box");
     imported.stop().await.expect("Stop imported box");
 
+    let mirror = export_dir.path().join("running-mirror");
+    let directory_archive = source
+        .export(
+            ExportOptions {
+                as_directory: true,
+                ..Default::default()
+            },
+            &mirror,
+        )
+        .await
+        .expect("Directory export on running box should succeed");
+    assert!(directory_archive.path().join("manifest.json").exists());
+    let imported_directory = runtime
+        .import_box(
+            directory_archive,
+            Some("imported-running-directory".to_string()),
+        )
+        .await
+        .expect("Directory archive from running box should import");
+    imported_directory
+        .start()
+        .await
+        .expect("Start directory-imported box");
+    imported_directory
+        .stop()
+        .await
+        .expect("Stop directory-imported box");
+
     source.stop().await.expect("Stop source box");
 
     let _ = runtime.shutdown(Some(common::TEST_SHUTDOWN_TIMEOUT)).await;

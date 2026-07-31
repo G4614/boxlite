@@ -282,7 +282,7 @@ fn do_export_capture(
     runtime_layout: &crate::runtime::layout::FilesystemLayout,
 ) -> BoxliteResult<ChainCapture> {
     use crate::disk::constants::filenames as disk_filenames;
-    use crate::disk::read_backing_chain;
+    use crate::disk::{read_backing_chain, read_backing_file_path};
 
     let disks_dir = box_home.join("disks");
     let container_disk = disks_dir.join(disk_filenames::CONTAINER_DISK);
@@ -312,10 +312,15 @@ fn do_export_capture(
 
     // read_backing_chain yields the backing files below `container_disk`,
     // nearest first, so reversing puts the deepest base at index 0.
-    let mut layer_paths: Vec<std::path::PathBuf> = read_backing_chain(&container_disk)
-        .into_iter()
-        .rev()
-        .collect();
+    let chain = read_backing_chain(&container_disk);
+    let deepest = chain.last().unwrap_or(&container_disk);
+    if is_qcow2(deepest) && read_backing_file_path(deepest)?.is_some() {
+        return Err(BoxliteError::Storage(format!(
+            "Cannot export {}: backing chain is incomplete",
+            container_disk.display()
+        )));
+    }
+    let mut layer_paths: Vec<std::path::PathBuf> = chain.into_iter().rev().collect();
     layer_paths.push(top_copy);
 
     let capture_ms = t_capture.elapsed().as_millis() as u64;
@@ -334,7 +339,9 @@ fn do_export_capture(
 /// rather than by resolving the image again — export must not depend on the
 /// registry being reachable.
 fn image_digest_of(path: &std::path::Path, image_disks_dir: &std::path::Path) -> Option<String> {
-    if path.parent() != Some(image_disks_dir) {
+    let path = path.canonicalize().ok()?;
+    let image_disks_dir = image_disks_dir.canonicalize().ok()?;
+    if path.parent() != Some(image_disks_dir.as_path()) {
         return None;
     }
     let stem = path.file_stem()?.to_str()?;
@@ -356,10 +363,7 @@ fn is_qcow2(path: &std::path::Path) -> bool {
     f.read_exact(&mut magic).is_ok() && u32::from_be_bytes(magic) == 0x5146_49fb
 }
 
-/// Phase 2: Checksum, manifest, and archive.
-/// Runs after the VM resumes — only reads static temp files.
 /// Where an export lands, and in which form.
-#[derive(Clone, Copy)]
 enum ExportDest<'a> {
     /// One `.boxlite` file; a directory here means "name the file inside it".
     File(&'a std::path::Path),
@@ -373,6 +377,8 @@ enum ExportDest<'a> {
     },
 }
 
+/// Phase 2: Checksum, manifest, and archive.
+/// Runs after the VM resumes — only reads static temp files.
 fn do_export_finalize(
     capture: ChainCapture,
     base_disk_mgr: &crate::disk::BaseDiskManager,
@@ -432,7 +438,7 @@ fn do_export_finalize(
                 LayerFormat::Raw
             },
             virtual_size: if qcow2 {
-                Qcow2Helper::qcow2_virtual_size(path).unwrap_or(0)
+                Qcow2Helper::qcow2_virtual_size(path)?
             } else {
                 0
             },
@@ -551,12 +557,11 @@ mod tests {
         box_home
     }
 
-    /// A second export into the same directory rewrites only what changed.
+    /// Re-exporting the same box leaves existing layer objects untouched.
     ///
     /// The shared base keeps its mtime — the object was not rewritten — which
     /// is the property a sync tool needs for "mirror this directory" to
-    /// transfer only missing objects. The manifest must be rewritten: it names
-    /// the new export's top layer.
+    /// transfer only missing objects.
     #[test]
     fn a_reexport_into_the_same_directory_skips_existing_objects() {
         let temp = tempfile::TempDir::new_in("/tmp").unwrap();
@@ -574,7 +579,7 @@ mod tests {
             .map(|p| std::fs::metadata(p).unwrap().modified().unwrap())
             .collect();
 
-        // A different box home whose chain shares the same bottom layer.
+        // Re-export the same box into the same mirror.
         export_with(home, &out, true);
 
         for (path, before) in layers.iter().zip(&stamps) {
@@ -714,6 +719,28 @@ mod tests {
                 .any(|e| e.ends_with(disk_filenames::GUEST_ROOTFS_DISK)),
             "archive must not carry the guest rootfs disk, got {entries:?}"
         );
+    }
+
+    #[test]
+    fn export_refuses_an_incomplete_backing_chain() {
+        let temp = tempfile::TempDir::new_in("/tmp").unwrap();
+        let home = temp.path();
+        let layout = FilesystemLayout::new(home.to_path_buf(), FsLayoutConfig::default());
+        std::fs::create_dir_all(layout.temp_dir()).unwrap();
+        let box_home = chained_box_home(home);
+        let container = box_home.join("disks").join(disk_filenames::CONTAINER_DISK);
+        let nearest = crate::disk::read_backing_file_path(&container)
+            .unwrap()
+            .map(std::path::PathBuf::from)
+            .expect("container backing");
+        std::fs::remove_file(nearest).unwrap();
+
+        let error = match do_export_capture(&box_home, &layout) {
+            Ok(_) => panic!("an incomplete chain must not produce an archive"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("backing chain is incomplete"));
     }
 
     /// Layers are ordered base first, so an importer can materialize each

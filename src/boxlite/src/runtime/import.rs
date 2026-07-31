@@ -1,5 +1,6 @@
 //! Box import from `.boxlite` archives.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -68,19 +69,13 @@ pub(crate) async fn import_box(
     // The directory form keeps its objects where they are; the scratch dir is
     // only where the ones actually wanted get unpacked.
     let blobs = if let Some(store_root) = store_manifest(archive.path()) {
-        LayerBlobs::Directory {
-            archive_dir: store_root,
-            scratch: temp_path.clone(),
-        }
+        LayerBlobs::directory(store_root, temp_path.clone())
     } else if archive.path().is_dir() {
-        LayerBlobs::Directory {
-            archive_dir: archive.path().to_path_buf(),
-            scratch: temp_path.clone(),
-        }
+        LayerBlobs::directory(archive.path().to_path_buf(), temp_path.clone())
     } else {
         LayerBlobs::Extracted(temp_path.clone())
     };
-    let install = tokio::task::spawn_blocking(move || {
+    let install_task = tokio::task::spawn_blocking(move || {
         if layers.is_empty() {
             install_disks(&temp_path, &staging_clone).map(|()| Vec::new())
         } else {
@@ -93,14 +88,21 @@ pub(crate) async fn import_box(
                 &image_disks_dir,
             )
         }
-    })
-    .await
-    .map_err(|e| BoxliteError::Internal(format!("Import install task panicked: {}", e)))?;
+    });
+    let install = match install_task.await {
+        Ok(install) => install,
+        Err(e) => {
+            release_import_token(&runtime.base_disk_mgr, &token);
+            return Err(BoxliteError::Internal(format!(
+                "Import install task panicked: {e}"
+            )));
+        }
+    };
 
     let installed = match install {
         Ok(installed) => installed,
         Err(e) => {
-            release_import_token(runtime, &token);
+            release_import_token(&runtime.base_disk_mgr, &token);
             return Err(e);
         }
     };
@@ -111,28 +113,19 @@ pub(crate) async fn import_box(
     {
         Ok(litebox) => litebox,
         Err(e) => {
-            release_import_token(runtime, &token);
+            release_import_token(&runtime.base_disk_mgr, &token);
             return Err(e);
         }
     };
 
     // Hand ownership to the box before dropping the token, so the layers are
     // never momentarily unreferenced.
-    for base_id in &installed {
-        if let Err(e) = runtime
-            .base_disk_mgr
-            .store()
-            .add_ref(base_id, litebox.id().as_ref())
-        {
-            tracing::warn!(
-                box_id = %litebox.id(),
-                base_disk_id = %base_id,
-                error = %e,
-                "Failed to record base disk ref for imported box"
-            );
-        }
-    }
-    release_import_token(runtime, &token);
+    handoff_import_refs(
+        &runtime.base_disk_mgr,
+        &installed,
+        &token,
+        litebox.id().as_ref(),
+    );
 
     tracing::info!(
         box_id = %litebox.id(),
@@ -149,8 +142,28 @@ pub(crate) async fn import_box(
 /// After a successful import the box holds its own refs, so this only releases
 /// the token. After a failure it is what stops half-installed layers from
 /// accumulating in `bases/` forever.
-fn release_import_token(runtime: &Arc<RuntimeImpl>, token: &str) {
-    let store = runtime.base_disk_mgr.store();
+fn handoff_import_refs(
+    base_disk_mgr: &crate::disk::BaseDiskManager,
+    installed: &[BaseDiskID],
+    token: &str,
+    box_id: &str,
+) {
+    for base_id in installed {
+        if let Err(e) = base_disk_mgr.store().add_ref(base_id, box_id) {
+            tracing::warn!(
+                box_id,
+                base_disk_id = %base_id,
+                error = %e,
+                "Failed to record base disk ref; retaining import token refs"
+            );
+            return;
+        }
+    }
+    release_import_token(base_disk_mgr, token);
+}
+
+fn release_import_token(base_disk_mgr: &crate::disk::BaseDiskManager, token: &str) {
+    let store = base_disk_mgr.store();
     let released = match store.remove_all_refs_for_box(token) {
         Ok(ids) => ids,
         Err(e) => {
@@ -159,7 +172,7 @@ fn release_import_token(runtime: &Arc<RuntimeImpl>, token: &str) {
         }
     };
     for id in released {
-        runtime.base_disk_mgr.try_gc_base(&id);
+        base_disk_mgr.try_gc_base(&id);
     }
 }
 
@@ -232,10 +245,10 @@ fn extract_and_validate(
     // A mirrored archive directory is already in the layout an extraction
     // would produce, except its layers are still compressed and are unpacked
     // one at a time, only if wanted. Copying it here first would throw that
-    // away, so only the single-file `.boxlite` form is extracted. A store
-    // archive is the same thing again, one level up: the path is the manifest
-    // itself, at `<store>/archives/<name>.json` over the store's shared pool.
-    let manifest_path = if store_manifest(archive_path).is_some() {
+    // away, so only the single-file form is extracted. A store archive is the
+    // same thing again, one level up: the path is the manifest itself, at
+    // `<store>/archives/<name>.json` over the store's shared pool.
+    let manifest_path = if let Some(_root) = store_manifest(archive_path) {
         archive_path.to_path_buf()
     } else if archive_path.is_dir() {
         archive_path.join(MANIFEST_FILENAME)
@@ -263,6 +276,12 @@ fn extract_and_validate(
     // A layered archive carries `layers/` blobs instead of a flattened disk;
     // each is checked against its own digest as it is installed.
     if !manifest.layers.is_empty() {
+        for layer in &manifest.layers {
+            validate_sha256_digest(&layer.digest, "layer")?;
+            if let Some(image_digest) = &layer.image_digest {
+                validate_sha256_digest(image_digest, "image")?;
+            }
+        }
         return Ok((manifest, temp_dir));
     }
 
@@ -335,13 +354,11 @@ fn install_layers(
             layer,
             blobs,
             base_disk_mgr,
+            token,
             parent.as_deref(),
             image_disks_dir,
         )?;
         if let Some(id) = id {
-            // Pin immediately — before any later layer can fail — so the token
-            // is enough to find and collect everything this import installed.
-            base_disk_mgr.store().add_ref(&id, token)?;
             base_ids.push(id);
         }
         if freshly_installed {
@@ -373,6 +390,22 @@ fn install_layers(
     Ok(base_ids)
 }
 
+/// Where a layer's bytes come from while an archive is being installed.
+///
+/// The two forms differ in *when* a blob costs anything. A `.boxlite` file is
+/// one stream, so every layer is already unpacked by the time anything is
+/// decided. A mirrored directory holds each layer as its own object, so a
+/// layer the host already has is never opened — which is the only reason the
+/// directory form saves work rather than just rearranging it.
+enum LayerBlobs {
+    Extracted(PathBuf),
+    Directory {
+        archive_dir: PathBuf,
+        scratch: PathBuf,
+        remaining_output: Cell<u64>,
+    },
+}
+
 /// The store root, if this archive path is a store manifest.
 ///
 /// A store archive is addressed by its manifest file,
@@ -390,42 +423,57 @@ fn store_manifest(archive_path: &Path) -> Option<PathBuf> {
     archives_dir.parent().map(Path::to_path_buf)
 }
 
-/// Where a layer's bytes come from while an archive is being installed.
-///
-/// The two forms differ in *when* a blob costs anything. A `.boxlite` file is
-/// one stream, so every layer is already unpacked by the time anything is
-/// decided. A mirrored directory holds each layer as its own object, so a
-/// layer the host already has is never opened — which is the only reason the
-/// directory form saves work rather than just rearranging it.
-enum LayerBlobs {
-    Extracted(PathBuf),
-    Directory {
-        archive_dir: PathBuf,
-        scratch: PathBuf,
-    },
-}
-
 impl LayerBlobs {
+    fn directory(archive_dir: PathBuf, scratch: PathBuf) -> Self {
+        Self::directory_with_limit(
+            archive_dir,
+            scratch,
+            crate::litebox::archive::MAX_ARCHIVE_OUTPUT,
+        )
+    }
+
+    fn directory_with_limit(archive_dir: PathBuf, scratch: PathBuf, limit: u64) -> Self {
+        Self::Directory {
+            archive_dir,
+            scratch,
+            remaining_output: Cell::new(limit),
+        }
+    }
+
     /// Produce a path to this layer's bytes, unpacking it only if needed.
     fn materialize(&self, layer: &ArchiveLayer) -> BoxliteResult<PathBuf> {
+        validate_sha256_digest(&layer.digest, "layer")?;
         match self {
             Self::Extracted(dir) => Ok(dir.join(layer_entry_name(&layer.digest))),
             Self::Directory {
                 archive_dir,
                 scratch,
+                remaining_output,
             } => {
                 let dest = scratch.join(layer_entry_name(&layer.digest));
                 if !dest.exists() {
-                    crate::litebox::archive::extract_layer_object(
+                    let written = crate::litebox::archive::extract_layer_object(
                         archive_dir,
                         &layer.digest,
                         &dest,
+                        layer.virtual_size,
+                        remaining_output.get(),
                     )?;
+                    remaining_output.set(remaining_output.get().saturating_sub(written));
                 }
                 Ok(dest)
             }
         }
     }
+}
+
+fn validate_sha256_digest<'a>(digest: &'a str, kind: &str) -> BoxliteResult<&'a str> {
+    digest
+        .strip_prefix("sha256:")
+        .filter(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            BoxliteError::Storage(format!("Invalid archive: malformed {kind} digest {digest}"))
+        })
 }
 
 /// Fail unless a blob hashes to the digest the manifest declared for it.
@@ -494,9 +542,12 @@ fn resolve_layer(
     layer: &ArchiveLayer,
     blobs: &LayerBlobs,
     base_disk_mgr: &crate::disk::BaseDiskManager,
+    token: &str,
     parent: Option<&Path>,
     image_disks_dir: &Path,
 ) -> BoxliteResult<(PathBuf, Option<BaseDiskID>, bool)> {
+    validate_sha256_digest(&layer.digest, "layer")?;
+
     // An image disk this host already built is preferred over the archived
     // copy, and is the only cross-host reuse available for that layer: its
     // bytes differ on every host (mke2fs writes a random UUID), so `digest`
@@ -506,8 +557,9 @@ fn resolve_layer(
     // No base disk id is returned because the image cache owns this file and
     // manages its own lifecycle — it must not be pulled into base-disk GC.
     if let Some(image_digest) = &layer.image_digest {
-        let local = image_disks_dir.join(format!("{}.ext4", image_digest.replace(':', "-")));
-        if local.exists() {
+        let hex = validate_sha256_digest(image_digest, "image")?;
+        let local = image_disks_dir.join(format!("sha256-{hex}.ext4"));
+        if local.is_file() {
             tracing::debug!(
                 image_digest = %image_digest,
                 "Image disk already built locally, skipping the archived copy"
@@ -516,9 +568,14 @@ fn resolve_layer(
         }
     }
 
+    // Keep lookup/install and the provisional ref pin indivisible with GC.
+    // Otherwise GC can observe a zero-ref record between the lookup and pin,
+    // then delete the file while this import is adopting it.
+    let lifecycle = base_disk_mgr.lock_lifecycle();
     if let Some(existing) = base_disk_mgr.store().find_by_digest(&layer.digest)? {
         let path = PathBuf::from(&existing.disk.disk_info.base_path);
         if path.exists() && backing_matches(&path, parent) {
+            base_disk_mgr.store().add_ref(&existing.disk.id, token)?;
             tracing::debug!(digest = %layer.digest, "Layer already present, skipping transfer");
             return Ok((path, Some(existing.disk.id), false));
         }
@@ -530,6 +587,11 @@ fn resolve_layer(
     verify_layer_digest(&blob, &layer.digest)?;
     verify_layer_format(&blob, layer)?;
     let installed = base_disk_mgr.install_layer(&blob, &layer.digest)?;
+    if let Err(error) = base_disk_mgr.store().add_ref(&installed.id, token) {
+        drop(lifecycle);
+        base_disk_mgr.try_gc_base(&installed.id);
+        return Err(error);
+    }
     Ok((installed.disk_info.to_path_buf(), Some(installed.id), true))
 }
 
@@ -657,6 +719,83 @@ mod layered_install_tests {
         layer
     }
 
+    #[test]
+    fn a_failed_box_ref_keeps_the_import_token_refs() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mgr = mgr(home.path());
+        let bottom = stage(&temp, 1, None);
+        let top = stage(&temp, 2, Some(FOREIGN_PARENT));
+        let installed = install_layers(
+            &[bottom, top],
+            &LayerBlobs::Extracted(temp),
+            &home.path().join("box"),
+            &mgr,
+            "import-token",
+            &home.path().join("images"),
+        )
+        .expect("install");
+        assert!(!installed.is_empty(), "the bottom layer must be installed");
+
+        let conn = rusqlite::Connection::open(home.path().join("boxlite.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_box_ref
+             BEFORE INSERT ON base_disk_ref
+             WHEN NEW.box_id = 'box-id'
+             BEGIN
+               SELECT RAISE(FAIL, 'forced add_ref failure');
+             END;",
+        )
+        .unwrap();
+        drop(conn);
+
+        handoff_import_refs(&mgr, &installed, "import-token", "box-id");
+
+        for id in installed {
+            let dependents = mgr.store().dependent_boxes(&id).unwrap();
+            assert!(dependents.contains(&"import-token".to_string()));
+            assert!(!dependents.contains(&"box-id".to_string()));
+        }
+    }
+
+    #[test]
+    fn a_failed_import_token_ref_collects_the_installed_layer() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mgr = mgr(home.path());
+        let bottom = stage(&temp, 1, None);
+        let digest = bottom.digest.clone();
+
+        let conn = rusqlite::Connection::open(home.path().join("boxlite.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_import_ref
+             BEFORE INSERT ON base_disk_ref
+             WHEN NEW.box_id = 'import-token'
+             BEGIN
+               SELECT RAISE(FAIL, 'forced add_ref failure');
+             END;",
+        )
+        .unwrap();
+        drop(conn);
+
+        install_layers(
+            &[bottom, stage(&temp, 2, Some(FOREIGN_PARENT))],
+            &LayerBlobs::Extracted(temp),
+            &home.path().join("box"),
+            &mgr,
+            "import-token",
+            &home.path().join("images"),
+        )
+        .expect_err("the forced token ref failure must abort the import");
+
+        assert!(
+            mgr.store().find_by_digest(&digest).unwrap().is_none(),
+            "the unreferenced layer record must be collected"
+        );
+    }
+
     /// A directory archive's objects are opened only when actually wanted.
     ///
     /// The host already holds the bottom layer, so its object in the mirror is
@@ -707,10 +846,7 @@ mod layered_install_tests {
         std::fs::create_dir_all(&scratch).unwrap();
         install_layers(
             &[bottom, top],
-            &LayerBlobs::Directory {
-                archive_dir: mirror,
-                scratch,
-            },
+            &LayerBlobs::directory(mirror, scratch),
             &home.path().join("box2"),
             &mgr,
             "tok2",
@@ -731,13 +867,13 @@ mod layered_install_tests {
         std::fs::create_dir_all(&images).unwrap();
 
         // This host already built the image disk.
-        let image_digest = "sha256:feedface";
-        let local = images.join("sha256-feedface.ext4");
+        let image_digest = format!("sha256:{}", "f".repeat(64));
+        let local = images.join(format!("sha256-{}.ext4", "f".repeat(64)));
         std::fs::write(&local, b"the host's own build").unwrap();
 
         // The archive carries its own, byte-different copy of that layer.
         let mut bottom = stage(&temp, 1, None);
-        bottom.image_digest = Some(image_digest.to_string());
+        bottom.image_digest = Some(image_digest);
         let archived_blob = temp.join(layer_entry_name(&bottom.digest));
         let top = stage(&temp, 2, Some(FOREIGN_PARENT));
 
@@ -770,6 +906,91 @@ mod layered_install_tests {
                 .map(PathBuf::from),
             Some(local.canonicalize().unwrap()),
             "the imported box must read through the host's own image disk"
+        );
+    }
+
+    #[test]
+    fn a_malformed_image_digest_cannot_escape_the_image_cache() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let images = home.path().join("images");
+        std::fs::create_dir_all(&images).unwrap();
+
+        let mut bottom = stage(&temp, 1, None);
+        bottom.image_digest = Some("sha256:../../bases/victim".to_string());
+        let top = stage(&temp, 2, Some(FOREIGN_PARENT));
+
+        let error = install_layers(
+            &[bottom, top],
+            &LayerBlobs::Extracted(temp),
+            &home.path().join("box"),
+            &mgr(home.path()),
+            "tok",
+            &images,
+        )
+        .expect_err("manifest paths must not escape the image cache");
+
+        assert!(
+            error.to_string().contains("malformed image digest"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn a_malformed_layer_digest_cannot_escape_the_scratch_directory() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let archive_dir = home.path().join("archive");
+        let scratch = home.path().join("scratch");
+        std::fs::create_dir_all(&archive_dir).unwrap();
+        std::fs::create_dir_all(&scratch).unwrap();
+        let escaped = home.path().join("escaped");
+        let layer = ArchiveLayer {
+            digest: "sha256:../../escaped".to_string(),
+            format: LayerFormat::Raw,
+            virtual_size: 1,
+            image_digest: None,
+        };
+
+        let error = LayerBlobs::directory(archive_dir, scratch)
+            .materialize(&layer)
+            .expect_err("a malformed digest must be rejected before filesystem access");
+
+        assert!(error.to_string().contains("malformed layer digest"));
+        assert!(!escaped.exists(), "validation must happen before any write");
+    }
+
+    #[test]
+    fn directory_layers_share_one_decompression_budget() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let archive_dir = home.path().join("archive");
+        let scratch = home.path().join("scratch");
+        std::fs::create_dir_all(archive_dir.join("layers")).unwrap();
+        std::fs::create_dir_all(&scratch).unwrap();
+        let make_layer = |byte: u8| {
+            let digest = format!("sha256:{}", format!("{byte:02x}").repeat(32));
+            let object = archive_dir.join(format!("{}.zst", layer_entry_name(&digest)));
+            std::fs::write(object, zstd::encode_all(&[byte; 4][..], 3).unwrap()).unwrap();
+            ArchiveLayer {
+                digest,
+                format: LayerFormat::Raw,
+                virtual_size: 0,
+                image_digest: None,
+            }
+        };
+        let first = make_layer(1);
+        let second = make_layer(2);
+        let blobs = LayerBlobs::directory_with_limit(archive_dir, scratch.clone(), 6);
+
+        blobs.materialize(&first).expect("first layer fits");
+        let error = blobs
+            .materialize(&second)
+            .expect_err("all directory layers must share the aggregate limit");
+
+        assert!(error.to_string().contains("decompression limit"));
+        assert!(
+            !scratch.join(layer_entry_name(&second.digest)).exists(),
+            "a layer rejected by the aggregate limit must not remain"
         );
     }
 

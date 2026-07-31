@@ -19,9 +19,11 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use boxlite_shared::errors::BoxliteResult;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::db::base_disk::BaseDiskStore;
@@ -100,13 +102,24 @@ fn sidecar_digest(path: &Path) -> BoxliteResult<String> {
 
     if let Ok(cached) = std::fs::read_to_string(&sidecar) {
         let cached = cached.trim();
-        if cached.starts_with("sha256:") {
+        if cached
+            .strip_prefix("sha256:")
+            .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        {
             return Ok(cached.to_string());
         }
     }
 
     let digest = crate::litebox::archive::CanonicalLayer::open(path)?.digest()?;
-    if let Err(e) = std::fs::write(&sidecar, &digest) {
+    let staging = sidecar.with_extension(format!(
+        "{}.{}.partial",
+        sidecar.extension().unwrap_or_default().to_string_lossy(),
+        uuid::Uuid::new_v4()
+    ));
+    if let Err(e) =
+        std::fs::write(&staging, &digest).and_then(|()| std::fs::rename(&staging, &sidecar))
+    {
+        let _ = std::fs::remove_file(&staging);
         tracing::debug!(
             path = %sidecar.display(),
             error = %e,
@@ -127,6 +140,7 @@ fn sidecar_digest(path: &Path) -> BoxliteResult<String> {
 pub(crate) struct BaseDiskManager {
     bases_dir: PathBuf,
     store: BaseDiskStore,
+    lifecycle_lock: Arc<Mutex<()>>,
 }
 
 impl BaseDiskManager {
@@ -140,12 +154,20 @@ impl BaseDiskManager {
         let bases_dir = bases_dir
             .canonicalize()
             .unwrap_or_else(|_| bases_dir.clone());
-        Self { bases_dir, store }
+        Self {
+            bases_dir,
+            store,
+            lifecycle_lock: Arc::new(Mutex::new(())),
+        }
     }
 
     /// Expose the underlying store for direct queries (list, find, etc.).
     pub(crate) fn store(&self) -> &BaseDiskStore {
         &self.store
+    }
+
+    pub(crate) fn lock_lifecycle(&self) -> parking_lot::MutexGuard<'_, ()> {
+        self.lifecycle_lock.lock()
     }
 
     /// The bases root directory.
@@ -465,6 +487,11 @@ impl BaseDiskManager {
     /// Queries the `base_disk_ref` table for dependents. If none exist,
     /// deletes the base (DB record + file) and cascades to the parent base.
     pub(crate) fn try_gc_base(&self, base_disk_id: &BaseDiskID) {
+        let _lifecycle = self.lifecycle_lock.lock();
+        self.try_gc_base_locked(base_disk_id);
+    }
+
+    fn try_gc_base_locked(&self, base_disk_id: &BaseDiskID) {
         let record = match self.store.find_by_id(base_disk_id) {
             Ok(Some(r)) => r,
             _ => return,
@@ -498,7 +525,7 @@ impl BaseDiskManager {
             && let Ok(Some(parent_record)) =
                 self.store.find_by_base_path(&parent_path.to_string_lossy())
         {
-            self.try_gc_base(parent_record.id());
+            self.try_gc_base_locked(parent_record.id());
         }
     }
 
@@ -590,6 +617,20 @@ mod tests {
             first, second,
             "the cached digest must be returned without re-reading the layer"
         );
+    }
+
+    #[test]
+    fn digest_of_ignores_a_truncated_sidecar() {
+        let (dir, mgr) = setup();
+        let image_disk = dir.path().join("sha256-def.ext4");
+        let sidecar = dir.path().join("sha256-def.ext4.digest");
+        std::fs::write(&image_disk, b"raw ext4 bytes").unwrap();
+        std::fs::write(&sidecar, "sha256:1234").unwrap();
+
+        let digest = mgr.digest_of(&image_disk).unwrap().expect("a digest");
+
+        assert_eq!(digest.len(), "sha256:".len() + 64);
+        assert_eq!(std::fs::read_to_string(sidecar).unwrap(), digest);
     }
 
     /// Helper: create a minimal qcow2 file with an optional backing file path.
