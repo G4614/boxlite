@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use boxlite::LiteBox;
 use boxlite::litebox::{BoxEndpoint, BoxTunnel};
+use boxlite::LiteBox;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -147,6 +147,10 @@ impl PyBoxConnection {
         })
     }
 
+    /// Close the connection and release its reader.
+    ///
+    /// An already disconnected writer (`NotConnected`) is treated as closed;
+    /// other writer shutdown errors are returned.
     fn close<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let reader = Arc::clone(&self.reader);
         let writer = Arc::clone(&self.writer);
