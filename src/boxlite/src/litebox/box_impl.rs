@@ -111,9 +111,13 @@ impl LiveState {
 /// `FIFREEZE` does not fail under write load — it blocks until the filesystem
 /// has flushed, so a busy guest simply takes longer. The old 5s was short
 /// enough that a moderately busy box would time out routinely, which under
-/// [`QuiescePolicy::RequireFrozen`] would turn into a refused export. The
-/// ceiling exists only to bound a guest that is wedged or has no agent.
-const GUEST_QUIESCE_TIMEOUT: Duration = Duration::from_secs(30);
+/// [`QuiescePolicy::RequireFrozen`] would turn into a refused export; 30s
+/// still produced spurious refusals when the host itself was saturated
+/// (observed with four VMs booting in parallel: the running-box export flaked
+/// while a lone run passed). An export is not latency-sensitive, so the
+/// ceiling is generous — it exists only to bound a guest that is wedged or
+/// has no agent, not to keep a busy one on schedule.
+const GUEST_QUIESCE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Decide whether an operation may proceed given how the freeze went.
 ///
