@@ -95,7 +95,7 @@ pub(crate) async fn import_box(
     let installed = match install {
         Ok(installed) => installed,
         Err(e) => {
-            release_import_token(runtime, &token);
+            release_import_token(&runtime.base_disk_mgr, &token);
             return Err(e);
         }
     };
@@ -106,28 +106,19 @@ pub(crate) async fn import_box(
     {
         Ok(litebox) => litebox,
         Err(e) => {
-            release_import_token(runtime, &token);
+            release_import_token(&runtime.base_disk_mgr, &token);
             return Err(e);
         }
     };
 
     // Hand ownership to the box before dropping the token, so the layers are
     // never momentarily unreferenced.
-    for base_id in &installed {
-        if let Err(e) = runtime
-            .base_disk_mgr
-            .store()
-            .add_ref(base_id, litebox.id().as_ref())
-        {
-            tracing::warn!(
-                box_id = %litebox.id(),
-                base_disk_id = %base_id,
-                error = %e,
-                "Failed to record base disk ref for imported box"
-            );
-        }
-    }
-    release_import_token(runtime, &token);
+    handoff_import_refs(
+        &runtime.base_disk_mgr,
+        &installed,
+        &token,
+        litebox.id().as_ref(),
+    );
 
     tracing::info!(
         box_id = %litebox.id(),
@@ -144,8 +135,28 @@ pub(crate) async fn import_box(
 /// After a successful import the box holds its own refs, so this only releases
 /// the token. After a failure it is what stops half-installed layers from
 /// accumulating in `bases/` forever.
-fn release_import_token(runtime: &Arc<RuntimeImpl>, token: &str) {
-    let store = runtime.base_disk_mgr.store();
+fn handoff_import_refs(
+    base_disk_mgr: &crate::disk::BaseDiskManager,
+    installed: &[BaseDiskID],
+    token: &str,
+    box_id: &str,
+) {
+    for base_id in installed {
+        if let Err(e) = base_disk_mgr.store().add_ref(base_id, box_id) {
+            tracing::warn!(
+                box_id,
+                base_disk_id = %base_id,
+                error = %e,
+                "Failed to record base disk ref; retaining import token refs"
+            );
+            return;
+        }
+    }
+    release_import_token(base_disk_mgr, token);
+}
+
+fn release_import_token(base_disk_mgr: &crate::disk::BaseDiskManager, token: &str) {
+    let store = base_disk_mgr.store();
     let released = match store.remove_all_refs_for_box(token) {
         Ok(ids) => ids,
         Err(e) => {
@@ -154,7 +165,7 @@ fn release_import_token(runtime: &Arc<RuntimeImpl>, token: &str) {
         }
     };
     for id in released {
-        runtime.base_disk_mgr.try_gc_base(&id);
+        base_disk_mgr.try_gc_base(&id);
     }
 }
 
@@ -632,6 +643,44 @@ mod layered_install_tests {
         std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
         std::fs::rename(&scratch, &dest).unwrap();
         layer
+    }
+
+    #[test]
+    fn a_failed_box_ref_keeps_the_import_token_refs() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mgr = mgr(home.path());
+        let layer = stage(&temp, 1, None);
+        let installed = install_layers(
+            &[layer],
+            &LayerBlobs::Extracted(temp),
+            &home.path().join("box"),
+            &mgr,
+            "import-token",
+            &home.path().join("images"),
+        )
+        .expect("install");
+
+        let conn = rusqlite::Connection::open(home.path().join("boxlite.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_box_ref
+             BEFORE INSERT ON base_disk_ref
+             WHEN NEW.box_id = 'box-id'
+             BEGIN
+               SELECT RAISE(FAIL, 'forced add_ref failure');
+             END;",
+        )
+        .unwrap();
+        drop(conn);
+
+        handoff_import_refs(&mgr, &installed, "import-token", "box-id");
+
+        for id in installed {
+            let dependents = mgr.store().dependent_boxes(&id).unwrap();
+            assert!(dependents.contains(&"import-token".to_string()));
+            assert!(!dependents.contains(&"box-id".to_string()));
+        }
     }
 
     /// A directory archive's objects are opened only when actually wanted.
