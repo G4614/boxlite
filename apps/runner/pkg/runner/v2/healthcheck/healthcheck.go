@@ -16,7 +16,6 @@ import (
 	"github.com/boxlite-ai/runner/internal/metrics"
 	runnerapiclient "github.com/boxlite-ai/runner/pkg/apiclient"
 	blclient "github.com/boxlite-ai/runner/pkg/boxlite"
-	"github.com/boxlite-ai/runner/pkg/drain"
 )
 
 type HealthcheckServiceConfig struct {
@@ -95,10 +94,6 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) sendHealthcheck(ctx context.Context) error {
-	if drain.IsDraining() {
-		s.log.DebugContext(ctx, "Sending healthcheck while runner is draining")
-	}
-
 	reqCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
