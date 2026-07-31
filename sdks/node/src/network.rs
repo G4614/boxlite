@@ -17,15 +17,17 @@ async fn close_streams(
     writer: &tokio::sync::Mutex<Option<ConnectionWriter>>,
 ) -> std::io::Result<()> {
     let mut writer = writer.lock().await;
-    if let Some(mut stream) = writer.take() {
+    let shutdown_result = if let Some(mut stream) = writer.take() {
         match stream.shutdown().await {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotConnected => {}
-            Err(error) => return Err(error),
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotConnected => Ok(()),
+            Err(error) => Err(error),
         }
-    }
+    } else {
+        Ok(())
+    };
     reader.lock().await.take();
-    Ok(())
+    shutdown_result
 }
 
 /// Handle for network operations on a box.
@@ -166,9 +168,9 @@ mod tests {
     use std::task::{Context, Poll};
     use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-    struct DisconnectedStream;
+    struct ShutdownErrorStream(std::io::ErrorKind);
 
-    impl AsyncRead for DisconnectedStream {
+    impl AsyncRead for ShutdownErrorStream {
         fn poll_read(
             self: Pin<&mut Self>,
             _cx: &mut Context<'_>,
@@ -178,7 +180,7 @@ mod tests {
         }
     }
 
-    impl AsyncWrite for DisconnectedStream {
+    impl AsyncWrite for ShutdownErrorStream {
         fn poll_write(
             self: Pin<&mut Self>,
             _cx: &mut Context<'_>,
@@ -192,20 +194,38 @@ mod tests {
         }
 
         fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::NotConnected)))
+            Poll::Ready(Err(std::io::Error::from(self.0)))
         }
     }
 
     #[test]
     fn close_tolerates_not_connected_and_clears_both_halves() {
         futures::executor::block_on(async {
-            let connection: Box<dyn boxlite::BoxConnection> = Box::new(DisconnectedStream);
+            let connection: Box<dyn boxlite::BoxConnection> =
+                Box::new(ShutdownErrorStream(std::io::ErrorKind::NotConnected));
             let (reader, writer) = tokio::io::split(connection);
             let reader = tokio::sync::Mutex::new(Some(reader));
             let writer = tokio::sync::Mutex::new(Some(writer));
 
             close_streams(&reader, &writer).await.unwrap();
 
+            assert!(reader.lock().await.is_none());
+            assert!(writer.lock().await.is_none());
+        });
+    }
+
+    #[test]
+    fn close_reports_shutdown_errors_after_clearing_both_halves() {
+        futures::executor::block_on(async {
+            let connection: Box<dyn boxlite::BoxConnection> =
+                Box::new(ShutdownErrorStream(std::io::ErrorKind::BrokenPipe));
+            let (reader, writer) = tokio::io::split(connection);
+            let reader = tokio::sync::Mutex::new(Some(reader));
+            let writer = tokio::sync::Mutex::new(Some(writer));
+
+            let error = close_streams(&reader, &writer).await.unwrap_err();
+
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
             assert!(reader.lock().await.is_none());
             assert!(writer.lock().await.is_none());
         });
