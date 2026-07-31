@@ -3,6 +3,7 @@
 //! Provides lazy initialization and execution capabilities for isolated boxes.
 
 pub(crate) mod archive;
+pub mod archive_store;
 pub(crate) mod box_impl;
 mod clone_export;
 pub(crate) mod config;

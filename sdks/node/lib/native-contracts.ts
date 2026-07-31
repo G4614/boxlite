@@ -367,6 +367,11 @@ export interface JsExportOptions {
    * destination lacks.
    */
   asDirectory?: boolean;
+  /**
+   * Publish into a shared layer store under this archive name (requires
+   * `asDirectory`; the destination is then the store root).
+   */
+  archiveName?: string;
 }
 
 export interface JsBox {

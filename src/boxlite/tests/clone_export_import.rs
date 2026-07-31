@@ -135,7 +135,13 @@ async fn test_directory_export_import_roundtrip() {
     let mirror = export_dir.path().join("mirror");
 
     let archive = source
-        .export(ExportOptions { as_directory: true }, &mirror)
+        .export(
+            ExportOptions {
+                as_directory: true,
+                ..Default::default()
+            },
+            &mirror,
+        )
         .await
         .expect("Failed to export box as directory");
 
@@ -161,6 +167,60 @@ async fn test_directory_export_import_roundtrip() {
         .await
         .expect("Failed to start imported box");
     imported.stop().await.expect("Failed to stop imported box");
+
+    let _ = runtime.shutdown(Some(common::TEST_SHUTDOWN_TIMEOUT)).await;
+}
+
+#[tokio::test]
+async fn test_store_export_import_roundtrip() {
+    let home = boxlite_test_utils::home::PerTestBoxHome::new();
+    let runtime = BoxliteRuntime::new(BoxliteOptions {
+        home_dir: home.path.clone(),
+        image_registries: common::test_registries(),
+    })
+    .expect("create runtime");
+    let source = create_stopped_box(&runtime).await;
+
+    let export_dir = TempDir::new_in("/tmp").unwrap();
+    let store_root = export_dir.path().join("store");
+
+    let archive = source
+        .export(
+            ExportOptions {
+                as_directory: true,
+                archive_name: Some("backup".to_string()),
+            },
+            &store_root,
+        )
+        .await
+        .expect("Failed to publish box into store");
+
+    // The archive is addressed by its manifest inside the store.
+    assert!(archive.path().ends_with("archives/backup.json"));
+    assert!(store_root.join("layers").is_dir());
+    let store = boxlite::ArchiveStore::open(&store_root).expect("open store");
+    assert_eq!(store.archives().expect("list"), vec!["backup".to_string()]);
+
+    let imported = runtime
+        .import_box(archive, Some("imported-from-store".to_string()))
+        .await
+        .expect("Failed to import box from store");
+
+    let info = imported.info().await.expect("get imported box info");
+    assert_eq!(info.name.as_deref(), Some("imported-from-store"));
+    assert_eq!(info.status, BoxStatus::Stopped);
+
+    imported
+        .start()
+        .await
+        .expect("Failed to start imported box");
+    imported.stop().await.expect("Failed to stop imported box");
+
+    // Dropping the only manifest lets a sweep empty the pool.
+    assert!(store.remove("backup").expect("remove"));
+    let report = store.gc(std::time::Duration::ZERO).expect("gc");
+    assert!(report.swept >= 1);
+    assert_eq!(store_root.join("layers").read_dir().unwrap().count(), 0);
 
     let _ = runtime.shutdown(Some(common::TEST_SHUTDOWN_TIMEOUT)).await;
 }

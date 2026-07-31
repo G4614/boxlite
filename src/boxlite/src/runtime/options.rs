@@ -896,6 +896,14 @@ pub struct ExportOptions {
     /// between the two ends. The single-file form cannot do that: it is one
     /// opaque blob that changes completely between exports.
     pub as_directory: bool,
+    /// Publish into a shared layer store under this archive name.
+    ///
+    /// Requires `as_directory`. `dest` is then the store root: the manifest
+    /// lands at `archives/<name>.json` and the layers join the store's shared
+    /// `layers/` pool, so archives of different boxes share every layer they
+    /// have in common. What holds a layer in the pool is the manifests that
+    /// name it; `ArchiveStore::gc` sweeps the rest.
+    pub archive_name: Option<String>,
 }
 
 /// Forward-compatible options for cloning a box.

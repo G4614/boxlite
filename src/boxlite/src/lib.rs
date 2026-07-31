@@ -42,6 +42,7 @@ pub use disk::DiskInfo;
 pub use event_listener::{AuditEvent, AuditEventKind, AuditEventListener, EventListener};
 pub use litebox::SnapshotHandle;
 pub use litebox::archive::ArchiveManifest;
+pub use litebox::archive_store::{ArchiveStore, GcReport};
 pub use litebox::snapshot_mgr::SnapshotInfo;
 pub use litebox::{
     BoxCommand, CopyOptions, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution, ExecutionId,

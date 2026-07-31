@@ -22,12 +22,16 @@ pub struct JsExportOptions {
     /// `.boxlite` file, so mirroring it to object storage transfers only the
     /// objects the destination lacks.
     pub as_directory: Option<bool>,
+    /// Publish into a shared layer store under this archive name (requires
+    /// `asDirectory`; the destination is then the store root).
+    pub archive_name: Option<String>,
 }
 
 impl From<JsExportOptions> for ExportOptions {
     fn from(js: JsExportOptions) -> Self {
         ExportOptions {
             as_directory: js.as_directory.unwrap_or(false),
+            archive_name: js.archive_name,
         }
     }
 }

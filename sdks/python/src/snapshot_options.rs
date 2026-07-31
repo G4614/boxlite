@@ -31,14 +31,21 @@ pub(crate) struct PyExportOptions {
     /// objects the destination lacks.
     #[pyo3(get, set)]
     pub(crate) as_directory: bool,
+    /// Publish into a shared layer store under this archive name (requires
+    /// `as_directory`; the destination is then the store root).
+    #[pyo3(get, set)]
+    pub(crate) archive_name: Option<String>,
 }
 
 #[pymethods]
 impl PyExportOptions {
     #[new]
-    #[pyo3(signature = (as_directory = false))]
-    fn new(as_directory: bool) -> Self {
-        Self { as_directory }
+    #[pyo3(signature = (as_directory = false, archive_name = None))]
+    fn new(as_directory: bool, archive_name: Option<String>) -> Self {
+        Self {
+            as_directory,
+            archive_name,
+        }
     }
 }
 
@@ -46,6 +53,7 @@ impl From<PyExportOptions> for ExportOptions {
     fn from(py: PyExportOptions) -> Self {
         ExportOptions {
             as_directory: py.as_directory,
+            archive_name: py.archive_name,
         }
     }
 }

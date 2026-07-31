@@ -212,6 +212,15 @@ impl BoxImpl {
         let box_id_str = self.id().to_string();
         let dest = dest.to_path_buf();
         let as_directory = options.as_directory;
+        let archive_name = options.archive_name.clone();
+        // A store publish is a directory-form export with a different landing
+        // spot for the manifest; without as_directory the name has no meaning.
+        if archive_name.is_some() && !as_directory {
+            return Err(BoxliteError::InvalidArgument(
+                "archive_name requires as_directory: a store is a directory of layer objects"
+                    .into(),
+            ));
+        }
         let base_disk_mgr = self.runtime.base_disk_mgr.clone();
         let image_disks_dir = self.runtime.layout.image_layout().disk_images_dir();
 
@@ -225,6 +234,7 @@ impl BoxImpl {
                 &box_id_str,
                 &dest,
                 as_directory,
+                archive_name.as_deref(),
             )
         })
         .await
@@ -355,11 +365,12 @@ fn do_export_finalize(
     box_id_str: &str,
     dest: &std::path::Path,
     as_directory: bool,
+    archive_name: Option<&str>,
 ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
     use super::archive::{
         ArchiveLayer, ArchiveManifest, CanonicalLayer, LAYERED_ARCHIVE_VERSION, LayerFormat,
         MANIFEST_FILENAME, archive_version_for_options, build_layered_archive,
-        build_layered_directory,
+        build_layered_directory, build_store_archive,
     };
     use crate::disk::Qcow2Helper;
 
@@ -439,13 +450,17 @@ fn do_export_finalize(
         .map_err(|e| BoxliteError::Internal(format!("Failed to serialize manifest: {}", e)))?;
 
     let t_archive = Instant::now();
-    if as_directory {
+    let output_path = if let Some(name) = archive_name {
+        build_store_archive(&output_path, name, &manifest_json, &blobs, 3)?
+    } else if as_directory {
         build_layered_directory(&output_path, &manifest_json, &blobs, 3)?;
+        output_path
     } else {
         let manifest_path = capture.temp_dir.path().join(MANIFEST_FILENAME);
         std::fs::write(&manifest_path, &manifest_json)?;
         build_layered_archive(&output_path, &manifest_path, &blobs, 3)?;
-    }
+        output_path
+    };
     let archive_ms = t_archive.elapsed().as_millis() as u64;
 
     tracing::info!(
@@ -554,6 +569,57 @@ mod tests {
         assert!(out.join("manifest.json").exists());
     }
 
+    /// Publishing the same chain under two names shares every object; the
+    /// pool empties only when the last manifest referencing it is gone.
+    #[test]
+    fn a_store_frees_a_layer_only_with_its_last_reference() {
+        let temp = tempfile::TempDir::new_in("/tmp").unwrap();
+        let home = temp.path();
+        let store_root = home.join("store");
+
+        let first = export_named(home, &store_root, true, Some("monday"));
+        assert!(first.path().ends_with("archives/monday.json"));
+        let objects: Vec<_> = std::fs::read_dir(store_root.join("layers"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert!(!objects.is_empty());
+        let stamps: Vec<_> = objects
+            .iter()
+            .map(|p| std::fs::metadata(p).unwrap().modified().unwrap())
+            .collect();
+
+        export_named(home, &store_root, true, Some("tuesday"));
+        for (path, before) in objects.iter().zip(&stamps) {
+            assert_eq!(
+                &std::fs::metadata(path).unwrap().modified().unwrap(),
+                before,
+                "{} was rewritten by the second publish",
+                path.display()
+            );
+        }
+
+        let store = crate::ArchiveStore::open(&store_root).unwrap();
+        let mut names = store.archives().unwrap();
+        names.sort();
+        assert_eq!(names, ["monday", "tuesday"]);
+
+        // Identical chains: dropping one name must free nothing.
+        assert!(store.remove("monday").unwrap());
+        let report = store.gc(std::time::Duration::ZERO).unwrap();
+        assert_eq!(report.swept, 0, "tuesday still references every layer");
+
+        assert!(store.remove("tuesday").unwrap());
+        let report = store.gc(std::time::Duration::ZERO).unwrap();
+        assert_eq!(report.swept, objects.len());
+        assert_eq!(
+            std::fs::read_dir(store_root.join("layers"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
     fn export_to_archive(home: &std::path::Path) -> crate::runtime::options::BoxArchive {
         export_with(home, &home.join("out.boxlite"), false)
     }
@@ -562,6 +628,15 @@ mod tests {
         home: &std::path::Path,
         dest: &std::path::Path,
         as_directory: bool,
+    ) -> crate::runtime::options::BoxArchive {
+        export_named(home, dest, as_directory, None)
+    }
+
+    fn export_named(
+        home: &std::path::Path,
+        dest: &std::path::Path,
+        as_directory: bool,
+        archive_name: Option<&str>,
     ) -> crate::runtime::options::BoxArchive {
         let layout = FilesystemLayout::new(home.to_path_buf(), FsLayoutConfig::default());
         std::fs::create_dir_all(layout.temp_dir()).unwrap();
@@ -576,6 +651,7 @@ mod tests {
             "box-id",
             dest,
             as_directory,
+            archive_name,
         )
         .expect("finalize")
     }

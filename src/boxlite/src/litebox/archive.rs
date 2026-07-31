@@ -270,7 +270,33 @@ pub(crate) fn build_layered_directory(
     layers: &[(String, std::path::PathBuf)],
     compression_level: i32,
 ) -> BoxliteResult<()> {
-    let layers_dir = output_dir.join(LAYERS_DIR);
+    write_layer_objects(output_dir, layers, compression_level)?;
+
+    let manifest_path = output_dir.join(MANIFEST_FILENAME);
+    std::fs::write(&manifest_path, manifest_json).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Failed to write {}: {}",
+            manifest_path.display(),
+            e
+        ))
+    })?;
+
+    Ok(())
+}
+
+/// Write each layer as a content-named `.zst` object under `root/layers/`.
+///
+/// An object that already exists is left alone — it was put there by an
+/// earlier export sharing that layer, which is what makes repeat exports into
+/// the same place incremental. New objects are written under a temporary name
+/// and renamed, so a reader never sees a half-written object under a name
+/// that promises specific content.
+fn write_layer_objects(
+    root: &Path,
+    layers: &[(String, std::path::PathBuf)],
+    compression_level: i32,
+) -> BoxliteResult<()> {
+    let layers_dir = root.join(LAYERS_DIR);
     std::fs::create_dir_all(&layers_dir).map_err(|e| {
         BoxliteError::Storage(format!(
             "Failed to create layer directory {}: {}",
@@ -280,15 +306,12 @@ pub(crate) fn build_layered_directory(
     })?;
 
     for (digest, path) in layers {
-        let object = output_dir.join(format!("{}.zst", layer_entry_name(digest)));
-        // Already mirrored by an earlier export of a box sharing this layer.
+        let object = root.join(format!("{}.zst", layer_entry_name(digest)));
         if object.exists() {
             tracing::debug!(digest = %digest, "Layer object already written, leaving it");
             continue;
         }
 
-        // Write to a temporary name and rename, so a reader never sees a
-        // half-written object under a name that promises specific content.
         let staging = object.with_extension("zst.partial");
         let mut layer = CanonicalLayer::open(path)?;
         let file = std::fs::File::create(&staging).map_err(|e| {
@@ -305,15 +328,84 @@ pub(crate) fn build_layered_directory(
         move_file(&staging, &object)?;
     }
 
-    let manifest_path = output_dir.join(MANIFEST_FILENAME);
-    std::fs::write(&manifest_path, manifest_json).map_err(|e| {
+    Ok(())
+}
+
+/// Directory holding one manifest per archive inside a layer store.
+pub(crate) const STORE_ARCHIVES_DIR: &str = "archives";
+
+/// Publish an archive into a shared layer store.
+///
+/// A store is `archives/<name>.json` manifests over one `layers/` pool, so N
+/// archives share every layer they have in common; the manifests are what
+/// holds a layer in the pool, and [`crate::ArchiveStore::gc`] sweeps whatever
+/// no manifest names. The manifest is written last and lands by rename: a
+/// reader that finds it can rely on every layer it names having been written
+/// before it.
+///
+/// Publishing races the sweeper. A concurrent gc can read the pool between
+/// this export's object writes and its manifest landing, see objects no
+/// manifest references yet, and — if they are older than its grace period —
+/// delete them. The manifest is therefore re-checked after it lands and any
+/// swept object is rewritten; the grace period is what makes that window
+/// finite, and the repair is what closes it.
+pub(crate) fn build_store_archive(
+    store_root: &Path,
+    name: &str,
+    manifest_json: &str,
+    layers: &[(String, std::path::PathBuf)],
+    compression_level: i32,
+) -> BoxliteResult<std::path::PathBuf> {
+    validate_store_archive_name(name)?;
+
+    write_layer_objects(store_root, layers, compression_level)?;
+
+    let archives_dir = store_root.join(STORE_ARCHIVES_DIR);
+    std::fs::create_dir_all(&archives_dir).map_err(|e| {
         BoxliteError::Storage(format!(
-            "Failed to write {}: {}",
-            manifest_path.display(),
+            "Failed to create {}: {}",
+            archives_dir.display(),
             e
         ))
     })?;
+    let manifest_path = archives_dir.join(format!("{name}.json"));
+    let staging = archives_dir.join(format!(".{name}.json.partial"));
+    std::fs::write(&staging, manifest_json).map_err(|e| {
+        BoxliteError::Storage(format!("Failed to write {}: {}", staging.display(), e))
+    })?;
+    move_file(&staging, &manifest_path)?;
 
+    // Repair anything a concurrent sweep took between our object writes and
+    // the manifest landing. From here on the manifest holds the references,
+    // so a rewritten object stays.
+    for (digest, path) in layers {
+        let object = store_root.join(format!("{}.zst", layer_entry_name(digest)));
+        if !object.exists() {
+            tracing::warn!(digest = %digest, "Layer object swept mid-publish; rewriting");
+            write_layer_objects(
+                store_root,
+                std::slice::from_ref(&(digest.clone(), path.clone())),
+                compression_level,
+            )?;
+        }
+    }
+
+    Ok(manifest_path)
+}
+
+/// Refuse an archive name that could escape `archives/` or collide with the
+/// staging convention.
+pub(crate) fn validate_store_archive_name(name: &str) -> BoxliteResult<()> {
+    let bad = name.is_empty()
+        || name.starts_with('.')
+        || name
+            .chars()
+            .any(|c| c == '/' || c == '\\' || c == ':' || c.is_control());
+    if bad {
+        return Err(BoxliteError::InvalidArgument(format!(
+            "invalid archive name {name:?}: must be non-empty, not start with '.', and contain no path separators"
+        )));
+    }
     Ok(())
 }
 

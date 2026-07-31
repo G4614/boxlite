@@ -413,7 +413,7 @@ impl BoxBackend for RestBox {
         // The wire format is one HTTP body; a directory of objects has no
         // representation there. Refusing is better than silently handing back
         // a single file the caller intends to mirror somewhere.
-        if options.as_directory {
+        if options.as_directory || options.archive_name.is_some() {
             return Err(BoxliteError::Unsupported(
                 "directory-form export is not available over REST; export locally and mirror the directory".into(),
             ));

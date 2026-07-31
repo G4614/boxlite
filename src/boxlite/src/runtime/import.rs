@@ -67,7 +67,12 @@ pub(crate) async fn import_box(
     let token_for_task = token.clone();
     // The directory form keeps its objects where they are; the scratch dir is
     // only where the ones actually wanted get unpacked.
-    let blobs = if archive.path().is_dir() {
+    let blobs = if let Some(store_root) = store_manifest(archive.path()) {
+        LayerBlobs::Directory {
+            archive_dir: store_root,
+            scratch: temp_path.clone(),
+        }
+    } else if archive.path().is_dir() {
         LayerBlobs::Directory {
             archive_dir: archive.path().to_path_buf(),
             scratch: temp_path.clone(),
@@ -227,14 +232,15 @@ fn extract_and_validate(
     // A mirrored archive directory is already in the layout an extraction
     // would produce, except its layers are still compressed and are unpacked
     // one at a time, only if wanted. Copying it here first would throw that
-    // away, so only the single-file form is extracted.
-    if !archive_path.is_dir() {
-        extract_archive(archive_path, temp_dir.path())?;
-    }
-
-    let manifest_path = if archive_path.is_dir() {
+    // away, so only the single-file `.boxlite` form is extracted. A store
+    // archive is the same thing again, one level up: the path is the manifest
+    // itself, at `<store>/archives/<name>.json` over the store's shared pool.
+    let manifest_path = if store_manifest(archive_path).is_some() {
+        archive_path.to_path_buf()
+    } else if archive_path.is_dir() {
         archive_path.join(MANIFEST_FILENAME)
     } else {
+        extract_archive(archive_path, temp_dir.path())?;
         temp_dir.path().join(MANIFEST_FILENAME)
     };
     if !manifest_path.exists() {
@@ -365,6 +371,23 @@ fn install_layers(
     }
 
     Ok(base_ids)
+}
+
+/// The store root, if this archive path is a store manifest.
+///
+/// A store archive is addressed by its manifest file,
+/// `<store>/archives/<name>.json`; its layers live in the store's shared pool
+/// at `<store>/layers/`. Anything else — a `.boxlite` file, a mirrored
+/// archive directory — is not a store manifest.
+fn store_manifest(archive_path: &Path) -> Option<PathBuf> {
+    if !archive_path.is_file() || archive_path.extension()? != "json" {
+        return None;
+    }
+    let archives_dir = archive_path.parent()?;
+    if archives_dir.file_name()? != crate::litebox::archive::STORE_ARCHIVES_DIR {
+        return None;
+    }
+    archives_dir.parent().map(Path::to_path_buf)
 }
 
 /// Where a layer's bytes come from while an archive is being installed.
