@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use boxlite::litebox::{BoxEndpoint, BoxTunnel};
 use boxlite::LiteBox;
+use boxlite::litebox::{BoxEndpoint, BoxTunnel};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
