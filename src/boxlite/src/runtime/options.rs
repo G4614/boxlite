@@ -898,7 +898,19 @@ pub struct SnapshotOptions {}
 
 /// Forward-compatible options for exporting a box archive.
 #[derive(Debug, Clone, Default)]
-pub struct ExportOptions {}
+pub struct ExportOptions {
+    /// Write the archive as a directory of individually addressed objects
+    /// rather than a single `.boxlite` file.
+    ///
+    /// The layout is a `manifest.json` beside a `layers/` directory holding one
+    /// compressed object per layer, named by the layer's digest. Because a
+    /// layer is immutable and named by its content, syncing that directory to
+    /// object storage transfers only the objects the destination lacks — an
+    /// `aws s3 sync` or `mc mirror` already skips the rest, with no protocol
+    /// between the two ends. The single-file form cannot do that: it is one
+    /// opaque blob that changes completely between exports.
+    pub as_directory: bool,
+}
 
 /// Forward-compatible options for cloning a box.
 #[derive(Debug, Clone, Default)]

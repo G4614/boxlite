@@ -14,14 +14,21 @@ impl From<JsSnapshotOptions> for SnapshotOptions {
     }
 }
 
-/// Options for exporting a box (forward-compatible placeholder).
+/// Options for exporting a box.
 #[napi(object)]
 #[derive(Clone, Debug)]
-pub struct JsExportOptions {}
+pub struct JsExportOptions {
+    /// Write a directory of content-addressed objects instead of one
+    /// `.boxlite` file, so mirroring it to object storage transfers only the
+    /// objects the destination lacks.
+    pub as_directory: Option<bool>,
+}
 
 impl From<JsExportOptions> for ExportOptions {
-    fn from(_js: JsExportOptions) -> Self {
-        ExportOptions {}
+    fn from(js: JsExportOptions) -> Self {
+        ExportOptions {
+            as_directory: js.as_directory.unwrap_or(false),
+        }
     }
 }
 

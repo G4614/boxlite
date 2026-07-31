@@ -172,7 +172,7 @@ impl BoxImpl {
 
     pub(crate) async fn export_box(
         &self,
-        _options: crate::runtime::options::ExportOptions,
+        options: crate::runtime::options::ExportOptions,
         dest: &std::path::Path,
     ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
         let t0 = Instant::now();
@@ -211,6 +211,7 @@ impl BoxImpl {
         let config_options = self.config.options.clone();
         let box_id_str = self.id().to_string();
         let dest = dest.to_path_buf();
+        let as_directory = options.as_directory;
         let base_disk_mgr = self.runtime.base_disk_mgr.clone();
         let image_disks_dir = self.runtime.layout.image_layout().disk_images_dir();
 
@@ -223,6 +224,7 @@ impl BoxImpl {
                 &config_options,
                 &box_id_str,
                 &dest,
+                as_directory,
             )
         })
         .await
@@ -352,14 +354,22 @@ fn do_export_finalize(
     config_options: &crate::runtime::options::BoxOptions,
     box_id_str: &str,
     dest: &std::path::Path,
+    as_directory: bool,
 ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
     use super::archive::{
         ArchiveLayer, ArchiveManifest, CanonicalLayer, LAYERED_ARCHIVE_VERSION, LayerFormat,
         MANIFEST_FILENAME, archive_version_for_options, build_layered_archive,
+        build_layered_directory,
     };
     use crate::disk::Qcow2Helper;
 
-    let output_path = if dest.is_dir() {
+    // In directory mode `dest` *is* the directory to mirror, so it is used as
+    // given — appending a name would bury the layout a level down and break
+    // repeat exports into the same place, which is what makes the transfer
+    // incremental.
+    let output_path = if as_directory {
+        dest.to_path_buf()
+    } else if dest.is_dir() {
         let name = config_name.unwrap_or("box");
         dest.join(format!("{}.boxlite", name))
     } else {
@@ -427,11 +437,15 @@ fn do_export_finalize(
 
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| BoxliteError::Internal(format!("Failed to serialize manifest: {}", e)))?;
-    let manifest_path = capture.temp_dir.path().join(MANIFEST_FILENAME);
-    std::fs::write(&manifest_path, manifest_json)?;
 
     let t_archive = Instant::now();
-    build_layered_archive(&output_path, &manifest_path, &blobs, 3)?;
+    if as_directory {
+        build_layered_directory(&output_path, &manifest_json, &blobs, 3)?;
+    } else {
+        let manifest_path = capture.temp_dir.path().join(MANIFEST_FILENAME);
+        std::fs::write(&manifest_path, &manifest_json)?;
+        build_layered_archive(&output_path, &manifest_path, &blobs, 3)?;
+    }
     let archive_ms = t_archive.elapsed().as_millis() as u64;
 
     tracing::info!(
@@ -503,7 +517,52 @@ mod tests {
         box_home
     }
 
+    /// A second export into the same directory rewrites only what changed.
+    ///
+    /// The shared base keeps its mtime — the object was not rewritten — which
+    /// is the property a sync tool needs for "mirror this directory" to
+    /// transfer only missing objects. The manifest must be rewritten: it names
+    /// the new export's top layer.
+    #[test]
+    fn a_reexport_into_the_same_directory_skips_existing_objects() {
+        let temp = tempfile::TempDir::new_in("/tmp").unwrap();
+        let home = temp.path();
+        let out = home.join("mirror");
+
+        export_with(home, &out, true);
+        let layers: Vec<_> = std::fs::read_dir(out.join("layers"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert!(!layers.is_empty(), "directory export must produce objects");
+        let stamps: Vec<_> = layers
+            .iter()
+            .map(|p| std::fs::metadata(p).unwrap().modified().unwrap())
+            .collect();
+
+        // A different box home whose chain shares the same bottom layer.
+        export_with(home, &out, true);
+
+        for (path, before) in layers.iter().zip(&stamps) {
+            assert_eq!(
+                &std::fs::metadata(path).unwrap().modified().unwrap(),
+                before,
+                "{} was rewritten on re-export",
+                path.display()
+            );
+        }
+        assert!(out.join("manifest.json").exists());
+    }
+
     fn export_to_archive(home: &std::path::Path) -> crate::runtime::options::BoxArchive {
+        export_with(home, &home.join("out.boxlite"), false)
+    }
+
+    fn export_with(
+        home: &std::path::Path,
+        dest: &std::path::Path,
+        as_directory: bool,
+    ) -> crate::runtime::options::BoxArchive {
         let layout = FilesystemLayout::new(home.to_path_buf(), FsLayoutConfig::default());
         std::fs::create_dir_all(layout.temp_dir()).unwrap();
         let box_home = chained_box_home(home);
@@ -515,7 +574,8 @@ mod tests {
             Some("some-box"),
             &crate::runtime::options::BoxOptions::default(),
             "box-id",
-            &home.join("out.boxlite"),
+            dest,
+            as_directory,
         )
         .expect("finalize")
     }

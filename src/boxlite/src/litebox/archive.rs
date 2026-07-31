@@ -252,6 +252,71 @@ impl std::io::Read for CanonicalLayer {
     }
 }
 
+/// Write the archive as a directory of separately addressed objects.
+///
+/// Produces `manifest.json` and `layers/{hex}.zst`, one object per layer, each
+/// holding that layer's [`CanonicalLayer`] bytes compressed on its own. The
+/// point is that every object is immutable and named by its content, so
+/// mirroring the directory to object storage uploads only what is missing —
+/// the sync tool's existence check is the whole negotiation. A layer that two
+/// exports share is written to the same name and transferred once.
+///
+/// The manifest is written last. A reader that finds it can rely on every
+/// layer it names already being present, which is what makes an interrupted
+/// mirror safe to retry rather than a half-published archive.
+pub(crate) fn build_layered_directory(
+    output_dir: &Path,
+    manifest_json: &str,
+    layers: &[(String, std::path::PathBuf)],
+    compression_level: i32,
+) -> BoxliteResult<()> {
+    let layers_dir = output_dir.join(LAYERS_DIR);
+    std::fs::create_dir_all(&layers_dir).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Failed to create layer directory {}: {}",
+            layers_dir.display(),
+            e
+        ))
+    })?;
+
+    for (digest, path) in layers {
+        let object = output_dir.join(format!("{}.zst", layer_entry_name(digest)));
+        // Already mirrored by an earlier export of a box sharing this layer.
+        if object.exists() {
+            tracing::debug!(digest = %digest, "Layer object already written, leaving it");
+            continue;
+        }
+
+        // Write to a temporary name and rename, so a reader never sees a
+        // half-written object under a name that promises specific content.
+        let staging = object.with_extension("zst.partial");
+        let mut layer = CanonicalLayer::open(path)?;
+        let file = std::fs::File::create(&staging).map_err(|e| {
+            BoxliteError::Storage(format!("Failed to create {}: {}", staging.display(), e))
+        })?;
+        let mut encoder = zstd::Encoder::new(file, compression_level)
+            .map_err(|e| BoxliteError::Storage(format!("Failed to create zstd encoder: {}", e)))?;
+        std::io::copy(&mut layer, &mut encoder).map_err(|e| {
+            BoxliteError::Storage(format!("Failed to write layer {}: {}", digest, e))
+        })?;
+        encoder.finish().map_err(|e| {
+            BoxliteError::Storage(format!("Failed to finish layer {}: {}", digest, e))
+        })?;
+        move_file(&staging, &object)?;
+    }
+
+    let manifest_path = output_dir.join(MANIFEST_FILENAME);
+    std::fs::write(&manifest_path, manifest_json).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Failed to write {}: {}",
+            manifest_path.display(),
+            e
+        ))
+    })?;
+
+    Ok(())
+}
+
 /// Build a zstd-compressed tar archive holding a manifest and layer blobs.
 ///
 /// `layers` pairs each layer's digest with the file to read it from, in the
@@ -648,4 +713,37 @@ mod tests {
             "fake-top-layer"
         );
     }
+}
+
+/// Decompress one layer object from a mirrored archive directory.
+///
+/// Only called for a layer the importer has decided it actually needs, which
+/// is the point of the directory form: an object the host already holds is
+/// never read, let alone decompressed.
+pub(crate) fn extract_layer_object(
+    archive_dir: &Path,
+    digest: &str,
+    dest: &Path,
+) -> BoxliteResult<()> {
+    let object = archive_dir.join(format!("{}.zst", layer_entry_name(digest)));
+    let file = std::fs::File::open(&object).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Archive directory is missing layer {}: {}",
+            object.display(),
+            e
+        ))
+    })?;
+    let mut decoder = zstd::Decoder::new(file)
+        .map_err(|e| BoxliteError::Storage(format!("Failed to read layer {}: {}", digest, e)))?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            BoxliteError::Storage(format!("Failed to create {}: {}", parent.display(), e))
+        })?;
+    }
+    let mut out = std::fs::File::create(dest).map_err(|e| {
+        BoxliteError::Storage(format!("Failed to create {}: {}", dest.display(), e))
+    })?;
+    std::io::copy(&mut decoder, &mut out)
+        .map_err(|e| BoxliteError::Storage(format!("Failed to unpack layer {}: {}", digest, e)))?;
+    Ok(())
 }
