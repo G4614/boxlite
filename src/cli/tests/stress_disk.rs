@@ -655,10 +655,10 @@ fn bystander_writes_keep_progressing_while_peer_fills_its_disk() {
             "--",
             "sh",
             "-c",
-            "rm -f /tmp/fill.done /tmp/fill.out; \
-         i=0; while dd if=/dev/zero of=/fill.$i bs=1M count=1; do \
+            "rm -f /tmp/fill.done /tmp/fill.err; \
+         i=0; while dd if=/dev/zero of=/fill.$i bs=1M count=1 2>/tmp/fill.err; do \
             i=$((i + 1)); sleep 0.25; \
-          done > /tmp/fill.out 2>&1; touch /tmp/fill.done",
+          done; touch /tmp/fill.done",
         ],
         Duration::from_secs(15),
     );
@@ -717,7 +717,7 @@ fn bystander_writes_keep_progressing_while_peer_fills_its_disk() {
     let fill = exec_sh(
         home.path.as_path(),
         &victim,
-        "cat /tmp/fill.out",
+        "cat /tmp/fill.err",
         Duration::from_secs(15),
     );
     let fill_out = String::from_utf8_lossy(&fill.stdout) + String::from_utf8_lossy(&fill.stderr);
