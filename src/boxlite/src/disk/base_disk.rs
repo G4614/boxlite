@@ -974,6 +974,7 @@ mod tests {
                 id: base_id(id),
                 source_box_id: "__global__".to_string(),
                 name: Some(id.to_string()),
+                digest: None,
                 kind,
                 disk_info: DiskInfo {
                     base_path: path.to_string_lossy().to_string(),

@@ -227,7 +227,7 @@ impl CanonicalLayer {
             }
             hasher.update(&buf[..n]);
         }
-        Ok(format!("sha256:{:x}", hasher.finalize()))
+        Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
     }
 }
 
@@ -495,6 +495,39 @@ pub(crate) fn sha256_file(path: &Path) -> BoxliteResult<String> {
     Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }
 
+/// Decompress one layer object from a mirrored archive directory.
+///
+/// Only called for a layer the importer has decided it actually needs, which
+/// is the point of the directory form: an object the host already holds is
+/// never read, let alone decompressed.
+pub(crate) fn extract_layer_object(
+    archive_dir: &Path,
+    digest: &str,
+    dest: &Path,
+) -> BoxliteResult<()> {
+    let object = archive_dir.join(format!("{}.zst", layer_entry_name(digest)));
+    let file = std::fs::File::open(&object).map_err(|e| {
+        BoxliteError::Storage(format!(
+            "Archive directory is missing layer {}: {}",
+            object.display(),
+            e
+        ))
+    })?;
+    let mut decoder = zstd::Decoder::new(file)
+        .map_err(|e| BoxliteError::Storage(format!("Failed to read layer {}: {}", digest, e)))?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            BoxliteError::Storage(format!("Failed to create {}: {}", parent.display(), e))
+        })?;
+    }
+    let mut out = std::fs::File::create(dest).map_err(|e| {
+        BoxliteError::Storage(format!("Failed to create {}: {}", dest.display(), e))
+    })?;
+    std::io::copy(&mut decoder, &mut out)
+        .map_err(|e| BoxliteError::Storage(format!("Failed to unpack layer {}: {}", digest, e)))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -713,37 +746,4 @@ mod tests {
             "fake-top-layer"
         );
     }
-}
-
-/// Decompress one layer object from a mirrored archive directory.
-///
-/// Only called for a layer the importer has decided it actually needs, which
-/// is the point of the directory form: an object the host already holds is
-/// never read, let alone decompressed.
-pub(crate) fn extract_layer_object(
-    archive_dir: &Path,
-    digest: &str,
-    dest: &Path,
-) -> BoxliteResult<()> {
-    let object = archive_dir.join(format!("{}.zst", layer_entry_name(digest)));
-    let file = std::fs::File::open(&object).map_err(|e| {
-        BoxliteError::Storage(format!(
-            "Archive directory is missing layer {}: {}",
-            object.display(),
-            e
-        ))
-    })?;
-    let mut decoder = zstd::Decoder::new(file)
-        .map_err(|e| BoxliteError::Storage(format!("Failed to read layer {}: {}", digest, e)))?;
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            BoxliteError::Storage(format!("Failed to create {}: {}", parent.display(), e))
-        })?;
-    }
-    let mut out = std::fs::File::create(dest).map_err(|e| {
-        BoxliteError::Storage(format!("Failed to create {}: {}", dest.display(), e))
-    })?;
-    std::io::copy(&mut decoder, &mut out)
-        .map_err(|e| BoxliteError::Storage(format!("Failed to unpack layer {}: {}", digest, e)))?;
-    Ok(())
 }

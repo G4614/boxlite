@@ -223,8 +223,11 @@ impl BoxImpl {
                 config_name.as_deref(),
                 &config_options,
                 &box_id_str,
-                &dest,
-                as_directory,
+                if as_directory {
+                    ExportDest::Directory(&dest)
+                } else {
+                    ExportDest::File(&dest)
+                },
             )
         })
         .await
@@ -346,6 +349,14 @@ fn is_qcow2(path: &std::path::Path) -> bool {
 
 /// Phase 2: Checksum, manifest, and archive.
 /// Runs after the VM resumes — only reads static temp files.
+/// Where an export lands, and in which form.
+enum ExportDest<'a> {
+    /// One `.boxlite` file; a directory here means "name the file inside it".
+    File(&'a std::path::Path),
+    /// A mirrorable directory of layer objects, used exactly as given.
+    Directory(&'a std::path::Path),
+}
+
 fn do_export_finalize(
     capture: ChainCapture,
     base_disk_mgr: &crate::disk::BaseDiskManager,
@@ -353,8 +364,7 @@ fn do_export_finalize(
     config_name: Option<&str>,
     config_options: &crate::runtime::options::BoxOptions,
     box_id_str: &str,
-    dest: &std::path::Path,
-    as_directory: bool,
+    dest: ExportDest<'_>,
 ) -> BoxliteResult<crate::runtime::options::BoxArchive> {
     use super::archive::{
         ArchiveLayer, ArchiveManifest, CanonicalLayer, LAYERED_ARCHIVE_VERSION, LayerFormat,
@@ -367,14 +377,15 @@ fn do_export_finalize(
     // given — appending a name would bury the layout a level down and break
     // repeat exports into the same place, which is what makes the transfer
     // incremental.
-    let output_path = if as_directory {
-        dest.to_path_buf()
-    } else if dest.is_dir() {
-        let name = config_name.unwrap_or("box");
-        dest.join(format!("{}.boxlite", name))
-    } else {
-        dest.to_path_buf()
+    let output_path = match dest {
+        ExportDest::Directory(dir) => dir.to_path_buf(),
+        ExportDest::File(path) if path.is_dir() => {
+            let name = config_name.unwrap_or("box");
+            path.join(format!("{}.boxlite", name))
+        }
+        ExportDest::File(path) => path.to_path_buf(),
     };
+    let as_directory = matches!(dest, ExportDest::Directory(_));
 
     let t_digest = Instant::now();
     let last = capture.layer_paths.len().saturating_sub(1);
@@ -574,8 +585,11 @@ mod tests {
             Some("some-box"),
             &crate::runtime::options::BoxOptions::default(),
             "box-id",
-            dest,
-            as_directory,
+            if as_directory {
+                ExportDest::Directory(dest)
+            } else {
+                ExportDest::File(dest)
+            },
         )
         .expect("finalize")
     }
