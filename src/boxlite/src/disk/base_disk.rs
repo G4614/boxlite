@@ -100,13 +100,24 @@ fn sidecar_digest(path: &Path) -> BoxliteResult<String> {
 
     if let Ok(cached) = std::fs::read_to_string(&sidecar) {
         let cached = cached.trim();
-        if cached.starts_with("sha256:") {
+        if cached
+            .strip_prefix("sha256:")
+            .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        {
             return Ok(cached.to_string());
         }
     }
 
     let digest = crate::litebox::archive::CanonicalLayer::open(path)?.digest()?;
-    if let Err(e) = std::fs::write(&sidecar, &digest) {
+    let staging = sidecar.with_extension(format!(
+        "{}.{}.partial",
+        sidecar.extension().unwrap_or_default().to_string_lossy(),
+        uuid::Uuid::new_v4()
+    ));
+    if let Err(e) =
+        std::fs::write(&staging, &digest).and_then(|()| std::fs::rename(&staging, &sidecar))
+    {
+        let _ = std::fs::remove_file(&staging);
         tracing::debug!(
             path = %sidecar.display(),
             error = %e,
@@ -590,6 +601,20 @@ mod tests {
             first, second,
             "the cached digest must be returned without re-reading the layer"
         );
+    }
+
+    #[test]
+    fn digest_of_ignores_a_truncated_sidecar() {
+        let (dir, mgr) = setup();
+        let image_disk = dir.path().join("sha256-def.ext4");
+        let sidecar = dir.path().join("sha256-def.ext4.digest");
+        std::fs::write(&image_disk, b"raw ext4 bytes").unwrap();
+        std::fs::write(&sidecar, "sha256:1234").unwrap();
+
+        let digest = mgr.digest_of(&image_disk).unwrap().expect("a digest");
+
+        assert_eq!(digest.len(), "sha256:".len() + 64);
+        assert_eq!(std::fs::read_to_string(sidecar).unwrap(), digest);
     }
 
     /// Helper: create a minimal qcow2 file with an optional backing file path.

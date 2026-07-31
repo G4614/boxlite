@@ -995,8 +995,8 @@ pub fn set_backing_file_path(qcow2_path: &Path, new_backing: &Path) -> BoxliteRe
             ))
         })?;
 
-    // Read header: magic (4) + version (4) + backing_file_offset (8) + backing_file_size (4)
-    let mut header = [0u8; 20];
+    // Read through the L1 table offset so the backing path cannot overwrite metadata.
+    let mut header = [0u8; 48];
     file.read_exact(&mut header).map_err(|e| {
         BoxliteError::Storage(format!(
             "Failed to read qcow2 header from {}: {}",
@@ -1017,6 +1017,7 @@ pub fn set_backing_file_path(qcow2_path: &Path, new_backing: &Path) -> BoxliteRe
 
     let backing_offset = u64::from_be_bytes(header[8..16].try_into().unwrap());
     let old_backing_size = u32::from_be_bytes(header[16..20].try_into().unwrap());
+    let l1_table_offset = u64::from_be_bytes(header[40..48].try_into().unwrap());
 
     // A zero size with a valid offset is the canonical form an archive ships:
     // the path was blanked so the layer hashes the same on every host, but the
@@ -1024,6 +1025,20 @@ pub fn set_backing_file_path(qcow2_path: &Path, new_backing: &Path) -> BoxliteRe
     if backing_offset == 0 {
         return Err(BoxliteError::Storage(format!(
             "Cannot rebase {}: no reserved backing file region",
+            qcow2_path.display()
+        )));
+    }
+    let backing_end = backing_offset
+        .checked_add(new_backing_bytes.len() as u64)
+        .ok_or_else(|| {
+            BoxliteError::Storage(format!(
+                "Cannot rebase {}: backing path length overflows",
+                qcow2_path.display()
+            ))
+        })?;
+    if l1_table_offset != 0 && backing_end > l1_table_offset {
+        return Err(BoxliteError::Storage(format!(
+            "Cannot rebase {}: backing path reaches qcow2 metadata",
             qcow2_path.display()
         )));
     }
@@ -1690,6 +1705,25 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("canonicalize"));
+    }
+
+    #[test]
+    fn test_set_backing_file_path_rejects_metadata_overlap() {
+        let dir = TempDir::new().unwrap();
+        let qcow2_path = dir.path().join("test.qcow2");
+        let old_backing = dir.path().join("old.raw");
+        std::fs::write(&old_backing, vec![0u8; 512]).unwrap();
+        write_qcow2_with_backing(&qcow2_path, Some(&old_backing.to_string_lossy()));
+
+        let mut bytes = std::fs::read(&qcow2_path).unwrap();
+        bytes[40..48].copy_from_slice(&520u64.to_be_bytes());
+        std::fs::write(&qcow2_path, bytes).unwrap();
+
+        let new_backing = dir.path().join("new.raw");
+        std::fs::write(&new_backing, vec![0u8; 512]).unwrap();
+        let error = set_backing_file_path(&qcow2_path, &new_backing)
+            .expect_err("backing path must not overwrite the L1 table");
+        assert!(error.to_string().contains("reaches qcow2 metadata"));
     }
 
     #[test]

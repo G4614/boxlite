@@ -1267,9 +1267,11 @@ impl BoxImpl {
         let frozen = self.guest_quiesce().await;
         let quiesce_ms = t_quiesce.elapsed().as_millis() as u64;
 
-        // Refuse here rather than after the copy: the caller asked for a
-        // filesystem-consistent view and cannot have one, so there is nothing
-        // worth pausing the VM for. The guest is left thawed — nothing froze.
+        // A timed-out quiesce may have frozen the guest before its reply was
+        // dropped. Thaw before a strict policy refuses the operation.
+        if !frozen && policy == QuiescePolicy::RequireFrozen {
+            self.guest_thaw().await;
+        }
         ensure_frozen_enough(&self.config.id, frozen, policy)?;
 
         // Phase 2: SIGSTOP — pause vCPUs

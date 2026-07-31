@@ -75,7 +75,7 @@ pub(crate) async fn import_box(
     } else {
         LayerBlobs::Extracted(temp_path.clone())
     };
-    let install = tokio::task::spawn_blocking(move || {
+    let install_task = tokio::task::spawn_blocking(move || {
         if layers.is_empty() {
             install_disks(&temp_path, &staging_clone).map(|()| Vec::new())
         } else {
@@ -88,9 +88,16 @@ pub(crate) async fn import_box(
                 &image_disks_dir,
             )
         }
-    })
-    .await
-    .map_err(|e| BoxliteError::Internal(format!("Import install task panicked: {}", e)))?;
+    });
+    let install = match install_task.await {
+        Ok(install) => install,
+        Err(e) => {
+            release_import_token(&runtime.base_disk_mgr, &token);
+            return Err(BoxliteError::Internal(format!(
+                "Import install task panicked: {e}"
+            )));
+        }
+    };
 
     let installed = match install {
         Ok(installed) => installed,
@@ -346,7 +353,10 @@ fn install_layers(
         if let Some(id) = id {
             // Pin immediately — before any later layer can fail — so the token
             // is enough to find and collect everything this import installed.
-            base_disk_mgr.store().add_ref(&id, token)?;
+            if let Err(error) = base_disk_mgr.store().add_ref(&id, token) {
+                base_disk_mgr.try_gc_base(&id);
+                return Err(error);
+            }
             base_ids.push(id);
         }
         if freshly_installed {
@@ -408,6 +418,7 @@ impl LayerBlobs {
                         archive_dir,
                         &layer.digest,
                         &dest,
+                        layer.virtual_size,
                     )?;
                 }
                 Ok(dest)
@@ -494,8 +505,16 @@ fn resolve_layer(
     // No base disk id is returned because the image cache owns this file and
     // manages its own lifecycle — it must not be pulled into base-disk GC.
     if let Some(image_digest) = &layer.image_digest {
-        let local = image_disks_dir.join(format!("{}.ext4", image_digest.replace(':', "-")));
-        if local.exists() {
+        let Some(hex) = image_digest
+            .strip_prefix("sha256:")
+            .filter(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        else {
+            return Err(BoxliteError::Storage(format!(
+                "Invalid archive: malformed image digest {image_digest}"
+            )));
+        };
+        let local = image_disks_dir.join(format!("sha256-{hex}.ext4"));
+        if local.is_file() {
             tracing::debug!(
                 image_digest = %image_digest,
                 "Image disk already built locally, skipping the archived copy"
@@ -683,6 +702,43 @@ mod layered_install_tests {
         }
     }
 
+    #[test]
+    fn a_failed_import_token_ref_collects_the_installed_layer() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mgr = mgr(home.path());
+        let bottom = stage(&temp, 1, None);
+        let digest = bottom.digest.clone();
+
+        let conn = rusqlite::Connection::open(home.path().join("boxlite.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_import_ref
+             BEFORE INSERT ON base_disk_ref
+             WHEN NEW.box_id = 'import-token'
+             BEGIN
+               SELECT RAISE(FAIL, 'forced add_ref failure');
+             END;",
+        )
+        .unwrap();
+        drop(conn);
+
+        install_layers(
+            &[bottom, stage(&temp, 2, Some(FOREIGN_PARENT))],
+            &LayerBlobs::Extracted(temp),
+            &home.path().join("box"),
+            &mgr,
+            "import-token",
+            &home.path().join("images"),
+        )
+        .expect_err("the forced token ref failure must abort the import");
+
+        assert!(
+            mgr.store().find_by_digest(&digest).unwrap().is_none(),
+            "the unreferenced layer record must be collected"
+        );
+    }
+
     /// A directory archive's objects are opened only when actually wanted.
     ///
     /// The host already holds the bottom layer, so its object in the mirror is
@@ -757,13 +813,13 @@ mod layered_install_tests {
         std::fs::create_dir_all(&images).unwrap();
 
         // This host already built the image disk.
-        let image_digest = "sha256:feedface";
-        let local = images.join("sha256-feedface.ext4");
+        let image_digest = format!("sha256:{}", "f".repeat(64));
+        let local = images.join(format!("sha256-{}.ext4", "f".repeat(64)));
         std::fs::write(&local, b"the host's own build").unwrap();
 
         // The archive carries its own, byte-different copy of that layer.
         let mut bottom = stage(&temp, 1, None);
-        bottom.image_digest = Some(image_digest.to_string());
+        bottom.image_digest = Some(image_digest);
         let archived_blob = temp.join(layer_entry_name(&bottom.digest));
         let top = stage(&temp, 2, Some(FOREIGN_PARENT));
 
@@ -796,6 +852,34 @@ mod layered_install_tests {
                 .map(PathBuf::from),
             Some(local.canonicalize().unwrap()),
             "the imported box must read through the host's own image disk"
+        );
+    }
+
+    #[test]
+    fn a_malformed_image_digest_cannot_escape_the_image_cache() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let temp = home.path().join("extract");
+        std::fs::create_dir_all(&temp).unwrap();
+        let images = home.path().join("images");
+        std::fs::create_dir_all(&images).unwrap();
+
+        let mut bottom = stage(&temp, 1, None);
+        bottom.image_digest = Some("sha256:../../bases/victim".to_string());
+        let top = stage(&temp, 2, Some(FOREIGN_PARENT));
+
+        let error = install_layers(
+            &[bottom, top],
+            &LayerBlobs::Extracted(temp),
+            &home.path().join("box"),
+            &mgr(home.path()),
+            "tok",
+            &images,
+        )
+        .expect_err("manifest paths must not escape the image cache");
+
+        assert!(
+            error.to_string().contains("malformed image digest"),
+            "got: {error}"
         );
     }
 

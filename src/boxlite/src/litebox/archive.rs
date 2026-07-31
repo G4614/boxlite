@@ -371,6 +371,7 @@ pub(crate) fn build_layered_archive(
 
 /// Zstd magic bytes: `0x28B52FFD` (little-endian in file).
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+const MAX_ARCHIVE_OUTPUT: u64 = 128 * 1024 * 1024 * 1024;
 
 /// Extract an archive, detecting format via magic bytes (zstd or plain tar).
 pub(crate) fn extract_archive(archive_path: &Path, dest_dir: &Path) -> BoxliteResult<()> {
@@ -411,9 +412,11 @@ pub(crate) fn extract_archive(archive_path: &Path, dest_dir: &Path) -> BoxliteRe
 }
 
 fn extract_zstd_tar(file: std::fs::File, dest_dir: &Path) -> BoxliteResult<()> {
+    use std::io::Read;
+
     let decoder = zstd::Decoder::new(file)
         .map_err(|e| BoxliteError::Storage(format!("Failed to create zstd decoder: {}", e)))?;
-    let mut archive = tar::Archive::new(decoder);
+    let mut archive = tar::Archive::new(decoder.take(MAX_ARCHIVE_OUTPUT.saturating_add(1)));
     archive
         .unpack(dest_dir)
         .map_err(|e| BoxliteError::Storage(format!("Failed to extract zstd tar: {}", e)))?;
@@ -504,7 +507,10 @@ pub(crate) fn extract_layer_object(
     archive_dir: &Path,
     digest: &str,
     dest: &Path,
+    virtual_size: u64,
 ) -> BoxliteResult<()> {
+    use std::io::Read;
+
     let object = archive_dir.join(format!("{}.zst", layer_entry_name(digest)));
     let file = std::fs::File::open(&object).map_err(|e| {
         BoxliteError::Storage(format!(
@@ -513,6 +519,11 @@ pub(crate) fn extract_layer_object(
             e
         ))
     })?;
+    let max_output = if virtual_size > 0 {
+        virtual_size
+    } else {
+        MAX_ARCHIVE_OUTPUT
+    };
     let mut decoder = zstd::Decoder::new(file)
         .map_err(|e| BoxliteError::Storage(format!("Failed to read layer {}: {}", digest, e)))?;
     if let Some(parent) = dest.parent() {
@@ -523,8 +534,18 @@ pub(crate) fn extract_layer_object(
     let mut out = std::fs::File::create(dest).map_err(|e| {
         BoxliteError::Storage(format!("Failed to create {}: {}", dest.display(), e))
     })?;
-    std::io::copy(&mut decoder, &mut out)
-        .map_err(|e| BoxliteError::Storage(format!("Failed to unpack layer {}: {}", digest, e)))?;
+    let written = std::io::copy(
+        &mut decoder.by_ref().take(max_output.saturating_add(1)),
+        &mut out,
+    )
+    .map_err(|e| BoxliteError::Storage(format!("Failed to unpack layer {}: {}", digest, e)))?;
+    if written > max_output {
+        drop(out);
+        let _ = std::fs::remove_file(dest);
+        return Err(BoxliteError::Storage(format!(
+            "Layer {digest} exceeds its decompression limit"
+        )));
+    }
     Ok(())
 }
 
@@ -674,6 +695,23 @@ mod tests {
         extract_archive(&archive_path, &extract_dir).unwrap();
         let content = std::fs::read_to_string(extract_dir.join("test.txt")).unwrap();
         assert_eq!(content, "hello from plain tar");
+    }
+
+    #[test]
+    fn layer_object_decompression_is_bounded() {
+        let dir = tempdir().unwrap();
+        let archive_dir = dir.path().join("archive");
+        std::fs::create_dir_all(archive_dir.join(LAYERS_DIR)).unwrap();
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let object = archive_dir.join(format!("{}.zst", layer_entry_name(&digest)));
+        std::fs::write(&object, zstd::encode_all(&b"too large"[..], 3).unwrap()).unwrap();
+        let dest = dir.path().join("layer");
+
+        let error = extract_layer_object(&archive_dir, &digest, &dest, 1)
+            .expect_err("decompression must stop at the declared virtual size");
+
+        assert!(error.to_string().contains("decompression limit"));
+        assert!(!dest.exists(), "a rejected partial layer must be removed");
     }
 
     #[test]
