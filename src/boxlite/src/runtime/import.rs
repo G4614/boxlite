@@ -1,5 +1,6 @@
 //! Box import from `.boxlite` archives.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -68,10 +69,7 @@ pub(crate) async fn import_box(
     // The directory form keeps its objects where they are; the scratch dir is
     // only where the ones actually wanted get unpacked.
     let blobs = if archive.path().is_dir() {
-        LayerBlobs::Directory {
-            archive_dir: archive.path().to_path_buf(),
-            scratch: temp_path.clone(),
-        }
+        LayerBlobs::directory(archive.path().to_path_buf(), temp_path.clone())
     } else {
         LayerBlobs::Extracted(temp_path.clone())
     };
@@ -406,10 +404,27 @@ enum LayerBlobs {
     Directory {
         archive_dir: PathBuf,
         scratch: PathBuf,
+        remaining_output: Cell<u64>,
     },
 }
 
 impl LayerBlobs {
+    fn directory(archive_dir: PathBuf, scratch: PathBuf) -> Self {
+        Self::directory_with_limit(
+            archive_dir,
+            scratch,
+            crate::litebox::archive::MAX_ARCHIVE_OUTPUT,
+        )
+    }
+
+    fn directory_with_limit(archive_dir: PathBuf, scratch: PathBuf, limit: u64) -> Self {
+        Self::Directory {
+            archive_dir,
+            scratch,
+            remaining_output: Cell::new(limit),
+        }
+    }
+
     /// Produce a path to this layer's bytes, unpacking it only if needed.
     fn materialize(&self, layer: &ArchiveLayer) -> BoxliteResult<PathBuf> {
         validate_sha256_digest(&layer.digest, "layer")?;
@@ -418,15 +433,18 @@ impl LayerBlobs {
             Self::Directory {
                 archive_dir,
                 scratch,
+                remaining_output,
             } => {
                 let dest = scratch.join(layer_entry_name(&layer.digest));
                 if !dest.exists() {
-                    crate::litebox::archive::extract_layer_object(
+                    let written = crate::litebox::archive::extract_layer_object(
                         archive_dir,
                         &layer.digest,
                         &dest,
                         layer.virtual_size,
+                        remaining_output.get(),
                     )?;
+                    remaining_output.set(remaining_output.get().saturating_sub(written));
                 }
                 Ok(dest)
             }
@@ -802,10 +820,7 @@ mod layered_install_tests {
         std::fs::create_dir_all(&scratch).unwrap();
         install_layers(
             &[bottom, top],
-            &LayerBlobs::Directory {
-                archive_dir: mirror,
-                scratch,
-            },
+            &LayerBlobs::directory(mirror, scratch),
             &home.path().join("box2"),
             &mgr,
             "tok2",
@@ -911,15 +926,46 @@ mod layered_install_tests {
             image_digest: None,
         };
 
-        let error = LayerBlobs::Directory {
-            archive_dir,
-            scratch,
-        }
-        .materialize(&layer)
-        .expect_err("a malformed digest must be rejected before filesystem access");
+        let error = LayerBlobs::directory(archive_dir, scratch)
+            .materialize(&layer)
+            .expect_err("a malformed digest must be rejected before filesystem access");
 
         assert!(error.to_string().contains("malformed layer digest"));
         assert!(!escaped.exists(), "validation must happen before any write");
+    }
+
+    #[test]
+    fn directory_layers_share_one_decompression_budget() {
+        let home = tempfile::TempDir::new_in("/tmp").unwrap();
+        let archive_dir = home.path().join("archive");
+        let scratch = home.path().join("scratch");
+        std::fs::create_dir_all(archive_dir.join("layers")).unwrap();
+        std::fs::create_dir_all(&scratch).unwrap();
+        let make_layer = |byte: u8| {
+            let digest = format!("sha256:{}", format!("{byte:02x}").repeat(32));
+            let object = archive_dir.join(format!("{}.zst", layer_entry_name(&digest)));
+            std::fs::write(object, zstd::encode_all(&[byte; 4][..], 3).unwrap()).unwrap();
+            ArchiveLayer {
+                digest,
+                format: LayerFormat::Raw,
+                virtual_size: 0,
+                image_digest: None,
+            }
+        };
+        let first = make_layer(1);
+        let second = make_layer(2);
+        let blobs = LayerBlobs::directory_with_limit(archive_dir, scratch.clone(), 6);
+
+        blobs.materialize(&first).expect("first layer fits");
+        let error = blobs
+            .materialize(&second)
+            .expect_err("all directory layers must share the aggregate limit");
+
+        assert!(error.to_string().contains("decompression limit"));
+        assert!(
+            !scratch.join(layer_entry_name(&second.digest)).exists(),
+            "a layer rejected by the aggregate limit must not remain"
+        );
     }
 
     /// A stand-in for the exporter's local backing path, which import must

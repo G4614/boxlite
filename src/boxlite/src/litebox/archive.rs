@@ -371,7 +371,7 @@ pub(crate) fn build_layered_archive(
 
 /// Zstd magic bytes: `0x28B52FFD` (little-endian in file).
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
-const MAX_ARCHIVE_OUTPUT: u64 = 128 * 1024 * 1024 * 1024;
+pub(crate) const MAX_ARCHIVE_OUTPUT: u64 = 128 * 1024 * 1024 * 1024;
 
 /// Extract an archive, detecting format via magic bytes (zstd or plain tar).
 pub(crate) fn extract_archive(archive_path: &Path, dest_dir: &Path) -> BoxliteResult<()> {
@@ -508,7 +508,8 @@ pub(crate) fn extract_layer_object(
     digest: &str,
     dest: &Path,
     virtual_size: u64,
-) -> BoxliteResult<()> {
+    remaining_output: u64,
+) -> BoxliteResult<u64> {
     use std::io::Read;
 
     let object = archive_dir.join(format!("{}.zst", layer_entry_name(digest)));
@@ -519,11 +520,12 @@ pub(crate) fn extract_layer_object(
             e
         ))
     })?;
-    let max_output = if virtual_size > 0 {
+    let layer_limit = if virtual_size > 0 {
         virtual_size
     } else {
         MAX_ARCHIVE_OUTPUT
     };
+    let max_output = layer_limit.min(remaining_output);
     let mut decoder = zstd::Decoder::new(file)
         .map_err(|e| BoxliteError::Storage(format!("Failed to read layer {}: {}", digest, e)))?;
     if let Some(parent) = dest.parent() {
@@ -546,7 +548,7 @@ pub(crate) fn extract_layer_object(
             "Layer {digest} exceeds its decompression limit"
         )));
     }
-    Ok(())
+    Ok(written)
 }
 
 #[cfg(test)]
@@ -707,7 +709,7 @@ mod tests {
         std::fs::write(&object, zstd::encode_all(&b"too large"[..], 3).unwrap()).unwrap();
         let dest = dir.path().join("layer");
 
-        let error = extract_layer_object(&archive_dir, &digest, &dest, 1)
+        let error = extract_layer_object(&archive_dir, &digest, &dest, 1, MAX_ARCHIVE_OUTPUT)
             .expect_err("decompression must stop at the declared virtual size");
 
         assert!(error.to_string().contains("decompression limit"));
