@@ -668,9 +668,9 @@ fn bystander_writes_keep_progressing_while_peer_fills_its_disk() {
     );
 
     assert!(
-        after > before,
+        after >= before + 2,
         "bystander's background writer must keep progressing during a peer's \
-         fill — at least one new line should land in /work/log; \
+         fill — at least two new lines should land in /work/log; \
          before={before} after={after}"
     );
 
