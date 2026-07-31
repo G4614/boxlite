@@ -11,7 +11,6 @@ use std::sync::{Condvar, Mutex};
 
 use boxlite::BoxliteError;
 
-use crate::archive::CArchiveExportResult;
 use crate::images::{CImageInfoList, CImagePullResult};
 use crate::info::{CBoxInfo, CBoxInfoList};
 use crate::metrics::{CBoxMetrics, CRuntimeMetrics};
@@ -151,20 +150,6 @@ pub(crate) type CBoxVolumeRemoveFn = extern "C" fn(*mut crate::CBoxliteError, *m
 /// Copy (into / out of) completion.
 pub type CBoxCopyCb = Option<extern "C" fn(*mut crate::CBoxliteError, *mut c_void)>;
 pub(crate) type CBoxCopyFn = extern "C" fn(*mut crate::CBoxliteError, *mut c_void);
-
-/// Box archive export completion. On success the callback owns the result and
-/// must release it with `boxlite_free_archive_export_result`.
-pub type CBoxExportCb =
-    Option<extern "C" fn(*mut CArchiveExportResult, *mut crate::CBoxliteError, *mut c_void)>;
-pub(crate) type CBoxExportFn =
-    extern "C" fn(*mut CArchiveExportResult, *mut crate::CBoxliteError, *mut c_void);
-
-/// Box archive import completion. On success the callback owns the returned
-/// box handle and must release it with `boxlite_box_free`.
-pub type CBoxImportCb =
-    Option<extern "C" fn(*mut crate::CBoxHandle, *mut crate::CBoxliteError, *mut c_void)>;
-pub(crate) type CBoxImportFn =
-    extern "C" fn(*mut crate::CBoxHandle, *mut crate::CBoxliteError, *mut c_void);
 
 /// Box info completion. On success the callback owns the non-null metadata and
 /// must release it with `boxlite_free_box_info`. The error pointer is borrowed
@@ -389,16 +374,6 @@ pub enum RuntimeEvent {
         cb: CBoxCopyFn,
         user_data: usize,
         result: Result<(), BoxliteError>,
-    },
-    ExportBox {
-        cb: CBoxExportFn,
-        user_data: usize,
-        result: Result<OwnedFfiPtr<CArchiveExportResult>, BoxliteError>,
-    },
-    ImportBox {
-        cb: CBoxImportFn,
-        user_data: usize,
-        result: Result<OwnedFfiPtr<crate::CBoxHandle>, BoxliteError>,
     },
     Info {
         cb: CBoxInfoFn,

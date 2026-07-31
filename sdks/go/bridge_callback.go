@@ -169,56 +169,6 @@ func goBoxliteOnCopy(errPtr *C.CBoxliteError, userData unsafe.Pointer) {
 	deliverUnitResult(userData, errPtr)
 }
 
-//export goBoxliteOnExportBox
-func goBoxliteOnExportBox(res *C.CArchiveExportResult, errPtr *C.CBoxliteError, userData unsafe.Pointer) {
-	h := ptrToHandle(userData)
-	if h == 0 {
-		return
-	}
-	if !claimOrFreePayload(h, &res, func(r **C.CArchiveExportResult) {
-		if r != nil && *r != nil {
-			C.boxlite_free_archive_export_result(*r)
-		}
-	}) {
-		return
-	}
-	defer h.Delete()
-	ch, ok := h.Value().(chan archiveResult)
-	if !ok {
-		return
-	}
-	if err := errorFromCError(errPtr); err != nil {
-		ch <- archiveResult{err: err}
-		return
-	}
-	out := Archive{}
-	if res != nil {
-		out.Path = cString(res.path)
-		out.SHA256 = cString(res.sha256)
-		out.SizeBytes = uint64(res.size_bytes)
-		out.ArchiveVersion = uint32(res.archive_version)
-		C.boxlite_free_archive_export_result(res)
-	}
-	ch <- archiveResult{value: out}
-}
-
-//export goBoxliteOnImportBox
-func goBoxliteOnImportBox(box *C.CBoxHandle, errPtr *C.CBoxliteError, userData unsafe.Pointer) {
-	h := ptrToHandle(userData)
-	if h == 0 {
-		return
-	}
-	if !claimOrFreePayload(h, &box, freeBoxHandlePayload) {
-		return
-	}
-	defer h.Delete()
-	ch, ok := h.Value().(chan handleResult[*C.CBoxHandle])
-	if !ok {
-		return
-	}
-	ch <- handleResult[*C.CBoxHandle]{value: box, err: errorFromCError(errPtr)}
-}
-
 // ─── Image callbacks ───────────────────────────────────────────────────────
 
 //export goBoxliteOnImagePull
