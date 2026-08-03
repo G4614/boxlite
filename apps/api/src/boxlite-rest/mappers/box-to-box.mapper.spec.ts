@@ -27,6 +27,14 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
+  it('maps legacy host_path volume specs to managed volume mounts', () => {
+    const mapped = createBoxToCreateBox({
+      volumes: [{ host_path: 'volume-123', guest_path: '/data', read_only: false }],
+    })
+
+    expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
+  })
+
   it('returns the effective second-based policy', () => {
     const response = boxToBoxResponse({
       id: 'box-1',
