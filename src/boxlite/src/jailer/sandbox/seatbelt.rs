@@ -339,14 +339,13 @@ fn build_dynamic_write_paths(paths: &[PathAccess]) -> String {
 
 /// Grant the shim's own AF_UNIX endpoints, independent of `network_enabled`.
 ///
-/// A box's host-side control plane is Unix-domain only — the gRPC control
-/// socket, the guest-ready socket, and the network backend's datagram pair
-/// (see [`BoxSockets`](crate::net::socket_path::BoxSockets)) — and the shim
-/// binds and dials it even for a box with no guest network. macOS gates
+/// A box always needs the gRPC control and guest-ready sockets; a box with a
+/// network backend additionally needs gvproxy's control and datagram sockets
+/// (see [`BoxSockets`](crate::net::socket_path::BoxSockets)). macOS gates
 /// AF_UNIX `bind()` under `network-bind` and `connect()` under
-/// `network-outbound`; `system-socket` does not apply. Folding those grants
-/// into `seatbelt_network_policy.sbpl` therefore made `network_enabled=false`
-/// kill every box a millisecond after start (issue #1072).
+/// `network-outbound`; `system-socket` does not apply. Folding these grants into
+/// `seatbelt_network_policy.sbpl` therefore made `network_enabled=false` kill
+/// every box a millisecond after start (issue #1072).
 ///
 /// Scope: only the exact socket endpoints pre-computed by the jailer. A literal
 /// path filter never matches an AF_INET/AF_INET6 socket, so this grants no IP
