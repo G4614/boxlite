@@ -195,7 +195,7 @@ mod tests {
         let ctx = SandboxContext {
             id: "test-box",
             paths: vec![],
-            unix_socket_paths: vec![],
+            unix_sockets: Default::default(),
             resource_limits: limits,
             network_enabled: false,
             sandbox_profile: None,
@@ -240,7 +240,7 @@ mod tests {
             let ctx = SandboxContext {
                 id: "test-box",
                 paths: vec![],
-                unix_socket_paths: vec![],
+                unix_sockets: Default::default(),
                 resource_limits: limits,
                 network_enabled: false,
                 sandbox_profile: None,

@@ -86,6 +86,7 @@ pub use builder::JailerBuilder;
 pub use error::{ConfigError, IsolationError, JailerError, SystemError};
 pub use sandbox::{
     CompositeSandbox, NoopSandbox, PathAccess, PlatformSandbox, Sandbox, SandboxContext,
+    UnixSocketAccess,
 };
 
 // ============================================================================
@@ -556,15 +557,36 @@ impl<S: Sandbox> Jailer<S> {
     fn context(&self) -> SandboxContext<'_> {
         let mut paths = build_path_access(&self.layout, &self.volumes);
         paths.extend_from_slice(&self.additional_path_access);
-        let unix_socket_paths = if self.layout.sockets_dir().exists() {
-            self.layout
-                .sockets()
-                .policy_paths()
+        let unix_sockets = if self.layout.sockets_dir().exists() {
+            let sockets = self.layout.sockets();
+            let net_backend = sockets.net_backend_sock();
+            let net_backend_peer = sockets.net_backend_peer_sock();
+            // Seatbelt may audit an AF_UNIX operation against either the short
+            // binding-symlink path or the resolved inode path. Grant both
+            // aliases for each exact endpoint; never grant the directory.
+            let aliases = |binding: PathBuf| {
+                let real = binding
+                    .file_name()
+                    .map(|name| sockets.real_dir().join(name));
+                std::iter::once(binding).chain(real)
+            };
+            UnixSocketAccess {
+                bind: vec![
+                    sockets.box_sock(),
+                    net_backend.clone(),
+                    net_backend_peer.clone(),
+                    crate::net::gvproxy::control_socket_path(&net_backend),
+                ]
                 .into_iter()
-                .filter_map(|(path, writable)| writable.then_some(path))
-                .collect()
+                .flat_map(&aliases)
+                .collect(),
+                connect: vec![sockets.ready_sock(), net_backend, net_backend_peer]
+                    .into_iter()
+                    .flat_map(aliases)
+                    .collect(),
+            }
         } else {
-            Vec::new()
+            UnixSocketAccess::default()
         };
         tracing::debug!(
             box_id = %self.box_id,
@@ -579,7 +601,7 @@ impl<S: Sandbox> Jailer<S> {
         SandboxContext {
             id: &self.box_id,
             paths,
-            unix_socket_paths,
+            unix_sockets,
             resource_limits: &self.security.resource_limits,
             network_enabled: self.security.network_enabled,
             sandbox_profile: self.security.sandbox_profile.as_deref(),
@@ -1097,6 +1119,47 @@ mod tests {
 
         // prepare() should succeed
         jail.prepare().unwrap();
+
+        // AF_UNIX permissions are exact endpoints, not socket directories.
+        // Each endpoint has a short binding path and a resolved inode path.
+        let ctx = jail.context();
+        let socket_names = |paths: &[PathBuf]| {
+            let mut names = paths
+                .iter()
+                .map(|path| {
+                    path.file_name()
+                        .expect("socket endpoint must have a filename")
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        };
+        assert_eq!(
+            socket_names(&ctx.unix_sockets.bind),
+            [
+                "box.sock",
+                "box.sock",
+                "gvproxy-ctl.sock",
+                "gvproxy-ctl.sock",
+                "net.sock",
+                "net.sock",
+                "net.sock-krun.sock",
+                "net.sock-krun.sock",
+            ]
+        );
+        assert_eq!(
+            socket_names(&ctx.unix_sockets.connect),
+            [
+                "net.sock",
+                "net.sock",
+                "net.sock-krun.sock",
+                "net.sock-krun.sock",
+                "ready.sock",
+                "ready.sock",
+            ]
+        );
 
         // command() should not panic and should pre-create files
         let _cmd = jail.command(
