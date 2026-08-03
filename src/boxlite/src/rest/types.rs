@@ -218,7 +218,7 @@ pub(crate) struct CreateBoxAdvancedOptions {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxVolumeSpec {
-    pub host_path: String,
+    pub volume_id: String,
     pub guest_path: String,
     pub read_only: bool,
 }
@@ -226,7 +226,7 @@ pub(crate) struct CreateBoxVolumeSpec {
 impl From<&crate::runtime::options::VolumeSpec> for CreateBoxVolumeSpec {
     fn from(volume: &crate::runtime::options::VolumeSpec) -> Self {
         Self {
-            host_path: volume.host_path.clone(),
+            volume_id: volume.host_path.clone(),
             guest_path: volume.guest_path.clone(),
             read_only: volume.read_only,
         }
@@ -695,14 +695,14 @@ mod tests {
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
         let volume = &req.volumes.as_ref().unwrap()[0];
-        assert_eq!(volume.host_path, "volume-123");
+        assert_eq!(volume.volume_id, "volume-123");
         assert_eq!(volume.guest_path, "/data");
         assert!(!volume.read_only);
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(
             json["volumes"],
             serde_json::json!([{
-                "host_path": "volume-123",
+                "volume_id": "volume-123",
                 "guest_path": "/data",
                 "read_only": false
             }])

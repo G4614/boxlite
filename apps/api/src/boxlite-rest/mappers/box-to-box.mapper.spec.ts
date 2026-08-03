@@ -21,7 +21,7 @@ describe('BoxLite lifecycle policy mapper', () => {
 
   it('maps REST volume specs to managed volume mounts', () => {
     const mapped = createBoxToCreateBox({
-      volumes: [{ host_path: 'volume-123', guest_path: '/data', read_only: false }],
+      volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: false }],
     })
 
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])

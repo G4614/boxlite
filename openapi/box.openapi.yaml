@@ -1821,13 +1821,11 @@ components:
     VolumeSpec:
       type: object
       description: Filesystem mount attached to a box
-      required: [host_path, guest_path]
+      required: [volume_id, guest_path]
       properties:
-        host_path:
+        volume_id:
           type: string
-          description: |
-            Local runtimes interpret this as a host filesystem path.
-            Remote runtimes interpret it as a managed volume identifier.
+          description: Server-assigned managed volume identifier
         guest_path:
           type: string
           description: Mount point inside the container

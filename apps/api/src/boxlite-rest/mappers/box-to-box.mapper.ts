@@ -46,7 +46,7 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   createDto.autoDelete = dto.auto_delete
   createDto.autoResume = dto.auto_resume
   createDto.volumes = dto.volumes?.map((volume) => ({
-    volumeId: volume.host_path,
+    volumeId: volume.volume_id,
     mountPath: volume.guest_path,
   }))
   if (dto.network) {

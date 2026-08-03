@@ -133,7 +133,7 @@ describe('CreateBoxDto managed volumes', () => {
   it('accepts read-write managed volume mounts', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ host_path: 'volume-123', guest_path: '/data', read_only: false }],
+        volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: false }],
       }),
     )
 
@@ -143,7 +143,7 @@ describe('CreateBoxDto managed volumes', () => {
   it('rejects read-only cloud volume mounts until the backend supports them', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ host_path: 'volume-123', guest_path: '/data', read_only: true }],
+        volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: true }],
       }),
     )
 
@@ -153,7 +153,7 @@ describe('CreateBoxDto managed volumes', () => {
   it('rejects null read_only values', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ host_path: 'volume-123', guest_path: '/data', read_only: null }],
+        volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: null }],
       }),
     )
 

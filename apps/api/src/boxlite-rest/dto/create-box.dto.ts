@@ -48,7 +48,7 @@ export class NetworkSpecDto {
 
 export class VolumeSpecDto {
   @IsString()
-  host_path: string
+  volume_id: string
 
   @IsString()
   guest_path: string
