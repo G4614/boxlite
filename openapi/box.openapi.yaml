@@ -1580,8 +1580,11 @@ components:
       description: |
         REST-supported configuration for creating a new box. Host port
         publication is intentionally absent; use the box network tunnel
-        endpoint for remote service access. Sandbox security is server policy
-        and cannot be relaxed by clients.
+        endpoint for remote service access. The sandbox isolation preset is
+        server policy and cannot be selected by clients. Expert callers may
+        still request container capability additions and removals through
+        `advanced.capabilities`; those deltas do not select the host sandbox
+        policy.
       additionalProperties: false
       properties:
         advanced:
