@@ -394,6 +394,8 @@ pub struct Jailer<S: Sandbox> {
     pub(crate) detach: bool,
     /// Caller-defined filesystem permissions required by the confined shim.
     pub(crate) additional_path_access: Vec<PathAccess>,
+    /// Whether the shim runs a network backend and needs its AF_UNIX endpoints.
+    pub(crate) network_backend_enabled: bool,
 }
 
 impl<S: Sandbox> Jail for Jailer<S> {
@@ -564,20 +566,19 @@ impl<S: Sandbox> Jailer<S> {
                     .map(|name| sockets.real_dir().join(name));
                 std::iter::once(binding).chain(real)
             };
-            UnixSocketAccess {
-                bind: vec![
-                    sockets.box_sock(),
+            let mut bind = vec![sockets.box_sock()];
+            let mut connect = vec![sockets.ready_sock()];
+            if self.network_backend_enabled {
+                bind.extend([
                     net_backend.clone(),
                     net_backend_peer.clone(),
                     crate::net::gvproxy::control_socket_path(&net_backend),
-                ]
-                .into_iter()
-                .flat_map(&aliases)
-                .collect(),
-                connect: vec![sockets.ready_sock(), net_backend, net_backend_peer]
-                    .into_iter()
-                    .flat_map(aliases)
-                    .collect(),
+                ]);
+                connect.extend([net_backend, net_backend_peer]);
+            }
+            UnixSocketAccess {
+                bind: bind.into_iter().flat_map(&aliases).collect(),
+                connect: connect.into_iter().flat_map(aliases).collect(),
             }
         } else {
             UnixSocketAccess::default()
@@ -1064,6 +1065,7 @@ mod tests {
             .with_box_id("e2e-test")
             .with_layout(layout.clone())
             .with_security(security)
+            .with_network_backend_enabled(true)
             .with_volumes(vec![VolumeSpec {
                 host_path: vol_dir.to_string_lossy().to_string(),
                 guest_path: "/mnt/data".to_string(),
@@ -1150,6 +1152,42 @@ mod tests {
         assert!(
             layout.console_output_path().exists(),
             "console.log should be created by command()"
+        );
+    }
+
+    #[test]
+    fn no_network_backend_grants_only_control_plane_sockets() {
+        use crate::jailer::builder::JailerBuilder;
+
+        let dir = tempdir().unwrap();
+        let layout = test_layout(dir.path().to_path_buf());
+        let jail = JailerBuilder::new()
+            .with_box_id("offline-box")
+            .with_layout(layout)
+            .build()
+            .unwrap();
+
+        jail.prepare().unwrap();
+        let ctx = jail.context();
+        let socket_names = |paths: &[PathBuf]| {
+            paths
+                .iter()
+                .map(|path| {
+                    path.file_name()
+                        .expect("socket endpoint must have a filename")
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            socket_names(&ctx.unix_sockets.bind),
+            ["box.sock", "box.sock"]
+        );
+        assert_eq!(
+            socket_names(&ctx.unix_sockets.connect),
+            ["ready.sock", "ready.sock"]
         );
     }
 
