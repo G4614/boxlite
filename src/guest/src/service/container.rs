@@ -41,6 +41,17 @@ fn init_error(context: &str, error: &BoxliteError) -> ContainerInitError {
     }
 }
 
+fn normalize_privileged_capability_policy(
+    mut policy: boxlite_shared::ContainerCapabilities,
+    privileged: bool,
+) -> boxlite_shared::ContainerCapabilities {
+    if privileged {
+        policy.add = vec!["ALL".to_string()];
+        policy.drop.clear();
+    }
+    policy
+}
+
 /// Prepare container rootfs based on the initialization strategy.
 ///
 /// Handles three strategies:
@@ -189,7 +200,10 @@ impl ContainerService for GuestServer {
         // unsupported name is caller input, not a partially initialized box.
         let advanced = config.advanced.unwrap_or_default();
         let privileged = advanced.privileged;
-        let capability_policy = advanced.capabilities.unwrap_or_default();
+        let capability_policy = normalize_privileged_capability_policy(
+            advanced.capabilities.unwrap_or_default(),
+            privileged,
+        );
         let capabilities = CapabilitySet::resolve(&capability_policy.add, &capability_policy.drop)
             .map_err(BoxliteError::into_validation_status)?;
 
@@ -616,5 +630,38 @@ impl GuestServer {
 
         info!(container_id = %container_id, "✅ Container started successfully and ready for exec");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_privileged_capability_policy;
+    use boxlite_shared::ContainerCapabilities;
+
+    #[test]
+    fn privileged_mode_normalizes_the_guest_capability_policy() {
+        let normalized = normalize_privileged_capability_policy(
+            ContainerCapabilities {
+                add: vec!["SYS_ADMIN".into()],
+                drop: vec!["NET_RAW".into()],
+            },
+            true,
+        );
+
+        assert_eq!(normalized.add, ["ALL"]);
+        assert!(normalized.drop.is_empty());
+    }
+
+    #[test]
+    fn ordinary_capability_policy_is_preserved() {
+        let policy = ContainerCapabilities {
+            add: vec!["SYS_ADMIN".into()],
+            drop: vec!["NET_RAW".into()],
+        };
+
+        assert_eq!(
+            normalize_privileged_capability_policy(policy.clone(), false),
+            policy
+        );
     }
 }
