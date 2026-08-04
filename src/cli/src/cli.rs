@@ -758,7 +758,7 @@ pub struct VolumeFlags {
     #[arg(short = 'v', long = "volume", value_name = "VOLUME")]
     pub volume: Vec<String>,
 
-    /// Mount a source into the box (e.g. type=volume,src=volume://vol_123,target=/data)
+    /// Mount a source into the box (e.g. src=volume://vol_123,target=/data)
     #[arg(long = "mount", value_name = "MOUNT")]
     pub mount: Vec<String>,
 }
@@ -959,7 +959,6 @@ impl VolumeFlags {
 }
 
 fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
-    let mut mount_type: Option<String> = None;
     let mut source: Option<String> = None;
     let mut target: Option<String> = None;
 
@@ -970,7 +969,7 @@ fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
         let key = key.trim();
         let value = value.trim();
         match key {
-            "type" => mount_type = Some(value.to_string()),
+            "type" => anyhow::bail!("mount type is inferred from the source scheme"),
             "src" | "source" => source = Some(value.to_string()),
             "dst" | "destination" | "target" => target = Some(value.to_string()),
             "volume" => {
@@ -983,16 +982,6 @@ fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
             }
             other => anyhow::bail!("unsupported mount option {other:?}"),
         }
-    }
-
-    match mount_type.as_deref() {
-        Some("volume") => {}
-        Some(other) => {
-            anyhow::bail!("unsupported mount type {other:?}; only type=volume is supported")
-        }
-        None => anyhow::bail!(
-            "mount type is required (e.g. type=volume,src=volume://vol_123,target=/data)"
-        ),
     }
 
     let volume_source = source
@@ -1790,7 +1779,7 @@ mod tests {
     fn test_volume_flags_managed_volume_rejects_bare_id() {
         let flags = VolumeFlags {
             volume: vec![],
-            mount: vec!["type=volume,src=vol_123,target=/data".to_string()],
+            mount: vec!["src=vol_123,target=/data".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1807,7 +1796,7 @@ mod tests {
     fn test_volume_flags_managed_volume_source_scheme() {
         let flags = VolumeFlags {
             volume: vec![],
-            mount: vec!["type=volume,src=volume://vol_123,target=/data".to_string()],
+            mount: vec!["src=volume://vol_123,target=/data".to_string()],
         };
         let mut opts = BoxOptions::default();
         flags.apply_managed_to(&mut opts).unwrap();
@@ -1820,7 +1809,7 @@ mod tests {
     fn test_volume_flags_managed_volume_rejects_host_scheme() {
         let flags = VolumeFlags {
             volume: vec![],
-            mount: vec!["type=volume,src=host:///tmp/data,target=/data".to_string()],
+            mount: vec!["src=host:///tmp/data,target=/data".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1837,7 +1826,7 @@ mod tests {
     fn test_volume_flags_managed_volume_rejects_missing_id() {
         let flags = VolumeFlags {
             volume: vec![],
-            mount: vec!["type=volume,src=,target=/data".to_string()],
+            mount: vec!["src=,target=/data".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1854,7 +1843,7 @@ mod tests {
     fn test_volume_flags_managed_volume_rejects_relative_box_path() {
         let flags = VolumeFlags {
             volume: vec![],
-            mount: vec!["type=volume,src=volume://vol_123,target=data".to_string()],
+            mount: vec!["src=volume://vol_123,target=data".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1885,12 +1874,30 @@ mod tests {
     }
 
     #[test]
+    fn test_volume_flags_managed_volume_rejects_type_option() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["type=volume,src=volume://vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("mount type option must be inferred from source scheme");
+
+        assert!(
+            err.to_string()
+                .contains("type is inferred from the source scheme"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn test_run_parses_managed_mount_flag() {
         let cli = Cli::try_parse_from([
             "boxlite",
             "run",
             "--mount",
-            "type=volume,src=volume://vol_123,target=/data",
+            "src=volume://vol_123,target=/data",
             "alpine",
         ])
         .expect("run --mount should parse");
@@ -1898,10 +1905,7 @@ mod tests {
             panic!("expected run command");
         };
 
-        assert_eq!(
-            args.volume.mount,
-            vec!["type=volume,src=volume://vol_123,target=/data"]
-        );
+        assert_eq!(args.volume.mount, vec!["src=volume://vol_123,target=/data"]);
         assert!(args.volume.volume.is_empty());
     }
 
