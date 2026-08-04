@@ -184,11 +184,12 @@ impl ContainerService for GuestServer {
             }));
         }
 
-        // Validate and resolve the privilege policy before creating directories,
-        // mounting the rootfs, or modifying its trust store. A malformed or
-        // unsupported name is caller input, not a partially initialized box.
+        // Resolve canonical capability names before creating directories,
+        // mounting the rootfs, or modifying its trust store. The host has
+        // already normalized the public privileged request; the guest only
+        // validates the canonical contract against its own kernel.
         let advanced = config.advanced.unwrap_or_default();
-        let security_policy = ResolvedSecurityPolicy::from_request(
+        let security_policy = ResolvedSecurityPolicy::from_resolved(
             advanced.capabilities.unwrap_or_default(),
             advanced.privileged,
         )
