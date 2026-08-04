@@ -11,7 +11,7 @@ use boxlite_shared::{
 use tonic::transport::Channel;
 
 use crate::images::ContainerImageConfig;
-use crate::runtime::advanced_options::ContainerCapabilities;
+use crate::runtime::advanced_options::ResolvedContainerSecurityConfig;
 use crate::volumes::ContainerMount;
 
 /// Container rootfs initialization strategy.
@@ -87,13 +87,7 @@ pub struct ContainerInitConfig {
     pub tty: bool,
     /// Guest device nodes to reproduce inside the OCI workload.
     pub devices: Vec<ContainerDevice>,
-    pub advanced: ContainerAdvancedConfig,
-}
-
-/// Expert-only options crossing the host-to-guest container boundary.
-pub struct ContainerAdvancedConfig {
-    pub capabilities: ContainerCapabilities,
-    pub privileged: bool,
+    pub(crate) advanced: ResolvedContainerSecurityConfig,
 }
 
 /// Container service interface.
@@ -445,8 +439,11 @@ mod tests {
                     destination: "/dev/kvm".to_string(),
                     file_mode: Some(0o666),
                 }],
-                advanced: ContainerAdvancedConfig {
-                    capabilities: Default::default(),
+                advanced: ResolvedContainerSecurityConfig {
+                    capabilities: crate::runtime::advanced_options::ContainerCapabilities {
+                        add: vec!["ALL".into()],
+                        ..Default::default()
+                    },
                     privileged: true,
                 },
             })
