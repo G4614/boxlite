@@ -718,11 +718,7 @@ pub struct AdvancedBoxOptions {
     #[serde(default)]
     pub nested_virtualization: bool,
 
-    /// Release-candidate privileged OCI spec shape for DinD.
-    ///
-    /// The runtime must explicitly enable
-    /// [`ExperimentalFeature::Privileged`](crate::experimental::ExperimentalFeature::Privileged).
-    #[doc(hidden)]
+    /// Docker-style privileged OCI spec shape for DinD.
     #[serde(default)]
     pub privileged: bool,
 }
