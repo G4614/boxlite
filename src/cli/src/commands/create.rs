@@ -189,4 +189,19 @@ mod tests {
         assert_eq!(opts.advanced.capabilities.add, vec!["SYS_ADMIN"]);
         assert_eq!(opts.advanced.capabilities.drop, vec!["CAP_NET_RAW"]);
     }
+
+    #[test]
+    fn create_privileged_flag_reaches_box_options() {
+        let cli = Cli::try_parse_from(["boxlite", "create", "--privileged", "alpine"])
+            .expect("--privileged should parse");
+        let Commands::Create(args) = cli.command else {
+            panic!("expected create command");
+        };
+
+        let opts = args
+            .to_box_options(&cli.global)
+            .expect("privileged options should build");
+
+        assert!(opts.advanced.privileged);
+    }
 }
