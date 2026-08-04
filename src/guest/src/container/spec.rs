@@ -165,8 +165,10 @@ pub fn create_oci_spec(
     user_mounts: &[UserMount],
     tty: bool,
     devices: &ContainerDevices,
+    privileged: bool,
 ) -> BoxliteResult<Spec> {
     let caps = capabilities.to_oci()?;
+    tracing::info!(container_id, privileged, "building container spec");
     let namespaces = build_default_namespaces()?;
     let mut mounts = build_standard_mounts(bundle_path)?;
 
@@ -203,7 +205,7 @@ pub fn create_oci_spec(
 
     let process = build_process_spec(entrypoint, env, workdir, uid, gid, caps, tty)?;
     let root = build_root_spec(rootfs)?;
-    let linux = build_linux_spec(container_id, namespaces, devices.as_slice())?;
+    let linux = build_linux_spec(container_id, namespaces, devices.as_slice(), privileged)?;
 
     SpecBuilder::default()
         .version("1.0.2")
@@ -488,6 +490,7 @@ fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
     devices: &[LinuxDevice],
+    privileged: bool,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
     // Map full range of UIDs/GIDs to allow non-root users (nginx=33, etc.)
@@ -543,6 +546,22 @@ fn build_linux_spec(
     // Leave `devices` unset when empty so the spec keeps its historical shape.
     if !devices.is_empty() {
         builder = builder.devices(devices.to_vec());
+    }
+
+    if privileged {
+        // DinD needs `/proc/sys` writable, but the rest of the OCI readonly
+        // list can stay hardened. `/proc/sys` here is the guest's global sysctl
+        // tree, not a private one: there is no network namespace
+        // (build_default_namespaces gives pid, ipc, uts and mount), so IP
+        // forwarding flips for every sibling container and core_pattern pointed
+        // at a pipe runs as guest root outside the container. The microVM is
+        // the boundary this relies on, not the spec.
+        builder = builder.readonly_paths(
+            readonly_paths
+                .into_iter()
+                .filter(|path| path != "/proc/sys")
+                .collect::<Vec<_>>(),
+        );
     }
 
     builder
@@ -706,7 +725,7 @@ mod tests {
         }])
         .unwrap();
 
-        let linux = build_linux_spec("test-box", vec![], devices.as_slice()).unwrap();
+        let linux = build_linux_spec("test-box", vec![], devices.as_slice(), false).unwrap();
         let mapped = linux.devices().as_ref().expect("mapped device");
         assert_eq!(mapped.len(), 1);
         let device = &mapped[0];
@@ -721,8 +740,13 @@ mod tests {
 
     #[test]
     fn empty_device_mapping_adds_no_devices() {
-        let linux =
-            build_linux_spec("test-box", vec![], ContainerDevices::default().as_slice()).unwrap();
+        let linux = build_linux_spec(
+            "test-box",
+            vec![],
+            ContainerDevices::default().as_slice(),
+            false,
+        )
+        .unwrap();
 
         assert!(linux.devices().is_none());
     }
@@ -1192,5 +1216,132 @@ mod tests {
         // Malformed entries are silently skipped (not enough fields to match)
         let err = resolve_user(r, "short").unwrap_err().to_string();
         assert!(err.contains("User 'short' not found"), "got: {}", err);
+    }
+
+    // ==================
+    // Privileged (DinD) plumbing
+    // ==================
+
+    /// Guards the premise the privileged branch rests on rather than the branch
+    /// itself: clearing the lists only means anything while leaving them unset
+    /// yields a non-empty set. `Linux::default()` supplies that set, and
+    /// oci-spec is a caret dependency, so an upstream release that emptied or
+    /// renamed either list would turn the branch into a no-op that no assertion
+    /// on the privileged side can see. Pinned to the exact lists for that
+    /// reason: a changed entry is a decision to review, not to inherit.
+    #[test]
+    fn unprivileged_spec_keeps_runtime_path_defaults() {
+        let devices = ContainerDevices::default();
+        let linux = build_linux_spec("c", vec![], devices.as_slice(), false).unwrap();
+
+        // Spelled out rather than compared against `get_default_*`, which is
+        // where the value under test comes from: that comparison holds for any
+        // value at all, including the empty one this is here to catch.
+        assert_eq!(
+            linux.readonly_paths().as_deref(),
+            Some(
+                [
+                    "/proc/bus",
+                    "/proc/fs",
+                    "/proc/irq",
+                    "/proc/sys",
+                    "/proc/sysrq-trigger",
+                ]
+                .map(String::from)
+                .as_slice()
+            )
+        );
+        assert_eq!(
+            linux.masked_paths().as_deref(),
+            Some(
+                [
+                    "/proc/acpi",
+                    "/proc/asound",
+                    "/proc/kcore",
+                    "/proc/keys",
+                    "/proc/latency_stats",
+                    "/proc/timer_list",
+                    "/proc/timer_stats",
+                    "/proc/sched_debug",
+                    "/sys/firmware",
+                    "/proc/scsi",
+                ]
+                .map(String::from)
+                .as_slice()
+            )
+        );
+    }
+
+    #[test]
+    fn privileged_spec_opens_only_proc_sys() {
+        let devices = ContainerDevices::default();
+        let linux = build_linux_spec("c", vec![], devices.as_slice(), true).unwrap();
+
+        assert_eq!(
+            linux.readonly_paths().as_deref(),
+            Some(
+                ["/proc/bus", "/proc/fs", "/proc/irq", "/proc/sysrq-trigger"]
+                    .map(String::from)
+                    .as_slice()
+            )
+        );
+        // The masked list is the half a nested runtime does not need, so it
+        // survives. Asserting it is non-empty here is what fails if someone
+        // reaches for `docker run --privileged` parity and clears both.
+        assert!(linux.masked_paths().as_ref().is_some_and(|p| !p.is_empty()));
+    }
+
+    /// Capabilities and the privileged spec shape are separate knobs: adding
+    /// every capability does not silently relax `/proc/sys`.
+    #[test]
+    fn privileged_flag_decides_which_shape_the_spec_gets() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path();
+        let Ok(full_caps) = CapabilitySet::resolve(&["ALL".to_string()], &[]) else {
+            // Reading the kernel ceiling needs a live /proc; skip where absent
+            // rather than assert on an environment this test does not control.
+            return;
+        };
+
+        let spec_for = |privileged: bool| {
+            create_oci_spec(
+                "c",
+                "/rootfs",
+                &["/bin/sh".to_string()],
+                &[],
+                "/",
+                0,
+                0,
+                &full_caps,
+                bundle,
+                &[],
+                false,
+                &ContainerDevices::default(),
+                privileged,
+            )
+            .expect("spec builds")
+        };
+
+        let linux = spec_for(false);
+        let linux = linux.linux().as_ref().expect("linux section");
+        assert!(
+            linux
+                .readonly_paths()
+                .as_ref()
+                .is_some_and(|p| !p.is_empty()),
+            "a default capability set must keep the hardened shape"
+        );
+
+        let linux = spec_for(true);
+        let linux = linux.linux().as_ref().expect("linux section");
+        assert_eq!(
+            linux.readonly_paths().as_deref(),
+            Some(
+                ["/proc/bus", "/proc/fs", "/proc/irq", "/proc/sysrq-trigger"]
+                    .map(String::from)
+                    .as_slice()
+            ),
+            "the explicit privileged flag must open only /proc/sys"
+        );
     }
 }

@@ -1,7 +1,8 @@
 //! C ABI for `boxlite::runtime::advanced_options::AdvancedBoxOptions`.
 //!
 //! Mirrors the core model: advanced knobs (capabilities, security, mount
-//! isolation, health check) live under `BoxOptions.advanced`, never directly on the box. Build a
+//! privileged mode, capabilities, security, mount isolation, health check) live under
+//! `BoxOptions.advanced`, never directly on the box. Build a
 //! `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`, toggle the
 //! sandbox with `boxlite_advanced_options_set_security_enabled`, then apply it
 //! to a `CBoxliteOptions` via `boxlite_options_set_advanced`.
@@ -76,6 +77,23 @@ pub unsafe extern "C" fn boxlite_advanced_options_set_security_enabled(
         } else {
             SecurityOptions::disabled()
         };
+    }
+}
+
+/// Toggle Docker-style privileged mode. Enabling it also normalizes the
+/// capability policy to `ALL` with no drops; the guest still receives the
+/// privileged shape and capabilities as separate fields.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_advanced_options_set_privileged(
+    opts: *mut CAdvancedBoxOptions,
+    enabled: c_int,
+) {
+    if opts.is_null() {
+        return;
+    }
+    unsafe {
+        (*opts).options.privileged = enabled != 0;
+        (*opts).options.normalize_privileged();
     }
 }
 

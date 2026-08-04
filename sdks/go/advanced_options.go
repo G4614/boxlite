@@ -34,6 +34,7 @@ type ContainerCapabilities struct {
 type AdvancedBoxOptions struct {
 	handle       *C.CAdvancedBoxOptions
 	capabilities ContainerCapabilities
+	privileged   bool
 }
 
 // NewAdvancedBoxOptions allocates an advanced-options handle initialized to
@@ -59,6 +60,19 @@ func (a *AdvancedBoxOptions) SetSecurityEnabled(enabled bool) {
 		return
 	}
 	C.boxlite_advanced_options_set_security_enabled(a.handle, boolToCInt(enabled))
+}
+
+// SetPrivileged enables Docker-style privileged mode. Enabling it also
+// normalizes the capability policy to cap_add=["ALL"] and an empty cap_drop.
+func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) {
+	if a == nil || a.handle == nil {
+		return
+	}
+	C.boxlite_advanced_options_set_privileged(a.handle, boolToCInt(enabled))
+	a.privileged = enabled
+	if enabled {
+		a.capabilities = ContainerCapabilities{Add: []string{"ALL"}}
+	}
 }
 
 // SetCapabilities replaces advanced.capabilities for subsequently created
