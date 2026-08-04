@@ -291,6 +291,16 @@ pub(crate) fn build_layered_directory(
 /// the same place incremental. New objects are written under a temporary name
 /// and renamed, so a reader never sees a half-written object under a name
 /// that promises specific content.
+///
+/// The temporary name is unique per attempt, not per digest: two exports that
+/// share a missing layer (e.g. two boxes cloned from the same base, exported
+/// around the same time into the same mirror) each write their own staging
+/// file rather than both opening one shared path with `O_TRUNC`, which would
+/// let their writes land at unsynchronized offsets in the same inode. Losing
+/// the race is harmless — the layer is content-addressed, so the winner's
+/// object is already the bytes this writer would have produced — so the
+/// loser just discards its copy instead of erroring on a rename whose source
+/// the winner already claimed.
 fn write_layer_objects(
     root: &Path,
     layers: &[(String, std::path::PathBuf)],
@@ -312,22 +322,46 @@ fn write_layer_objects(
             continue;
         }
 
-        let staging = object.with_extension("zst.partial");
-        let mut layer = CanonicalLayer::open(path)?;
-        let file = std::fs::File::create(&staging).map_err(|e| {
-            BoxliteError::Storage(format!("Failed to create {}: {}", staging.display(), e))
-        })?;
-        let mut encoder = zstd::Encoder::new(file, compression_level)
-            .map_err(|e| BoxliteError::Storage(format!("Failed to create zstd encoder: {}", e)))?;
-        std::io::copy(&mut layer, &mut encoder).map_err(|e| {
-            BoxliteError::Storage(format!("Failed to write layer {}: {}", digest, e))
-        })?;
-        encoder.finish().map_err(|e| {
-            BoxliteError::Storage(format!("Failed to finish layer {}: {}", digest, e))
-        })?;
+        let staging = object.with_extension(format!("zst.{}.partial", uuid::Uuid::new_v4()));
+        let write_result = write_layer_object(&staging, path, compression_level, digest);
+        if let Err(e) = write_result {
+            let _ = std::fs::remove_file(&staging);
+            return Err(e);
+        }
+
+        if object.exists() {
+            // Another writer finished this same layer while we were
+            // compressing our own copy.
+            tracing::debug!(
+                digest = %digest,
+                "Layer object appeared while writing, discarding the redundant copy"
+            );
+            let _ = std::fs::remove_file(&staging);
+            continue;
+        }
         move_file(&staging, &object)?;
     }
 
+    Ok(())
+}
+
+fn write_layer_object(
+    staging: &Path,
+    path: &Path,
+    compression_level: i32,
+    digest: &str,
+) -> BoxliteResult<()> {
+    let mut layer = CanonicalLayer::open(path)?;
+    let file = std::fs::File::create(staging).map_err(|e| {
+        BoxliteError::Storage(format!("Failed to create {}: {}", staging.display(), e))
+    })?;
+    let mut encoder = zstd::Encoder::new(file, compression_level)
+        .map_err(|e| BoxliteError::Storage(format!("Failed to create zstd encoder: {}", e)))?;
+    std::io::copy(&mut layer, &mut encoder)
+        .map_err(|e| BoxliteError::Storage(format!("Failed to write layer {}: {}", digest, e)))?;
+    encoder
+        .finish()
+        .map_err(|e| BoxliteError::Storage(format!("Failed to finish layer {}: {}", digest, e)))?;
     Ok(())
 }
 
@@ -799,5 +833,63 @@ mod tests {
             std::fs::read_to_string(extract_dir.join(layer_entry_name("sha256:bbb"))).unwrap(),
             "fake-top-layer"
         );
+    }
+
+    /// Two exports that share a missing layer (e.g. two boxes cloned from the
+    /// same base, both mirrored into the same directory around the same time)
+    /// must not corrupt or fail to write that layer's object just because
+    /// they raced on it.
+    #[test]
+    fn concurrent_writers_of_the_same_missing_layer_do_not_corrupt_it() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("shared-layer.bin");
+        // Large and only lightly compressible, so each writer's encode+write
+        // takes long enough for concurrent attempts to actually overlap.
+        let mut content = vec![0u8; 8 * 1024 * 1024];
+        for (i, byte) in content.iter_mut().enumerate() {
+            *byte = (i % 251) as u8;
+        }
+        std::fs::write(&source, &content).unwrap();
+        let digest = CanonicalLayer::open(&source).unwrap().digest().unwrap();
+
+        for round in 0..5 {
+            let root = dir.path().join(format!("root-{round}"));
+            let writers = 4;
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(writers));
+            let root = std::sync::Arc::new(root);
+            let source = std::sync::Arc::new(source.clone());
+            let digest = std::sync::Arc::new(digest.clone());
+
+            let handles: Vec<_> = (0..writers)
+                .map(|_| {
+                    let barrier = barrier.clone();
+                    let root = root.clone();
+                    let source = source.clone();
+                    let digest = digest.clone();
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        write_layer_objects(&root, &[((*digest).clone(), (*source).clone())], 3)
+                    })
+                })
+                .collect();
+
+            for handle in handles {
+                handle
+                    .join()
+                    .unwrap()
+                    .expect("a racing writer must not fail just because another writer won");
+            }
+
+            let object = root.join(format!("{}.zst", layer_entry_name(&digest)));
+            let file = std::fs::File::open(&object).expect("the layer object must exist");
+            let mut decoder = zstd::Decoder::new(file).expect("a valid writer's object decodes");
+            let mut restored = Vec::new();
+            std::io::Read::read_to_end(&mut decoder, &mut restored)
+                .expect("the object must decompress cleanly, not end mid-frame");
+            assert_eq!(
+                restored, content,
+                "round {round}: the object's content must be exactly the source layer"
+            );
+        }
     }
 }
