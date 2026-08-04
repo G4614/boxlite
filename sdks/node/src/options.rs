@@ -259,8 +259,11 @@ pub struct JsEnvVar {
 #[napi(object)]
 #[derive(Clone, Debug)]
 pub struct JsVolumeSpec {
-    /// Path on host machine
-    pub host_path: String,
+    /// Scheme-qualified source such as `volume://vol_123`.
+    pub source: Option<String>,
+
+    /// Path on host machine. Deprecated for managed volumes; use `source`.
+    pub host_path: Option<String>,
 
     /// Path inside container
     pub guest_path: String,
@@ -272,7 +275,7 @@ pub struct JsVolumeSpec {
 impl From<JsVolumeSpec> for VolumeSpec {
     fn from(v: JsVolumeSpec) -> Self {
         VolumeSpec {
-            host_path: v.host_path,
+            host_path: v.source.or(v.host_path).unwrap_or_default(),
             guest_path: v.guest_path,
             read_only: v.read_only.unwrap_or(false),
         }

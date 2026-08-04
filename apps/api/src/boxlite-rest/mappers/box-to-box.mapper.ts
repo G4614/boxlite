@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
+import { BadRequestException } from '@nestjs/common'
 import { BoxDto } from '../../box/dto/box.dto'
 import { BoxState } from '../../box/enums/box-state.enum'
 import {
@@ -46,7 +47,7 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   createDto.autoDelete = dto.auto_delete
   createDto.autoResume = dto.auto_resume
   createDto.volumes = dto.volumes?.map((volume) => ({
-    volumeId: (volume.volume_id ?? volume.host_path)!,
+    volumeId: resolveVolumeId(volume),
     mountPath: volume.guest_path,
   }))
   if (dto.network) {
@@ -55,6 +56,22 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
     createDto.networkAllowList = dto.network.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
   }
   return createDto
+}
+
+function resolveVolumeId(volume: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
+  if (volume.source !== undefined) {
+    if (volume.source.startsWith('volume://')) {
+      const volumeId = volume.source.slice('volume://'.length)
+      if (volumeId) {
+        return volumeId
+      }
+    }
+    if (volume.source.startsWith('host://')) {
+      throw new BadRequestException('host:// volume sources are not supported by the remote managed-volume runtime')
+    }
+    throw new BadRequestException('volume source must use the volume:// scheme')
+  }
+  return (volume.volume_id ?? volume.host_path)!
 }
 
 function mapState(state: string | BoxState | undefined): string {

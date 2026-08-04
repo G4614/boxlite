@@ -638,13 +638,15 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PyVolumeSpec {
         }
 
         if let Ok(d) = obj.cast::<PyDict>() {
-            let host: String = if let Ok(Some(v)) = d.get_item("host") {
+            let host: String = if let Ok(Some(v)) = d.get_item("source") {
+                v.extract()?
+            } else if let Ok(Some(v)) = d.get_item("host") {
                 v.extract()?
             } else if let Ok(Some(v)) = d.get_item("host_path") {
                 v.extract()?
             } else {
                 return Err(PyRuntimeError::new_err(
-                    "volume dict missing host/host_path",
+                    "volume dict missing source/host/host_path",
                 ));
             };
 

@@ -253,6 +253,16 @@ func WithVolumeReadOnly(hostPath, containerPath string) BoxOption {
 	}
 }
 
+// WithVolumeSource mounts a scheme-qualified source into the box.
+//
+// Use volume://<volume_id> for managed volumes. Host paths should continue to
+// use WithVolume / WithVolumeReadOnly.
+func WithVolumeSource(source, containerPath string) BoxOption {
+	return func(c *boxConfig) {
+		c.volumes = append(c.volumes, volumeEntry{source, containerPath, false})
+	}
+}
+
 // WithPort publishes a guest port on a host port.
 //
 // The boxlite runtime currently forwards TCP only. Host 0 asks the OS to select

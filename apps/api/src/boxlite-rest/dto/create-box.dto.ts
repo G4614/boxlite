@@ -47,11 +47,15 @@ export class NetworkSpecDto {
 }
 
 export class VolumeSpecDto {
-  @ValidateIf((volume) => volume.host_path !== undefined || volume.volume_id === undefined)
+  @ValidateIf((volume) => volume.source !== undefined || (volume.host_path === undefined && volume.volume_id === undefined))
+  @IsString()
+  source?: string
+
+  @ValidateIf((volume) => volume.host_path !== undefined)
   @IsString()
   host_path?: string
 
-  @ValidateIf((volume) => volume.volume_id !== undefined || volume.host_path === undefined)
+  @ValidateIf((volume) => volume.volume_id !== undefined)
   @IsString()
   volume_id?: string
 

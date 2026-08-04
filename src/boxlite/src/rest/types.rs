@@ -231,7 +231,7 @@ fn is_false(value: &bool) -> bool {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxVolumeSpec {
-    pub volume_id: String,
+    pub source: String,
     pub guest_path: String,
     pub read_only: bool,
 }
@@ -239,10 +239,18 @@ pub(crate) struct CreateBoxVolumeSpec {
 impl From<&crate::runtime::options::VolumeSpec> for CreateBoxVolumeSpec {
     fn from(volume: &crate::runtime::options::VolumeSpec) -> Self {
         Self {
-            volume_id: volume.host_path.clone(),
+            source: managed_volume_source(&volume.host_path),
             guest_path: volume.guest_path.clone(),
             read_only: volume.read_only,
         }
+    }
+}
+
+fn managed_volume_source(source: &str) -> String {
+    if source.starts_with("volume://") {
+        source.to_string()
+    } else {
+        format!("volume://{source}")
     }
 }
 
@@ -708,14 +716,14 @@ mod tests {
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
         let volume = &req.volumes.as_ref().unwrap()[0];
-        assert_eq!(volume.volume_id, "volume-123");
+        assert_eq!(volume.source, "volume://volume-123");
         assert_eq!(volume.guest_path, "/data");
         assert!(!volume.read_only);
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(
             json["volumes"],
             serde_json::json!([{
-                "volume_id": "volume-123",
+                "source": "volume://volume-123",
                 "guest_path": "/data",
                 "read_only": false
             }])
@@ -779,6 +787,24 @@ mod tests {
             !json.contains("security"),
             "fuse must not carry a REST security override: {json}"
         );
+    }
+
+    #[test]
+    fn test_create_box_request_preserves_scheme_volume_source() {
+        use crate::runtime::options::{BoxOptions, VolumeSpec};
+
+        let opts = BoxOptions {
+            volumes: vec![VolumeSpec {
+                host_path: "volume://volume-123".into(),
+                guest_path: "/data".into(),
+                read_only: false,
+            }],
+            ..Default::default()
+        };
+
+        let req = CreateBoxRequest::from_options(&opts, None);
+        let volume = &req.volumes.as_ref().unwrap()[0];
+        assert_eq!(volume.source, "volume://volume-123");
     }
 
     #[test]

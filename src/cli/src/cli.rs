@@ -994,11 +994,22 @@ fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
         None => anyhow::bail!("mount type is required (e.g. type=volume,src=vol_123,target=/data)"),
     }
 
-    let volume_id =
+    let volume_source =
         source.ok_or_else(|| anyhow::anyhow!("mount volume source is required (src=vol_123)"))?;
+    let volume_id = normalize_managed_volume_source(&volume_source)?;
     let guest_path =
         target.ok_or_else(|| anyhow::anyhow!("mount target is required (target=/data)"))?;
     Ok((volume_id, guest_path))
+}
+
+fn normalize_managed_volume_source(source: &str) -> anyhow::Result<String> {
+    if let Some(volume_id) = source.strip_prefix("volume://") {
+        return Ok(volume_id.to_string());
+    }
+    if source.starts_with("host://") {
+        anyhow::bail!("host:// sources are not managed volumes; use -v for local host-path mounts")
+    }
+    Ok(source.to_string())
 }
 
 // ============================================================================
@@ -1790,6 +1801,37 @@ mod tests {
         assert_eq!(opts.volumes[0].host_path, "vol_123");
         assert_eq!(opts.volumes[0].guest_path, "/data");
         assert!(!opts.volumes[0].read_only);
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_source_scheme() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["type=volume,src=volume://vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_managed_to(&mut opts).unwrap();
+
+        assert_eq!(opts.volumes[0].host_path, "vol_123");
+        assert_eq!(opts.volumes[0].guest_path, "/data");
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_host_scheme() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["type=volume,src=host:///tmp/data,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("host scheme must be rejected for managed volume mounts");
+
+        assert!(
+            err.to_string()
+                .contains("host:// sources are not managed volumes"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
