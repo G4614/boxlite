@@ -112,6 +112,7 @@ fn reject_remote_experimental_options(options: &BoxOptions) -> BoxliteResult<()>
 impl RuntimeBackend for RestRuntime {
     async fn create(&self, options: BoxOptions, name: Option<String>) -> BoxliteResult<LiteBox> {
         let mut options = options;
+        options.advanced.validate_privileged_capability_conflict()?;
         options.normalize_privileged();
         validate_remote_box_options(&options)?;
         reject_remote_experimental_options(&options)?;
@@ -148,6 +149,7 @@ impl RuntimeBackend for RestRuntime {
         mut options: BoxOptions,
         name: Option<String>,
     ) -> BoxliteResult<(LiteBox, bool)> {
+        options.advanced.validate_privileged_capability_conflict()?;
         options.normalize_privileged();
         validate_remote_box_options(&options)?;
         reject_remote_experimental_options(&options)?;

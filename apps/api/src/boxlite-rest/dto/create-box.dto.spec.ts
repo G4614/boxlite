@@ -73,10 +73,7 @@ describe('CreateBoxDto advanced options', () => {
   it('accepts privileged and capability options', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        advanced: {
-          privileged: true,
-          capabilities: { add: ['SYS_ADMIN'], drop: ['NET_RAW'] },
-        },
+        advanced: { privileged: true },
       }),
     )
 

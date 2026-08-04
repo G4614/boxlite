@@ -585,6 +585,12 @@ impl ContainerCapabilities {
         self.add.is_empty() && self.drop.is_empty()
     }
 
+    fn is_privileged_capability_shape(&self) -> bool {
+        self.drop.is_empty()
+            && self.add.len() == 1
+            && canonical_capability_name(&self.add[0]) == "ALL"
+    }
+
     pub(crate) fn validate(&self) -> boxlite_shared::errors::BoxliteResult<()> {
         validate_capability_names("advanced.capabilities.add", &self.add)?;
         validate_capability_names("advanced.capabilities.drop", &self.drop)
@@ -724,10 +730,35 @@ pub struct AdvancedBoxOptions {
 }
 
 impl AdvancedBoxOptions {
+    /// Reject capability overrides that conflict with privileged mode.
+    ///
+    /// The canonical `add=["ALL"]` shape is allowed for persisted and FFI
+    /// options that have already been normalized. Other explicit overrides
+    /// must not be silently discarded by privileged mode.
+    pub fn validate_privileged_capability_conflict(
+        &self,
+    ) -> boxlite_shared::errors::BoxliteResult<()> {
+        if self.privileged
+            && !self.capabilities.is_empty()
+            && !self.capabilities.is_privileged_capability_shape()
+        {
+            return Err(boxlite_shared::errors::BoxliteError::InvalidArgument(
+                "privileged mode cannot be combined with cap_add or cap_drop".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Expand the high-level privileged mode into the explicit capability
-    /// policy consumed by the guest.
+    /// policy consumed by the guest. Call
+    /// `validate_privileged_capability_conflict` before this method; a
+    /// conflicting explicit override is deliberately left untouched so it
+    /// cannot be silently discarded.
     pub fn normalize_privileged(&mut self) {
-        if self.privileged {
+        if self.privileged
+            && (self.capabilities.is_empty() || self.capabilities.is_privileged_capability_shape())
+        {
             self.capabilities.add = vec!["ALL".to_string()];
             self.capabilities.drop.clear();
         }

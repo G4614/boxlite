@@ -1305,12 +1305,31 @@ mod tests {
     }
 
     #[test]
-    fn privileged_normalizes_capabilities() {
-        let mut options: BoxOptions = serde_json::from_str(
+    fn privileged_rejects_explicit_capability_overrides() {
+        let options: BoxOptions = serde_json::from_str(
             r#"{"advanced":{"privileged":true,"capabilities":{"add":["SYS_ADMIN"],"drop":["NET_RAW"]}}}"#,
         )
         .unwrap();
 
+        let error = options
+            .advanced
+            .validate_privileged_capability_conflict()
+            .expect_err("privileged capability overrides must be rejected");
+
+        assert!(error.to_string().contains("cannot be combined"));
+    }
+
+    #[test]
+    fn privileged_canonical_capability_shape_remains_accepted() {
+        let mut options: BoxOptions = serde_json::from_str(
+            r#"{"advanced":{"privileged":true,"capabilities":{"add":["ALL"],"drop":[]}}}"#,
+        )
+        .unwrap();
+
+        options
+            .advanced
+            .validate_privileged_capability_conflict()
+            .expect("normalized privileged shape should be accepted");
         options.normalize_privileged();
 
         assert_eq!(options.advanced.capabilities.add, ["ALL"]);

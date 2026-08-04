@@ -141,6 +141,16 @@ fn set_capability_list(
 
     match parse_capability_array(capabilities, count) {
         Ok(values) => {
+            if handle.options.privileged && !values.is_empty() {
+                // Preserve a fail-closed marker if the caller ignores the
+                // return code. Privileged mode and explicit capability
+                // overrides are mutually exclusive.
+                assign(
+                    &mut handle.options,
+                    vec![INVALID_CAPABILITY_INPUT.to_string()],
+                );
+                return BoxliteErrorCode::InvalidArgument;
+            }
             assign(&mut handle.options, values);
             BoxliteErrorCode::Ok
         }

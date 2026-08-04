@@ -130,7 +130,7 @@ impl BoxRunner {
     ) -> anyhow::Result<LiteBox> {
         let mut options = BoxOptions::default();
         self.args.resource.apply_to(&mut options);
-        self.args.capability.apply_to(&mut options);
+        self.args.capability.apply_to(&mut options)?;
         self.args.boot.apply_to(&mut options);
         self.args.management.apply_to(&mut options)?;
         self.args.publish.apply_to(&mut options)?;
@@ -231,9 +231,34 @@ mod tests {
         };
 
         let mut opts = BoxOptions::default();
-        args.capability.apply_to(&mut opts);
+        args.capability
+            .apply_to(&mut opts)
+            .expect("privileged options should apply");
 
         assert!(opts.advanced.privileged);
+    }
+
+    #[test]
+    fn run_rejects_privileged_with_capability_overrides() {
+        let cli = Cli::try_parse_from([
+            "boxlite",
+            "run",
+            "--privileged",
+            "--cap-drop",
+            "ALL",
+            "alpine",
+        ])
+        .expect("flags should parse before semantic validation");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        let mut opts = BoxOptions::default();
+        let error = args
+            .capability
+            .apply_to(&mut opts)
+            .expect_err("privileged and cap-drop must be rejected together");
+        assert!(error.to_string().contains("cannot be combined"));
     }
 
     #[test]

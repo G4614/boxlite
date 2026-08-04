@@ -2,7 +2,7 @@
 //!
 //! Creates OCI-compliant runtime specifications following the runtime-spec standard.
 
-use super::capabilities::CapabilitySet;
+use super::capabilities::{CapabilitySet, ResolvedSecurityPolicy};
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use boxlite_shared::ContainerDevice as ProtoContainerDevice;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
@@ -160,15 +160,18 @@ pub fn create_oci_spec(
     workdir: &str,
     uid: u32,
     gid: u32,
-    capabilities: &CapabilitySet,
+    security_policy: &ResolvedSecurityPolicy,
     bundle_path: &Path,
     user_mounts: &[UserMount],
     tty: bool,
     devices: &ContainerDevices,
-    privileged: bool,
 ) -> BoxliteResult<Spec> {
-    let caps = capabilities.to_oci()?;
-    tracing::info!(container_id, privileged, "building container spec");
+    let caps = security_policy.capabilities.to_oci()?;
+    tracing::info!(
+        container_id,
+        writable_proc_sys = security_policy.writable_proc_sys,
+        "building container spec"
+    );
     let namespaces = build_default_namespaces()?;
     let mut mounts = build_standard_mounts(bundle_path)?;
 
@@ -205,7 +208,12 @@ pub fn create_oci_spec(
 
     let process = build_process_spec(entrypoint, env, workdir, uid, gid, caps, tty)?;
     let root = build_root_spec(rootfs)?;
-    let linux = build_linux_spec(container_id, namespaces, devices.as_slice(), privileged)?;
+    let linux = build_linux_spec(
+        container_id,
+        namespaces,
+        devices.as_slice(),
+        security_policy.writable_proc_sys,
+    )?;
 
     SpecBuilder::default()
         .version("1.0.2")
@@ -490,7 +498,7 @@ fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
     devices: &[LinuxDevice],
-    privileged: bool,
+    writable_proc_sys: bool,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
     // Map full range of UIDs/GIDs to allow non-root users (nginx=33, etc.)
@@ -544,7 +552,7 @@ fn build_linux_spec(
         .uid_mappings(uid_mappings)
         .gid_mappings(gid_mappings);
 
-    let readonly_paths = if privileged {
+    let readonly_paths = if writable_proc_sys {
         // DinD needs `/proc/sys` writable, but the rest of the explicit
         // readonly policy stays hardened.
         readonly_paths
@@ -1301,6 +1309,10 @@ mod tests {
         };
 
         let spec_for = |privileged: bool| {
+            let security_policy = ResolvedSecurityPolicy {
+                capabilities: full_caps.clone(),
+                writable_proc_sys: privileged,
+            };
             create_oci_spec(
                 "c",
                 "/rootfs",
@@ -1309,12 +1321,11 @@ mod tests {
                 "/",
                 0,
                 0,
-                &full_caps,
+                &security_policy,
                 bundle,
                 &[],
                 false,
                 &ContainerDevices::default(),
-                privileged,
             )
             .expect("spec builds")
         };

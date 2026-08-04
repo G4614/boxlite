@@ -58,15 +58,21 @@ class TestBoxOptionsDefaults:
         assert not hasattr(opts, "cap_drop")
 
     def test_privileged_normalizes_capabilities(self):
-        advanced = boxlite.AdvancedBoxOptions(
-            capabilities=boxlite.ContainerCapabilities(drop=["NET_RAW"]),
-            privileged=True,
-        )
+        advanced = boxlite.AdvancedBoxOptions(privileged=True)
         opts = boxlite.BoxOptions(image="docker:dind", advanced=advanced)
 
         assert opts.advanced.privileged is True
         assert opts.advanced.capabilities.add == ["ALL"]
         assert opts.advanced.capabilities.drop == []
+
+    async def test_privileged_rejects_capability_overrides(self, runtime):
+        advanced = boxlite.AdvancedBoxOptions(
+            capabilities=boxlite.ContainerCapabilities(drop=["ALL"]),
+            privileged=True,
+        )
+
+        with pytest.raises(Exception, match="cannot be combined"):
+            await runtime.create(boxlite.BoxOptions(image="docker:dind", advanced=advanced))
 
     def test_explicit_auto_remove_true(self):
         """Test setting auto_remove=True explicitly."""
