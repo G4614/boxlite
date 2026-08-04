@@ -435,6 +435,7 @@ impl RuntimeImpl {
         name: Option<String>,
         reuse_existing: bool,
     ) -> BoxliteResult<(LiteBox, bool)> {
+        options.advanced.validate_privileged_capability_conflict()?;
         options.normalize_privileged();
 
         // Check if runtime has been shut down
@@ -1216,6 +1217,7 @@ impl RuntimeImpl {
     ) -> BoxliteResult<LiteBox> {
         use crate::litebox::config::ContainerRuntimeConfig;
 
+        options.advanced.validate_privileged_capability_conflict()?;
         options.normalize_privileged();
 
         let box_id = BoxIDMint::mint();
@@ -1740,6 +1742,7 @@ async fn sanitize_local_options(
     features: &ExperimentalFeatures,
     mut options: BoxOptions,
 ) -> BoxliteResult<BoxOptions> {
+    options.advanced.validate_privileged_capability_conflict()?;
     options.normalize_privileged();
     features.require_for_options(&options)?;
     tokio::task::spawn_blocking(move || {

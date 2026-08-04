@@ -329,6 +329,19 @@ func TestAdvancedOptionsSetPrivilegedNormalizesCapabilities(t *testing.T) {
 	}
 }
 
+func TestAdvancedOptionsRejectsPrivilegedCapabilityOverrides(t *testing.T) {
+	advanced, err := NewAdvancedBoxOptions()
+	if err != nil {
+		t.Fatalf("NewAdvancedBoxOptions: %v", err)
+	}
+	defer advanced.Close()
+
+	advanced.SetPrivileged(true)
+	if err := advanced.SetCapabilities(ContainerCapabilities{Drop: []string{"ALL"}}); err == nil {
+		t.Fatal("privileged mode must reject cap-drop overrides")
+	}
+}
+
 func TestSetCapabilitiesRejectsEmbeddedNUL(t *testing.T) {
 	advanced, err := NewAdvancedBoxOptions()
 	if err != nil {

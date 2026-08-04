@@ -486,6 +486,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             tty: false,
             secrets,
         };
+        options.advanced.validate_privileged_capability_conflict()?;
         options.normalize_privileged();
         Ok(options)
     }
@@ -803,16 +804,25 @@ mod tests {
 
         let mut with_privileged = js.clone();
         with_privileged.advanced = Some(JsAdvancedBoxOptions {
-            capabilities: Some(JsContainerCapabilities {
-                add: Some(vec!["SYS_ADMIN".into()]),
-                drop: Some(vec!["NET_RAW".into()]),
-            }),
+            capabilities: None,
             privileged: Some(true),
         });
         let with_privileged = BoxOptions::try_from(with_privileged).unwrap();
         assert!(with_privileged.advanced.privileged);
         assert_eq!(with_privileged.advanced.capabilities.add, ["ALL"]);
         assert!(with_privileged.advanced.capabilities.drop.is_empty());
+
+        let mut conflicting_privileged = js.clone();
+        conflicting_privileged.advanced = Some(JsAdvancedBoxOptions {
+            capabilities: Some(JsContainerCapabilities {
+                add: None,
+                drop: Some(vec!["ALL".into()]),
+            }),
+            privileged: Some(true),
+        });
+        let error = BoxOptions::try_from(conflicting_privileged)
+            .expect_err("privileged capability overrides must be rejected");
+        assert!(error.to_string().contains("cannot be combined"));
 
         let opts = BoxOptions::try_from(js).unwrap();
         assert!(!opts.auto_remove);

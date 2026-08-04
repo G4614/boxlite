@@ -73,7 +73,7 @@ impl CreateArgs {
             .require_enabled(global.experimental_features())?;
         let mut options = BoxOptions::default();
         self.resource.apply_to(&mut options);
-        self.capability.apply_to(&mut options);
+        self.capability.apply_to(&mut options)?;
         self.boot.apply_to(&mut options);
         self.management.apply_to(&mut options)?;
         self.publish.apply_to(&mut options)?;

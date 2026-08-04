@@ -70,7 +70,7 @@ func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) {
 	}
 	C.boxlite_advanced_options_set_privileged(a.handle, boolToCInt(enabled))
 	a.privileged = enabled
-	if enabled {
+	if enabled && len(a.capabilities.Add) == 0 && len(a.capabilities.Drop) == 0 {
 		a.capabilities = ContainerCapabilities{Add: []string{"ALL"}}
 	}
 }
@@ -81,6 +81,9 @@ func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) {
 func (a *AdvancedBoxOptions) SetCapabilities(capabilities ContainerCapabilities) error {
 	if a == nil || a.handle == nil {
 		return fmt.Errorf("boxlite: advanced options handle is closed")
+	}
+	if a.privileged && (len(capabilities.Add) > 0 || len(capabilities.Drop) > 0) {
+		return fmt.Errorf("boxlite: privileged mode cannot be combined with cap_add or cap_drop")
 	}
 	if err := validateCapabilities("advanced.capabilities.add", capabilities.Add); err != nil {
 		return err

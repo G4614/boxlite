@@ -782,6 +782,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         detach: req.detach.unwrap_or(auto_delete == 0),
         ..Default::default()
     };
+    options.advanced.validate_privileged_capability_conflict()?;
     options.normalize_privileged();
     Ok(options)
 }
