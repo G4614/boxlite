@@ -639,7 +639,13 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PyVolumeSpec {
 
         if let Ok(d) = obj.cast::<PyDict>() {
             let host: String = if let Ok(Some(v)) = d.get_item("source") {
-                v.extract()?
+                let source: String = v.extract()?;
+                if !source.starts_with("volume://") {
+                    return Err(PyRuntimeError::new_err(
+                        "volume source must use the volume:// scheme",
+                    ));
+                }
+                source
             } else if let Ok(Some(v)) = d.get_item("host") {
                 v.extract()?
             } else if let Ok(Some(v)) = d.get_item("host_path") {
@@ -953,5 +959,30 @@ impl From<PyBoxliteRestOptions> for BoxliteRestOptions {
             opts = opts.with_path_prefix(path_prefix);
         }
         opts
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn py_volume_source_requires_volume_scheme() {
+        Python::attach(|py| {
+            let valid = PyDict::new(py);
+            valid.set_item("source", "volume://vol_123").unwrap();
+            valid.set_item("guest_path", "/data").unwrap();
+
+            let volume = valid.extract::<PyVolumeSpec>().unwrap();
+            assert_eq!(volume.host, "volume://vol_123");
+            assert_eq!(volume.guest, "/data");
+            assert!(!volume.read_only);
+
+            let invalid = PyDict::new(py);
+            invalid.set_item("source", "vol_123").unwrap();
+            invalid.set_item("guest_path", "/data").unwrap();
+
+            let err = invalid.extract::<PyVolumeSpec>().unwrap_err();
+            assert!(err.to_string().contains("volume:// scheme"));
+        });
     }
 }

@@ -1826,30 +1826,14 @@ components:
     VolumeSpec:
       type: object
       description: Filesystem mount attached to a box
-      required: [guest_path]
-      anyOf:
-        - required: [source]
-        - required: [host_path]
-        - required: [volume_id]
+      required: [source, guest_path]
       properties:
         source:
           type: string
           description: |
             Scheme-qualified mount source. Use `volume://<volume_id>` for managed
-            volumes. `host://` is reserved for local host-path mounts and is not
-            accepted by remote managed-volume runtimes.
+            volumes.
           example: volume://vol_01K2EXAMPLE
-        host_path:
-          type: string
-          deprecated: true
-          description: |
-            Deprecated compatibility field. Local runtimes historically interpret
-            this as a host filesystem path. Remote runtimes still accept it as a
-            managed volume identifier for old clients; prefer `source`.
-        volume_id:
-          type: string
-          deprecated: true
-          description: Deprecated compatibility field for `source: volume://<volume_id>`.
         guest_path:
           type: string
           description: Mount point inside the container

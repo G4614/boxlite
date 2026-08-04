@@ -758,7 +758,7 @@ pub struct VolumeFlags {
     #[arg(short = 'v', long = "volume", value_name = "VOLUME")]
     pub volume: Vec<String>,
 
-    /// Mount a source into the box (e.g. type=volume,src=vol_123,target=/data)
+    /// Mount a source into the box (e.g. type=volume,src=volume://vol_123,target=/data)
     #[arg(long = "mount", value_name = "MOUNT")]
     pub mount: Vec<String>,
 }
@@ -974,8 +974,7 @@ fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
             "src" | "source" => source = Some(value.to_string()),
             "dst" | "destination" | "target" => target = Some(value.to_string()),
             "volume" => {
-                mount_type = Some("volume".to_string());
-                source = Some(value.to_string());
+                anyhow::bail!("use source=volume://<volume_id> instead of the volume= shorthand")
             }
             "readonly" | "ro" => {
                 if value.eq_ignore_ascii_case("true") || value == "1" {
@@ -991,11 +990,13 @@ fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
         Some(other) => {
             anyhow::bail!("unsupported mount type {other:?}; only type=volume is supported")
         }
-        None => anyhow::bail!("mount type is required (e.g. type=volume,src=vol_123,target=/data)"),
+        None => anyhow::bail!(
+            "mount type is required (e.g. type=volume,src=volume://vol_123,target=/data)"
+        ),
     }
 
-    let volume_source =
-        source.ok_or_else(|| anyhow::anyhow!("mount volume source is required (src=vol_123)"))?;
+    let volume_source = source
+        .ok_or_else(|| anyhow::anyhow!("mount volume source is required (src=volume://vol_123)"))?;
     let volume_id = normalize_managed_volume_source(&volume_source)?;
     let guest_path =
         target.ok_or_else(|| anyhow::anyhow!("mount target is required (target=/data)"))?;
@@ -1006,10 +1007,7 @@ fn normalize_managed_volume_source(source: &str) -> anyhow::Result<String> {
     if let Some(volume_id) = source.strip_prefix("volume://") {
         return Ok(volume_id.to_string());
     }
-    if source.starts_with("host://") {
-        anyhow::bail!("host:// sources are not managed volumes; use -v for local host-path mounts")
-    }
-    Ok(source.to_string())
+    anyhow::bail!("managed volume source must use the volume:// scheme")
 }
 
 // ============================================================================
@@ -1789,18 +1787,20 @@ mod tests {
     }
 
     #[test]
-    fn test_volume_flags_managed_volume_id_passthrough() {
+    fn test_volume_flags_managed_volume_rejects_bare_id() {
         let flags = VolumeFlags {
             volume: vec![],
             mount: vec!["type=volume,src=vol_123,target=/data".to_string()],
         };
         let mut opts = BoxOptions::default();
-        flags.apply_managed_to(&mut opts).unwrap();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("bare volume ids must use the volume:// scheme");
 
-        assert_eq!(opts.volumes.len(), 1);
-        assert_eq!(opts.volumes[0].host_path, "vol_123");
-        assert_eq!(opts.volumes[0].guest_path, "/data");
-        assert!(!opts.volumes[0].read_only);
+        assert!(
+            err.to_string().contains("volume:// scheme"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -1828,8 +1828,7 @@ mod tests {
             .expect_err("host scheme must be rejected for managed volume mounts");
 
         assert!(
-            err.to_string()
-                .contains("host:// sources are not managed volumes"),
+            err.to_string().contains("volume:// scheme"),
             "unexpected error: {err}"
         );
     }
@@ -1855,7 +1854,7 @@ mod tests {
     fn test_volume_flags_managed_volume_rejects_relative_box_path() {
         let flags = VolumeFlags {
             volume: vec![],
-            mount: vec!["type=volume,src=vol_123,target=data".to_string()],
+            mount: vec!["type=volume,src=volume://vol_123,target=data".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1869,16 +1868,20 @@ mod tests {
     }
 
     #[test]
-    fn test_volume_flags_managed_volume_shorthand() {
+    fn test_volume_flags_managed_volume_rejects_shorthand() {
         let flags = VolumeFlags {
             volume: vec![],
             mount: vec!["volume=vol_123,target=/data".to_string()],
         };
         let mut opts = BoxOptions::default();
-        flags.apply_managed_to(&mut opts).unwrap();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("volume= shorthand must be rejected");
 
-        assert_eq!(opts.volumes[0].host_path, "vol_123");
-        assert_eq!(opts.volumes[0].guest_path, "/data");
+        assert!(
+            err.to_string().contains("source=volume://"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -1887,7 +1890,7 @@ mod tests {
             "boxlite",
             "run",
             "--mount",
-            "type=volume,src=vol_123,target=/data",
+            "type=volume,src=volume://vol_123,target=/data",
             "alpine",
         ])
         .expect("run --mount should parse");
@@ -1897,7 +1900,7 @@ mod tests {
 
         assert_eq!(
             args.volume.mount,
-            vec!["type=volume,src=vol_123,target=/data"]
+            vec!["type=volume,src=volume://vol_123,target=/data"]
         );
         assert!(args.volume.volume.is_empty());
     }

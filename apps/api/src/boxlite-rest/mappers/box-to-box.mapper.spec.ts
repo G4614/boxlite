@@ -27,28 +27,12 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
-  it('maps deprecated volume_id volume specs to managed volume mounts', () => {
-    const mapped = createBoxToCreateBox({
-      volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: false }],
-    })
-
-    expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
-  })
-
-  it('maps legacy host_path volume specs to managed volume mounts', () => {
-    const mapped = createBoxToCreateBox({
-      volumes: [{ host_path: 'volume-123', guest_path: '/data', read_only: false }],
-    })
-
-    expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
-  })
-
-  it('rejects host scheme sources on the remote managed-volume mapper', () => {
+  it('rejects non-volume scheme sources on the remote managed-volume mapper', () => {
     expect(() =>
       createBoxToCreateBox({
         volumes: [{ source: 'host:///tmp/data', guest_path: '/data', read_only: false }],
       }),
-    ).toThrow('host:// volume sources are not supported')
+    ).toThrow('volume source must use the volume:// scheme')
   })
 
   it('rejects source values without a supported scheme', () => {

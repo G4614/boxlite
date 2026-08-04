@@ -59,19 +59,13 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
 }
 
 function resolveVolumeId(volume: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
-  if (volume.source !== undefined) {
-    if (volume.source.startsWith('volume://')) {
-      const volumeId = volume.source.slice('volume://'.length)
-      if (volumeId) {
-        return volumeId
-      }
+  if (volume.source.startsWith('volume://')) {
+    const volumeId = volume.source.slice('volume://'.length)
+    if (volumeId) {
+      return volumeId
     }
-    if (volume.source.startsWith('host://')) {
-      throw new BadRequestException('host:// volume sources are not supported by the remote managed-volume runtime')
-    }
-    throw new BadRequestException('volume source must use the volume:// scheme')
   }
-  return (volume.volume_id ?? volume.host_path)!
+  throw new BadRequestException('volume source must use the volume:// scheme')
 }
 
 function mapState(state: string | BoxState | undefined): string {
