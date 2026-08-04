@@ -45,7 +45,35 @@ export class NetworkSpecDto {
   allow_net?: string[]
 }
 
+export class CreateBoxCapabilitiesDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  add?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  drop?: string[]
+}
+
+export class CreateBoxAdvancedOptionsDto {
+  @IsOptional()
+  @IsBoolean()
+  privileged?: boolean
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateBoxCapabilitiesDto)
+  capabilities?: CreateBoxCapabilitiesDto
+}
+
 export class CreateBoxDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateBoxAdvancedOptionsDto)
+  advanced?: CreateBoxAdvancedOptionsDto
+
   @IsOptional()
   @IsString()
   name?: string

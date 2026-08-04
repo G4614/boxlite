@@ -17,5 +17,7 @@ describe('BoxDto public identity', () => {
 
     expect(dto.id).toBe(box.id)
     expect((dto as any).boxId).toBeUndefined()
+    expect(dto.privileged).toBe(false)
+    expect(dto.capabilities).toEqual({ add: [], drop: [] })
   })
 })

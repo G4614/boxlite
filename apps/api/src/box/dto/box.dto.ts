@@ -11,6 +11,11 @@ import { Box } from '../entities/box.entity'
 import { BoxDesiredState } from '../enums/box-desired-state.enum'
 import { BoxClass } from '../enums/box-class.enum'
 
+export interface BoxCapabilities {
+  add: string[]
+  drop: string[]
+}
+
 @ApiSchema({ name: 'BoxVolume' })
 export class BoxVolume {
   @ApiProperty({
@@ -92,6 +97,18 @@ export class BoxDto {
     example: '192.168.1.0/16,10.0.0.0/24',
   })
   networkAllowList?: string
+
+  @ApiProperty({
+    description: 'Whether Docker-style privileged mode is enabled for the box',
+    example: false,
+  })
+  privileged: boolean
+
+  @ApiProperty({
+    description: 'Linux capabilities added to or removed from the box processes',
+    example: { add: ['SYS_ADMIN'], drop: [] },
+  })
+  capabilities: BoxCapabilities
 
   @ApiProperty({
     description: 'The target environment for the box',
@@ -268,6 +285,8 @@ export class BoxDto {
       public: box.public,
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
+      privileged: box.privileged,
+      capabilities: box.capabilities,
       labels: box.labels,
       volumes: box.volumes,
       state: this.getBoxState(box),

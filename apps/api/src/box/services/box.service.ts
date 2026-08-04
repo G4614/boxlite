@@ -174,6 +174,10 @@ export class BoxService {
       // Restrict box creation to the supported pinned images; reject anything else
       // at the request boundary (defaults undefined -> base image).
       const image = assertSupportedImage(createBoxDto.image)
+      const hasAdvancedOptions =
+        createBoxDto.privileged === true ||
+        (createBoxDto.capabilities?.add?.length ?? 0) > 0 ||
+        (createBoxDto.capabilities?.drop?.length ?? 0) > 0
 
       this.organizationService.assertOrganizationIsNotSuspended(organization)
 
@@ -188,7 +192,7 @@ export class BoxService {
       if (createBoxDto.volumes && createBoxDto.volumes.length > 0) {
         const volumeIdOrNames = createBoxDto.volumes.map((v) => v.volumeId)
         await this.volumeService.validateVolumes(organization.id, volumeIdOrNames)
-      } else if (image) {
+      } else if (image && !hasAdvancedOptions) {
         //  No volumes requested — try to claim a pre-warmed box matching this image/spec
         //  before creating a fresh one.
         const skipWarmPool = (await this.redis.exists(`warm-pool:skip:${image}`)) === 1
@@ -236,6 +240,11 @@ export class BoxService {
       box.disk = disk
 
       box.public = createBoxDto.public ?? true
+      box.privileged = createBoxDto.privileged ?? false
+      box.capabilities = {
+        add: [...(createBoxDto.capabilities?.add ?? [])],
+        drop: [...(createBoxDto.capabilities?.drop ?? [])],
+      }
 
       if (createBoxDto.networkBlockAll !== undefined) {
         box.networkBlockAll = createBoxDto.networkBlockAll

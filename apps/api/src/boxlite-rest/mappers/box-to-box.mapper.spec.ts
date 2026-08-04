@@ -19,6 +19,18 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.autoResume).toBe(false)
   })
 
+  it('maps advanced privileged and capability options into the control-plane DTO', () => {
+    const mapped = createBoxToCreateBox({
+      advanced: {
+        privileged: true,
+        capabilities: { add: ['SYS_ADMIN'], drop: ['NET_RAW'] },
+      },
+    })
+
+    expect(mapped.privileged).toBe(true)
+    expect(mapped.capabilities).toEqual({ add: ['SYS_ADMIN'], drop: ['NET_RAW'] })
+  })
+
   it('returns the effective second-based policy', () => {
     const response = boxToBoxResponse({
       id: 'box-1',

@@ -69,6 +69,27 @@ describe('CreateBoxDto lifecycle policy', () => {
   })
 })
 
+describe('CreateBoxDto advanced options', () => {
+  it('accepts privileged and capability options', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        advanced: {
+          privileged: true,
+          capabilities: { add: ['SYS_ADMIN'], drop: ['NET_RAW'] },
+        },
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
+  })
+
+  it('rejects a non-boolean privileged option', async () => {
+    const errors = await validate(plainToInstance(CreateBoxDto, { advanced: { privileged: 'true' } }))
+
+    expect(JSON.stringify(errors)).toContain('isBoolean')
+  })
+})
+
 describe('CreateBoxDto network validation', () => {
   it('accepts supported allow_net entry types', async () => {
     const errors = await validate(
