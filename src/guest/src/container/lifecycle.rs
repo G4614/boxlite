@@ -94,6 +94,7 @@ impl Container {
     /// - `workdir`: Working directory inside container
     /// - `user_mounts`: Bind mounts from guest VM paths into container
     /// - `capabilities`: capability policy resolved at the RPC boundary
+    /// - `privileged`: request the relaxed DinD OCI spec shape
     ///
     /// # Errors
     ///
@@ -112,6 +113,7 @@ impl Container {
         user_mounts: Vec<UserMount>,
         tty: bool,
         capabilities: CapabilitySet,
+        privileged: bool,
         devices: ContainerDevices,
     ) -> BoxliteResult<Self> {
         let rootfs = rootfs.as_ref();
@@ -190,6 +192,7 @@ impl Container {
             &user_mounts,
             tty,
             &devices,
+            privileged,
         )?;
 
         let stdio = if tty {

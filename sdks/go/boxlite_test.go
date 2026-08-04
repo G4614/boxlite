@@ -304,6 +304,31 @@ func TestAdvancedOptionsSetCapabilitiesDeepCopies(t *testing.T) {
 	}
 }
 
+func TestAdvancedOptionsSetPrivilegedNormalizesCapabilities(t *testing.T) {
+	advanced, err := NewAdvancedBoxOptions()
+	if err != nil {
+		t.Fatalf("NewAdvancedBoxOptions: %v", err)
+	}
+	defer advanced.Close()
+
+	advanced.SetPrivileged(true)
+	if !advanced.privileged {
+		t.Fatal("privileged should be enabled")
+	}
+	if !reflect.DeepEqual(advanced.capabilities.Add, []string{"ALL"}) {
+		t.Fatalf("advanced.capabilities.add: got %v, want [ALL]", advanced.capabilities.Add)
+	}
+	if len(advanced.capabilities.Drop) != 0 {
+		t.Fatalf("advanced.capabilities.drop: got %v, want empty", advanced.capabilities.Drop)
+	}
+
+	cfg := &boxConfig{}
+	WithAdvancedOptions(advanced)(cfg)
+	if err := buildAndFreeCOptions("docker:dind", cfg); err != nil {
+		t.Fatalf("privileged advanced options must apply cleanly: %v", err)
+	}
+}
+
 func TestSetCapabilitiesRejectsEmbeddedNUL(t *testing.T) {
 	advanced, err := NewAdvancedBoxOptions()
 	if err != nil {

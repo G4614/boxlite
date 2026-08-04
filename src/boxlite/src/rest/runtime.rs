@@ -111,6 +111,8 @@ fn reject_remote_experimental_options(options: &BoxOptions) -> BoxliteResult<()>
 #[async_trait::async_trait]
 impl RuntimeBackend for RestRuntime {
     async fn create(&self, options: BoxOptions, name: Option<String>) -> BoxliteResult<LiteBox> {
+        let mut options = options;
+        options.normalize_privileged();
         validate_remote_box_options(&options)?;
         reject_remote_experimental_options(&options)?;
 
@@ -130,6 +132,9 @@ impl RuntimeBackend for RestRuntime {
         if !options.advanced.capabilities.is_empty() {
             self.client.require_linux_capabilities_enabled().await?;
         }
+        if options.advanced.privileged {
+            self.client.require_privileged_enabled().await?;
+        }
 
         let req = CreateBoxRequest::from_options(&options, name);
         let resp: BoxResponse = self.client.post("/boxes", &req).await?;
@@ -140,9 +145,10 @@ impl RuntimeBackend for RestRuntime {
 
     async fn get_or_create(
         &self,
-        options: BoxOptions,
+        mut options: BoxOptions,
         name: Option<String>,
     ) -> BoxliteResult<(LiteBox, bool)> {
+        options.normalize_privileged();
         validate_remote_box_options(&options)?;
         reject_remote_experimental_options(&options)?;
 

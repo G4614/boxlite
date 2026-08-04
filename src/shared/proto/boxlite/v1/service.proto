@@ -385,6 +385,9 @@ message ContainerConfig {
 
 message ContainerAdvancedOptions {
   ContainerCapabilities capabilities = 1;
+
+  // Release-candidate privileged spec shape for DinD.
+  bool privileged = 2;
 }
 
 message ContainerCapabilities {

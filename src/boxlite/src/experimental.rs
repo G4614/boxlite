@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 
 pub mod custom_kernel;
 pub mod nested_virtualization;
+pub mod privileged;
 
 /// Comma-separated list of release-candidate features enabled for this process.
 pub const EXPERIMENTAL_FEATURES_ENV: &str = "BOXLITE_EXPERIMENTAL";
@@ -21,6 +22,7 @@ pub const EXPERIMENTAL_FEATURES_ENV: &str = "BOXLITE_EXPERIMENTAL";
 pub enum ExperimentalFeature {
     CustomKernel,
     NestedVirtualization,
+    Privileged,
 }
 
 impl ExperimentalFeature {
@@ -29,6 +31,7 @@ impl ExperimentalFeature {
         match self {
             Self::CustomKernel => "custom-kernel",
             Self::NestedVirtualization => "nested-virtualization",
+            Self::Privileged => "privileged",
         }
     }
 
@@ -36,6 +39,7 @@ impl ExperimentalFeature {
         match self {
             Self::CustomKernel => "custom kernel support",
             Self::NestedVirtualization => "nested virtualization support",
+            Self::Privileged => "privileged support",
         }
     }
 }
@@ -58,6 +62,7 @@ impl ExperimentalFeatures {
             let feature = match token {
                 "custom-kernel" => ExperimentalFeature::CustomKernel,
                 "nested-virtualization" => ExperimentalFeature::NestedVirtualization,
+                "privileged" => ExperimentalFeature::Privileged,
                 "" => {
                     return Err(BoxliteError::Config(format!(
                         "{EXPERIMENTAL_FEATURES_ENV} contains an empty feature name"
@@ -65,7 +70,7 @@ impl ExperimentalFeatures {
                 }
                 unknown => {
                     return Err(BoxliteError::Config(format!(
-                        "unknown feature '{unknown}' in {EXPERIMENTAL_FEATURES_ENV}; supported values: custom-kernel, nested-virtualization"
+                        "unknown feature '{unknown}' in {EXPERIMENTAL_FEATURES_ENV}; supported values: custom-kernel, nested-virtualization, privileged"
                     )));
                 }
             };
@@ -100,6 +105,9 @@ impl ExperimentalFeatures {
         }
         if options.advanced.nested_virtualization {
             self.require(ExperimentalFeature::NestedVirtualization)?;
+        }
+        if options.advanced.privileged {
+            self.require(ExperimentalFeature::Privileged)?;
         }
         Ok(())
     }
@@ -148,10 +156,12 @@ mod tests {
     #[test]
     fn feature_tokens_are_granular_and_trimmed() {
         let features =
-            ExperimentalFeatures::parse(" custom-kernel, nested-virtualization ").unwrap();
+            ExperimentalFeatures::parse(" custom-kernel, nested-virtualization, privileged ")
+                .unwrap();
 
         assert!(features.is_enabled(ExperimentalFeature::CustomKernel));
         assert!(features.is_enabled(ExperimentalFeature::NestedVirtualization));
+        assert!(features.is_enabled(ExperimentalFeature::Privileged));
     }
 
     #[test]
@@ -160,6 +170,7 @@ mod tests {
 
         assert!(!features.is_enabled(ExperimentalFeature::CustomKernel));
         assert!(!features.is_enabled(ExperimentalFeature::NestedVirtualization));
+        assert!(!features.is_enabled(ExperimentalFeature::Privileged));
     }
 
     #[test]
@@ -214,6 +225,25 @@ mod tests {
         );
 
         let enabled = ExperimentalFeatures::parse("nested-virtualization").unwrap();
+        enabled.require_for_options(&options).unwrap();
+    }
+
+    #[test]
+    fn privileged_shape_requires_the_matching_token() {
+        let mut options = BoxOptions::default();
+        privileged::configure(&mut options);
+
+        let error = ExperimentalFeatures::default()
+            .require_for_options(&options)
+            .expect_err("full guest capabilities must be disabled by default");
+
+        assert!(
+            error
+                .to_string()
+                .contains("BOXLITE_EXPERIMENTAL=privileged")
+        );
+
+        let enabled = ExperimentalFeatures::parse("privileged").unwrap();
         enabled.require_for_options(&options).unwrap();
     }
 }

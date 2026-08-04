@@ -93,6 +93,7 @@ pub struct ContainerInitConfig {
 /// Expert-only options crossing the host-to-guest container boundary.
 pub struct ContainerAdvancedConfig {
     pub capabilities: ContainerCapabilities,
+    pub privileged: bool,
 }
 
 /// Container service interface.
@@ -137,6 +138,7 @@ impl ContainerInterface {
                     add: advanced.capabilities.add,
                     drop: advanced.capabilities.drop,
                 }),
+                privileged: advanced.privileged,
             }),
         };
 
@@ -445,6 +447,7 @@ mod tests {
                 }],
                 advanced: ContainerAdvancedConfig {
                     capabilities: Default::default(),
+                    privileged: true,
                 },
             })
             .await
@@ -456,7 +459,14 @@ mod tests {
         assert_eq!(request.devices[0].file_mode, Some(0o666));
         assert_eq!(request.container_id, "container-1");
         assert_eq!(request.execution_id, "container-1");
+        let container_config = request.container_config.expect("process config");
         // Non-default, so it proves the field is threaded rather than defaulted.
-        assert!(request.container_config.expect("process config").tty);
+        assert!(container_config.tty);
+        assert!(
+            container_config
+                .advanced
+                .expect("advanced options")
+                .privileged
+        );
     }
 }
