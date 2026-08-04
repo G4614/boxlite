@@ -473,8 +473,8 @@ impl ProcessFlags {
 #[derive(Args, Debug, Clone, Default)]
 pub struct CapabilityFlags {
     /// Request Docker-style privileged mode for the container (available on
-    /// `create` and `run`). This also opens the guest sysctl path required by
-    /// DinD; it is not equivalent to `--cap-add ALL`.
+    /// `create` and `run`). This enables the complete guest-level privileged
+    /// shape required by DinD; it is not equivalent to `--cap-add ALL`.
     #[arg(long)]
     pub privileged: bool,
 

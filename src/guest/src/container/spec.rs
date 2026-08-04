@@ -9,9 +9,10 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
 
 use oci_spec::runtime::{
-    LinuxBuilder, LinuxDevice, LinuxDeviceBuilder, LinuxDeviceType, LinuxIdMappingBuilder,
-    LinuxNamespaceBuilder, LinuxNamespaceType, Mount, MountBuilder, PosixRlimitBuilder,
-    PosixRlimitType, ProcessBuilder, RootBuilder, Spec, SpecBuilder, UserBuilder,
+    LinuxBuilder, LinuxDevice, LinuxDeviceBuilder, LinuxDeviceCgroupBuilder, LinuxDeviceType,
+    LinuxIdMappingBuilder, LinuxNamespaceBuilder, LinuxNamespaceType, LinuxResourcesBuilder, Mount,
+    MountBuilder, PosixRlimitBuilder, PosixRlimitType, ProcessBuilder, RootBuilder, Spec,
+    SpecBuilder, UserBuilder,
 };
 
 /// User-specified bind mount for container
@@ -147,10 +148,11 @@ fn validate_device_path(field: &str, value: &str) -> BoxliteResult<PathBuf> {
 /// - Resource limits (rlimits)
 /// - No new privileges disabled (allows sudo)
 ///
-/// NOTE: Cgroups are disabled for performance (~105ms savings on container startup).
-/// Since we're inside a VM with single-tenant isolation, cgroup resource limits
-/// provide minimal benefit. See comments in build_default_namespaces() and
-/// build_standard_mounts() to re-enable if needed.
+/// Ordinary containers keep the guest's cgroup mount hidden behind the
+/// read-only `/sys` bind and do not create a cgroup namespace. Privileged
+/// containers expose that existing guest cgroup2 mount as writable and get a
+/// private cgroup namespace, matching the guest-side part of Docker's
+/// privileged shape without changing the VM's outer isolation.
 #[allow(clippy::too_many_arguments)]
 pub fn create_oci_spec(
     container_id: &str,
@@ -169,11 +171,11 @@ pub fn create_oci_spec(
     let caps = security_policy.capabilities.to_oci()?;
     tracing::info!(
         container_id,
-        writable_proc_sys = security_policy.writable_proc_sys,
+        privileged = security_policy.privileged,
         "building container spec"
     );
-    let namespaces = build_default_namespaces()?;
-    let mut mounts = build_standard_mounts(bundle_path)?;
+    let namespaces = build_default_namespaces(security_policy.privileged)?;
+    let mut mounts = build_standard_mounts(bundle_path, security_policy.privileged)?;
 
     // Add user-specified bind mounts
     for user_mount in user_mounts {
@@ -212,7 +214,7 @@ pub fn create_oci_spec(
         container_id,
         namespaces,
         devices.as_slice(),
-        security_policy.writable_proc_sys,
+        security_policy.privileged,
     )?;
 
     SpecBuilder::default()
@@ -386,19 +388,23 @@ fn find_group_in_group_file(rootfs: &str, name: &str) -> BoxliteResult<u32> {
 // ====================
 
 /// Build default namespaces for container isolation
-fn build_default_namespaces() -> BoxliteResult<Vec<oci_spec::runtime::LinuxNamespace>> {
-    Ok(vec![
+fn build_default_namespaces(
+    privileged: bool,
+) -> BoxliteResult<Vec<oci_spec::runtime::LinuxNamespace>> {
+    let mut namespaces = vec![
         build_namespace(LinuxNamespaceType::Pid)?,
         build_namespace(LinuxNamespaceType::Ipc)?,
         build_namespace(LinuxNamespaceType::Uts)?,
         build_namespace(LinuxNamespaceType::Mount)?,
-        // NOTE: Cgroup namespace disabled for performance
-        // Mounting cgroup2 filesystem takes ~105ms due to kernel initialization overhead.
-        // Since we're inside a VM with single-tenant isolation, cgroup namespace provides
-        // minimal additional security benefit. Re-enable if resource limits are needed.
-        // build_namespace(LinuxNamespaceType::Cgroup)?,
         // build_namespace(LinuxNamespaceType::User)?,
-    ])
+    ];
+    if privileged {
+        // The guest init already mounts cgroup2 at /sys/fs/cgroup. Give
+        // privileged workloads Docker-like ownership of a private view of
+        // that hierarchy.
+        namespaces.push(build_namespace(LinuxNamespaceType::Cgroup)?);
+    }
+    Ok(namespaces)
 }
 
 /// Build a single namespace specification
@@ -498,7 +504,7 @@ fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
     devices: &[LinuxDevice],
-    writable_proc_sys: bool,
+    privileged: bool,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
     // Map full range of UIDs/GIDs to allow non-root users (nginx=33, etc.)
@@ -516,24 +522,7 @@ fn build_linux_spec(
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build GID mapping: {}", e)))?];
 
-    // Masked paths for security (hide sensitive /proc and /sys entries)
-    #[allow(unused)]
-    let masked_paths = vec![
-        "/proc/acpi".to_string(),
-        "/proc/asound".to_string(),
-        "/proc/kcore".to_string(),
-        "/proc/keys".to_string(),
-        "/proc/latency_stats".to_string(),
-        "/proc/timer_list".to_string(),
-        "/proc/timer_stats".to_string(),
-        "/proc/sched_debug".to_string(),
-        "/sys/firmware".to_string(),
-        "/sys/devices/virtual/powercap".to_string(),
-    ];
-
-    // BoxLite's explicit readonly policy is shared by both container shapes.
-    // Keeping it here makes a dependency update an intentional security review
-    // rather than silently changing only the unprivileged branch.
+    // BoxLite's explicit readonly policy remains for ordinary containers.
     let readonly_paths = [
         "/proc/bus".to_string(),
         "/proc/fs".to_string(),
@@ -542,9 +531,8 @@ fn build_linux_spec(
         "/proc/sysrq-trigger".to_string(),
     ];
 
-    // NOTE: Cgroup path disabled for performance (see cgroup mount comment above)
-    // Re-enable together with cgroup namespace and mount if resource limits are needed.
-    // let cgroups_path = format!("/boxlite/{}", container_id);
+    // The cgroup namespace gets its view from the guest init's cgroup2 mount;
+    // no per-container resource limits are configured by this OCI spec.
     let _ = container_id; // Suppress unused warning
 
     let mut builder = LinuxBuilder::default()
@@ -552,17 +540,27 @@ fn build_linux_spec(
         .uid_mappings(uid_mappings)
         .gid_mappings(gid_mappings);
 
-    let readonly_paths = if writable_proc_sys {
-        // DinD needs `/proc/sys` writable, but the rest of the explicit
-        // readonly policy stays hardened.
-        readonly_paths
-            .into_iter()
-            .filter(|path| path != "/proc/sys")
-            .collect::<Vec<_>>()
+    if privileged {
+        // Docker's privileged OCI shape removes both path-level protections.
+        // The guest VM remains the outer security boundary.
+        builder = builder
+            .masked_paths(Vec::<String>::new())
+            .readonly_paths(Vec::<String>::new());
+        let all_devices = LinuxDeviceCgroupBuilder::default()
+            .allow(true)
+            .access("rwm")
+            .build()
+            .map_err(|e| BoxliteError::Internal(format!("Failed to build device policy: {}", e)))?;
+        let resources = LinuxResourcesBuilder::default()
+            .devices(vec![all_devices])
+            .build()
+            .map_err(|e| {
+                BoxliteError::Internal(format!("Failed to build device resources: {}", e))
+            })?;
+        builder = builder.resources(resources);
     } else {
-        readonly_paths.to_vec()
-    };
-    builder = builder.readonly_paths(readonly_paths);
+        builder = builder.readonly_paths(readonly_paths.to_vec());
+    }
 
     // Leave `devices` unset when empty so the spec keeps its historical shape.
     if !devices.is_empty() {
@@ -570,15 +568,19 @@ fn build_linux_spec(
     }
 
     builder
-        // .masked_paths(masked_paths)
-        // .readonly_paths(readonly_paths)
         // .cgroups_path(cgroups_path)
         .build()
         .map_err(|e| BoxliteError::Internal(format!("Failed to build linux spec: {}", e)))
 }
 
 /// Build standard mounts for container filesystem
-fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
+fn build_standard_mounts(bundle_path: &Path, privileged: bool) -> BoxliteResult<Vec<Mount>> {
+    let dev_mount_options = vec![
+        "nosuid".to_string(),
+        "strictatime".to_string(),
+        "mode=755".to_string(),
+        "size=65536k".to_string(),
+    ];
     let mut mounts = vec![
         // /proc - Process information
         MountBuilder::default()
@@ -587,17 +589,14 @@ fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
             .source("proc")
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /proc mount: {}", e)))?,
-        // /dev - Device filesystem
+        // /dev - Device filesystem. Privileged containers keep the same
+        // guest-local tmpfs but receive an allow-all device cgroup rule, so
+        // device nodes can be explicitly injected or created in the guest.
         MountBuilder::default()
             .destination("/dev")
             .typ("tmpfs")
             .source("tmpfs")
-            .options(vec![
-                "nosuid".to_string(),
-                "strictatime".to_string(),
-                "mode=755".to_string(),
-                "size=65536k".to_string(),
-            ])
+            .options(dev_mount_options)
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /dev mount: {}", e)))?,
         // /dev/pts - Pseudo-terminals
@@ -634,41 +633,28 @@ fn build_standard_mounts(bundle_path: &Path) -> BoxliteResult<Vec<Mount>> {
             })?,
         // NOTE: /dev/mqueue removed - libkrunfw kernel doesn't have CONFIG_POSIX_MQUEUE
         // Most containers don't need POSIX message queues
-        // /sys - Sysfs (readonly)
+        // /sys - Sysfs (readonly for ordinary containers)
         MountBuilder::default()
             .destination("/sys")
             .typ("none")
             .source("/sys")
-            .options(vec![
-                "rbind".to_string(),
-                "nosuid".to_string(),
-                "noexec".to_string(),
-                "nodev".to_string(),
-                "ro".to_string(),
-            ])
+            .options({
+                let mut options = vec![
+                    "rbind".to_string(),
+                    "nosuid".to_string(),
+                    "noexec".to_string(),
+                    "nodev".to_string(),
+                ];
+                if !privileged {
+                    options.push("ro".to_string());
+                }
+                options
+            })
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /sys mount: {}", e)))?,
-        // NOTE: /sys/fs/cgroup mount disabled for performance
-        // Mounting cgroup2 filesystem takes ~105ms due to kernel cgroup hierarchy initialization.
-        // This is the main bottleneck in container startup. Since we're inside a VM with
-        // single-tenant isolation, cgroup resource limits provide minimal benefit.
-        // Re-enable if you need to enforce CPU/memory limits within the container.
-        //
-        // MountBuilder::default()
-        //     .destination("/sys/fs/cgroup")
-        //     .typ("cgroup")
-        //     .source("cgroup")
-        //     .options(vec![
-        //         "nosuid".to_string(),
-        //         "noexec".to_string(),
-        //         "nodev".to_string(),
-        //         "relatime".to_string(),
-        //         "ro".to_string(),
-        //     ])
-        //     .build()
-        //     .map_err(|e| {
-        //         BoxliteError::Internal(format!("Failed to build /sys/fs/cgroup mount: {}", e))
-        //     })?,
+        // The guest init mounts cgroup2 at /sys/fs/cgroup. It remains hidden
+        // behind the ordinary read-only /sys bind and becomes visible to a
+        // privileged container when that bind is made writable above.
         // /tmp - Temporary filesystem
         MountBuilder::default()
             .destination("/tmp")
@@ -1278,26 +1264,31 @@ mod tests {
     }
 
     #[test]
-    fn privileged_spec_opens_only_proc_sys() {
+    fn privileged_spec_clears_guest_path_and_device_restrictions() {
         let devices = ContainerDevices::default();
         let linux = build_linux_spec("c", vec![], devices.as_slice(), true).unwrap();
 
-        assert_eq!(
-            linux.readonly_paths().as_deref(),
-            Some(
-                ["/proc/bus", "/proc/fs", "/proc/irq", "/proc/sysrq-trigger"]
-                    .map(String::from)
-                    .as_slice()
-            )
-        );
-        // The masked list is the half a nested runtime does not need, so it
-        // survives. Asserting it is non-empty here is what fails if someone
-        // reaches for `docker run --privileged` parity and clears both.
-        assert!(linux.masked_paths().as_ref().is_some_and(|p| !p.is_empty()));
+        assert!(linux
+            .readonly_paths()
+            .as_ref()
+            .is_none_or(|paths| paths.is_empty()));
+        assert!(linux
+            .masked_paths()
+            .as_ref()
+            .is_none_or(|paths| paths.is_empty()));
+
+        let resources = linux.resources().as_ref().expect("device resources");
+        let rules = resources.devices().as_ref().expect("device cgroup rules");
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].allow());
+        assert_eq!(rules[0].access().as_deref(), Some("rwm"));
+        assert!(rules[0].typ().is_none());
+        assert!(rules[0].major().is_none());
+        assert!(rules[0].minor().is_none());
     }
 
     /// Capabilities and the privileged spec shape are separate knobs: adding
-    /// every capability does not silently relax `/proc/sys`.
+    /// every capability does not silently relax the guest OCI shape.
     #[test]
     fn privileged_flag_decides_which_shape_the_spec_gets() {
         let dir = tempfile::tempdir().unwrap();
@@ -1311,7 +1302,7 @@ mod tests {
         let spec_for = |privileged: bool| {
             let security_policy = ResolvedSecurityPolicy {
                 capabilities: full_caps.clone(),
-                writable_proc_sys: privileged,
+                privileged,
             };
             create_oci_spec(
                 "c",
@@ -1339,17 +1330,49 @@ mod tests {
                 .is_some_and(|p| !p.is_empty()),
             "a default capability set must keep the hardened shape"
         );
+        assert!(linux
+            .masked_paths()
+            .as_ref()
+            .is_some_and(|paths| !paths.is_empty()));
 
         let linux = spec_for(true);
         let linux = linux.linux().as_ref().expect("linux section");
-        assert_eq!(
-            linux.readonly_paths().as_deref(),
-            Some(
-                ["/proc/bus", "/proc/fs", "/proc/irq", "/proc/sysrq-trigger"]
-                    .map(String::from)
-                    .as_slice()
-            ),
-            "the explicit privileged flag must open only /proc/sys"
-        );
+        assert!(linux
+            .readonly_paths()
+            .as_ref()
+            .is_none_or(|paths| paths.is_empty()));
+        assert!(linux
+            .masked_paths()
+            .as_ref()
+            .is_none_or(|paths| paths.is_empty()));
+        assert!(linux
+            .namespaces()
+            .as_ref()
+            .is_some_and(|namespaces| namespaces
+                .iter()
+                .any(|ns| { ns.typ() == oci_spec::runtime::LinuxNamespaceType::Cgroup })));
+
+        let spec = spec_for(true);
+        let sys_mount = spec
+            .mounts()
+            .as_ref()
+            .expect("mount list")
+            .iter()
+            .find(|mount| mount.destination() == Path::new("/sys"))
+            .expect("/sys mount");
+        assert!(!sys_mount
+            .options()
+            .as_ref()
+            .is_some_and(|options| options.iter().any(|option| option == "ro")));
+
+        let dev_mount = spec
+            .mounts()
+            .as_ref()
+            .expect("mount list")
+            .iter()
+            .find(|mount| mount.destination() == Path::new("/dev"))
+            .expect("/dev mount");
+        assert_eq!(dev_mount.typ().as_deref(), Some("tmpfs"));
+        assert_eq!(dev_mount.source().as_deref(), Some(Path::new("tmpfs")));
     }
 }
