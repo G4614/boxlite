@@ -58,18 +58,20 @@ const CAPABILITIES_BY_NUMBER: [Capability; 41] = [
 
 /// The resolved Linux capability policy for every process in one container.
 ///
-/// This is the guest's single semantic boundary: external APIs carry familiar
-/// add/drop strings, then this type parses and resolves them once before the
-/// OCI spec or any exec process is built.
+/// The host resolves high-level security semantics before sending the request;
+/// this is the guest's capability boundary, where canonical add/drop names are
+/// parsed against the guest kernel before the OCI spec or an exec process is
+/// built.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub(crate) struct CapabilitySet(HashSet<Capability>);
 
 /// The guest's resolved security policy for one container.
 ///
-/// The request-side `privileged` flag is resolved at this boundary into the
-/// complete guest privileged shape. The guest container lifecycle consumes
-/// this policy instead of independently interpreting the request fields.
+/// The host has already resolved the public `privileged` semantics before this
+/// policy crosses the host-to-guest boundary. The guest only resolves the
+/// canonical capability names against its own kernel and carries the already
+/// resolved OCI shape into spec construction.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedSecurityPolicy {
     pub(crate) capabilities: CapabilitySet,
@@ -77,22 +79,16 @@ pub(crate) struct ResolvedSecurityPolicy {
 }
 
 impl ResolvedSecurityPolicy {
-    pub(crate) fn from_request(
-        mut policy: ContainerCapabilities,
+    pub(crate) fn from_resolved(
+        policy: ContainerCapabilities,
         privileged: bool,
     ) -> BoxliteResult<Self> {
         if privileged
-            && !(policy.add.is_empty() && policy.drop.is_empty())
             && !(policy.drop.is_empty() && policy.add.len() == 1 && is_all(&policy.add[0]))
         {
             return Err(BoxliteError::InvalidArgument(
-                "privileged mode cannot be combined with cap_add or cap_drop".to_string(),
+                "invalid canonical privileged security policy".to_string(),
             ));
-        }
-
-        if privileged {
-            policy.add = vec!["ALL".to_string()];
-            policy.drop.clear();
         }
 
         Ok(Self {
@@ -292,9 +288,15 @@ mod tests {
     }
 
     #[test]
-    fn privileged_policy_resolves_capabilities_and_proc_sys_together() {
-        let policy = ResolvedSecurityPolicy::from_request(ContainerCapabilities::default(), true)
-            .expect("privileged policy should resolve");
+    fn privileged_policy_consumes_canonical_capabilities() {
+        let policy = ResolvedSecurityPolicy::from_resolved(
+            ContainerCapabilities {
+                add: vec!["ALL".into()],
+                ..Default::default()
+            },
+            true,
+        )
+        .expect("privileged policy should resolve");
 
         assert!(policy.privileged);
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
@@ -302,8 +304,8 @@ mod tests {
     }
 
     #[test]
-    fn privileged_policy_rejects_capability_overrides() {
-        let error = ResolvedSecurityPolicy::from_request(
+    fn privileged_policy_rejects_noncanonical_contract() {
+        let error = ResolvedSecurityPolicy::from_resolved(
             ContainerCapabilities {
                 drop: vec!["ALL".into()],
                 ..Default::default()
@@ -312,12 +314,12 @@ mod tests {
         )
         .expect_err("privileged capability overrides must be rejected");
 
-        assert!(error.to_string().contains("cannot be combined"));
+        assert!(error.to_string().contains("canonical privileged"));
     }
 
     #[test]
     fn all_capabilities_without_privileged_keep_proc_sys_readonly() {
-        let policy = ResolvedSecurityPolicy::from_request(
+        let policy = ResolvedSecurityPolicy::from_resolved(
             ContainerCapabilities {
                 add: vec!["ALL".into()],
                 ..Default::default()

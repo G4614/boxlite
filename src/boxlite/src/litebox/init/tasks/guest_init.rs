@@ -77,6 +77,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                 }),
                 crate::runtime::options::NetworkSpec::Disabled => None,
             };
+            let advanced = ctx.config.options.advanced.resolve_container_security()?;
             let bootstrap = GuestBootstrapConfig {
                 guest: GuestInitConfig {
                     volumes: volume_mgr.build_guest_mounts(),
@@ -94,10 +95,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                     } else {
                         Vec::new()
                     },
-                    advanced: crate::portal::interfaces::container::ContainerAdvancedConfig {
-                        capabilities: ctx.config.options.advanced.capabilities.clone(),
-                        privileged: ctx.config.options.advanced.privileged,
-                    },
+                    advanced,
                 },
             };
 

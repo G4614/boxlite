@@ -386,7 +386,9 @@ message ContainerConfig {
 message ContainerAdvancedOptions {
   ContainerCapabilities capabilities = 1;
 
-  // Release-candidate privileged spec shape for DinD.
+  // Host-resolved OCI privileged spec shape for DinD. When true, the host
+  // sends capabilities.add=["ALL"] and an empty drop list; the guest must
+  // consume that canonical shape rather than reinterpret user overrides.
   bool privileged = 2;
 }
 

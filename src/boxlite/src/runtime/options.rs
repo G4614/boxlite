@@ -1337,6 +1337,26 @@ mod tests {
     }
 
     #[test]
+    fn privileged_security_is_resolved_before_guest_init() {
+        let options = BoxOptions {
+            advanced: crate::AdvancedBoxOptions {
+                privileged: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let resolved = options
+            .advanced
+            .resolve_container_security()
+            .expect("privileged security should resolve");
+
+        assert!(resolved.privileged);
+        assert_eq!(resolved.capabilities.add, ["ALL"]);
+        assert!(resolved.capabilities.drop.is_empty());
+    }
+
+    #[test]
     fn test_box_options_roundtrip() {
         let opts = BoxOptions {
             auto_delete: Some(0),

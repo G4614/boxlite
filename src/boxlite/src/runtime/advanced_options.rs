@@ -763,4 +763,32 @@ impl AdvancedBoxOptions {
             self.capabilities.drop.clear();
         }
     }
+
+    /// Resolve the container security request before it crosses into the guest.
+    ///
+    /// The host owns the public option semantics. The guest still resolves the
+    /// canonical capability names against its own kernel ceiling, but it must
+    /// not reinterpret `privileged` or silently discard capability overrides.
+    pub(crate) fn resolve_container_security(
+        &self,
+    ) -> boxlite_shared::errors::BoxliteResult<ResolvedContainerSecurityConfig> {
+        self.validate_privileged_capability_conflict()?;
+
+        let mut normalized = self.clone();
+        normalized.normalize_privileged();
+
+        Ok(ResolvedContainerSecurityConfig {
+            capabilities: normalized.capabilities,
+            privileged: normalized.privileged,
+        })
+    }
+}
+
+/// Canonical container security configuration crossing the host-to-guest
+/// boundary. `privileged=true` is always paired with `add=["ALL"]` and an
+/// empty drop list before this type is constructed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedContainerSecurityConfig {
+    pub(crate) capabilities: ContainerCapabilities,
+    pub(crate) privileged: bool,
 }
