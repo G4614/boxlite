@@ -314,6 +314,14 @@ impl GlobalFlags {
         }
     }
 
+    pub fn resolves_rest_runtime(&self) -> bool {
+        let stored = crate::credentials::load_named(&self.resolved_profile())
+            .ok()
+            .flatten();
+        let env_api_key = std::env::var("BOXLITE_API_KEY").ok();
+        self.resolve_rest_options(stored, env_api_key).is_some()
+    }
+
     /// Build REST connection options from the selected credential profile and
     /// the ambient `BOXLITE_API_KEY`. Returns `None` when no URL is configured
     /// (the caller then falls back to the local runtime). Pure — takes the
@@ -749,6 +757,10 @@ pub struct VolumeFlags {
     /// Mount a volume (format: hostPath:boxPath[:options], or boxPath for anonymous volume, e.g. /data:/app/data, /data:ro)
     #[arg(short = 'v', long = "volume", value_name = "VOLUME")]
     pub volume: Vec<String>,
+
+    /// Mount a source into the box (e.g. type=volume,src=vol_123,target=/data)
+    #[arg(long = "mount", value_name = "MOUNT")]
+    pub mount: Vec<String>,
 }
 
 /// True if the segment is a single ASCII letter (Windows drive, e.g. "C" in "C:\path").
@@ -920,6 +932,73 @@ impl VolumeFlags {
         }
         Ok(())
     }
+
+    /// Apply managed volume id mounts. These are only meaningful for REST runtimes,
+    /// where the server resolves the id to backing object storage before creating the box.
+    pub fn apply_managed_to(&self, opts: &mut BoxOptions) -> anyhow::Result<()> {
+        for s in self.mount.iter() {
+            let (volume_id, guest_path) = parse_managed_mount_spec(s)?;
+            if volume_id.is_empty() {
+                anyhow::bail!("managed volume id must be non-empty");
+            }
+            if guest_path.is_empty() || !guest_path.starts_with('/') {
+                anyhow::bail!("managed volume box path must be absolute (e.g. vol_123:/data)");
+            }
+            opts.volumes.push(VolumeSpec {
+                host_path: volume_id.to_string(),
+                guest_path: guest_path.to_string(),
+                read_only: false,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn has_managed_volumes(&self) -> bool {
+        !self.mount.is_empty()
+    }
+}
+
+fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
+    let mut mount_type: Option<String> = None;
+    let mut source: Option<String> = None;
+    let mut target: Option<String> = None;
+
+    for part in s.split(',') {
+        let (key, value) = part
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("mount options must use key=value pairs"))?;
+        let key = key.trim();
+        let value = value.trim();
+        match key {
+            "type" => mount_type = Some(value.to_string()),
+            "src" | "source" => source = Some(value.to_string()),
+            "dst" | "destination" | "target" => target = Some(value.to_string()),
+            "volume" => {
+                mount_type = Some("volume".to_string());
+                source = Some(value.to_string());
+            }
+            "readonly" | "ro" => {
+                if value.eq_ignore_ascii_case("true") || value == "1" {
+                    anyhow::bail!("managed volume mounts are read-write only for now");
+                }
+            }
+            other => anyhow::bail!("unsupported mount option {other:?}"),
+        }
+    }
+
+    match mount_type.as_deref() {
+        Some("volume") => {}
+        Some(other) => {
+            anyhow::bail!("unsupported mount type {other:?}; only type=volume is supported")
+        }
+        None => anyhow::bail!("mount type is required (e.g. type=volume,src=vol_123,target=/data)"),
+    }
+
+    let volume_id =
+        source.ok_or_else(|| anyhow::anyhow!("mount volume source is required (src=vol_123)"))?;
+    let guest_path =
+        target.ok_or_else(|| anyhow::anyhow!("mount target is required (target=/data)"))?;
+    Ok((volume_id, guest_path))
 }
 
 // ============================================================================
@@ -951,6 +1030,13 @@ pub struct ManagementFlags {
     /// Starting the box fails if the host cannot provide it.
     #[arg(long = "nested-virtualization", hide = true)]
     pub nested_virtualization: bool,
+
+    /// Allow FUSE filesystems in the box.
+    ///
+    /// Grants only the minimum runtime permissions needed by tools such as
+    /// mount-s3: CAP_SYS_ADMIN plus /dev/fuse.
+    #[arg(long)]
+    pub fuse: bool,
 }
 
 impl ManagementFlags {
@@ -975,6 +1061,9 @@ impl ManagementFlags {
         }
         if self.nested_virtualization {
             opts.advanced.nested_virtualization = true;
+        }
+        if self.fuse {
+            opts.advanced.fuse = true;
         }
         Ok(())
     }
@@ -1243,6 +1332,7 @@ mod tests {
     fn nested_virtualization_gate_uses_explicit_feature_state() {
         let flags = ManagementFlags {
             nested_virtualization: true,
+            fuse: false,
             name: None,
             detach: false,
             rm: false,
@@ -1632,6 +1722,7 @@ mod tests {
                 "/host/data:/guest/data".to_string(),
                 "/readonly:/ro:ro".to_string(),
             ],
+            mount: vec![],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts, None).unwrap();
@@ -1651,6 +1742,7 @@ mod tests {
                 r"C:\host\data:/guest/data".to_string(),
                 r"D:\readonly:/ro:ro".to_string(),
             ],
+            mount: vec![],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts, None).unwrap();
@@ -1668,6 +1760,7 @@ mod tests {
         let base = std::env::temp_dir();
         let flags = VolumeFlags {
             volume: vec!["/data".to_string(), "/cache:ro".to_string()],
+            mount: vec![],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts, Some(&base)).unwrap();
@@ -1682,6 +1775,89 @@ mod tests {
         assert_eq!(opts.volumes[1].guest_path, "/cache");
         assert!(opts.volumes[1].read_only);
         assert!(opts.volumes[1].host_path.contains("anonymous"));
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_id_passthrough() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["type=volume,src=vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_managed_to(&mut opts).unwrap();
+
+        assert_eq!(opts.volumes.len(), 1);
+        assert_eq!(opts.volumes[0].host_path, "vol_123");
+        assert_eq!(opts.volumes[0].guest_path, "/data");
+        assert!(!opts.volumes[0].read_only);
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_missing_id() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["type=volume,src=,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("managed volume id must be rejected when empty");
+
+        assert!(
+            err.to_string().contains("id must be non-empty"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_relative_box_path() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["type=volume,src=vol_123,target=data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("managed volume guest path must be absolute");
+
+        assert!(
+            err.to_string().contains("box path must be absolute"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_shorthand() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["volume=vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_managed_to(&mut opts).unwrap();
+
+        assert_eq!(opts.volumes[0].host_path, "vol_123");
+        assert_eq!(opts.volumes[0].guest_path, "/data");
+    }
+
+    #[test]
+    fn test_run_parses_managed_mount_flag() {
+        let cli = Cli::try_parse_from([
+            "boxlite",
+            "run",
+            "--mount",
+            "type=volume,src=vol_123,target=/data",
+            "alpine",
+        ])
+        .expect("run --mount should parse");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        assert_eq!(
+            args.volume.mount,
+            vec!["type=volume,src=vol_123,target=/data"]
+        );
+        assert!(args.volume.volume.is_empty());
     }
 
     // ─── auth subcommand parse tests ───────────────────────────────────────
@@ -1856,6 +2032,7 @@ mod tests {
             rm: false,
             security: Some("disable".to_string()),
             nested_virtualization: false,
+            fuse: false,
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts).expect("setting must apply");
@@ -1874,6 +2051,7 @@ mod tests {
             rm: false,
             security: None,
             nested_virtualization: false,
+            fuse: false,
         };
         let mut opts = BoxOptions::default();
         flags
@@ -1894,6 +2072,7 @@ mod tests {
             rm: false,
             security: Some("ultra".to_string()),
             nested_virtualization: false,
+            fuse: false,
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1919,5 +2098,22 @@ mod tests {
             .expect("nested virtualization should apply");
 
         assert!(opts.advanced.nested_virtualization);
+    }
+
+    #[test]
+    fn fuse_flag_applies_minimal_box_options() {
+        let cli = Cli::try_parse_from(["boxlite", "run", "--fuse", "alpine:latest"])
+            .expect("fuse flag should parse");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        let mut opts = BoxOptions::default();
+        args.management
+            .apply_to(&mut opts)
+            .expect("fuse should apply");
+
+        assert!(opts.advanced.fuse);
+        assert_eq!(opts.advanced.security, boxlite::SecurityOptions::default());
     }
 }

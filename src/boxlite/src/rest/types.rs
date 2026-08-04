@@ -196,15 +196,22 @@ impl CreateBoxRequest {
             volumes,
             detach: Some(options.detach),
             tty: options.tty.then_some(true),
-            advanced: (!options.advanced.capabilities.is_empty()).then(|| {
-                CreateBoxAdvancedOptions {
+            advanced: (!options.advanced.capabilities.is_empty() || options.advanced.fuse).then(
+                || CreateBoxAdvancedOptions {
                     capabilities: options.advanced.capabilities.clone(),
-                }
-            }),
+                    fuse: options.advanced.fuse,
+                },
+            ),
             // The deprecated remove-on-stop flag was never applied by the cloud
-            // control-plane mapper. Keep remote defaults unchanged and only send
-            // the modern lifecycle fields when callers explicitly configure them.
-            auto_stop: options.auto_stop,
+            // control-plane mapper. Keep remote defaults unchanged, but make the
+            // modern remove-on-stop spelling explicit enough that the server does
+            // not combine `auto_delete=1` with its default auto-stop interval.
+            auto_stop: options.auto_stop.or_else(|| {
+                options
+                    .auto_delete
+                    .is_some_and(|value| value > 0)
+                    .then_some(0)
+            }),
             auto_delete: options.auto_delete,
             auto_resume: options.auto_resume,
         }
@@ -214,6 +221,12 @@ impl CreateBoxRequest {
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxAdvancedOptions {
     pub capabilities: ContainerCapabilities,
+    #[serde(skip_serializing_if = "is_false")]
+    pub fuse: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Serialize)]
@@ -732,16 +745,40 @@ mod tests {
         let advanced = req.advanced.as_ref().expect("custom policy is serialized");
         assert_eq!(advanced.capabilities.add, ["SYS_ADMIN"]);
         assert_eq!(advanced.capabilities.drop, ["CAP_NET_RAW"]);
+        assert!(!advanced.fuse);
 
         let json = serde_json::to_value(&req).expect("serialize create request");
         assert_eq!(
             json["advanced"]["capabilities"],
             serde_json::json!({"add": ["SYS_ADMIN"], "drop": ["CAP_NET_RAW"]})
         );
+        assert!(json["advanced"].get("fuse").is_none());
 
         let defaults = CreateBoxRequest::from_options(&BoxOptions::default(), None);
         let defaults_json = serde_json::to_value(defaults).expect("serialize defaults");
         assert!(defaults_json.get("advanced").is_none());
+    }
+
+    #[test]
+    fn test_create_box_request_carries_fuse_without_security() {
+        let opts = BoxOptions {
+            advanced: crate::AdvancedBoxOptions {
+                fuse: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let req = CreateBoxRequest::from_options(&opts, None);
+        let advanced = req.advanced.as_ref().expect("fuse policy is serialized");
+        assert!(advanced.fuse);
+
+        let json = serde_json::to_string(&req).expect("serialize create request");
+        assert!(json.contains("\"fuse\":true"));
+        assert!(
+            !json.contains("security"),
+            "fuse must not carry a REST security override: {json}"
+        );
     }
 
     #[test]
@@ -767,6 +804,17 @@ mod tests {
         let req = CreateBoxRequest::from_options(&modern, None);
         assert_eq!(req.auto_stop, Some(900));
         assert_eq!(req.auto_delete, Some(3600));
+    }
+
+    #[test]
+    fn remove_on_stop_sends_zero_autostop() {
+        let opts = BoxOptions {
+            auto_delete: Some(1),
+            ..Default::default()
+        };
+        let req = CreateBoxRequest::from_options(&opts, None);
+        assert_eq!(req.auto_stop, Some(0));
+        assert_eq!(req.auto_delete, Some(1));
     }
 
     #[test]
