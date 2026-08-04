@@ -52,7 +52,8 @@ function normalizeCapabilityList(values: string[] | undefined): string[] {
 
 /**
  * Normalize the one public advanced-options contract used by REST, storage,
- * and runner adapters. Privileged mode is authoritative over explicit caps.
+ * and runner adapters. Privileged mode is a separate shape from capability
+ * overrides and cannot be combined with them.
  */
 export function normalizeBoxAdvancedOptions(input: BoxAdvancedOptionsInput = {}): NormalizedBoxAdvancedOptions {
   if (input.privileged !== undefined && typeof input.privileged !== 'boolean') {
@@ -61,6 +62,10 @@ export function normalizeBoxAdvancedOptions(input: BoxAdvancedOptionsInput = {})
 
   const privileged = input.privileged ?? false
   if (privileged) {
+    if ((input.capabilities?.add?.length ?? 0) > 0 || (input.capabilities?.drop?.length ?? 0) > 0) {
+      throw new BadRequestError('privileged mode cannot be combined with cap_add or cap_drop')
+    }
+
     return {
       privileged: true,
       capabilities: { add: ['ALL'], drop: [] },

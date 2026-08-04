@@ -55,10 +55,7 @@ async def test_rest_privileged_shape_and_capability_shape_are_distinct(rt, image
         boxlite.BoxOptions(
             image=image,
             auto_remove=True,
-            advanced=boxlite.AdvancedBoxOptions(
-                privileged=True,
-                capabilities=boxlite.ContainerCapabilities(drop=['NET_RAW']),
-            ),
+            advanced=boxlite.AdvancedBoxOptions(privileged=True),
         )
     )
     capabilities_only = await rt.create(

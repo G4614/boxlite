@@ -488,10 +488,15 @@ pub struct CapabilityFlags {
 }
 
 impl CapabilityFlags {
-    pub fn apply_to(&self, opts: &mut BoxOptions) {
+    pub fn apply_to(&self, opts: &mut BoxOptions) -> anyhow::Result<()> {
+        if self.privileged && (!self.cap_add.is_empty() || !self.cap_drop.is_empty()) {
+            anyhow::bail!("--privileged cannot be combined with --cap-add or --cap-drop");
+        }
+
         opts.advanced.privileged = self.privileged;
         opts.advanced.capabilities.add.clone_from(&self.cap_add);
         opts.advanced.capabilities.drop.clone_from(&self.cap_drop);
+        Ok(())
     }
 }
 

@@ -6,6 +6,7 @@
 //! - Tenant process spawning (exec capabilities)
 
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
+use boxlite_shared::ContainerCapabilities;
 use oci_spec::runtime::{Capability, LinuxCapabilities, LinuxCapabilitiesBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -63,6 +64,43 @@ const CAPABILITIES_BY_NUMBER: [Capability; 41] = [
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub(crate) struct CapabilitySet(HashSet<Capability>);
+
+/// The guest's resolved security policy for one container.
+///
+/// The request-side `privileged` flag is intentionally not carried past this
+/// boundary. It expands into the capability set plus the filesystem shape
+/// change that privileged DinD needs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedSecurityPolicy {
+    pub(crate) capabilities: CapabilitySet,
+    pub(crate) writable_proc_sys: bool,
+}
+
+impl ResolvedSecurityPolicy {
+    pub(crate) fn from_request(
+        mut policy: ContainerCapabilities,
+        privileged: bool,
+    ) -> BoxliteResult<Self> {
+        if privileged
+            && !(policy.add.is_empty() && policy.drop.is_empty())
+            && !(policy.drop.is_empty() && policy.add.len() == 1 && is_all(&policy.add[0]))
+        {
+            return Err(BoxliteError::InvalidArgument(
+                "privileged mode cannot be combined with cap_add or cap_drop".to_string(),
+            ));
+        }
+
+        if privileged {
+            policy.add = vec!["ALL".to_string()];
+            policy.drop.clear();
+        }
+
+        Ok(Self {
+            capabilities: CapabilitySet::resolve(&policy.add, &policy.drop)?,
+            writable_proc_sys: privileged,
+        })
+    }
+}
 
 impl Default for CapabilitySet {
     fn default() -> Self {
@@ -251,6 +289,45 @@ mod tests {
     fn default_capabilities_has_14_docker_defaults() {
         let caps = CapabilitySet::default();
         assert_eq!(caps.len(), 14);
+    }
+
+    #[test]
+    fn privileged_policy_resolves_capabilities_and_proc_sys_together() {
+        let policy = ResolvedSecurityPolicy::from_request(ContainerCapabilities::default(), true)
+            .expect("privileged policy should resolve");
+
+        assert!(policy.writable_proc_sys);
+        assert!(policy.capabilities.contains(&Capability::SysAdmin));
+        assert!(policy.capabilities.contains(&Capability::NetRaw));
+    }
+
+    #[test]
+    fn privileged_policy_rejects_capability_overrides() {
+        let error = ResolvedSecurityPolicy::from_request(
+            ContainerCapabilities {
+                drop: vec!["ALL".into()],
+                ..Default::default()
+            },
+            true,
+        )
+        .expect_err("privileged capability overrides must be rejected");
+
+        assert!(error.to_string().contains("cannot be combined"));
+    }
+
+    #[test]
+    fn all_capabilities_without_privileged_keep_proc_sys_readonly() {
+        let policy = ResolvedSecurityPolicy::from_request(
+            ContainerCapabilities {
+                add: vec!["ALL".into()],
+                ..Default::default()
+            },
+            false,
+        )
+        .expect("capability-only policy should resolve");
+
+        assert!(!policy.writable_proc_sys);
+        assert!(policy.capabilities.contains(&Capability::SysAdmin));
     }
 
     #[test]

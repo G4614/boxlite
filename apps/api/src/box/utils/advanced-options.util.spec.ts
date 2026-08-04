@@ -8,13 +8,20 @@ import { BadRequestError } from '../../exceptions/bad-request.exception'
 import { normalizeBoxAdvancedOptions } from './advanced-options.util'
 
 describe('normalizeBoxAdvancedOptions', () => {
-  it('makes privileged mode authoritative over explicit capabilities', () => {
-    expect(
+  it('rejects privileged mode combined with explicit capabilities', () => {
+    expect(() =>
       normalizeBoxAdvancedOptions({
         privileged: true,
         capabilities: { add: ['SYS_ADMIN'], drop: ['NET_RAW'] },
       }),
-    ).toEqual({ privileged: true, capabilities: { add: ['ALL'], drop: [] } })
+    ).toThrow(BadRequestError)
+  })
+
+  it('normalizes privileged mode without explicit capabilities', () => {
+    expect(normalizeBoxAdvancedOptions({ privileged: true })).toEqual({
+      privileged: true,
+      capabilities: { add: ['ALL'], drop: [] },
+    })
   })
 
   it('canonicalizes capability spelling and removes semantic duplicates', () => {

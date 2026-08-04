@@ -79,7 +79,7 @@ pub(crate) mod user_profile;
 pub(crate) mod zygote;
 
 #[cfg(target_os = "linux")]
-pub(crate) use capabilities::CapabilitySet;
+pub(crate) use capabilities::ResolvedSecurityPolicy;
 #[cfg(target_os = "linux")]
 pub(crate) use command::SpawnResult;
 #[cfg(target_os = "linux")]
