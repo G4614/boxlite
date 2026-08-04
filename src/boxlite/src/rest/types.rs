@@ -200,7 +200,7 @@ impl CreateBoxRequest {
             volumes,
             detach: Some(options.detach),
             tty: options.tty.then_some(true),
-            advanced: (!advanced.capabilities.is_empty() || advanced.privileged).then(|| {
+            advanced: (!advanced.capabilities.is_empty() || advanced.privileged).then_some({
                 CreateBoxAdvancedOptions {
                     capabilities: advanced.capabilities,
                     privileged: advanced.privileged,
