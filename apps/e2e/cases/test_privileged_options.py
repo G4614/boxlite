@@ -35,10 +35,18 @@ try:
     sysctl_writable = True
 except OSError:
     pass
+cgroup_writable = False
+with open('/proc/self/mountinfo', encoding='ascii') as stream:
+    for line in stream:
+        fields = line.split(' - ', 1)[0].split()
+        if len(fields) > 5 and fields[4] == '/sys/fs/cgroup':
+            cgroup_writable = 'rw' in fields[5].split(',')
+            break
 
 print(json.dumps({
     'all_capabilities': (effective & required) == required,
     'sysctl_writable': sysctl_writable,
+    'cgroup_writable': cgroup_writable,
 }))
 """
     execution = await box.exec('python3', ['-c', script])
@@ -75,10 +83,12 @@ async def test_rest_privileged_shape_and_capability_shape_are_distinct(rt, image
         assert privileged_state == {
             'all_capabilities': True,
             'sysctl_writable': True,
+            'cgroup_writable': True,
         }
         assert capabilities_state == {
             'all_capabilities': True,
             'sysctl_writable': False,
+            'cgroup_writable': False,
         }
     finally:
         await asyncio.gather(

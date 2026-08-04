@@ -67,13 +67,13 @@ pub(crate) struct CapabilitySet(HashSet<Capability>);
 
 /// The guest's resolved security policy for one container.
 ///
-/// The request-side `privileged` flag is intentionally not carried past this
-/// boundary. It expands into the capability set plus the filesystem shape
-/// change that privileged DinD needs.
+/// The request-side `privileged` flag is resolved at this boundary into the
+/// complete guest privileged shape. The guest container lifecycle consumes
+/// this policy instead of independently interpreting the request fields.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedSecurityPolicy {
     pub(crate) capabilities: CapabilitySet,
-    pub(crate) writable_proc_sys: bool,
+    pub(crate) privileged: bool,
 }
 
 impl ResolvedSecurityPolicy {
@@ -97,7 +97,7 @@ impl ResolvedSecurityPolicy {
 
         Ok(Self {
             capabilities: CapabilitySet::resolve(&policy.add, &policy.drop)?,
-            writable_proc_sys: privileged,
+            privileged,
         })
     }
 }
@@ -296,7 +296,7 @@ mod tests {
         let policy = ResolvedSecurityPolicy::from_request(ContainerCapabilities::default(), true)
             .expect("privileged policy should resolve");
 
-        assert!(policy.writable_proc_sys);
+        assert!(policy.privileged);
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
         assert!(policy.capabilities.contains(&Capability::NetRaw));
     }
@@ -326,7 +326,7 @@ mod tests {
         )
         .expect("capability-only policy should resolve");
 
-        assert!(!policy.writable_proc_sys);
+        assert!(!policy.privileged);
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
     }
 
