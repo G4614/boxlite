@@ -1956,7 +1956,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn privileged_validation_uses_injected_features() {
+    async fn privileged_options_do_not_require_experimental_features() {
         let options = BoxOptions {
             advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
                 privileged: true,
@@ -1965,17 +1965,9 @@ mod tests {
             ..Default::default()
         };
 
-        let error = sanitize_local_options(&ExperimentalFeatures::default(), options.clone())
+        sanitize_local_options(&ExperimentalFeatures::default(), options)
             .await
-            .expect_err("privileged mode must be disabled by default");
-        assert!(
-            error
-                .to_string()
-                .contains("BOXLITE_EXPERIMENTAL=privileged")
-        );
-
-        let enabled = ExperimentalFeatures::parse("privileged").unwrap();
-        sanitize_local_options(&enabled, options).await.unwrap();
+            .expect("privileged mode should be available without an experimental opt-in");
     }
 
     /// Create a RuntimeImpl with isolated temp directory.
