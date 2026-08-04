@@ -25,7 +25,14 @@ describe('normalizeBoxAdvancedOptions', () => {
     ).toEqual({ privileged: false, capabilities: { add: ['NET_ADMIN'], drop: ['NET_RAW'] } })
   })
 
-  it('rejects unknown capability names', () => {
-    expect(() => normalizeBoxAdvancedOptions({ capabilities: { add: ['NOT_A_CAPABILITY'] } })).toThrow(BadRequestError)
+  it('accepts well-formed capability names for guest-side support validation', () => {
+    expect(normalizeBoxAdvancedOptions({ capabilities: { add: ['FUTURE_KERNEL_CAPABILITY'] } })).toEqual({
+      privileged: false,
+      capabilities: { add: ['FUTURE_KERNEL_CAPABILITY'], drop: [] },
+    })
+  })
+
+  it('rejects malformed capability names', () => {
+    expect(() => normalizeBoxAdvancedOptions({ capabilities: { add: ['NET-ADMIN'] } })).toThrow(BadRequestError)
   })
 })

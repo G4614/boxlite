@@ -89,12 +89,18 @@ describe('CreateBoxDto advanced options', () => {
     expect(JSON.stringify(errors)).toContain('isBoolean')
   })
 
-  it('rejects an unknown Linux capability name', async () => {
+  it('accepts a well-formed capability name for guest-side support validation', async () => {
     const errors = await validate(
-      plainToInstance(CreateBoxDto, { advanced: { capabilities: { add: ['NOT_A_CAPABILITY'] } } }),
+      plainToInstance(CreateBoxDto, { advanced: { capabilities: { add: ['FUTURE_KERNEL_CAPABILITY'] } } }),
     )
 
-    expect(JSON.stringify(errors)).toContain('supported Linux capability')
+    expect(errors).toHaveLength(0)
+  })
+
+  it('rejects a malformed Linux capability name', async () => {
+    const errors = await validate(plainToInstance(CreateBoxDto, { advanced: { capabilities: { add: ['NET-ADMIN'] } } }))
+
+    expect(JSON.stringify(errors)).toContain('well-formed Linux capability')
   })
 })
 

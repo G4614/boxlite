@@ -41,7 +41,7 @@ class IsLinuxCapabilityNameConstraint implements ValidatorConstraintInterface {
   }
 
   defaultMessage(): string {
-    return 'each capability must be a supported Linux capability name'
+    return 'each capability must be a well-formed Linux capability name'
   }
 }
 
