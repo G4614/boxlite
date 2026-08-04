@@ -523,6 +523,17 @@ fn build_linux_spec(
         "/sys/devices/virtual/powercap".to_string(),
     ];
 
+    // BoxLite's explicit readonly policy is shared by both container shapes.
+    // Keeping it here makes a dependency update an intentional security review
+    // rather than silently changing only the unprivileged branch.
+    let readonly_paths = [
+        "/proc/bus".to_string(),
+        "/proc/fs".to_string(),
+        "/proc/irq".to_string(),
+        "/proc/sys".to_string(),
+        "/proc/sysrq-trigger".to_string(),
+    ];
+
     // NOTE: Cgroup path disabled for performance (see cgroup mount comment above)
     // Re-enable together with cgroup namespace and mount if resource limits are needed.
     // let cgroups_path = format!("/boxlite/{}", container_id);
@@ -533,25 +544,21 @@ fn build_linux_spec(
         .uid_mappings(uid_mappings)
         .gid_mappings(gid_mappings);
 
+    let readonly_paths = if privileged {
+        // DinD needs `/proc/sys` writable, but the rest of the explicit
+        // readonly policy stays hardened.
+        readonly_paths
+            .into_iter()
+            .filter(|path| path != "/proc/sys")
+            .collect::<Vec<_>>()
+    } else {
+        readonly_paths.to_vec()
+    };
+    builder = builder.readonly_paths(readonly_paths);
+
     // Leave `devices` unset when empty so the spec keeps its historical shape.
     if !devices.is_empty() {
         builder = builder.devices(devices.to_vec());
-    }
-
-    if privileged {
-        // DinD needs `/proc/sys` writable, but the rest of the OCI readonly
-        // list can stay hardened. `/proc/sys` here is the guest's global sysctl
-        // tree, not a private one: there is no network namespace
-        // (build_default_namespaces gives pid, ipc, uts and mount), so IP
-        // forwarding flips for every sibling container and core_pattern pointed
-        // at a pipe runs as guest root outside the container. The microVM is
-        // the boundary this relies on, not the spec.
-        builder = builder.readonly_paths(
-            oci_spec::runtime::get_default_readonly_paths()
-                .into_iter()
-                .filter(|path| path != "/proc/sys")
-                .collect::<Vec<_>>(),
-        );
     }
 
     builder
