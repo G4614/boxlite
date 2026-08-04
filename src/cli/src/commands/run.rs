@@ -223,6 +223,20 @@ mod tests {
     }
 
     #[test]
+    fn run_privileged_flag_reaches_capability_options() {
+        let cli = Cli::try_parse_from(["boxlite", "run", "--privileged", "alpine"])
+            .expect("--privileged should parse");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        let mut opts = BoxOptions::default();
+        args.capability.apply_to(&mut opts);
+
+        assert!(opts.advanced.privileged);
+    }
+
+    #[test]
     fn run_rootfs_flag_sets_rootfs_path_and_uses_trailing_command() {
         let cli = Cli::try_parse_from(["boxlite", "run", "--rootfs", "/tmp/rootfs", "echo", "hi"])
             .expect("run --rootfs should parse");
