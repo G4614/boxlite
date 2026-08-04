@@ -88,6 +88,14 @@ describe('CreateBoxDto advanced options', () => {
 
     expect(JSON.stringify(errors)).toContain('isBoolean')
   })
+
+  it('rejects an unknown Linux capability name', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, { advanced: { capabilities: { add: ['NOT_A_CAPABILITY'] } } }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('supported Linux capability')
+  })
 })
 
 describe('CreateBoxDto network validation', () => {

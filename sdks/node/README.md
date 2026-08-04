@@ -187,6 +187,7 @@ const box = new SimpleBox({
       add: ['NET_ADMIN'],
       drop: ['NET_RAW'],
     },
+    privileged: true, // Implies add: ['ALL'] and clears drop
   },
   env: { FOO: 'bar' },
   volumes: [

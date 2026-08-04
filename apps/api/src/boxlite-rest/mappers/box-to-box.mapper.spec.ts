@@ -28,7 +28,18 @@ describe('BoxLite lifecycle policy mapper', () => {
     })
 
     expect(mapped.privileged).toBe(true)
-    expect(mapped.capabilities).toEqual({ add: ['SYS_ADMIN'], drop: ['NET_RAW'] })
+    expect(mapped.capabilities).toEqual({ add: ['ALL'], drop: [] })
+  })
+
+  it('canonicalizes capability names when privileged mode is disabled', () => {
+    const mapped = createBoxToCreateBox({
+      advanced: {
+        capabilities: { add: ['cap_net_admin', 'NET_ADMIN'], drop: ['CAP_NET_RAW'] },
+      },
+    })
+
+    expect(mapped.privileged).toBe(false)
+    expect(mapped.capabilities).toEqual({ add: ['NET_ADMIN'], drop: ['NET_RAW'] })
   })
 
   it('returns the effective second-based policy', () => {

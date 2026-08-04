@@ -40,6 +40,7 @@ import { WarmPool } from '../entities/warm-pool.entity'
 import { BoxDto, BoxVolume } from '../dto/box.dto'
 import { RunnerAdapterFactory } from '../runner-adapter/runnerAdapter'
 import { validateNetworkAllowList } from '../utils/network-validation.util'
+import { normalizeBoxAdvancedOptions } from '../utils/advanced-options.util'
 import { VolumeService } from './volume.service'
 import { PaginatedList } from '../../common/interfaces/paginated-list.interface'
 import {
@@ -174,10 +175,12 @@ export class BoxService {
       // Restrict box creation to the supported pinned images; reject anything else
       // at the request boundary (defaults undefined -> base image).
       const image = assertSupportedImage(createBoxDto.image)
+      const advanced = normalizeBoxAdvancedOptions({
+        privileged: createBoxDto.privileged,
+        capabilities: createBoxDto.capabilities,
+      })
       const hasAdvancedOptions =
-        createBoxDto.privileged === true ||
-        (createBoxDto.capabilities?.add?.length ?? 0) > 0 ||
-        (createBoxDto.capabilities?.drop?.length ?? 0) > 0
+        advanced.privileged || advanced.capabilities.add.length > 0 || advanced.capabilities.drop.length > 0
 
       this.organizationService.assertOrganizationIsNotSuspended(organization)
 
@@ -240,11 +243,8 @@ export class BoxService {
       box.disk = disk
 
       box.public = createBoxDto.public ?? true
-      box.privileged = createBoxDto.privileged ?? false
-      box.capabilities = {
-        add: [...(createBoxDto.capabilities?.add ?? [])],
-        drop: [...(createBoxDto.capabilities?.drop ?? [])],
-      }
+      box.privileged = advanced.privileged
+      box.capabilities = advanced.capabilities
 
       if (createBoxDto.networkBlockAll !== undefined) {
         box.networkBlockAll = createBoxDto.networkBlockAll

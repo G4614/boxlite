@@ -10,6 +10,7 @@ import { IsEnum, IsOptional } from 'class-validator'
 import { Box } from '../entities/box.entity'
 import { BoxDesiredState } from '../enums/box-desired-state.enum'
 import { BoxClass } from '../enums/box-class.enum'
+import { normalizeBoxAdvancedOptions } from '../utils/advanced-options.util'
 
 export interface BoxCapabilities {
   add: string[]
@@ -270,6 +271,11 @@ export class BoxDto {
   toolboxProxyUrl: string
 
   static fromBox(box: Box, toolboxProxyUrl: string): BoxDto {
+    const advanced = normalizeBoxAdvancedOptions({
+      privileged: box.privileged,
+      capabilities: box.capabilities,
+    })
+
     return {
       id: box.id,
       organizationId: box.organizationId,
@@ -285,8 +291,8 @@ export class BoxDto {
       public: box.public,
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
-      privileged: box.privileged,
-      capabilities: box.capabilities,
+      privileged: advanced.privileged,
+      capabilities: advanced.capabilities,
       labels: box.labels,
       volumes: box.volumes,
       state: this.getBoxState(box),
