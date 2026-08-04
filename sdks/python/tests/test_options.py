@@ -72,7 +72,9 @@ class TestBoxOptionsDefaults:
         )
 
         with pytest.raises(Exception, match="cannot be combined"):
-            await runtime.create(boxlite.BoxOptions(image="docker:dind", advanced=advanced))
+            await runtime.create(
+                boxlite.BoxOptions(image="docker:dind", advanced=advanced)
+            )
 
     def test_explicit_auto_remove_true(self):
         """Test setting auto_remove=True explicitly."""
