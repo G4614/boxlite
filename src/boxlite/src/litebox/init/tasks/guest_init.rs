@@ -22,6 +22,12 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 /// one long after its own release.
 const MIN_CAPABILITY_GUEST_VERSION: crate::portal::interfaces::guest::GuestVersion = (0, 9, 8);
 
+/// Oldest guest release that applies the privileged DinD spec shape. A 0.9.8
+/// guest can honor the capability field but does not understand this separate
+/// spec-shape request.
+const MIN_PRIVILEGED_CONTAINER_GUEST_VERSION: crate::portal::interfaces::guest::GuestVersion =
+    (0, 9, 9);
+
 /// Oldest guest release that honors `devices` on `Container.Init`. Same trap as
 /// capabilities above: an earlier guest drops the field and starts the workload
 /// with no `/dev/kvm` while the caller believes nesting was granted.
@@ -90,6 +96,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                     },
                     advanced: crate::portal::interfaces::container::ContainerAdvancedConfig {
                         capabilities: ctx.config.options.advanced.capabilities.clone(),
+                        privileged: ctx.config.options.advanced.privileged,
                     },
                 },
             };
@@ -134,6 +141,11 @@ async fn run_guest_init(
             .require_min_version(MIN_CAPABILITY_GUEST_VERSION)
             .await?;
     }
+    if bootstrap.container.advanced.privileged {
+        guest_interface
+            .require_min_version(MIN_PRIVILEGED_CONTAINER_GUEST_VERSION)
+            .await?;
+    }
     if !bootstrap.container.devices.is_empty() {
         guest_interface
             .require_min_version(MIN_DEVICE_GUEST_VERSION)
@@ -163,5 +175,15 @@ fn kvm_device() -> ContainerDevice {
         source: "/dev/kvm".to_string(),
         destination: "/dev/kvm".to_string(),
         file_mode: Some(0o666),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn capability_and_privileged_guest_versions_stay_independent() {
+        assert_eq!(MIN_CAPABILITY_GUEST_VERSION, (0, 9, 8));
+        assert_eq!(MIN_PRIVILEGED_CONTAINER_GUEST_VERSION, (0, 9, 9));
     }
 }

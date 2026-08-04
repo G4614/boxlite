@@ -234,6 +234,8 @@ int main() {
         boxlite_options_free(opts);
         return 1;
     }
+    // Docker-style privileged mode implies cap_add=["ALL"] and clears cap_drop.
+    boxlite_advanced_options_set_privileged(advanced, 1);
     boxlite_options_set_advanced(opts, advanced);
     boxlite_advanced_options_free(advanced);
 

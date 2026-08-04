@@ -717,4 +717,23 @@ pub struct AdvancedBoxOptions {
     #[doc(hidden)]
     #[serde(default)]
     pub nested_virtualization: bool,
+
+    /// Release-candidate privileged OCI spec shape for DinD.
+    ///
+    /// The runtime must explicitly enable
+    /// [`ExperimentalFeature::Privileged`](crate::experimental::ExperimentalFeature::Privileged).
+    #[doc(hidden)]
+    #[serde(default)]
+    pub privileged: bool,
+}
+
+impl AdvancedBoxOptions {
+    /// Expand the high-level privileged mode into the explicit capability
+    /// policy consumed by the guest.
+    pub fn normalize_privileged(&mut self) {
+        if self.privileged {
+            self.capabilities.add = vec!["ALL".to_string()];
+            self.capabilities.drop.clear();
+        }
+    }
 }

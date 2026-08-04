@@ -132,6 +132,7 @@ for _, image := range cached {
       Add: []string{"NET_ADMIN"},
       Drop: []string{"NET_RAW"},
   }); err != nil { log.Fatal(err) }
+  advanced.SetPrivileged(true) // implies cap_add=["ALL"] and clears cap_drop
   box, err := runtime.Create(ctx, "alpine:latest", boxlite.WithAdvancedOptions(advanced))
   ```
 

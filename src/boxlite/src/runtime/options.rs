@@ -542,6 +542,12 @@ impl Default for BoxOptions {
 }
 
 impl BoxOptions {
+    /// Expand high-level privileged mode into the explicit guest capability
+    /// policy before the options cross a runtime or SDK boundary.
+    pub fn normalize_privileged(&mut self) {
+        self.advanced.normalize_privileged();
+    }
+
     /// Resolve the modern and deprecated deletion inputs to one policy.
     #[allow(deprecated)]
     pub(crate) fn effective_auto_delete(&self) -> u32 {
@@ -1282,6 +1288,33 @@ mod tests {
 
         let legacy: BoxOptions = serde_json::from_str("{}").unwrap();
         assert!(!legacy.advanced.nested_virtualization);
+    }
+
+    #[test]
+    fn privileged_option_roundtrips() {
+        let stored: BoxOptions =
+            serde_json::from_str(r#"{"advanced":{"privileged":true}}"#).unwrap();
+        assert!(stored.advanced.privileged);
+        assert_eq!(
+            serde_json::to_value(stored).unwrap()["advanced"]["privileged"],
+            serde_json::Value::Bool(true)
+        );
+
+        let legacy: BoxOptions = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.advanced.privileged);
+    }
+
+    #[test]
+    fn privileged_normalizes_capabilities() {
+        let mut options: BoxOptions = serde_json::from_str(
+            r#"{"advanced":{"privileged":true,"capabilities":{"add":["SYS_ADMIN"],"drop":["NET_RAW"]}}}"#,
+        )
+        .unwrap();
+
+        options.normalize_privileged();
+
+        assert_eq!(options.advanced.capabilities.add, ["ALL"]);
+        assert!(options.advanced.capabilities.drop.is_empty());
     }
 
     #[test]

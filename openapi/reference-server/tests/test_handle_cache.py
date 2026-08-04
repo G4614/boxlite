@@ -175,7 +175,8 @@ class HandleCacheTests(unittest.IsolatedAsyncioTestCase):
                 capabilities=SERVER.ContainerCapabilities(
                     add=["SYS_ADMIN"],
                     drop=["CAP_NET_RAW"],
-                )
+                ),
+                privileged=True,
             ),
         )
 
@@ -204,7 +205,10 @@ class HandleCacheTests(unittest.IsolatedAsyncioTestCase):
             add=["SYS_ADMIN"],
             drop=["CAP_NET_RAW"],
         )
-        advanced_constructor.assert_called_once_with(capabilities=capabilities)
+        advanced_constructor.assert_called_once_with(
+            capabilities=capabilities,
+            privileged=True,
+        )
         constructor.assert_called_once_with(
             image="alpine:latest",
             advanced=advanced,

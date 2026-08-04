@@ -187,11 +187,9 @@ impl ContainerService for GuestServer {
         // Validate and resolve the privilege policy before creating directories,
         // mounting the rootfs, or modifying its trust store. A malformed or
         // unsupported name is caller input, not a partially initialized box.
-        let capability_policy = config
-            .advanced
-            .unwrap_or_default()
-            .capabilities
-            .unwrap_or_default();
+        let advanced = config.advanced.unwrap_or_default();
+        let privileged = advanced.privileged;
+        let capability_policy = advanced.capabilities.unwrap_or_default();
         let capabilities = CapabilitySet::resolve(&capability_policy.add, &capability_policy.drop)
             .map_err(BoxliteError::into_validation_status)?;
 
@@ -343,6 +341,7 @@ impl ContainerService for GuestServer {
             user_mounts,
             config.tty,
             capabilities,
+            privileged,
             devices,
         ) {
             Ok(mut container) => {
