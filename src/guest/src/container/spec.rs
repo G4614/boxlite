@@ -523,16 +523,6 @@ fn build_linux_spec(
         "/sys/devices/virtual/powercap".to_string(),
     ];
 
-    // Readonly paths
-    #[allow(unused)]
-    let readonly_paths = [
-        "/proc/bus".to_string(),
-        "/proc/fs".to_string(),
-        "/proc/irq".to_string(),
-        "/proc/sys".to_string(),
-        "/proc/sysrq-trigger".to_string(),
-    ];
-
     // NOTE: Cgroup path disabled for performance (see cgroup mount comment above)
     // Re-enable together with cgroup namespace and mount if resource limits are needed.
     // let cgroups_path = format!("/boxlite/{}", container_id);
@@ -557,7 +547,7 @@ fn build_linux_spec(
         // at a pipe runs as guest root outside the container. The microVM is
         // the boundary this relies on, not the spec.
         builder = builder.readonly_paths(
-            readonly_paths
+            oci_spec::runtime::get_default_readonly_paths()
                 .into_iter()
                 .filter(|path| path != "/proc/sys")
                 .collect::<Vec<_>>(),

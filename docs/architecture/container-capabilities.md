@@ -5,16 +5,18 @@ Status: accepted
 ## Decision
 
 BoxLite exposes a high-level delta policy rather than the OCI runtime's five
-exact capability sets. The policy is grouped with the other expert-only
-container settings instead of widening the top-level box API:
+exact capability sets. A separate `privileged` shape is available for DinD:
+it grants the full guest capability ceiling and makes `/proc/sys` writable.
+The policy is grouped with the other expert-only container settings instead of
+widening the top-level box API:
 
-| Surface | Add | Drop |
-| --- | --- | --- |
-| Rust, Python, REST | `advanced.capabilities.add` | `advanced.capabilities.drop` |
-| Node.js / TypeScript | `advanced.capabilities.add` | `advanced.capabilities.drop` |
-| Go | `AdvancedBoxOptions.SetCapabilities({Add: ...})` | `AdvancedBoxOptions.SetCapabilities({Drop: ...})` |
-| C | `boxlite_advanced_options_set_capabilities_add` | `boxlite_advanced_options_set_capabilities_drop` |
-| CLI | repeatable `--cap-add` | repeatable `--cap-drop` |
+| Surface | Add | Drop | Privileged |
+| --- | --- | --- | --- |
+| Rust, Python, REST | `advanced.capabilities.add` | `advanced.capabilities.drop` | `advanced.privileged` |
+| Node.js / TypeScript | `advanced.capabilities.add` | `advanced.capabilities.drop` | `advanced.privileged` |
+| Go | `AdvancedBoxOptions.SetCapabilities({Add: ...})` | `AdvancedBoxOptions.SetCapabilities({Drop: ...})` | `AdvancedBoxOptions.SetPrivileged(true)` |
+| C | `boxlite_advanced_options_set_capabilities_add` | `boxlite_advanced_options_set_capabilities_drop` | `boxlite_advanced_options_set_privileged` |
+| CLI | repeatable `--cap-add` | repeatable `--cap-drop` | `--privileged` |
 
 Create inputs use that nested path. The CLI flags remain familiar Docker-style
 shorthands and populate the nested object.
@@ -34,6 +36,14 @@ Moby and Apple container:
 3. Otherwise, start from the baseline, apply drops, then apply additions.
    A named addition therefore wins a named conflict.
 
+`advanced.privileged=true` is normalized at every request boundary to
+`capabilities.add=["ALL"]` and an empty drop list. The guest applies the same
+normalization before resolving the policy, so older or alternate callers cannot
+create a split shape. `cap_add=["ALL"]` without `privileged` still grants all
+capabilities but keeps `/proc/sys` read-only. Privileged mode removes only
+`/proc/sys` from the OCI readonly list; masked paths and cgroup mounts are
+unchanged.
+
 Adding capabilities weakens the container boundary; `SYS_ADMIN` and `ALL` are
 especially broad. Prefer `drop=["ALL"]` plus only the minimum additions a
 workload needs. BoxLite's VM boundary remains separate, but it is not a reason
@@ -44,10 +54,11 @@ init and every later exec. Inheritable and ambient remain absent. They have
 different privilege propagation semantics and require a separate, explicit
 security design if BoxLite ever exposes them.
 
-Internally, the guest resolves the two input lists once into a `CapabilitySet`.
-That facade owns parsing, default policy, `ALL` precedence, canonical names for
-libcontainer, and OCI set construction. Downstream init/exec code carries only
-the resolved type and cannot reinterpret the policy.
+Internally, the guest normalizes the privileged shape and resolves the two
+input lists once into a `CapabilitySet`. That facade owns parsing, default
+policy, `ALL` precedence, canonical names for libcontainer, and OCI set
+construction. Downstream init/exec code carries only the resolved type and
+cannot reinterpret the capability policy.
 
 ## Compatibility and rollout
 
@@ -58,21 +69,21 @@ silently dropped:
   (uncached) immediately before creating a box with a custom policy, so a
   server rollback cannot be masked by a stale discovery cache.
 - A BoxLite host requires the guest to report version 0.9.8 or newer from
-  Ping before sending the nested policy. Guest rootfs images are cached per
-  version and reused, so an older guest can outlive its release; it would
-  decode the new field as unknown proto and drop it.
+  Ping before sending a capability policy, and 0.9.9 or newer before sending
+  the privileged shape. Guest rootfs images are cached per version and reused,
+  so an older guest can outlive its release; it would decode the new field as
+  unknown proto and drop it.
 
 A stale server or too-old guest therefore fails closed. Boundaries that do
 not carry a custom policy are unaffected: ordinary create, get, and list keep
 working against any server version. Inspection does not report the policy —
 it is create-time configuration, not box state.
 
-The cloud control plane does not carry the policy yet. `boxlite serve` and the
-reference server are the server side of the contract above. The hosted API
-does not advertise `linux_capabilities_enabled`, so a BoxLite client refuses
-to send a policy to it — the gate is on the client, not the server. A client
-that skips that negotiation and posts `advanced` anyway has the field
-dropped, because the hosted API does not reject unknown properties.
+The cloud control plane carries the policy in the REST create request under
+`advanced`. It advertises both `linux_capabilities_enabled` and
+`privileged_enabled` from `GET /v1/config`, so remote SDKs fail closed if a
+server rollback no longer supports either shape. The reference server mirrors
+the same contract.
 
 Named `get_or_create` on the local runtime refuses to adopt an existing box
 whose capability policy differs from the requested one, so reuse cannot
