@@ -52,6 +52,8 @@ const instance: Box = {
     _public,
     networkBlockAll,
     networkAllowList,
+    privileged,
+    capabilities,
     target,
     image,
     cpu,

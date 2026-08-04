@@ -6301,6 +6301,7 @@ components:
           example: https://proxy.app.boxlite.io/toolbox
           type: string
       required:
+      - capabilities
       - cpu
       - disk
       - env
