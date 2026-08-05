@@ -122,3 +122,51 @@ describe('CreateBoxDto network validation', () => {
     expect(JSON.stringify(errors)).toContain('isIn')
   })
 })
+
+describe('CreateBoxDto managed volumes', () => {
+  function getReadOnlyConstraints(errors: Awaited<ReturnType<typeof validate>>) {
+    return errors
+      .find((error) => error.property === 'volumes')
+      ?.children?.[0]?.children?.find((error) => error.property === 'read_only')?.constraints
+  }
+
+  it('accepts read-write managed volume mounts', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: false }],
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
+  })
+
+  it('rejects volume mounts without a source', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ guest_path: '/data', read_only: false }],
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isString')
+  })
+
+  it('rejects read-only cloud volume mounts until the backend supports them', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: true }],
+      }),
+    )
+
+    expect(getReadOnlyConstraints(errors)).toHaveProperty('isIn')
+  })
+
+  it('rejects null read_only values', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: null }],
+      }),
+    )
+
+    expect(getReadOnlyConstraints(errors)).toHaveProperty('isIn')
+  })
+})

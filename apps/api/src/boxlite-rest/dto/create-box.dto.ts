@@ -16,6 +16,7 @@ import {
   Min,
   IsIn,
   Validate,
+  ValidateIf,
   ValidateNested,
   ValidatorConstraint,
   ValidatorConstraintInterface,
@@ -43,6 +44,18 @@ export class NetworkSpecDto {
   @IsString({ each: true })
   @Validate(IsNetworkAllowEntryConstraint, { each: true })
   allow_net?: string[]
+}
+
+export class VolumeSpecDto {
+  @IsString()
+  source: string
+
+  @IsString()
+  guest_path: string
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsIn([false])
+  read_only?: false
 }
 
 export class CreateBoxDto {
@@ -114,4 +127,10 @@ export class CreateBoxDto {
   @ValidateNested()
   @Type(() => NetworkSpecDto)
   network?: NetworkSpecDto
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VolumeSpecDto)
+  volumes?: VolumeSpecDto[]
 }
