@@ -463,9 +463,7 @@ async fn udp_filter_blocks_direct_ip_datagram() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::Enabled {
-            allow_net: vec!["example.com".into()],
-        },
+        network: NetworkSpec::enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -501,9 +499,7 @@ async fn udp_to_host_alias_blocked_by_restrictive_allowlist() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::Enabled {
-            allow_net: vec!["example.com".into()],
-        },
+        network: NetworkSpec::enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -540,9 +536,7 @@ async fn udp_reaches_host_alias_when_listed() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::Enabled {
-            allow_net: vec![HOST_IP.into()],
-        },
+        network: NetworkSpec::enabled(vec![HOST_IP.into()]),
         ..common::alpine_opts()
     };
 
@@ -698,9 +692,7 @@ async fn host_alias_reaches_host_loopback_service_when_listed() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::Enabled {
-            allow_net: vec![HOST_IP.into()],
-        },
+        network: NetworkSpec::enabled(vec![HOST_IP.into()]),
         ..common::alpine_opts()
     };
 
