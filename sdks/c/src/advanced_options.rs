@@ -92,8 +92,7 @@ pub unsafe extern "C" fn boxlite_advanced_options_set_privileged(
         return;
     }
     unsafe {
-        (*opts).options.privileged = enabled != 0;
-        (*opts).options.normalize_privileged();
+        (*opts).options.set_privileged(enabled != 0);
     }
 }
 

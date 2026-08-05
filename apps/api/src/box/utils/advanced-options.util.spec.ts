@@ -24,6 +24,21 @@ describe('normalizeBoxAdvancedOptions', () => {
     })
   })
 
+  it('accepts the canonical privileged shape it produces, so normalizing twice is safe', () => {
+    const normalized = normalizeBoxAdvancedOptions({ privileged: true })
+
+    expect(normalizeBoxAdvancedOptions(normalized)).toEqual(normalized)
+  })
+
+  it('accepts a privileged request that already carries the canonical cap_add=ALL', () => {
+    expect(
+      normalizeBoxAdvancedOptions({
+        privileged: true,
+        capabilities: { add: ['ALL'], drop: [] },
+      }),
+    ).toEqual({ privileged: true, capabilities: { add: ['ALL'], drop: [] } })
+  })
+
   it('canonicalizes capability spelling and removes semantic duplicates', () => {
     expect(
       normalizeBoxAdvancedOptions({

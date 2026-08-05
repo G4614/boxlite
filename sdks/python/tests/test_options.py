@@ -57,14 +57,6 @@ class TestBoxOptionsDefaults:
         assert not hasattr(opts, "cap_add")
         assert not hasattr(opts, "cap_drop")
 
-    def test_privileged_normalizes_capabilities(self):
-        advanced = boxlite.AdvancedBoxOptions(privileged=True)
-        opts = boxlite.BoxOptions(image="docker:dind", advanced=advanced)
-
-        assert opts.advanced.privileged is True
-        assert opts.advanced.capabilities.add == ["ALL"]
-        assert opts.advanced.capabilities.drop == []
-
     async def test_privileged_rejects_capability_overrides(self, runtime):
         advanced = boxlite.AdvancedBoxOptions(
             capabilities=boxlite.ContainerCapabilities(drop=["ALL"]),

@@ -10,7 +10,7 @@ import { IsEnum, IsOptional } from 'class-validator'
 import { Box } from '../entities/box.entity'
 import { BoxDesiredState } from '../enums/box-desired-state.enum'
 import { BoxClass } from '../enums/box-class.enum'
-import { normalizeBoxAdvancedOptions } from '../utils/advanced-options.util'
+import { resolveBoxAdvancedOptions } from '../utils/advanced-options.util'
 
 export interface BoxCapabilities {
   add: string[]
@@ -271,7 +271,9 @@ export class BoxDto {
   toolboxProxyUrl: string
 
   static fromBox(box: Box, toolboxProxyUrl: string): BoxDto {
-    const advanced = normalizeBoxAdvancedOptions({
+    // A stored row is not a request: it already holds the canonical shape, so
+    // resolve it instead of re-running the request-time conflict rule.
+    const advanced = resolveBoxAdvancedOptions({
       privileged: box.privileged,
       capabilities: box.capabilities,
     })

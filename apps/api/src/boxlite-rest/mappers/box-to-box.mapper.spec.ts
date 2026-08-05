@@ -26,6 +26,17 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.capabilities).toEqual({ add: ['ALL'], drop: [] })
   })
 
+  it('accepts the canonical privileged body the first-party clients send', () => {
+    // CreateBoxRequest::from_options always serializes capabilities next to
+    // privileged, so this is the body every SDK and the CLI put on the wire.
+    const mapped = createBoxToCreateBox({
+      advanced: { privileged: true, capabilities: { add: ['ALL'], drop: [] } },
+    })
+
+    expect(mapped.privileged).toBe(true)
+    expect(mapped.capabilities).toEqual({ add: ['ALL'], drop: [] })
+  })
+
   it('rejects privileged capability overrides at the REST boundary', () => {
     expect(() =>
       createBoxToCreateBox({
