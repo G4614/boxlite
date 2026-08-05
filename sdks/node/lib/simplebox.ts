@@ -15,6 +15,7 @@ import type {
   JsBox,
   JsBoxInfo,
   JsBoxOptions,
+  JsVolumeSpec,
   NativeBoxConnection,
   NativeBoxTunnel,
   JsExecStderr,
@@ -211,12 +212,8 @@ export interface SimpleBoxOptions {
   /** Environment variables */
   env?: Record<string, string>;
 
-  /** Volume mounts */
-  volumes?: Array<{
-    hostPath: string;
-    guestPath: string;
-    readOnly?: boolean;
-  }>;
+  /** Volume mounts: local hostPath or managed source such as volume://vol_123. */
+  volumes?: JsVolumeSpec[];
 
   /** Port mappings */
   ports?: Array<{

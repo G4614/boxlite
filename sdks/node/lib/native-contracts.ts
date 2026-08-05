@@ -77,7 +77,29 @@ export interface JsEnvVar {
   value: string;
 }
 
-export interface JsVolumeSpec {
+export type JsVolumeSpec =
+  | {
+      /** Scheme-qualified managed volume source, e.g. volume://vol_123. */
+      source: string;
+      guestPath: string;
+      readOnly?: boolean;
+    }
+  | {
+      /** Path on the local host for host-path mounts. */
+      hostPath: string;
+      guestPath: string;
+      readOnly?: boolean;
+    };
+
+export interface JsVolumeSourceSpec {
+  /** Scheme-qualified managed volume source, e.g. volume://vol_123. */
+  source: string;
+  guestPath: string;
+  readOnly?: boolean;
+}
+
+export interface JsHostPathVolumeSpec {
+  /** Path on the local host for host-path mounts. */
   hostPath: string;
   guestPath: string;
   readOnly?: boolean;

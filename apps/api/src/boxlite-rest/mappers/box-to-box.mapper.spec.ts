@@ -19,6 +19,30 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.autoResume).toBe(false)
   })
 
+  it('maps REST volume specs to managed volume mounts', () => {
+    const mapped = createBoxToCreateBox({
+      volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: false }],
+    })
+
+    expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
+  })
+
+  it('rejects non-volume scheme sources on the remote managed-volume mapper', () => {
+    expect(() =>
+      createBoxToCreateBox({
+        volumes: [{ source: 'host:///tmp/data', guest_path: '/data', read_only: false }],
+      }),
+    ).toThrow('volume source must use the volume:// scheme')
+  })
+
+  it('rejects source values without a supported scheme', () => {
+    expect(() =>
+      createBoxToCreateBox({
+        volumes: [{ source: 'volume-123', guest_path: '/data', read_only: false }],
+      }),
+    ).toThrow('volume source must use the volume:// scheme')
+  })
+
   it('returns the effective second-based policy', () => {
     const response = boxToBoxResponse({
       id: 'box-1',
