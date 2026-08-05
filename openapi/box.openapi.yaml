@@ -1800,7 +1800,7 @@ components:
         privileged:
           type: boolean
           default: false
-          description: Request Docker-style privileged mode for DinD. When true, the server grants all Linux capabilities, clears cap_drop, and opens the required guest sysctl path.
+          description: Request Docker-style privileged mode for DinD. When true, the server grants all Linux capabilities and enables the complete guest-level privileged shape. It cannot be combined with cap_add or cap_drop; the only capability policy accepted alongside it is the canonical add=["ALL"] with an empty drop list that privileged mode itself expands to.
 
     CreateContainerCapabilities:
       type: object

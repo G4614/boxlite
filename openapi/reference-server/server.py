@@ -156,9 +156,19 @@ class CreateBoxAdvancedOptions(BaseModel):
 
     @model_validator(mode="after")
     def normalize_privileged(self) -> "CreateBoxAdvancedOptions":
-        if self.privileged:
-            self.capabilities.add = ["ALL"]
-            self.capabilities.drop = []
+        if not self.privileged:
+            return self
+
+        # Privileged mode is a separate shape from capability overrides. Only
+        # the canonical policy it expands to is accepted alongside it; anything
+        # else is a conflict the caller must resolve, not something to rewrite
+        # behind their back.
+        canonical = self.capabilities.drop == [] and self.capabilities.add == ["ALL"]
+        if (self.capabilities.add or self.capabilities.drop) and not canonical:
+            raise ValueError("privileged mode cannot be combined with cap_add or cap_drop")
+
+        self.capabilities.add = ["ALL"]
+        self.capabilities.drop = []
         return self
 
 

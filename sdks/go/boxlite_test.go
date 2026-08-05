@@ -342,6 +342,29 @@ func TestAdvancedOptionsRejectsPrivilegedCapabilityOverrides(t *testing.T) {
 	}
 }
 
+// Disabling must withdraw what enabling installed, or the Go view keeps
+// reporting ALL for a box that is no longer privileged.
+func TestAdvancedOptionsSetPrivilegedFalseWithdrawsCapabilities(t *testing.T) {
+	advanced, err := NewAdvancedBoxOptions()
+	if err != nil {
+		t.Fatalf("NewAdvancedBoxOptions: %v", err)
+	}
+	defer advanced.Close()
+
+	advanced.SetPrivileged(true)
+	advanced.SetPrivileged(false)
+
+	if advanced.privileged {
+		t.Fatal("privileged should be disabled")
+	}
+	if len(advanced.capabilities.Add) != 0 {
+		t.Fatalf("cap_add must not survive disabling privileged mode: got %v", advanced.capabilities.Add)
+	}
+	if len(advanced.capabilities.Drop) != 0 {
+		t.Fatalf("advanced.capabilities.drop: got %v, want empty", advanced.capabilities.Drop)
+	}
+}
+
 func TestSetCapabilitiesRejectsEmbeddedNUL(t *testing.T) {
 	advanced, err := NewAdvancedBoxOptions()
 	if err != nil {
