@@ -72,11 +72,12 @@ silently dropped:
 - A remote SDK re-reads `linux_capabilities_enabled` from `GET /v1/config`
   (uncached) immediately before creating a box with a custom policy, so a
   server rollback cannot be masked by a stale discovery cache.
-- A BoxLite host requires the guest to report version 0.9.8 or newer from
-  Ping before sending a capability policy, and 0.9.9 or newer before sending
-  the privileged shape. Guest rootfs images are cached per version and reused,
-  so an older guest can outlive its release; it would decode the new field as
-  unknown proto and drop it.
+- A BoxLite host requires the guest to report version 0.9.8 or newer from Ping
+  before sending a capability policy or the privileged shape. Both fields ship
+  in that release, so they share one floor; requiring a later one for
+  privileged would reject the guest that introduces it. Guest rootfs images are
+  cached per version and reused, so an older guest can outlive its release; it
+  would decode the new field as unknown proto and drop it.
 
 A stale server or too-old guest therefore fails closed. Boundaries that do
 not carry a custom policy are unaffected: ordinary create, get, and list keep

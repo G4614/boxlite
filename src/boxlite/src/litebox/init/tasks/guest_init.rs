@@ -22,11 +22,13 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 /// one long after its own release.
 const MIN_CAPABILITY_GUEST_VERSION: crate::portal::interfaces::guest::GuestVersion = (0, 9, 8);
 
-/// Oldest guest release that applies the privileged DinD spec shape. A 0.9.8
-/// guest can honor the capability field but does not understand this separate
-/// spec-shape request.
+/// Oldest guest release that applies the privileged DinD spec shape. The
+/// privileged field ships in the same release as the capability policy above,
+/// so it carries the same floor: a guest new enough to honor one understands
+/// the other. Requiring a later release would reject the very guest that
+/// introduces the feature.
 const MIN_PRIVILEGED_CONTAINER_GUEST_VERSION: crate::portal::interfaces::guest::GuestVersion =
-    (0, 9, 9);
+    (0, 9, 8);
 
 /// Oldest guest release that honors `devices` on `Container.Init`. Same trap as
 /// capabilities above: an earlier guest drops the field and starts the workload
@@ -179,9 +181,17 @@ fn kvm_device() -> ContainerDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A privileged request always carries the capability policy it expands to,
+    /// so any guest that satisfies the privileged floor must already satisfy
+    /// the capability floor. Pinning the constants to literals only restates
+    /// them; this is the relation that catches a privileged floor set to a
+    /// release later than the one introducing the feature, which would reject
+    /// that very guest.
     #[test]
-    fn capability_and_privileged_guest_versions_stay_independent() {
-        assert_eq!(MIN_CAPABILITY_GUEST_VERSION, (0, 9, 8));
-        assert_eq!(MIN_PRIVILEGED_CONTAINER_GUEST_VERSION, (0, 9, 9));
+    fn privileged_gate_is_never_newer_than_the_capability_gate() {
+        assert!(
+            MIN_PRIVILEGED_CONTAINER_GUEST_VERSION <= MIN_CAPABILITY_GUEST_VERSION,
+            "privileged floor {MIN_PRIVILEGED_CONTAINER_GUEST_VERSION:?} is newer than the capability floor {MIN_CAPABILITY_GUEST_VERSION:?}"
+        );
     }
 }
