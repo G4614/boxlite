@@ -650,7 +650,7 @@ pub struct AdvancedBoxOptions {
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `capabilities` | `ContainerCapabilities` | Empty add/drop lists | Linux capability delta policy for init and exec processes |
-| `privileged` | `bool` | `false` | Grant all guest capabilities and make `/proc/sys` writable for DinD |
+| `privileged` | `bool` | `false` | Enable the complete guest-level privileged shape for DinD: all guest capabilities, writable `/sys`, guest cgroups, and guest devices |
 | `security` | `SecurityOptions` | `SecurityOptions::default()` (fully enabled profile; jailer enabled) | Security isolation options (jailer, seccomp, namespaces) |
 | `isolate_mounts` | `bool` | `false` | Enable bind mount isolation (requires CAP_SYS_ADMIN on Linux) |
 | `health_check` | `Option<HealthCheckOptions>` | `None` | Optional guest-agent health monitoring |

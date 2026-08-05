@@ -628,7 +628,7 @@ container's init and every later `exec` process.
 |------|-------------|
 | `--cap-add CAPABILITY` | Add a capability; repeatable |
 | `--cap-drop CAPABILITY` | Drop a capability; repeatable |
-| `--privileged` | Grant all guest capabilities and make `/proc/sys` writable for DinD |
+| `--privileged` | Enable the complete guest-level privileged shape for DinD |
 
 Names are case-insensitive and may include the `CAP_` prefix. `ALL` is
 supported. With neither flag, BoxLite keeps its Docker-compatible 14-capability
@@ -636,8 +636,10 @@ baseline. `--cap-drop ALL --cap-add NET_BIND_SERVICE` creates a minimal set
 containing only `NET_BIND_SERVICE`.
 
 `--privileged` is a separate shape from `--cap-add ALL`: it implies all
-capabilities and also opens the guest `/proc/sys` path required by DinD. It does
-not add a cgroup mount or clear the masked paths.
+capabilities and enables the complete guest-level privileged shape required by
+DinD. It clears OCI path protections, makes guest `/sys` writable, gives the
+container a cgroup namespace, and permits guest-local device nodes to be
+injected or created. It does not expose host devices outside the VM.
 
 ### `ResourceFlags`
 
