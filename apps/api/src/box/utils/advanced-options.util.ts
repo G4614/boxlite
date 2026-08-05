@@ -50,22 +50,22 @@ function normalizeCapabilityList(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).map(canonicalizeLinuxCapability))]
 }
 
+/** Whether a policy is exactly the shape privileged mode expands to. */
+function isPrivilegedCapabilityShape(capabilities: Partial<BoxCapabilities> | undefined): boolean {
+  const add = capabilities?.add ?? []
+  const drop = capabilities?.drop ?? []
+
+  return drop.length === 0 && add.length === 1 && canonicalizeLinuxCapability(add[0]) === 'ALL'
+}
+
 /**
- * Normalize the one public advanced-options contract used by REST, storage,
- * and runner adapters. Privileged mode is a separate shape from capability
- * overrides and cannot be combined with them.
+ * Expand the advanced-options contract without applying the request-time
+ * conflict rule. Idempotent, so it is safe on an already-normalized value —
+ * notably a row read back from storage, which is not a request and must not
+ * be rejected like one.
  */
-export function normalizeBoxAdvancedOptions(input: BoxAdvancedOptionsInput = {}): NormalizedBoxAdvancedOptions {
-  if (input.privileged !== undefined && typeof input.privileged !== 'boolean') {
-    throw new BadRequestError('privileged must be a boolean')
-  }
-
-  const privileged = input.privileged ?? false
-  if (privileged) {
-    if ((input.capabilities?.add?.length ?? 0) > 0 || (input.capabilities?.drop?.length ?? 0) > 0) {
-      throw new BadRequestError('privileged mode cannot be combined with cap_add or cap_drop')
-    }
-
+export function resolveBoxAdvancedOptions(input: BoxAdvancedOptionsInput = {}): NormalizedBoxAdvancedOptions {
+  if (input.privileged) {
     return {
       privileged: true,
       capabilities: { add: ['ALL'], drop: [] },
@@ -79,4 +79,30 @@ export function normalizeBoxAdvancedOptions(input: BoxAdvancedOptionsInput = {})
       drop: normalizeCapabilityList(input.capabilities?.drop),
     },
   }
+}
+
+/**
+ * Validate and normalize the one public advanced-options contract, at a
+ * request boundary. Privileged mode is a separate shape from capability
+ * overrides and cannot be combined with them — except for the canonical
+ * `add: ["ALL"]` policy privileged mode itself expands to. Every first-party
+ * client serializes that policy alongside `privileged` (see
+ * `CreateBoxRequest::from_options`), so rejecting it would reject every
+ * privileged create the SDKs and CLI make. Mirrors the host-side carve-out in
+ * `ContainerCapabilities::is_privileged_capability_shape`.
+ */
+export function normalizeBoxAdvancedOptions(input: BoxAdvancedOptionsInput = {}): NormalizedBoxAdvancedOptions {
+  if (input.privileged !== undefined && typeof input.privileged !== 'boolean') {
+    throw new BadRequestError('privileged must be a boolean')
+  }
+
+  if (input.privileged) {
+    const hasOverrides = (input.capabilities?.add?.length ?? 0) > 0 || (input.capabilities?.drop?.length ?? 0) > 0
+
+    if (hasOverrides && !isPrivilegedCapabilityShape(input.capabilities)) {
+      throw new BadRequestError('privileged mode cannot be combined with cap_add or cap_drop')
+    }
+  }
+
+  return resolveBoxAdvancedOptions(input)
 }

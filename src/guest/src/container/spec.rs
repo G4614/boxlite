@@ -646,15 +646,19 @@ fn build_standard_mounts(bundle_path: &Path, privileged: bool) -> BoxliteResult<
                     "nodev".to_string(),
                 ];
                 if !privileged {
-                    options.push("ro".to_string());
+                    // Recursive: `/sys` is an rbind, and OCI's plain `ro` is
+                    // applied without AT_RECURSIVE, which would leave the
+                    // guest's cgroup2 submount writable inside the container.
+                    options.push("rro".to_string());
                 }
                 options
             })
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /sys mount: {}", e)))?,
-        // The guest init mounts cgroup2 at /sys/fs/cgroup. It remains hidden
-        // behind the ordinary read-only /sys bind and becomes visible to a
-        // privileged container when that bind is made writable above.
+        // The guest init mounts cgroup2 at /sys/fs/cgroup. It is carried in as
+        // a submount of the recursive /sys bind, so it is the `rro` above —
+        // not a plain `ro` — that keeps it read-only for an ordinary
+        // container; a privileged container gets it writable.
         // /tmp - Temporary filesystem
         MountBuilder::default()
             .destination("/tmp")
@@ -1285,6 +1289,39 @@ mod tests {
         assert!(rules[0].typ().is_none());
         assert!(rules[0].major().is_none());
         assert!(rules[0].minor().is_none());
+    }
+
+    fn sys_mount_options(privileged: bool) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let mounts = build_standard_mounts(dir.path(), privileged).unwrap();
+        let sys = mounts
+            .iter()
+            .find(|mount| mount.destination().to_str() == Some("/sys"))
+            .expect("/sys mount");
+
+        sys.options().as_ref().expect("/sys options").clone()
+    }
+
+    /// The guest's cgroup2 mount is a submount of this recursive bind, and
+    /// OCI's plain `ro` is applied without AT_RECURSIVE — so only `rro` keeps
+    /// the cgroup hierarchy read-only for an ordinary container.
+    #[test]
+    fn unprivileged_sys_bind_is_recursively_readonly() {
+        let options = sys_mount_options(false);
+
+        assert!(options.contains(&"rro".to_string()), "got: {options:?}");
+        assert!(
+            !options.contains(&"ro".to_string()),
+            "plain ro leaves submounts writable: {options:?}"
+        );
+    }
+
+    #[test]
+    fn privileged_sys_bind_stays_writable() {
+        let options = sys_mount_options(true);
+
+        assert!(!options.contains(&"rro".to_string()), "got: {options:?}");
+        assert!(!options.contains(&"ro".to_string()), "got: {options:?}");
     }
 
     /// Capabilities and the privileged spec shape are separate knobs: adding

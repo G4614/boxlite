@@ -585,7 +585,7 @@ impl ContainerCapabilities {
         self.add.is_empty() && self.drop.is_empty()
     }
 
-    fn is_privileged_capability_shape(&self) -> bool {
+    pub(crate) fn is_privileged_capability_shape(&self) -> bool {
         self.drop.is_empty()
             && self.add.len() == 1
             && canonical_capability_name(&self.add[0]) == "ALL"
@@ -748,6 +748,23 @@ impl AdvancedBoxOptions {
         }
 
         Ok(())
+    }
+
+    /// Toggle privileged mode, keeping the capability policy consistent in
+    /// both directions.
+    ///
+    /// Enabling expands to the canonical shape; disabling withdraws it again,
+    /// so a handle that is toggled off does not leave a non-privileged box
+    /// holding `ALL`. An explicit policy the caller set themselves is left
+    /// alone — only the shape this method produced is taken back.
+    pub fn set_privileged(&mut self, enabled: bool) {
+        self.privileged = enabled;
+
+        if enabled {
+            self.normalize_privileged();
+        } else if self.capabilities.is_privileged_capability_shape() {
+            self.capabilities = ContainerCapabilities::default();
+        }
     }
 
     /// Expand the high-level privileged mode into the explicit capability

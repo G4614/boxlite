@@ -70,8 +70,14 @@ func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) {
 	}
 	C.boxlite_advanced_options_set_privileged(a.handle, boolToCInt(enabled))
 	a.privileged = enabled
-	if enabled && len(a.capabilities.Add) == 0 && len(a.capabilities.Drop) == 0 {
-		a.capabilities = ContainerCapabilities{Add: []string{"ALL"}}
+	if enabled {
+		if len(a.capabilities.Add) == 0 && len(a.capabilities.Drop) == 0 {
+			a.capabilities = ContainerCapabilities{Add: []string{"ALL"}}
+		}
+	} else if len(a.capabilities.Drop) == 0 && len(a.capabilities.Add) == 1 && a.capabilities.Add[0] == "ALL" {
+		// Mirror the withdrawal the native handle just performed, so the Go
+		// view does not keep reporting ALL for a non-privileged box.
+		a.capabilities = ContainerCapabilities{}
 	}
 }
 
