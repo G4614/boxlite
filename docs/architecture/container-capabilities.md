@@ -6,7 +6,8 @@ Status: accepted
 
 BoxLite exposes a high-level delta policy rather than the OCI runtime's five
 exact capability sets. A separate `privileged` shape is available for DinD:
-it grants the full guest capability ceiling and makes `/proc/sys` writable.
+it grants the full guest capability ceiling and enables the complete guest-level
+privileged shape.
 The policy is grouped with the other expert-only container settings instead of
 widening the top-level box API:
 
@@ -37,12 +38,15 @@ Moby and Apple container:
    A named addition therefore wins a named conflict.
 
 `advanced.privileged=true` is normalized at every request boundary to
-`capabilities.add=["ALL"]` and an empty drop list. The guest applies the same
-normalization before resolving the policy, so older or alternate callers cannot
-create a split shape. `cap_add=["ALL"]` without `privileged` still grants all
-capabilities but keeps `/proc/sys` read-only. Privileged mode removes only
-`/proc/sys` from the OCI readonly list; masked paths and cgroup mounts are
-unchanged.
+`capabilities.add=["ALL"]` and an empty drop list after conflict validation.
+It must not be combined with non-empty capability overrides; for example,
+`privileged=true` with `drop=["ALL"]` is rejected rather than silently
+rewritten. `cap_add=["ALL"]` without `privileged` still grants all
+capabilities but keeps the ordinary guest shape. Privileged mode is the
+complete guest-level shape: it clears OCI masked and readonly paths, makes
+`/sys` writable, gives the container a cgroup namespace, and applies an
+allow-all guest device policy for nodes explicitly injected or created in the
+guest. It does not expose host devices or cross the VM boundary.
 
 Adding capabilities weakens the container boundary; `SYS_ADMIN` and `ALL` are
 especially broad. Prefer `drop=["ALL"]` plus only the minimum additions a
@@ -54,11 +58,11 @@ init and every later exec. Inheritable and ambient remain absent. They have
 different privilege propagation semantics and require a separate, explicit
 security design if BoxLite ever exposes them.
 
-Internally, the guest normalizes the privileged shape and resolves the two
-input lists once into a `CapabilitySet`. That facade owns parsing, default
-policy, `ALL` precedence, canonical names for libcontainer, and OCI set
-construction. Downstream init/exec code carries only the resolved type and
-cannot reinterpret the capability policy.
+Internally, the guest normalizes and resolves the request once into a resolved
+security policy containing the `CapabilitySet` and the `privileged` shape.
+That policy owns parsing, default policy, `ALL` precedence, canonical names
+for libcontainer, and OCI set construction. Downstream init/exec code carries
+only the resolved policy and cannot reinterpret the capability request.
 
 ## Compatibility and rollout
 

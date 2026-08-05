@@ -155,9 +155,12 @@ options = BoxOptions(
 ```
 
 Set `AdvancedBoxOptions(privileged=True)` for Docker-style DinD behavior. This
-normalizes the capability policy to `add=["ALL"]`, clears drops, and makes the
-guest `/proc/sys` path writable. `capabilities.add=["ALL"]` without
-`privileged=True` grants the capabilities but leaves that path read-only.
+normalizes the capability policy to `add=["ALL"]`, clears drops, and enables
+the complete guest-level privileged shape: writable guest `/sys`, guest
+cgroups, and guest devices. `capabilities.add=["ALL"]` without
+`privileged=True` grants the capabilities but keeps the ordinary guest shape.
+Do not combine `privileged=True` with capability overrides; the request is
+rejected.
 
 #### `NetworkSpec`
 

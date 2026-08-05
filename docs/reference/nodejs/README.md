@@ -126,9 +126,11 @@ const options = {
 ```
 
 Set `advanced.privileged: true` for Docker-style DinD behavior. This
-normalizes the capability policy to `add: ["ALL"]`, clears drops, and makes the
-guest `/proc/sys` path writable. `add: ["ALL"]` without `privileged: true`
-leaves that path read-only.
+normalizes the capability policy to `add: ["ALL"]`, clears drops, and enables
+the complete guest-level privileged shape: writable guest `/sys`, guest
+cgroups, and guest devices. `add: ["ALL"]` without `privileged: true` keeps the
+ordinary guest shape. Do not combine `privileged: true` with capability
+overrides; the request is rejected.
 
 #### `NetworkSpec`
 
@@ -401,7 +403,7 @@ interface SimpleBoxOptions {
       add?: string[];     // Add Linux capabilities
       drop?: string[];    // Remove Linux capabilities
     };
-    privileged?: boolean; // Grant all capabilities and open guest /proc/sys
+    privileged?: boolean; // Enable the complete guest-level privileged shape
   };
 }
 ```
