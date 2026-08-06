@@ -754,7 +754,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
     // server with a different default; clients cannot relax it.
 
     let auto_delete = req.auto_delete.unwrap_or(0);
-    let mut options = BoxOptions {
+    let options = BoxOptions {
         rootfs,
         cpus: req.cpus,
         memory_mib: req.memory_mib,
@@ -782,8 +782,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         detach: req.detach.unwrap_or(auto_delete == 0),
         ..Default::default()
     };
-    options.advanced.validate_privileged_capability_conflict()?;
-    options.normalize_privileged();
+    options.sanitize()?;
     Ok(options)
 }
 
