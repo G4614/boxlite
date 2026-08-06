@@ -183,7 +183,10 @@ const box = new SimpleBox({
     allowNet: ['api.openai.com'],
   },
   advanced: {
-    privileged: true, // DinD: complete guest-level privileged shape
+    capabilities: {
+      add: ['NET_ADMIN'],
+      drop: ['NET_RAW'],
+    },
   },
   env: { FOO: 'bar' },
   volumes: [
