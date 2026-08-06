@@ -286,7 +286,11 @@ impl TryFrom<JsVolumeSpec> for VolumeSpec {
                 source
             }
             (None, Some(host_path)) => host_path,
-            (None, None) => String::new(),
+            (None, None) => {
+                return Err(Self::Error::InvalidArgument(
+                    "volume source or hostPath is required".into(),
+                ));
+            }
         };
 
         Ok(VolumeSpec {
@@ -737,6 +741,16 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("volume:// scheme"));
+
+        let err = VolumeSpec::try_from(JsVolumeSpec {
+            source: None,
+            host_path: None,
+            guest_path: "/data".into(),
+            read_only: None,
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("source or hostPath is required"));
     }
 
     #[test]
