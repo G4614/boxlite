@@ -148,11 +148,7 @@ fn validate_device_path(field: &str, value: &str) -> BoxliteResult<PathBuf> {
 /// - Resource limits (rlimits)
 /// - No new privileges disabled (allows sudo)
 ///
-/// Ordinary containers keep the guest's cgroup mount hidden behind the
-/// read-only `/sys` bind and do not create a cgroup namespace. Privileged
-/// containers expose that existing guest cgroup2 mount as writable and get a
-/// private cgroup namespace, matching the guest-side part of Docker's
-/// privileged shape without changing the VM's outer isolation.
+/// Build an OCI spec from the atomic security choices resolved by the host.
 #[allow(clippy::too_many_arguments)]
 pub fn create_oci_spec(
     container_id: &str,
@@ -171,11 +167,14 @@ pub fn create_oci_spec(
     let caps = security_policy.capabilities.to_oci()?;
     tracing::info!(
         container_id,
-        privileged = security_policy.privileged,
+        cgroup_namespace = security_policy.cgroup_namespace,
+        writable_sysfs = security_policy.writable_sysfs,
+        allow_all_devices = security_policy.allow_all_devices,
+        unconfined_paths = security_policy.unconfined_paths,
         "building container spec"
     );
-    let namespaces = build_default_namespaces(security_policy.privileged)?;
-    let mut mounts = build_standard_mounts(bundle_path, security_policy.privileged)?;
+    let namespaces = build_default_namespaces(security_policy.cgroup_namespace)?;
+    let mut mounts = build_standard_mounts(bundle_path, security_policy.writable_sysfs)?;
 
     // Add user-specified bind mounts
     for user_mount in user_mounts {
@@ -214,7 +213,8 @@ pub fn create_oci_spec(
         container_id,
         namespaces,
         devices.as_slice(),
-        security_policy.privileged,
+        security_policy.allow_all_devices,
+        security_policy.unconfined_paths,
     )?;
 
     SpecBuilder::default()
@@ -389,7 +389,7 @@ fn find_group_in_group_file(rootfs: &str, name: &str) -> BoxliteResult<u32> {
 
 /// Build default namespaces for container isolation
 fn build_default_namespaces(
-    privileged: bool,
+    cgroup_namespace: bool,
 ) -> BoxliteResult<Vec<oci_spec::runtime::LinuxNamespace>> {
     let mut namespaces = vec![
         build_namespace(LinuxNamespaceType::Pid)?,
@@ -398,7 +398,7 @@ fn build_default_namespaces(
         build_namespace(LinuxNamespaceType::Mount)?,
         // build_namespace(LinuxNamespaceType::User)?,
     ];
-    if privileged {
+    if cgroup_namespace {
         // The guest init already mounts cgroup2 at /sys/fs/cgroup. Give
         // privileged workloads Docker-like ownership of a private view of
         // that hierarchy.
@@ -504,7 +504,8 @@ fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
     devices: &[LinuxDevice],
-    privileged: bool,
+    allow_all_devices: bool,
+    unconfined_paths: bool,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
     // Map full range of UIDs/GIDs to allow non-root users (nginx=33, etc.)
@@ -540,12 +541,15 @@ fn build_linux_spec(
         .uid_mappings(uid_mappings)
         .gid_mappings(gid_mappings);
 
-    if privileged {
-        // Docker's privileged OCI shape removes both path-level protections.
-        // The guest VM remains the outer security boundary.
+    if unconfined_paths {
         builder = builder
             .masked_paths(Vec::<String>::new())
             .readonly_paths(Vec::<String>::new());
+    } else {
+        builder = builder.readonly_paths(readonly_paths.to_vec());
+    }
+
+    if allow_all_devices {
         let all_devices = LinuxDeviceCgroupBuilder::default()
             .allow(true)
             .access("rwm")
@@ -558,8 +562,6 @@ fn build_linux_spec(
                 BoxliteError::Internal(format!("Failed to build device resources: {}", e))
             })?;
         builder = builder.resources(resources);
-    } else {
-        builder = builder.readonly_paths(readonly_paths.to_vec());
     }
 
     // Leave `devices` unset when empty so the spec keeps its historical shape.
@@ -574,7 +576,7 @@ fn build_linux_spec(
 }
 
 /// Build standard mounts for container filesystem
-fn build_standard_mounts(bundle_path: &Path, privileged: bool) -> BoxliteResult<Vec<Mount>> {
+fn build_standard_mounts(bundle_path: &Path, writable_sysfs: bool) -> BoxliteResult<Vec<Mount>> {
     let dev_mount_options = vec![
         "nosuid".to_string(),
         "strictatime".to_string(),
@@ -645,7 +647,7 @@ fn build_standard_mounts(bundle_path: &Path, privileged: bool) -> BoxliteResult<
                     "noexec".to_string(),
                     "nodev".to_string(),
                 ];
-                if !privileged {
+                if !writable_sysfs {
                     // Recursive: `/sys` is an rbind, and OCI's plain `ro` is
                     // applied without AT_RECURSIVE, which would leave the
                     // guest's cgroup2 submount writable inside the container.
@@ -720,7 +722,7 @@ mod tests {
         }])
         .unwrap();
 
-        let linux = build_linux_spec("test-box", vec![], devices.as_slice(), false).unwrap();
+        let linux = build_linux_spec("test-box", vec![], devices.as_slice(), false, false).unwrap();
         let mapped = linux.devices().as_ref().expect("mapped device");
         assert_eq!(mapped.len(), 1);
         let device = &mapped[0];
@@ -739,6 +741,7 @@ mod tests {
             "test-box",
             vec![],
             ContainerDevices::default().as_slice(),
+            false,
             false,
         )
         .unwrap();
@@ -1227,7 +1230,7 @@ mod tests {
     #[test]
     fn unprivileged_spec_keeps_runtime_path_defaults() {
         let devices = ContainerDevices::default();
-        let linux = build_linux_spec("c", vec![], devices.as_slice(), false).unwrap();
+        let linux = build_linux_spec("c", vec![], devices.as_slice(), false, false).unwrap();
 
         // Spelled out rather than compared against `get_default_*`, which is
         // where the value under test comes from: that comparison holds for any
@@ -1270,7 +1273,7 @@ mod tests {
     #[test]
     fn privileged_spec_clears_guest_path_and_device_restrictions() {
         let devices = ContainerDevices::default();
-        let linux = build_linux_spec("c", vec![], devices.as_slice(), true).unwrap();
+        let linux = build_linux_spec("c", vec![], devices.as_slice(), true, true).unwrap();
 
         assert!(linux
             .readonly_paths()
@@ -1339,7 +1342,10 @@ mod tests {
         let spec_for = |privileged: bool| {
             let security_policy = ResolvedSecurityPolicy {
                 capabilities: full_caps.clone(),
-                privileged,
+                cgroup_namespace: privileged,
+                writable_sysfs: privileged,
+                allow_all_devices: privileged,
+                unconfined_paths: privileged,
             };
             create_oci_spec(
                 "c",
