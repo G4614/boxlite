@@ -1,10 +1,21 @@
 import { BoxliteVolumeController } from './boxlite-volume.controller'
 import { VolumeService } from '../box/services/volume.service'
 import { NotFoundException } from '@nestjs/common'
+import { VolumeState } from '../box/enums/volume-state.enum'
 
 describe('BoxliteVolumeController', () => {
   const createdAt = new Date('2026-07-27T00:00:00.000Z')
-  const volume = { id: 'volume-1', createdAt }
+  const updatedAt = new Date('2026-07-28T00:00:00.000Z')
+  const lastUsedAt = new Date('2026-07-29T00:00:00.000Z')
+  const volume = {
+    id: 'volume-1',
+    name: 'workspace',
+    state: VolumeState.READY,
+    createdAt,
+    updatedAt,
+    lastUsedAt,
+    errorReason: undefined,
+  }
 
   function createController() {
     const volumeService = {
@@ -31,7 +42,12 @@ describe('BoxliteVolumeController', () => {
       } as never),
     ).resolves.toEqual({
       id: volume.id,
+      name: volume.name,
+      state: volume.state,
       created_at: createdAt.toISOString(),
+      updated_at: updatedAt.toISOString(),
+      last_used_at: lastUsedAt.toISOString(),
+      error_reason: undefined,
     })
     expect(volumeService.create).toHaveBeenCalledWith(organization, {})
     expect(volumeService.waitForReady).toHaveBeenCalledWith(volume.id, 30)
@@ -44,6 +60,8 @@ describe('BoxliteVolumeController', () => {
       volumes: [
         {
           id: volume.id,
+          name: volume.name,
+          state: volume.state,
           created_at: createdAt.toISOString(),
         },
       ],
@@ -56,7 +74,12 @@ describe('BoxliteVolumeController', () => {
 
     await expect(controller.get(volume.id)).resolves.toEqual({
       id: volume.id,
+      name: volume.name,
+      state: volume.state,
       created_at: createdAt.toISOString(),
+      updated_at: updatedAt.toISOString(),
+      last_used_at: lastUsedAt.toISOString(),
+      error_reason: undefined,
     })
     expect(volumeService.findOne).toHaveBeenCalledWith(volume.id)
   })
