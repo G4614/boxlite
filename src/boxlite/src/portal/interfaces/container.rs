@@ -11,7 +11,7 @@ use boxlite_shared::{
 use tonic::transport::Channel;
 
 use crate::images::ContainerImageConfig;
-use crate::runtime::advanced_options::ResolvedContainerSecurityConfig;
+use crate::runtime::advanced_options::{ContainerCapabilities, ResolvedContainerSecurityConfig};
 use crate::volumes::ContainerMount;
 
 /// Container rootfs initialization strategy.
@@ -87,7 +87,28 @@ pub struct ContainerInitConfig {
     pub tty: bool,
     /// Guest device nodes to reproduce inside the OCI workload.
     pub devices: Vec<ContainerDevice>,
-    pub(crate) advanced: ResolvedContainerSecurityConfig,
+    pub advanced: ContainerAdvancedConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ContainerAdvancedConfig {
+    pub capabilities: ContainerCapabilities,
+    pub(crate) cgroup_namespace: bool,
+    pub(crate) writable_sysfs: bool,
+    pub(crate) allow_all_devices: bool,
+    pub(crate) unconfined_paths: bool,
+}
+
+impl From<ResolvedContainerSecurityConfig> for ContainerAdvancedConfig {
+    fn from(value: ResolvedContainerSecurityConfig) -> Self {
+        Self {
+            capabilities: value.capabilities,
+            cgroup_namespace: value.cgroup_namespace,
+            writable_sysfs: value.writable_sysfs,
+            allow_all_devices: value.allow_all_devices,
+            unconfined_paths: value.unconfined_paths,
+        }
+    }
 }
 
 /// Container service interface.
@@ -132,7 +153,10 @@ impl ContainerInterface {
                     add: advanced.capabilities.add,
                     drop: advanced.capabilities.drop,
                 }),
-                privileged: advanced.privileged,
+                cgroup_namespace: advanced.cgroup_namespace,
+                writable_sysfs: advanced.writable_sysfs,
+                allow_all_devices: advanced.allow_all_devices,
+                unconfined_paths: advanced.unconfined_paths,
             }),
         };
 
@@ -439,12 +463,15 @@ mod tests {
                     destination: "/dev/kvm".to_string(),
                     file_mode: Some(0o666),
                 }],
-                advanced: ResolvedContainerSecurityConfig {
+                advanced: ContainerAdvancedConfig {
                     capabilities: crate::runtime::advanced_options::ContainerCapabilities {
                         add: vec!["ALL".into()],
                         ..Default::default()
                     },
-                    privileged: true,
+                    cgroup_namespace: true,
+                    writable_sysfs: true,
+                    allow_all_devices: true,
+                    unconfined_paths: true,
                 },
             })
             .await
@@ -459,11 +486,10 @@ mod tests {
         let container_config = request.container_config.expect("process config");
         // Non-default, so it proves the field is threaded rather than defaulted.
         assert!(container_config.tty);
-        assert!(
-            container_config
-                .advanced
-                .expect("advanced options")
-                .privileged
-        );
+        let advanced = container_config.advanced.expect("advanced options");
+        assert!(advanced.cgroup_namespace);
+        assert!(advanced.writable_sysfs);
+        assert!(advanced.allow_all_devices);
+        assert!(advanced.unconfined_paths);
     }
 }

@@ -184,14 +184,16 @@ impl ContainerService for GuestServer {
             }));
         }
 
-        // Resolve canonical capability names before creating directories,
-        // mounting the rootfs, or modifying its trust store. The host has
-        // already normalized the public privileged request; the guest only
-        // validates the canonical contract against its own kernel.
+        // Resolve capability names before creating directories, mounting the
+        // rootfs, or modifying its trust store. The host has already expanded
+        // high-level security options into atomic OCI choices.
         let advanced = config.advanced.unwrap_or_default();
         let security_policy = ResolvedSecurityPolicy::from_resolved(
             advanced.capabilities.unwrap_or_default(),
-            advanced.privileged,
+            advanced.cgroup_namespace,
+            advanced.writable_sysfs,
+            advanced.allow_all_devices,
+            advanced.unconfined_paths,
         )
         .map_err(BoxliteError::into_validation_status)?;
 

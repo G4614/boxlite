@@ -735,7 +735,7 @@ impl AdvancedBoxOptions {
     /// The canonical `add=["ALL"]` shape is allowed for persisted and FFI
     /// options that have already been normalized. Other explicit overrides
     /// must not be silently discarded by privileged mode.
-    pub fn validate_privileged_capability_conflict(
+    pub(crate) fn validate_privileged_capability_conflict(
         &self,
     ) -> boxlite_shared::errors::BoxliteResult<()> {
         if self.privileged
@@ -772,7 +772,7 @@ impl AdvancedBoxOptions {
     /// `validate_privileged_capability_conflict` before this method; a
     /// conflicting explicit override is deliberately left untouched so it
     /// cannot be silently discarded.
-    pub fn normalize_privileged(&mut self) {
+    pub(crate) fn normalize_privileged(&mut self) {
         if self.privileged
             && (self.capabilities.is_empty() || self.capabilities.is_privileged_capability_shape())
         {
@@ -796,16 +796,20 @@ impl AdvancedBoxOptions {
 
         Ok(ResolvedContainerSecurityConfig {
             capabilities: normalized.capabilities,
-            privileged: normalized.privileged,
+            cgroup_namespace: normalized.privileged,
+            writable_sysfs: normalized.privileged,
+            allow_all_devices: normalized.privileged,
+            unconfined_paths: normalized.privileged,
         })
     }
 }
 
-/// Canonical container security configuration crossing the host-to-guest
-/// boundary. `privileged=true` is always paired with `add=["ALL"]` and an
-/// empty drop list before this type is constructed.
+/// Atomic container security configuration crossing the host-to-guest boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResolvedContainerSecurityConfig {
     pub(crate) capabilities: ContainerCapabilities,
-    pub(crate) privileged: bool,
+    pub(crate) cgroup_namespace: bool,
+    pub(crate) writable_sysfs: bool,
+    pub(crate) allow_all_devices: bool,
+    pub(crate) unconfined_paths: bool,
 }

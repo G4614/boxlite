@@ -68,32 +68,32 @@ pub(crate) struct CapabilitySet(HashSet<Capability>);
 
 /// The guest's resolved security policy for one container.
 ///
-/// The host has already resolved the public `privileged` semantics before this
-/// policy crosses the host-to-guest boundary. The guest only resolves the
-/// canonical capability names against its own kernel and carries the already
-/// resolved OCI shape into spec construction.
+/// The host has already expanded high-level security semantics into atomic OCI
+/// choices. The guest resolves capability names against its own kernel and
+/// carries those choices into spec construction.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedSecurityPolicy {
     pub(crate) capabilities: CapabilitySet,
-    pub(crate) privileged: bool,
+    pub(crate) cgroup_namespace: bool,
+    pub(crate) writable_sysfs: bool,
+    pub(crate) allow_all_devices: bool,
+    pub(crate) unconfined_paths: bool,
 }
 
 impl ResolvedSecurityPolicy {
     pub(crate) fn from_resolved(
         policy: ContainerCapabilities,
-        privileged: bool,
+        cgroup_namespace: bool,
+        writable_sysfs: bool,
+        allow_all_devices: bool,
+        unconfined_paths: bool,
     ) -> BoxliteResult<Self> {
-        if privileged
-            && !(policy.drop.is_empty() && policy.add.len() == 1 && is_all(&policy.add[0]))
-        {
-            return Err(BoxliteError::InvalidArgument(
-                "invalid canonical privileged security policy".to_string(),
-            ));
-        }
-
         Ok(Self {
             capabilities: CapabilitySet::resolve(&policy.add, &policy.drop)?,
-            privileged,
+            cgroup_namespace,
+            writable_sysfs,
+            allow_all_devices,
+            unconfined_paths,
         })
     }
 }
@@ -288,33 +288,43 @@ mod tests {
     }
 
     #[test]
-    fn privileged_policy_consumes_canonical_capabilities() {
+    fn resolved_policy_consumes_atomic_security_options() {
         let policy = ResolvedSecurityPolicy::from_resolved(
             ContainerCapabilities {
                 add: vec!["ALL".into()],
                 ..Default::default()
             },
             true,
+            true,
+            true,
+            true,
         )
-        .expect("privileged policy should resolve");
+        .expect("security policy should resolve");
 
-        assert!(policy.privileged);
+        assert!(policy.cgroup_namespace);
+        assert!(policy.writable_sysfs);
+        assert!(policy.allow_all_devices);
+        assert!(policy.unconfined_paths);
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
         assert!(policy.capabilities.contains(&Capability::NetRaw));
     }
 
     #[test]
-    fn privileged_policy_rejects_noncanonical_contract() {
-        let error = ResolvedSecurityPolicy::from_resolved(
+    fn capability_policy_is_independent_from_atomic_options() {
+        let policy = ResolvedSecurityPolicy::from_resolved(
             ContainerCapabilities {
                 drop: vec!["ALL".into()],
                 ..Default::default()
             },
             true,
+            false,
+            false,
+            false,
         )
-        .expect_err("privileged capability overrides must be rejected");
+        .expect("atomic options do not reinterpret capabilities");
 
-        assert!(error.to_string().contains("canonical privileged"));
+        assert!(policy.cgroup_namespace);
+        assert_eq!(policy.capabilities.len(), 0);
     }
 
     #[test]
@@ -325,10 +335,13 @@ mod tests {
                 ..Default::default()
             },
             false,
+            false,
+            false,
+            false,
         )
         .expect("capability-only policy should resolve");
 
-        assert!(!policy.privileged);
+        assert!(!policy.unconfined_paths);
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
     }
 

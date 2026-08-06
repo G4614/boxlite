@@ -97,7 +97,7 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                     } else {
                         Vec::new()
                     },
-                    advanced,
+                    advanced: advanced.into(),
                 },
             };
 
@@ -141,7 +141,11 @@ async fn run_guest_init(
             .require_min_version(MIN_CAPABILITY_GUEST_VERSION)
             .await?;
     }
-    if bootstrap.container.advanced.privileged {
+    if bootstrap.container.advanced.cgroup_namespace
+        || bootstrap.container.advanced.writable_sysfs
+        || bootstrap.container.advanced.allow_all_devices
+        || bootstrap.container.advanced.unconfined_paths
+    {
         guest_interface
             .require_min_version(MIN_PRIVILEGED_CONTAINER_GUEST_VERSION)
             .await?;
