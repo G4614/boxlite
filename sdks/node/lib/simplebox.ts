@@ -279,6 +279,8 @@ export interface ContainerCapabilities {
 
 export interface AdvancedBoxOptions {
   capabilities?: ContainerCapabilities;
+  /** Request Docker-style privileged mode for DinD. */
+  privileged?: boolean;
 }
 
 /** Box-scoped network operations for a SimpleBox. */
@@ -428,6 +430,7 @@ export class SimpleBox {
                   drop: [...(options.advanced.capabilities.drop ?? [])],
                 }
               : undefined,
+            privileged: options.advanced.privileged,
           }
         : undefined,
       security,

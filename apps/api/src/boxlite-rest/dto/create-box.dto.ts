@@ -21,6 +21,7 @@ import {
   ValidatorConstraintInterface,
 } from 'class-validator'
 import { isValidNetworkAllowEntry, MAX_NETWORK_ALLOW_LIST_ENTRIES } from '../../box/utils/network-validation.util'
+import { isValidLinuxCapabilityName } from '../../box/utils/advanced-options.util'
 
 @ValidatorConstraint({ name: 'isNetworkAllowEntry', async: false })
 class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
@@ -30,6 +31,17 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
 
   defaultMessage(): string {
     return 'each allow_net entry must be an IPv4 address, IPv4 CIDR, hostname, or wildcard hostname'
+  }
+}
+
+@ValidatorConstraint({ name: 'isLinuxCapabilityName', async: false })
+class IsLinuxCapabilityNameConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    return isValidLinuxCapabilityName(value)
+  }
+
+  defaultMessage(): string {
+    return 'each capability must be a well-formed Linux capability name'
   }
 }
 
@@ -45,7 +57,37 @@ export class NetworkSpecDto {
   allow_net?: string[]
 }
 
+export class CreateBoxCapabilitiesDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Validate(IsLinuxCapabilityNameConstraint, { each: true })
+  add?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Validate(IsLinuxCapabilityNameConstraint, { each: true })
+  drop?: string[]
+}
+
+export class CreateBoxAdvancedOptionsDto {
+  @IsOptional()
+  @IsBoolean()
+  privileged?: boolean
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateBoxCapabilitiesDto)
+  capabilities?: CreateBoxCapabilitiesDto
+}
+
 export class CreateBoxDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateBoxAdvancedOptionsDto)
+  advanced?: CreateBoxAdvancedOptionsDto
+
   @IsOptional()
   @IsString()
   name?: string
