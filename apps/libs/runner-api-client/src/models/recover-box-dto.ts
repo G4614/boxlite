@@ -16,7 +16,6 @@
 // May contain unused imports in some cases
 // @ts-ignore
 import type { DtoVolumeDTO } from './dto-volume-dto';
-import type { CapabilitiesDTO } from './capabilities-dto';
 
 export interface RecoverBoxDTO {
     'backupErrorReason'?: string;
@@ -28,10 +27,9 @@ export interface RecoverBoxDTO {
     'memoryQuota'?: number;
     'networkAllowList'?: string;
     'networkBlockAll'?: boolean;
-    'privileged'?: boolean;
-    'capabilities'?: CapabilitiesDTO;
     'osUser': string;
     'snapshot'?: string;
     'storageQuota'?: number;
     'volumes'?: Array<DtoVolumeDTO>;
 }
+

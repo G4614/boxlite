@@ -225,8 +225,15 @@ int main() {
         boxlite_runtime_free(runtime);
         return 1;
     }
-    // Docker-style privileged mode enables the complete guest-level shape.
-    boxlite_advanced_options_set_privileged(advanced, 1);
+    const char* cap_add[] = {"NET_ADMIN"};
+    const char* cap_drop[] = {"NET_RAW"};
+    if (boxlite_advanced_options_set_capabilities_add(advanced, cap_add, 1) != Ok ||
+        boxlite_advanced_options_set_capabilities_drop(advanced, cap_drop, 1) != Ok) {
+        fprintf(stderr, "Invalid Linux capability list\n");
+        boxlite_advanced_options_free(advanced);
+        boxlite_options_free(opts);
+        return 1;
+    }
     boxlite_options_set_advanced(opts, advanced);
     boxlite_advanced_options_free(advanced);
 

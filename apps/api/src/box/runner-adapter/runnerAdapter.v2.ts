@@ -135,8 +135,6 @@ export class RunnerAdapterV2 implements RunnerAdapter {
       })),
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
-      privileged: box.privileged,
-      capabilities: box.capabilities,
       metadata,
       authToken: box.authToken,
       organizationId: box.organizationId,
@@ -196,8 +194,6 @@ export class RunnerAdapterV2 implements RunnerAdapter {
       })),
       networkBlockAll: box.networkBlockAll,
       networkAllowList: box.networkAllowList,
-      privileged: box.privileged,
-      capabilities: box.capabilities,
       errorReason: box.errorReason,
     }
     await this.jobService.createJob(null, JobType.RECOVER_BOX, this.runner.id, ResourceType.BOX, box.id, recoverBoxDTO)

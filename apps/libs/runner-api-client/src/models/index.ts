@@ -1,5 +1,4 @@
 export * from './box-info-response';
-export * from './capabilities-dto';
 export * from './build-snapshot-request-dto';
 export * from './create-backup-dto';
 export * from './create-box-dto';

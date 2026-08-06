@@ -7,14 +7,10 @@
 import { IsEnum, IsObject, IsOptional, IsString, IsNumber, IsBoolean, IsArray, IsInt, Min } from 'class-validator'
 import { ApiPropertyOptional, ApiSchema } from '@nestjs/swagger'
 import { BoxClass } from '../enums/box-class.enum'
-import { BoxCapabilities, BoxVolume } from './box.dto'
+import { BoxVolume } from './box.dto'
 
 @ApiSchema({ name: 'CreateBox' })
 export class CreateBoxDto {
-  privileged?: boolean
-
-  capabilities?: BoxCapabilities
-
   @ApiPropertyOptional({
     description: 'The name of the box. If not provided, the box ID will be used as the name',
     example: 'MyBox',

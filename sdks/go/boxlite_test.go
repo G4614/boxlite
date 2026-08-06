@@ -304,67 +304,6 @@ func TestAdvancedOptionsSetCapabilitiesDeepCopies(t *testing.T) {
 	}
 }
 
-func TestAdvancedOptionsSetPrivilegedNormalizesCapabilities(t *testing.T) {
-	advanced, err := NewAdvancedBoxOptions()
-	if err != nil {
-		t.Fatalf("NewAdvancedBoxOptions: %v", err)
-	}
-	defer advanced.Close()
-
-	advanced.SetPrivileged(true)
-	if !advanced.privileged {
-		t.Fatal("privileged should be enabled")
-	}
-	if !reflect.DeepEqual(advanced.capabilities.Add, []string{"ALL"}) {
-		t.Fatalf("advanced.capabilities.add: got %v, want [ALL]", advanced.capabilities.Add)
-	}
-	if len(advanced.capabilities.Drop) != 0 {
-		t.Fatalf("advanced.capabilities.drop: got %v, want empty", advanced.capabilities.Drop)
-	}
-
-	cfg := &boxConfig{}
-	WithAdvancedOptions(advanced)(cfg)
-	if err := buildAndFreeCOptions("docker:dind", cfg); err != nil {
-		t.Fatalf("privileged advanced options must apply cleanly: %v", err)
-	}
-}
-
-func TestAdvancedOptionsRejectsPrivilegedCapabilityOverrides(t *testing.T) {
-	advanced, err := NewAdvancedBoxOptions()
-	if err != nil {
-		t.Fatalf("NewAdvancedBoxOptions: %v", err)
-	}
-	defer advanced.Close()
-
-	advanced.SetPrivileged(true)
-	if err := advanced.SetCapabilities(ContainerCapabilities{Drop: []string{"ALL"}}); err == nil {
-		t.Fatal("privileged mode must reject cap-drop overrides")
-	}
-}
-
-// Disabling must withdraw what enabling installed, or the Go view keeps
-// reporting ALL for a box that is no longer privileged.
-func TestAdvancedOptionsSetPrivilegedFalseWithdrawsCapabilities(t *testing.T) {
-	advanced, err := NewAdvancedBoxOptions()
-	if err != nil {
-		t.Fatalf("NewAdvancedBoxOptions: %v", err)
-	}
-	defer advanced.Close()
-
-	advanced.SetPrivileged(true)
-	advanced.SetPrivileged(false)
-
-	if advanced.privileged {
-		t.Fatal("privileged should be disabled")
-	}
-	if len(advanced.capabilities.Add) != 0 {
-		t.Fatalf("cap_add must not survive disabling privileged mode: got %v", advanced.capabilities.Add)
-	}
-	if len(advanced.capabilities.Drop) != 0 {
-		t.Fatalf("advanced.capabilities.drop: got %v, want empty", advanced.capabilities.Drop)
-	}
-}
-
 func TestSetCapabilitiesRejectsEmbeddedNUL(t *testing.T) {
 	advanced, err := NewAdvancedBoxOptions()
 	if err != nil {

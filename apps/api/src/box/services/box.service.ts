@@ -40,7 +40,6 @@ import { WarmPool } from '../entities/warm-pool.entity'
 import { BoxDto, BoxVolume } from '../dto/box.dto'
 import { RunnerAdapterFactory } from '../runner-adapter/runnerAdapter'
 import { validateNetworkAllowList } from '../utils/network-validation.util'
-import { normalizeBoxAdvancedOptions } from '../utils/advanced-options.util'
 import { VolumeService } from './volume.service'
 import { PaginatedList } from '../../common/interfaces/paginated-list.interface'
 import {
@@ -175,12 +174,6 @@ export class BoxService {
       // Restrict box creation to the supported pinned images; reject anything else
       // at the request boundary (defaults undefined -> base image).
       const image = assertSupportedImage(createBoxDto.image)
-      const advanced = normalizeBoxAdvancedOptions({
-        privileged: createBoxDto.privileged,
-        capabilities: createBoxDto.capabilities,
-      })
-      const hasAdvancedOptions =
-        advanced.privileged || advanced.capabilities.add.length > 0 || advanced.capabilities.drop.length > 0
 
       this.organizationService.assertOrganizationIsNotSuspended(organization)
 
@@ -195,7 +188,7 @@ export class BoxService {
       if (createBoxDto.volumes && createBoxDto.volumes.length > 0) {
         const volumeIdOrNames = createBoxDto.volumes.map((v) => v.volumeId)
         await this.volumeService.validateVolumes(organization.id, volumeIdOrNames)
-      } else if (image && !hasAdvancedOptions) {
+      } else if (image) {
         //  No volumes requested — try to claim a pre-warmed box matching this image/spec
         //  before creating a fresh one.
         const skipWarmPool = (await this.redis.exists(`warm-pool:skip:${image}`)) === 1
@@ -243,8 +236,6 @@ export class BoxService {
       box.disk = disk
 
       box.public = createBoxDto.public ?? true
-      box.privileged = advanced.privileged
-      box.capabilities = advanced.capabilities
 
       if (createBoxDto.networkBlockAll !== undefined) {
         box.networkBlockAll = createBoxDto.networkBlockAll
