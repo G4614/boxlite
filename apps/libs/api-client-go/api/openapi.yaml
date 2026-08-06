@@ -5200,11 +5200,6 @@ components:
         public: false
         networkBlockAll: false
         networkAllowList: "192.168.1.0/16,10.0.0.0/24"
-        privileged: false
-        capabilities:
-          add:
-          - SYS_ADMIN
-          drop: []
         target: local
         image: boxlite/base
         cpu: 2
@@ -5275,17 +5270,6 @@ components:
             the box
           example: "192.168.1.0/16,10.0.0.0/24"
           type: string
-        privileged:
-          description: Whether Docker-style privileged mode is enabled for the box
-          example: false
-          type: boolean
-        capabilities:
-          description: Linux capabilities added to or removed from the box processes
-          example:
-            add:
-            - SYS_ADMIN
-            drop: []
-          type: object
         target:
           description: The target environment for the box
           example: local
@@ -5375,7 +5359,6 @@ components:
           example: https://proxy.app.boxlite.io/toolbox
           type: string
       required:
-      - capabilities
       - cpu
       - disk
       - env
@@ -5386,7 +5369,6 @@ components:
       - name
       - networkBlockAll
       - organizationId
-      - privileged
       - public
       - target
       - toolboxProxyUrl
@@ -5406,11 +5388,6 @@ components:
           public: false
           networkBlockAll: false
           networkAllowList: "192.168.1.0/16,10.0.0.0/24"
-          privileged: false
-          capabilities:
-            add:
-            - SYS_ADMIN
-            drop: []
           target: local
           image: boxlite/base
           cpu: 2
@@ -5448,11 +5425,6 @@ components:
           public: false
           networkBlockAll: false
           networkAllowList: "192.168.1.0/16,10.0.0.0/24"
-          privileged: false
-          capabilities:
-            add:
-            - SYS_ADMIN
-            drop: []
           target: local
           image: boxlite/base
           cpu: 2

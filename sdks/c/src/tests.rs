@@ -110,46 +110,6 @@ fn test_error_code_mapping() {
 }
 
 #[test]
-fn privileged_normalizes_capabilities() {
-    let mut advanced: *mut CAdvancedBoxOptions = ptr::null_mut();
-    let mut error = FFIError::default();
-    let code = unsafe { boxlite_advanced_options_new(&mut advanced, &mut error as *mut _) };
-    assert_eq!(code, BoxliteErrorCode::Ok);
-
-    unsafe { boxlite_advanced_options_set_privileged(advanced, 1) };
-    let options = unsafe { &(*advanced).options };
-    assert!(options.privileged);
-    assert_eq!(options.capabilities.add, ["ALL"]);
-    assert!(options.capabilities.drop.is_empty());
-
-    unsafe { boxlite_advanced_options_free(advanced) };
-}
-
-/// Disabling must withdraw the policy enabling installed, or the caller ends up
-/// with a non-privileged box that still holds every capability.
-#[test]
-fn disabling_privileged_withdraws_the_capability_shape() {
-    let mut advanced: *mut CAdvancedBoxOptions = ptr::null_mut();
-    let mut error = FFIError::default();
-    let code = unsafe { boxlite_advanced_options_new(&mut advanced, &mut error as *mut _) };
-    assert_eq!(code, BoxliteErrorCode::Ok);
-
-    unsafe { boxlite_advanced_options_set_privileged(advanced, 1) };
-    unsafe { boxlite_advanced_options_set_privileged(advanced, 0) };
-
-    let options = unsafe { &(*advanced).options };
-    assert!(!options.privileged);
-    assert!(
-        options.capabilities.add.is_empty(),
-        "cap_add must not survive disabling privileged mode: {:?}",
-        options.capabilities.add
-    );
-    assert!(options.capabilities.drop.is_empty());
-
-    unsafe { boxlite_advanced_options_free(advanced) };
-}
-
-#[test]
 fn test_error_struct_creation() {
     let err = BoxliteError::NotFound("box123".into());
     let mut c_err = error_to_c_error(err);

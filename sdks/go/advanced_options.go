@@ -34,7 +34,6 @@ type ContainerCapabilities struct {
 type AdvancedBoxOptions struct {
 	handle       *C.CAdvancedBoxOptions
 	capabilities ContainerCapabilities
-	privileged   bool
 }
 
 // NewAdvancedBoxOptions allocates an advanced-options handle initialized to
@@ -62,34 +61,12 @@ func (a *AdvancedBoxOptions) SetSecurityEnabled(enabled bool) {
 	C.boxlite_advanced_options_set_security_enabled(a.handle, boolToCInt(enabled))
 }
 
-// SetPrivileged enables Docker-style privileged mode. Enabling it also
-// normalizes the capability policy to cap_add=["ALL"] and an empty cap_drop.
-func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) {
-	if a == nil || a.handle == nil {
-		return
-	}
-	C.boxlite_advanced_options_set_privileged(a.handle, boolToCInt(enabled))
-	a.privileged = enabled
-	if enabled {
-		if len(a.capabilities.Add) == 0 && len(a.capabilities.Drop) == 0 {
-			a.capabilities = ContainerCapabilities{Add: []string{"ALL"}}
-		}
-	} else if len(a.capabilities.Drop) == 0 && len(a.capabilities.Add) == 1 && a.capabilities.Add[0] == "ALL" {
-		// Mirror the withdrawal the native handle just performed, so the Go
-		// view does not keep reporting ALL for a non-privileged box.
-		a.capabilities = ContainerCapabilities{}
-	}
-}
-
 // SetCapabilities replaces advanced.capabilities for subsequently created
 // boxes. The input slices are copied; callers may safely reuse or mutate them
 // after this method returns.
 func (a *AdvancedBoxOptions) SetCapabilities(capabilities ContainerCapabilities) error {
 	if a == nil || a.handle == nil {
 		return fmt.Errorf("boxlite: advanced options handle is closed")
-	}
-	if a.privileged && (len(capabilities.Add) > 0 || len(capabilities.Drop) > 0) {
-		return fmt.Errorf("boxlite: privileged mode cannot be combined with cap_add or cap_drop")
 	}
 	if err := validateCapabilities("advanced.capabilities.add", capabilities.Add); err != nil {
 		return err
