@@ -385,9 +385,17 @@ message ContainerConfig {
 
 message ContainerAdvancedOptions {
   ContainerCapabilities capabilities = 1;
+
+  // Add a private cgroup namespace to the container's OCI namespace list.
   bool cgroup_namespace = 2;
+
+  // Keep the container's /sys recursive bind writable, including cgroup2.
   bool writable_sysfs = 3;
+
+  // Add an OCI device-cgroup rule allowing all devices with rwm access.
   bool allow_all_devices = 4;
+
+  // Remove the OCI masked-path and read-only-path protections.
   bool unconfined_paths = 5;
 }
 
