@@ -1,7 +1,8 @@
 //! C ABI for `boxlite::runtime::advanced_options::AdvancedBoxOptions`.
 //!
 //! Mirrors the core model: advanced knobs (capabilities, security, mount
-//! isolation, health check) live under `BoxOptions.advanced`, never directly on the box. Build a
+//! privileged mode, capabilities, security, mount isolation, health check) live under
+//! `BoxOptions.advanced`, never directly on the box. Build a
 //! `CAdvancedBoxOptions` handle via `boxlite_advanced_options_new`, toggle the
 //! sandbox with `boxlite_advanced_options_set_security_enabled`, then apply it
 //! to a `CBoxliteOptions` via `boxlite_options_set_advanced`.
@@ -79,6 +80,22 @@ pub unsafe extern "C" fn boxlite_advanced_options_set_security_enabled(
     }
 }
 
+/// Toggle Docker-style privileged mode. Enabling it also normalizes the
+/// capability policy to `ALL` with no drops; the guest still receives the
+/// privileged shape and capabilities as separate fields.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_advanced_options_set_privileged(
+    opts: *mut CAdvancedBoxOptions,
+    enabled: c_int,
+) {
+    if opts.is_null() {
+        return;
+    }
+    unsafe {
+        (*opts).options.set_privileged(enabled != 0);
+    }
+}
+
 /// Replace the capabilities added to BoxLite's Docker-compatible baseline.
 ///
 /// A zero count clears the list. Negative counts, null handles, null arrays
@@ -123,6 +140,16 @@ fn set_capability_list(
 
     match parse_capability_array(capabilities, count) {
         Ok(values) => {
+            if handle.options.privileged && !values.is_empty() {
+                // Preserve a fail-closed marker if the caller ignores the
+                // return code. Privileged mode and explicit capability
+                // overrides are mutually exclusive.
+                assign(
+                    &mut handle.options,
+                    vec![INVALID_CAPABILITY_INPUT.to_string()],
+                );
+                return BoxliteErrorCode::InvalidArgument;
+            }
             assign(&mut handle.options, values);
             BoxliteErrorCode::Ok
         }
