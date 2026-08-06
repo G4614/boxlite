@@ -385,11 +385,10 @@ message ContainerConfig {
 
 message ContainerAdvancedOptions {
   ContainerCapabilities capabilities = 1;
-
-  // Host-resolved OCI privileged spec shape for DinD. When true, the host
-  // sends capabilities.add=["ALL"] and an empty drop list; the guest must
-  // consume that canonical shape rather than reinterpret user overrides.
-  bool privileged = 2;
+  bool cgroup_namespace = 2;
+  bool writable_sysfs = 3;
+  bool allow_all_devices = 4;
+  bool unconfined_paths = 5;
 }
 
 message ContainerCapabilities {

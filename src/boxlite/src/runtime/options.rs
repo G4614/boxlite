@@ -542,12 +542,6 @@ impl Default for BoxOptions {
 }
 
 impl BoxOptions {
-    /// Expand high-level privileged mode into the explicit guest capability
-    /// policy before the options cross a runtime or SDK boundary.
-    pub fn normalize_privileged(&mut self) {
-        self.advanced.normalize_privileged();
-    }
-
     /// Resolve the modern and deprecated deletion inputs to one policy.
     #[allow(deprecated)]
     pub(crate) fn effective_auto_delete(&self) -> u32 {
@@ -585,6 +579,7 @@ impl BoxOptions {
             ));
         }
 
+        self.advanced.validate_privileged_capability_conflict()?;
         self.advanced.capabilities.validate()?;
 
         if matches!(self.network, NetworkSpec::Disabled) && !self.ports.is_empty() {
@@ -1330,7 +1325,7 @@ mod tests {
             .advanced
             .validate_privileged_capability_conflict()
             .expect("normalized privileged shape should be accepted");
-        options.normalize_privileged();
+        options.advanced.normalize_privileged();
 
         assert_eq!(options.advanced.capabilities.add, ["ALL"]);
         assert!(options.advanced.capabilities.drop.is_empty());
@@ -1351,7 +1346,10 @@ mod tests {
             .resolve_container_security()
             .expect("privileged security should resolve");
 
-        assert!(resolved.privileged);
+        assert!(resolved.cgroup_namespace);
+        assert!(resolved.writable_sysfs);
+        assert!(resolved.allow_all_devices);
+        assert!(resolved.unconfined_paths);
         assert_eq!(resolved.capabilities.add, ["ALL"]);
         assert!(resolved.capabilities.drop.is_empty());
     }
