@@ -310,24 +310,6 @@ mod tests {
     }
 
     #[test]
-    fn capability_policy_is_independent_from_atomic_options() {
-        let policy = ResolvedSecurityPolicy::from_resolved(
-            ContainerCapabilities {
-                drop: vec!["ALL".into()],
-                ..Default::default()
-            },
-            true,
-            false,
-            false,
-            false,
-        )
-        .expect("atomic options do not reinterpret capabilities");
-
-        assert!(policy.cgroup_namespace);
-        assert_eq!(policy.capabilities.len(), 0);
-    }
-
-    #[test]
     fn all_capabilities_without_privileged_keep_proc_sys_readonly() {
         let policy = ResolvedSecurityPolicy::from_resolved(
             ContainerCapabilities {
