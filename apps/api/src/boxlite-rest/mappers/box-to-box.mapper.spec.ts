@@ -8,13 +8,13 @@ import { boxToBoxResponse, createBoxToCreateBox } from './box-to-box.mapper'
 
 describe('BoxLite lifecycle policy mapper', () => {
   it.each([
-    ['public', true],
-    ['private', false],
-  ])('maps service_access=%s to control-plane public=%s', (access, expected) => {
+    ['enabled', true],
+    ['disabled', false],
+  ])('maps inbound.mode=%s to control-plane public=%s', (mode, expected) => {
     const mapped = createBoxToCreateBox({
       network: {
         outbound: { mode: 'enabled' },
-        inbound: { service_access: access as 'public' | 'private' },
+        inbound: { mode: mode as 'enabled' | 'disabled' },
       },
     })
 

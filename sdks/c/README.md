@@ -218,12 +218,7 @@ int main() {
         return 1;
     }
     boxlite_options_set_network_enabled(opts);
-    if (boxlite_options_set_network_service_access(opts, "private") != Ok) {
-        fprintf(stderr, "Invalid service access policy\n");
-        boxlite_options_free(opts);
-        boxlite_runtime_free(runtime);
-        return 1;
-    }
+    boxlite_options_set_network_inbound_disabled(opts);
 
     CAdvancedBoxOptions* advanced = NULL;
     if (boxlite_advanced_options_new(&advanced, &error) != Ok) {

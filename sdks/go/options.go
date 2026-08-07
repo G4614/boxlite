@@ -69,13 +69,32 @@ const (
 	NetworkModeDisabled NetworkMode = "disabled"
 )
 
-// NetworkSpec configures guest networking. A non-empty AllowNet restricts
-// both TCP and UDP egress. Hostname entries are enforced by TLS SNI / HTTP
-// Host inspection, which only TCP carries, so a hostname-only AllowNet denies
-// all UDP egress — add the IP or CIDR to keep UDP open.
-type NetworkSpec struct {
+// OutboundNetworkSpec configures guest-initiated egress. A non-empty
+// AllowNet restricts both TCP and UDP egress. Hostname entries are enforced
+// by TLS SNI / HTTP Host inspection, which only TCP carries, so a
+// hostname-only AllowNet denies all UDP egress — add the IP or CIDR to keep
+// UDP open.
+type OutboundNetworkSpec struct {
 	Mode     NetworkMode
 	AllowNet []string
+}
+
+// InboundNetworkSpec configures whether services running inside the box are
+// reachable from outside it. Aligned field-for-field with
+// OutboundNetworkSpec: ModeEnabled means publicly reachable (AllowNet
+// restricts which hosts/IPs may connect in when non-empty), ModeDisabled
+// means private.
+type InboundNetworkSpec struct {
+	Mode     NetworkMode
+	AllowNet []string
+}
+
+// NetworkSpec configures guest networking: Outbound covers guest-initiated
+// egress, Inbound covers whether services the box exposes are reachable
+// from outside it. The two are independent — set either, both, or neither.
+type NetworkSpec struct {
+	Outbound OutboundNetworkSpec
+	Inbound  InboundNetworkSpec
 }
 
 // PortProtocol selects the transport protocol for a port forwarding rule.
@@ -281,10 +300,17 @@ func WithCmd(args ...string) BoxOption {
 // WithNetwork sets the structured network configuration for the box.
 func WithNetwork(spec NetworkSpec) BoxOption {
 	return func(c *boxConfig) {
-		allowNet := append([]string(nil), spec.AllowNet...)
+		outboundAllowNet := append([]string(nil), spec.Outbound.AllowNet...)
+		inboundAllowNet := append([]string(nil), spec.Inbound.AllowNet...)
 		c.network = &NetworkSpec{
-			Mode:     spec.Mode,
-			AllowNet: allowNet,
+			Outbound: OutboundNetworkSpec{
+				Mode:     spec.Outbound.Mode,
+				AllowNet: outboundAllowNet,
+			},
+			Inbound: InboundNetworkSpec{
+				Mode:     spec.Inbound.Mode,
+				AllowNet: inboundAllowNet,
+			},
 		}
 	}
 }
@@ -450,23 +476,41 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 		}
 	}
 	if cfg.network != nil {
-		switch cfg.network.Mode {
+		switch cfg.network.Outbound.Mode {
 		case "", NetworkModeEnabled:
 			C.boxlite_options_set_network_enabled(cOpts)
-			for _, host := range cfg.network.AllowNet {
+			for _, host := range cfg.network.Outbound.AllowNet {
 				cHost := toCString(host)
 				C.boxlite_options_add_network_allow(cOpts, cHost)
 				C.free(unsafe.Pointer(cHost))
 			}
 		case NetworkModeDisabled:
-			if len(cfg.network.AllowNet) > 0 {
+			if len(cfg.network.Outbound.AllowNet) > 0 {
 				C.boxlite_options_free(cOpts)
 				return nil, fmt.Errorf("network.mode=%q is incompatible with allow_net", NetworkModeDisabled)
 			}
 			C.boxlite_options_set_network_disabled(cOpts)
 		default:
 			C.boxlite_options_free(cOpts)
-			return nil, fmt.Errorf("invalid network mode %q", cfg.network.Mode)
+			return nil, fmt.Errorf("invalid network mode %q", cfg.network.Outbound.Mode)
+		}
+		switch cfg.network.Inbound.Mode {
+		case "", NetworkModeEnabled:
+			C.boxlite_options_set_network_inbound_enabled(cOpts)
+			for _, host := range cfg.network.Inbound.AllowNet {
+				cHost := toCString(host)
+				C.boxlite_options_add_network_inbound_allow(cOpts, cHost)
+				C.free(unsafe.Pointer(cHost))
+			}
+		case NetworkModeDisabled:
+			if len(cfg.network.Inbound.AllowNet) > 0 {
+				C.boxlite_options_free(cOpts)
+				return nil, fmt.Errorf("inbound.mode=%q is incompatible with allow_net", NetworkModeDisabled)
+			}
+			C.boxlite_options_set_network_inbound_disabled(cOpts)
+		default:
+			C.boxlite_options_free(cOpts)
+			return nil, fmt.Errorf("invalid inbound mode %q", cfg.network.Inbound.Mode)
 		}
 	}
 	for _, secret := range cfg.secrets {

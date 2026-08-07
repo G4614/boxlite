@@ -60,10 +60,19 @@ export class OutboundNetworkSpecDto {
   allow_net?: string[]
 }
 
+// Aligned field-for-field with OutboundNetworkSpecDto: mode="enabled" means
+// services the box exposes are publicly reachable (optionally restricted to
+// allow_net); mode="disabled" means private.
 export class InboundNetworkSpecDto {
+  @IsIn(['enabled', 'disabled'])
+  mode: 'enabled' | 'disabled'
+
   @IsOptional()
-  @IsIn(['public', 'private'])
-  service_access?: 'public' | 'private'
+  @IsArray()
+  @ArrayMaxSize(MAX_NETWORK_ALLOW_LIST_ENTRIES)
+  @IsString({ each: true })
+  @Validate(IsNetworkAllowEntryConstraint, { each: true })
+  allow_net?: string[]
 }
 
 export class NetworkSpecDto {

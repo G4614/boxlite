@@ -205,7 +205,6 @@ pub(crate) struct CreateBoxAdvancedOptions {
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxNetworkSpec {
     pub outbound: CreateBoxOutboundNetworkSpec,
-    #[serde(skip_serializing_if = "CreateBoxInboundNetworkSpec::is_empty")]
     pub inbound: CreateBoxInboundNetworkSpec,
 }
 
@@ -216,35 +215,31 @@ pub(crate) struct CreateBoxOutboundNetworkSpec {
     pub allow_net: Vec<String>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxInboundNetworkSpec {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_access: Option<String>,
+    pub mode: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allow_net: Vec<String>,
 }
 
-impl CreateBoxInboundNetworkSpec {
-    fn is_empty(spec: &Self) -> bool {
-        spec.service_access.is_none()
+fn mode_str(mode: crate::runtime::options::NetworkMode) -> String {
+    match mode {
+        crate::runtime::options::NetworkMode::Enabled => "enabled".to_string(),
+        crate::runtime::options::NetworkMode::Disabled => "disabled".to_string(),
     }
 }
 
 impl CreateBoxNetworkSpec {
     fn from_options(spec: &crate::runtime::options::NetworkSpec) -> Self {
         let config = crate::runtime::options::NetworkConfig::from(spec);
-        let mode = match config.outbound.mode {
-            crate::runtime::options::NetworkMode::Enabled => "enabled",
-            crate::runtime::options::NetworkMode::Disabled => "disabled",
-        };
         Self {
             outbound: CreateBoxOutboundNetworkSpec {
-                mode: mode.to_string(),
+                mode: mode_str(config.outbound.mode),
                 allow_net: config.outbound.allow_net,
             },
             inbound: CreateBoxInboundNetworkSpec {
-                service_access: config
-                    .inbound
-                    .service_access
-                    .map(|access| access.as_str().into()),
+                mode: mode_str(config.inbound.mode),
+                allow_net: config.inbound.allow_net,
             },
         }
     }
@@ -621,7 +616,8 @@ mod tests {
                     allow_net: vec!["api.openai.com".into()],
                 },
                 inbound: CreateBoxInboundNetworkSpec {
-                    service_access: Some("public".into()),
+                    mode: "enabled".into(),
+                    allow_net: vec![],
                 },
             }),
             entrypoint: None,
@@ -650,7 +646,7 @@ mod tests {
             value["network"]["outbound"]["allow_net"][0],
             "api.openai.com"
         );
-        assert_eq!(value["network"]["inbound"]["service_access"], "public");
+        assert_eq!(value["network"]["inbound"]["mode"], "enabled");
         assert!(json.contains("\"secrets\""));
         // None fields should be skipped
         assert!(!json.contains("rootfs_path"));
@@ -666,7 +662,7 @@ mod tests {
             cpus: Some(4),
             memory_mib: Some(1024),
             network: NetworkSpec::enabled(vec!["api.openai.com".into()])
-                .with_service_access(Some(crate::runtime::options::ServiceAccess::Private)),
+                .with_inbound(crate::runtime::options::InboundNetworkSpec::Disabled),
             secrets: vec![Secret {
                 name: "openai".into(),
                 value: "sk-test".into(),
@@ -692,10 +688,8 @@ mod tests {
             Some(vec!["api.openai.com".into()])
         );
         assert_eq!(
-            req.network
-                .as_ref()
-                .and_then(|n| n.inbound.service_access.clone()),
-            Some("private".into())
+            req.network.as_ref().map(|n| n.inbound.mode.as_str()),
+            Some("disabled")
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
         assert_eq!(req.auto_stop, Some(1800));
@@ -776,7 +770,10 @@ mod tests {
             Some("disabled")
         );
         assert!(req.network.as_ref().unwrap().outbound.allow_net.is_empty());
-        assert_eq!(req.network.as_ref().unwrap().inbound.service_access, None);
+        // NetworkSpec::disabled() only overrides outbound; inbound keeps its
+        // default (Enabled/public), matching the control plane's existing
+        // preview-URL default.
+        assert_eq!(req.network.as_ref().unwrap().inbound.mode, "enabled");
     }
 
     /// REST is intentionally a "the server picks the security policy"

@@ -4,9 +4,9 @@ use std::time::Duration;
 use boxlite::runtime::advanced_options::{AdvancedBoxOptions, HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
-    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, OutboundNetworkConfig, PortProtocol, PortSpec, RegistryTransport, RootfsSpec,
-    Secret, VolumeSpec,
+    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkConfig,
+    NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig, PortProtocol, PortSpec,
+    RegistryTransport, RootfsSpec, Secret, VolumeSpec,
 };
 use napi::bindgen_prelude::Error;
 use napi_derive::napi;
@@ -344,12 +344,19 @@ pub struct JsOutboundNetworkSpec {
     pub allow_net: Option<Vec<String>>,
 }
 
+/// Aligned field-for-field with `JsOutboundNetworkSpec`: `mode="enabled"`
+/// means services the box exposes are publicly reachable (optionally
+/// restricted to `allowNet`); `mode="disabled"` means private.
 #[napi(object)]
 #[derive(Clone, Debug)]
 pub struct JsInboundNetworkSpec {
-    /// Whether inbound service endpoints are "public" or "private".
-    #[napi(js_name = "serviceAccess")]
-    pub service_access: Option<String>,
+    /// Inbound mode: "enabled" or "disabled".
+    pub mode: String,
+
+    /// Inbound allowlist when mode is "enabled". Empty/omitted means any
+    /// caller may reach the box's exposed services.
+    #[napi(js_name = "allowNet")]
+    pub allow_net: Option<Vec<String>>,
 }
 
 impl From<JsPortSpec> for PortSpec {
@@ -421,13 +428,14 @@ impl TryFrom<JsInboundNetworkSpec> for boxlite::runtime::options::InboundNetwork
     type Error = boxlite_shared::errors::BoxliteError;
 
     fn try_from(js_spec: JsInboundNetworkSpec) -> Result<Self, Self::Error> {
-        Ok(Self {
-            service_access: js_spec
-                .service_access
-                .as_deref()
-                .map(str::parse)
-                .transpose()?,
-        })
+        let network = NetworkSpec::try_from(NetworkConfig {
+            outbound: Default::default(),
+            inbound: InboundNetworkConfig {
+                mode: js_spec.mode.parse::<NetworkMode>()?,
+                allow_net: js_spec.allow_net.unwrap_or_default(),
+            },
+        })?;
+        Ok(network.inbound)
     }
 }
 
@@ -810,7 +818,8 @@ mod tests {
                     allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
                 }),
                 inbound: Some(JsInboundNetworkSpec {
-                    service_access: Some("public".into()),
+                    mode: "enabled".into(),
+                    allow_net: None,
                 }),
             }),
             ports: None,
@@ -857,10 +866,10 @@ mod tests {
         assert_eq!(opts.auto_delete, None);
         assert!(opts.advanced.capabilities.add.is_empty());
         assert!(opts.advanced.capabilities.drop.is_empty());
-        assert_eq!(
-            opts.network.inbound.service_access,
-            Some(boxlite::runtime::options::ServiceAccess::Public)
-        );
+        assert!(matches!(
+            opts.network.inbound,
+            boxlite::runtime::options::InboundNetworkSpec::Enabled { ref allow_net } if allow_net.is_empty()
+        ));
         match opts.network.outbound {
             boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
@@ -929,14 +938,15 @@ mod tests {
         let opts = NetworkSpec::try_from(JsNetworkSpec {
             outbound: None,
             inbound: Some(JsInboundNetworkSpec {
-                service_access: Some("private".into()),
+                mode: "disabled".into(),
+                allow_net: None,
             }),
         })
         .unwrap();
 
-        assert_eq!(
-            opts.inbound.service_access,
-            Some(boxlite::runtime::options::ServiceAccess::Private)
-        );
+        assert!(matches!(
+            opts.inbound,
+            boxlite::runtime::options::InboundNetworkSpec::Disabled
+        ));
     }
 }

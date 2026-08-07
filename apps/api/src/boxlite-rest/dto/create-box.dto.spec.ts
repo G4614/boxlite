@@ -156,23 +156,39 @@ describe('CreateBoxDto network validation', () => {
     expect(JSON.stringify(errors)).toContain('isObject')
   })
 
-  it.each(['public', 'private'])('accepts service_access=%s', async (access) => {
+  it.each(['enabled', 'disabled'])('accepts inbound.mode=%s', async (mode) => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        network: { outbound: { mode: 'enabled' }, inbound: { service_access: access } },
+        network: { outbound: { mode: 'enabled' }, inbound: { mode } },
       }),
     )
 
     expect(errors).toHaveLength(0)
   })
 
-  it('rejects unsupported service_access values', async () => {
+  it('rejects unsupported inbound.mode values', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        network: { outbound: { mode: 'enabled' }, inbound: { service_access: 'shared' } },
+        network: { outbound: { mode: 'enabled' }, inbound: { mode: 'shared' } },
       }),
     )
 
     expect(JSON.stringify(errors)).toContain('isIn')
+  })
+
+  it('rejects inbound.mode=disabled with a non-empty allow_net', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: {
+          outbound: { mode: 'enabled' },
+          inbound: { mode: 'disabled', allow_net: ['10.0.0.0/8'] },
+        },
+      }),
+    )
+
+    // The DTO layer itself allows this combination through — the
+    // mode/allow_net conflict is rejected downstream by
+    // NetworkSpec::try_from (single source of truth), not here.
+    expect(errors).toHaveLength(0)
   })
 })

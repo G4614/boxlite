@@ -207,8 +207,10 @@ func TestBoxOptions(t *testing.T) {
 	WithEntrypoint("/bin/sh")(cfg)
 	WithCmd("-c", "echo hi")(cfg)
 	WithNetwork(NetworkSpec{
-		Mode:     NetworkModeEnabled,
-		AllowNet: []string{"example.com", "*.openai.com"},
+		Outbound: OutboundNetworkSpec{
+			Mode:     NetworkModeEnabled,
+			AllowNet: []string{"example.com", "*.openai.com"},
+		},
 	})(cfg)
 	WithSecret(Secret{Name: "openai", Value: "sk-test"})(cfg)
 
@@ -257,11 +259,11 @@ func TestBoxOptions(t *testing.T) {
 	if cfg.network == nil {
 		t.Fatal("network should be set")
 	}
-	if cfg.network.Mode != NetworkModeEnabled {
-		t.Errorf("network.Mode: got %q", cfg.network.Mode)
+	if cfg.network.Outbound.Mode != NetworkModeEnabled {
+		t.Errorf("network.Mode: got %q", cfg.network.Outbound.Mode)
 	}
-	if len(cfg.network.AllowNet) != 2 {
-		t.Errorf("network.AllowNet: got %v", cfg.network.AllowNet)
+	if len(cfg.network.Outbound.AllowNet) != 2 {
+		t.Errorf("network.AllowNet: got %v", cfg.network.Outbound.AllowNet)
 	}
 	if len(cfg.secrets) != 1 {
 		t.Fatalf("secrets: got %d", len(cfg.secrets))
@@ -652,26 +654,94 @@ func TestWithDetach(t *testing.T) {
 func TestWithNetwork(t *testing.T) {
 	cfg := &boxConfig{}
 	WithNetwork(NetworkSpec{
-		Mode:     NetworkModeDisabled,
-		AllowNet: []string{},
+		Outbound: OutboundNetworkSpec{
+			Mode:     NetworkModeDisabled,
+			AllowNet: []string{},
+		},
 	})(cfg)
 
 	if cfg.network == nil {
 		t.Fatal("network should be set")
 	}
-	if cfg.network.Mode != NetworkModeDisabled {
-		t.Errorf("network.Mode: got %q", cfg.network.Mode)
+	if cfg.network.Outbound.Mode != NetworkModeDisabled {
+		t.Errorf("network.Mode: got %q", cfg.network.Outbound.Mode)
 	}
-	if len(cfg.network.AllowNet) != 0 {
-		t.Errorf("network.AllowNet: got %v", cfg.network.AllowNet)
+	if len(cfg.network.Outbound.AllowNet) != 0 {
+		t.Errorf("network.AllowNet: got %v", cfg.network.Outbound.AllowNet)
+	}
+}
+
+func TestWithNetwork_InboundDisabled(t *testing.T) {
+	cfg := &boxConfig{}
+	WithNetwork(NetworkSpec{
+		Inbound: InboundNetworkSpec{Mode: NetworkModeDisabled},
+	})(cfg)
+
+	if cfg.network == nil {
+		t.Fatal("network should be set")
+	}
+	if cfg.network.Inbound.Mode != NetworkModeDisabled {
+		t.Errorf("network.Inbound.Mode: got %q", cfg.network.Inbound.Mode)
+	}
+	// Outbound is independent of Inbound: unset Outbound.Mode still means
+	// "enabled, full access" once buildCOptions runs, same as before this
+	// field existed.
+	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWithNetwork_InboundAllowNetImpliesEnabled(t *testing.T) {
+	cfg := &boxConfig{}
+	WithNetwork(NetworkSpec{
+		Inbound: InboundNetworkSpec{AllowNet: []string{"10.0.0.0/8"}},
+	})(cfg)
+
+	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.network.Inbound.AllowNet) != 1 || cfg.network.Inbound.AllowNet[0] != "10.0.0.0/8" {
+		t.Errorf("network.Inbound.AllowNet: got %v", cfg.network.Inbound.AllowNet)
+	}
+}
+
+func TestBuildCOptions_RejectsInboundAllowNetWithDisabledMode(t *testing.T) {
+	cfg := &boxConfig{}
+	WithNetwork(NetworkSpec{
+		Inbound: InboundNetworkSpec{
+			Mode:     NetworkModeDisabled,
+			AllowNet: []string{"10.0.0.0/8"},
+		},
+	})(cfg)
+
+	_, err := buildCOptions("alpine:latest", cfg)
+	if err == nil {
+		t.Fatal("expected error for disabled inbound with allowlist")
+	}
+	if err.Error() != "inbound.mode=\"disabled\" is incompatible with allow_net" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildCOptions_RejectsInvalidInboundMode(t *testing.T) {
+	cfg := &boxConfig{}
+	WithNetwork(NetworkSpec{
+		Inbound: InboundNetworkSpec{Mode: NetworkMode("readonly")},
+	})(cfg)
+
+	_, err := buildCOptions("alpine:latest", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid inbound mode")
 	}
 }
 
 func TestBuildCOptions_RejectsAllowNetWithDisabledMode(t *testing.T) {
 	cfg := &boxConfig{}
 	WithNetwork(NetworkSpec{
-		Mode:     NetworkModeDisabled,
-		AllowNet: []string{"example.com"},
+		Outbound: OutboundNetworkSpec{
+			Mode:     NetworkModeDisabled,
+			AllowNet: []string{"example.com"},
+		},
 	})(cfg)
 
 	_, err := buildCOptions("alpine:latest", cfg)

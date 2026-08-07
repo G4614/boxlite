@@ -94,8 +94,10 @@ export interface JsOutboundNetworkSpec {
 }
 
 export interface JsInboundNetworkSpec {
-  /** Whether inbound service endpoints are public or private. */
-  serviceAccess?: "public" | "private";
+  /** Inbound mode: "enabled" (publicly reachable) or "disabled" (private). */
+  mode: "enabled" | "disabled";
+  /** Inbound allowlist when mode is "enabled". */
+  allowNet?: string[];
 }
 
 export interface JsPortSpec {

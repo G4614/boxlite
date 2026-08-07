@@ -88,9 +88,7 @@ pub(super) struct NetworkSpec {
 
 impl NetworkSpec {
     pub(super) fn uses_legacy_fields(&self) -> bool {
-        self.legacy.mode.is_some()
-            || self.legacy.allow_net.is_some()
-            || self.legacy.service_access.is_some()
+        self.legacy.mode.is_some() || self.legacy.allow_net.is_some()
     }
 }
 
@@ -101,8 +99,6 @@ pub(super) struct LegacyNetworkSpec {
     pub mode: Option<String>,
     #[serde(default)]
     pub allow_net: Option<Vec<String>>,
-    #[serde(default)]
-    pub service_access: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -113,11 +109,15 @@ pub(super) struct OutboundNetworkSpec {
     pub allow_net: Vec<String>,
 }
 
+/// Aligned field-for-field with [`OutboundNetworkSpec`]: `mode="enabled"`
+/// means services the box exposes are publicly reachable (optionally
+/// restricted to `allow_net`); `mode="disabled"` means private.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct InboundNetworkSpec {
+    pub mode: String,
     #[serde(default)]
-    pub service_access: Option<String>,
+    pub allow_net: Vec<String>,
 }
 
 #[derive(Serialize)]

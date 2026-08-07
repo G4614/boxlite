@@ -114,8 +114,10 @@ export interface OutboundNetworkSpec {
 }
 
 export interface InboundNetworkSpec {
-  /** Whether inbound service endpoints are public or private. */
-  serviceAccess?: "public" | "private";
+  /** Inbound mode: "enabled" (publicly reachable) or "disabled" (private). */
+  mode: "enabled" | "disabled";
+  /** Inbound allowlist when mode is "enabled". */
+  allowNet?: string[];
 }
 
 const MAX_SAFE_U64_NUMBER = Number.MAX_SAFE_INTEGER;

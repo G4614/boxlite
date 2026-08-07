@@ -5,9 +5,9 @@ use boxlite::litebox::copy::CopyOptions;
 use boxlite::runtime::advanced_options::{HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
-    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkSpec,
-    NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig, OutboundNetworkSpec,
-    PortProtocol, PortSpec, RegistryTransport, RootfsSpec, VolumeSpec,
+    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkConfig,
+    InboundNetworkSpec, NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig,
+    OutboundNetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, VolumeSpec,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -273,15 +273,19 @@ pub(crate) struct PyOutboundNetworkSpec {
     pub(crate) allow_net: Vec<String>,
 }
 
-/// Inbound service access policy.
+/// Inbound network policy.
 ///
-/// `service_access` accepts `"public"`, `"private"`, or `None` to use the
-/// control-plane default for preview/service access.
+/// Aligned field-for-field with `OutboundNetworkSpec`: `mode` accepts
+/// `"enabled"` (services the box exposes are publicly reachable) or
+/// `"disabled"` (private). `allow_net` restricts which hosts/IPs may reach
+/// in when `mode="enabled"`.
 #[pyclass(name = "InboundNetworkSpec")]
 #[derive(Clone, Debug)]
 pub(crate) struct PyInboundNetworkSpec {
     #[pyo3(get, set)]
-    pub(crate) service_access: Option<String>,
+    pub(crate) mode: String,
+    #[pyo3(get, set)]
+    pub(crate) allow_net: Vec<String>,
 }
 
 #[pymethods]
@@ -341,14 +345,14 @@ impl PyOutboundNetworkSpec {
 
 #[pymethods]
 impl PyInboundNetworkSpec {
-    /// Create an inbound service access policy.
+    /// Create an inbound network policy.
     ///
-    /// Use `"public"` for unauthenticated preview access, `"private"` for
-    /// authenticated access, or `None` for the control-plane default.
+    /// `mode` defaults to `"enabled"` (publicly reachable) and `allow_net`
+    /// defaults to an empty allow list, meaning no host-based restriction.
     #[new]
-    #[pyo3(signature = (service_access=None))]
-    fn new(service_access: Option<String>) -> Self {
-        Self { service_access }
+    #[pyo3(signature = (mode="enabled".to_string(), allow_net=vec![]))]
+    fn new(mode: String, allow_net: Vec<String>) -> Self {
+        Self { mode, allow_net }
     }
 }
 
@@ -389,13 +393,14 @@ impl TryFrom<PyInboundNetworkSpec> for InboundNetworkSpec {
     type Error = boxlite::BoxliteError;
 
     fn try_from(py_spec: PyInboundNetworkSpec) -> Result<Self, Self::Error> {
-        Ok(Self {
-            service_access: py_spec
-                .service_access
-                .as_deref()
-                .map(str::parse)
-                .transpose()?,
-        })
+        let network = NetworkSpec::try_from(NetworkConfig {
+            outbound: Default::default(),
+            inbound: InboundNetworkConfig {
+                mode: py_spec.mode.parse::<NetworkMode>()?,
+                allow_net: py_spec.allow_net,
+            },
+        })?;
+        Ok(network.inbound)
     }
 }
 
@@ -1073,18 +1078,18 @@ impl From<PyBoxliteRestOptions> for BoxliteRestOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boxlite::runtime::options::ServiceAccess;
 
     #[test]
     fn nested_network_spec_converts() {
         let opts = NetworkSpec::try_from(PyNetworkSpec {
             outbound: None,
             inbound: Some(PyInboundNetworkSpec {
-                service_access: Some("private".into()),
+                mode: "disabled".into(),
+                allow_net: vec![],
             }),
         })
         .unwrap();
 
-        assert_eq!(opts.inbound.service_access, Some(ServiceAccess::Private));
+        assert!(matches!(opts.inbound, InboundNetworkSpec::Disabled));
     }
 }

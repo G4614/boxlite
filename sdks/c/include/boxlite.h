@@ -748,14 +748,19 @@ void boxlite_options_set_network_disabled(CBoxliteOptions *opts);
 // CIDR to keep UDP open.
 void boxlite_options_add_network_allow(CBoxliteOptions *opts, const char *host);
 
-// Set the inbound service access policy for box services.
-//
-// `service_access` accepts `"public"` or `"private"`. Passing null clears the
-// explicit policy so the control plane can apply its default. A null `opts`
-// pointer is rejected with `BoxliteInvalidArgument`, and unknown policy values
-// return `BoxliteInvalidArgument` without mutating the options.
-enum BoxliteErrorCode boxlite_options_set_network_service_access(CBoxliteOptions *opts,
-                                                                 const char *service_access);
+// Marks services the box exposes as publicly reachable (the default).
+// Mirrors `boxlite_options_set_network_enabled` for the inbound direction.
+void boxlite_options_set_network_inbound_enabled(CBoxliteOptions *opts);
+
+// Marks services the box exposes as private — unreachable from outside the
+// box. Mirrors `boxlite_options_set_network_disabled` for the inbound
+// direction.
+void boxlite_options_set_network_inbound_disabled(CBoxliteOptions *opts);
+
+// Adds one entry to the inbound allowlist: only listed hosts/IPs may reach
+// services the box exposes. Mirrors `boxlite_options_add_network_allow` for
+// the inbound direction.
+void boxlite_options_add_network_inbound_allow(CBoxliteOptions *opts, const char *host);
 
 void boxlite_options_add_secret(CBoxliteOptions *opts,
                                 const char *name,

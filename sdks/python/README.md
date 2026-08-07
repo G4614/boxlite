@@ -287,7 +287,7 @@ options = boxlite.BoxOptions(
             mode="enabled",
             allow_net=["api.openai.com"],
         ),
-        inbound=boxlite.InboundNetworkSpec(service_access="private"),
+        inbound=boxlite.InboundNetworkSpec(mode="disabled"),
     ),
     advanced=boxlite.AdvancedBoxOptions(
         capabilities=boxlite.ContainerCapabilities(

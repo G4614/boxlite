@@ -50,8 +50,11 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
     createDto.networkBlockAll = dto.network.outbound?.mode === 'disabled'
     createDto.networkAllowList =
       dto.network.outbound?.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
-    createDto.public = dto.network.inbound?.service_access
-      ? dto.network.inbound.service_access === 'public'
+    // The runner DTO only has a public/private boolean — inbound.allow_net
+    // has no downstream sink yet (no runner-side host-based inbound
+    // restriction), so it isn't mapped here.
+    createDto.public = dto.network.inbound?.mode
+      ? dto.network.inbound.mode === 'enabled'
       : undefined
   }
   return createDto

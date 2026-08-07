@@ -82,14 +82,14 @@ async def test_box_options_env_propagates_through_rest(rt, image):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("service_access", "expected_status"),
-    [("public", 200), ("private", 404)],
+    ("inbound_mode", "expected_status"),
+    [("enabled", 200), ("disabled", 404)],
 )
-async def test_box_options_service_access_controls_preview_access(
+async def test_box_options_inbound_mode_controls_preview_access(
     rt,
     image,
     e2e_auth,
-    service_access,
+    inbound_mode,
     expected_status,
 ):
     box = await rt.create(
@@ -98,7 +98,7 @@ async def test_box_options_service_access_controls_preview_access(
             auto_remove=True,
             network=boxlite.NetworkSpec(
                 outbound=boxlite.OutboundNetworkSpec(mode="enabled"),
-                inbound=boxlite.InboundNetworkSpec(service_access=service_access),
+                inbound=boxlite.InboundNetworkSpec(mode=inbound_mode),
             ),
         ),
     )

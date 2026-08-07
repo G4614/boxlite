@@ -184,7 +184,7 @@ const box = new SimpleBox({
       allowNet: ['api.openai.com'],
     },
     inbound: {
-      serviceAccess: 'private',
+      mode: 'disabled',
     },
   },
   advanced: {

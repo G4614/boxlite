@@ -1,8 +1,8 @@
 use std::os::raw::{c_char, c_int};
 
 use boxlite::runtime::options::{
-    BoxOptions, NetworkSpec, OutboundNetworkSpec, PortProtocol, PortSpec, RootfsSpec, Secret,
-    ServiceAccess, VolumeSpec,
+    BoxOptions, InboundNetworkSpec, NetworkSpec, OutboundNetworkSpec, PortProtocol, PortSpec,
+    RootfsSpec, Secret, VolumeSpec,
 };
 
 use crate::error::{BoxliteErrorCode, FFIError, null_pointer_error, write_error};
@@ -133,18 +133,30 @@ pub unsafe extern "C" fn boxlite_options_add_network_allow(
     options_add_network_allow(opts, host)
 }
 
-/// Set the inbound service access policy for box services.
-///
-/// `service_access` accepts `"public"` or `"private"`. Passing null clears the
-/// explicit policy so the control plane can apply its default. A null `opts`
-/// pointer is rejected with `BoxliteInvalidArgument`, and unknown policy values
-/// return `BoxliteInvalidArgument` without mutating the options.
+/// Marks services the box exposes as publicly reachable (the default).
+/// Mirrors `boxlite_options_set_network_enabled` for the inbound direction.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn boxlite_options_set_network_service_access(
+pub unsafe extern "C" fn boxlite_options_set_network_inbound_enabled(opts: *mut CBoxliteOptions) {
+    options_set_network_inbound_enabled(opts)
+}
+
+/// Marks services the box exposes as private — unreachable from outside the
+/// box. Mirrors `boxlite_options_set_network_disabled` for the inbound
+/// direction.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_options_set_network_inbound_disabled(opts: *mut CBoxliteOptions) {
+    options_set_network_inbound_disabled(opts)
+}
+
+/// Adds one entry to the inbound allowlist: only listed hosts/IPs may reach
+/// services the box exposes. Mirrors `boxlite_options_add_network_allow` for
+/// the inbound direction.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn boxlite_options_add_network_inbound_allow(
     opts: *mut CBoxliteOptions,
-    service_access: *const c_char,
-) -> BoxliteErrorCode {
-    options_set_network_service_access(opts, service_access)
+    host: *const c_char,
+) {
+    options_add_network_inbound_allow(opts, host)
 }
 
 #[unsafe(no_mangle)]
@@ -457,27 +469,35 @@ pub unsafe fn options_add_network_allow(handle: *mut OptionsHandle, host: *const
     }
 }
 
-pub unsafe fn options_set_network_service_access(
-    handle: *mut OptionsHandle,
-    service_access: *const c_char,
-) -> BoxliteErrorCode {
+pub unsafe fn options_set_network_inbound_enabled(handle: *mut OptionsHandle) {
     unsafe {
-        if handle.is_null() {
-            return BoxliteErrorCode::InvalidArgument;
+        if !handle.is_null() {
+            (*handle).options.network.inbound = InboundNetworkSpec::Enabled {
+                allow_net: Vec::new(),
+            };
         }
-        let access = if service_access.is_null() {
-            None
-        } else {
-            let Ok(value) = c_str_to_string(service_access) else {
-                return BoxliteErrorCode::InvalidArgument;
-            };
-            let Ok(access) = value.parse::<ServiceAccess>() else {
-                return BoxliteErrorCode::InvalidArgument;
-            };
-            Some(access)
-        };
-        (*handle).options.network.inbound.service_access = access;
-        BoxliteErrorCode::Ok
+    }
+}
+
+pub unsafe fn options_set_network_inbound_disabled(handle: *mut OptionsHandle) {
+    unsafe {
+        if !handle.is_null() {
+            (*handle).options.network.inbound = InboundNetworkSpec::Disabled;
+        }
+    }
+}
+
+pub unsafe fn options_add_network_inbound_allow(handle: *mut OptionsHandle, host: *const c_char) {
+    unsafe {
+        if handle.is_null() || host.is_null() {
+            return;
+        }
+        if let Ok(h) = c_str_to_string(host)
+            && let InboundNetworkSpec::Enabled { allow_net } =
+                &mut (*handle).options.network.inbound
+        {
+            allow_net.push(h);
+        }
     }
 }
 

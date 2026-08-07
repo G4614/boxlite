@@ -1764,16 +1764,26 @@ components:
 
     InboundNetworkSpec:
       type: object
-      description: Inbound service access policy
+      description: >
+        Inbound service access policy. Aligned field-for-field with
+        OutboundNetworkSpec.
       additionalProperties: false
+      required: [mode]
       properties:
-        service_access:
+        mode:
           type: string
-          enum: [public, private]
+          enum: [enabled, disabled]
           description: |
-            Whether service endpoints exposed from the box are publicly reachable
-            through the remote proxy or private to authenticated access. Omit to
-            use the control plane default.
+            `enabled` means service endpoints exposed from the box are publicly
+            reachable through the remote proxy. `disabled` means private.
+        allow_net:
+          type: array
+          items:
+            type: string
+          description: |
+            Optional inbound allowlist used only when `mode=enabled`.
+            Empty or omitted means any caller may reach the box's exposed
+            services. Supports hostnames, wildcard hostnames, IPs, and CIDRs.
 
     SecretSpec:
       type: object

@@ -766,22 +766,19 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
                     network.legacy.allow_net.clone().unwrap_or_default(),
                 ),
             };
-            let service_access = match &network.inbound {
-                Some(inbound) => inbound
-                    .service_access
-                    .as_deref()
-                    .map(str::parse)
-                    .transpose()?,
-                None => network
-                    .legacy
-                    .service_access
-                    .as_deref()
-                    .map(str::parse)
-                    .transpose()?,
+            let (inbound_mode, inbound_allow_net) = match &network.inbound {
+                Some(inbound) => (
+                    inbound.mode.parse::<NetworkMode>()?,
+                    inbound.allow_net.clone(),
+                ),
+                None => (NetworkMode::Enabled, Vec::new()),
             };
             NetworkSpec::try_from(NetworkConfig {
                 outbound: OutboundNetworkConfig { mode, allow_net },
-                inbound: InboundNetworkConfig { service_access },
+                inbound: InboundNetworkConfig {
+                    mode: inbound_mode,
+                    allow_net: inbound_allow_net,
+                },
             })?
         }
         None => NetworkSpec::default(),
@@ -1288,7 +1285,7 @@ pub async fn execute(args: ServeArgs, global: &GlobalFlags) -> anyhow::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boxlite::runtime::options::ServiceAccess;
+    use boxlite::runtime::options::InboundNetworkSpec;
     use std::time::Duration;
 
     // --- API-key auth decision (pure; no runtime/network needed) ---
@@ -1409,21 +1406,22 @@ mod tests {
     }
 
     #[test]
-    fn build_box_options_carries_service_access_from_network_spec() {
+    fn build_box_options_legacy_network_defaults_inbound_to_enabled() {
+        // Legacy flat `network` never carried an inbound concept — it
+        // predates the outbound/inbound split — so inbound falls back to
+        // its default (Enabled/public) regardless of outbound mode.
         let req: super::types::CreateBoxRequest = serde_json::from_str(
             r#"{
                 "image": "alpine:latest",
                 "network": {
-                    "mode": "enabled",
-                    "service_access": "private"
+                    "mode": "enabled"
                 }
             }"#,
         )
-        .expect("body with service_access must deserialize");
+        .expect("legacy flat body must deserialize");
         let opts = build_box_options(&req).expect("build");
-        assert_eq!(
-            opts.network.inbound.service_access,
-            Some(ServiceAccess::Private)
+        assert!(
+            matches!(opts.network.inbound, InboundNetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
         );
     }
 
@@ -1438,7 +1436,7 @@ mod tests {
                         "allow_net": ["api.openai.com"]
                     },
                     "inbound": {
-                        "service_access": "private"
+                        "mode": "disabled"
                     }
                 }
             }"#,
@@ -1453,10 +1451,7 @@ mod tests {
                 panic!("network should be enabled")
             }
         }
-        assert_eq!(
-            opts.network.inbound.service_access,
-            Some(ServiceAccess::Private)
-        );
+        assert!(matches!(opts.network.inbound, InboundNetworkSpec::Disabled));
     }
 
     #[test]
