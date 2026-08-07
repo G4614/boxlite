@@ -712,9 +712,21 @@ impl TryFrom<NetworkConfig> for NetworkSpec {
             NetworkMode::Disabled => OutboundNetworkSpec::Disabled,
         };
         let inbound = match config.inbound.mode {
-            NetworkMode::Enabled => InboundNetworkSpec::Enabled {
-                allow_net: config.inbound.allow_net,
-            },
+            NetworkMode::Enabled => {
+                if !config.inbound.allow_net.is_empty() {
+                    // No runtime sink enforces this yet (apps/proxy gates only on
+                    // inbound.mode) — warn rather than silently accepting a
+                    // no-op allowlist. Remove once enforcement lands.
+                    tracing::warn!(
+                        allow_net = ?config.inbound.allow_net,
+                        "inbound.allow_net is accepted but not yet enforced; \
+                         all callers can still reach this box's exposed ports"
+                    );
+                }
+                InboundNetworkSpec::Enabled {
+                    allow_net: config.inbound.allow_net,
+                }
+            }
             NetworkMode::Disabled if !config.inbound.allow_net.is_empty() => {
                 return Err(boxlite_shared::errors::BoxliteError::Config(
                     "inbound.mode=\"disabled\" is incompatible with allow_net. \
