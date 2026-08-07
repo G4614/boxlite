@@ -1346,10 +1346,8 @@ mod tests {
             .resolve_container_security()
             .expect("privileged security should resolve");
 
-        assert!(resolved.cgroup_namespace);
-        assert!(resolved.writable_sysfs);
-        assert!(resolved.allow_all_devices);
         assert!(resolved.unconfined_paths);
+        assert!(resolved.writable_sysfs);
         assert_eq!(resolved.capabilities.add, ["ALL"]);
         assert!(resolved.capabilities.drop.is_empty());
     }

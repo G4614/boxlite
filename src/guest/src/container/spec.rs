@@ -9,10 +9,9 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
 
 use oci_spec::runtime::{
-    LinuxBuilder, LinuxDevice, LinuxDeviceBuilder, LinuxDeviceCgroupBuilder, LinuxDeviceType,
-    LinuxIdMappingBuilder, LinuxNamespaceBuilder, LinuxNamespaceType, LinuxResourcesBuilder, Mount,
-    MountBuilder, PosixRlimitBuilder, PosixRlimitType, ProcessBuilder, RootBuilder, Spec,
-    SpecBuilder, UserBuilder,
+    LinuxBuilder, LinuxDevice, LinuxDeviceBuilder, LinuxDeviceType, LinuxIdMappingBuilder,
+    LinuxNamespaceBuilder, LinuxNamespaceType, Mount, MountBuilder, PosixRlimitBuilder,
+    PosixRlimitType, ProcessBuilder, RootBuilder, Spec, SpecBuilder, UserBuilder,
 };
 
 /// User-specified bind mount for container
@@ -167,13 +166,11 @@ pub fn create_oci_spec(
     let caps = security_policy.capabilities.to_oci()?;
     tracing::info!(
         container_id,
-        cgroup_namespace = security_policy.cgroup_namespace,
         writable_sysfs = security_policy.writable_sysfs,
-        allow_all_devices = security_policy.allow_all_devices,
         unconfined_paths = security_policy.unconfined_paths,
         "building container spec"
     );
-    let namespaces = build_default_namespaces(security_policy.cgroup_namespace)?;
+    let namespaces = build_default_namespaces()?;
     let mut mounts = build_standard_mounts(bundle_path, security_policy.writable_sysfs)?;
 
     // Add user-specified bind mounts
@@ -213,7 +210,6 @@ pub fn create_oci_spec(
         container_id,
         namespaces,
         devices.as_slice(),
-        security_policy.allow_all_devices,
         security_policy.unconfined_paths,
     )?;
 
@@ -387,24 +383,19 @@ fn find_group_in_group_file(rootfs: &str, name: &str) -> BoxliteResult<u32> {
 // Spec Component Builders
 // ====================
 
-/// Build default namespaces for container isolation
-fn build_default_namespaces(
-    cgroup_namespace: bool,
-) -> BoxliteResult<Vec<oci_spec::runtime::LinuxNamespace>> {
-    let mut namespaces = vec![
+/// Build default namespaces for container isolation.
+///
+/// No cgroup namespace: tested and found unnecessary for DinD (see
+/// docs/architecture/privileged-mode-design.md, Trade-offs) — `dockerd`
+/// tolerates writing cgroup limits without a private cgroup namespace view.
+fn build_default_namespaces() -> BoxliteResult<Vec<oci_spec::runtime::LinuxNamespace>> {
+    Ok(vec![
         build_namespace(LinuxNamespaceType::Pid)?,
         build_namespace(LinuxNamespaceType::Ipc)?,
         build_namespace(LinuxNamespaceType::Uts)?,
         build_namespace(LinuxNamespaceType::Mount)?,
         // build_namespace(LinuxNamespaceType::User)?,
-    ];
-    if cgroup_namespace {
-        // The guest init already mounts cgroup2 at /sys/fs/cgroup. Give
-        // privileged workloads Docker-like ownership of a private view of
-        // that hierarchy.
-        namespaces.push(build_namespace(LinuxNamespaceType::Cgroup)?);
-    }
-    Ok(namespaces)
+    ])
 }
 
 /// Build a single namespace specification
@@ -504,7 +495,6 @@ fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
     devices: &[LinuxDevice],
-    allow_all_devices: bool,
     unconfined_paths: bool,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
@@ -549,20 +539,9 @@ fn build_linux_spec(
         builder = builder.readonly_paths(readonly_paths.to_vec());
     }
 
-    if allow_all_devices {
-        let all_devices = LinuxDeviceCgroupBuilder::default()
-            .allow(true)
-            .access("rwm")
-            .build()
-            .map_err(|e| BoxliteError::Internal(format!("Failed to build device policy: {}", e)))?;
-        let resources = LinuxResourcesBuilder::default()
-            .devices(vec![all_devices])
-            .build()
-            .map_err(|e| {
-                BoxliteError::Internal(format!("Failed to build device resources: {}", e))
-            })?;
-        builder = builder.resources(resources);
-    }
+    // No device-cgroup rule: tested and found unnecessary for DinD (see
+    // docs/architecture/privileged-mode-design.md, Trade-offs) — the guest
+    // never enforced a restrictive device-cgroup default in the first place.
 
     // Leave `devices` unset when empty so the spec keeps its historical shape.
     if !devices.is_empty() {
@@ -722,7 +701,7 @@ mod tests {
         }])
         .unwrap();
 
-        let linux = build_linux_spec("test-box", vec![], devices.as_slice(), false, false).unwrap();
+        let linux = build_linux_spec("test-box", vec![], devices.as_slice(), false).unwrap();
         let mapped = linux.devices().as_ref().expect("mapped device");
         assert_eq!(mapped.len(), 1);
         let device = &mapped[0];
@@ -741,7 +720,6 @@ mod tests {
             "test-box",
             vec![],
             ContainerDevices::default().as_slice(),
-            false,
             false,
         )
         .unwrap();
@@ -1230,7 +1208,7 @@ mod tests {
     #[test]
     fn unprivileged_spec_keeps_runtime_path_defaults() {
         let devices = ContainerDevices::default();
-        let linux = build_linux_spec("c", vec![], devices.as_slice(), false, false).unwrap();
+        let linux = build_linux_spec("c", vec![], devices.as_slice(), false).unwrap();
 
         // Spelled out rather than compared against `get_default_*`, which is
         // where the value under test comes from: that comparison holds for any
@@ -1271,9 +1249,9 @@ mod tests {
     }
 
     #[test]
-    fn privileged_spec_clears_guest_path_and_device_restrictions() {
+    fn privileged_spec_clears_guest_path_restrictions() {
         let devices = ContainerDevices::default();
-        let linux = build_linux_spec("c", vec![], devices.as_slice(), true, true).unwrap();
+        let linux = build_linux_spec("c", vec![], devices.as_slice(), true).unwrap();
 
         assert!(linux
             .readonly_paths()
@@ -1284,14 +1262,11 @@ mod tests {
             .as_ref()
             .is_none_or(|paths| paths.is_empty()));
 
-        let resources = linux.resources().as_ref().expect("device resources");
-        let rules = resources.devices().as_ref().expect("device cgroup rules");
-        assert_eq!(rules.len(), 1);
-        assert!(rules[0].allow());
-        assert_eq!(rules[0].access().as_deref(), Some("rwm"));
-        assert!(rules[0].typ().is_none());
-        assert!(rules[0].major().is_none());
-        assert!(rules[0].minor().is_none());
+        // Device-cgroup policy no longer varies with the privileged shape —
+        // tested and found unnecessary for DinD; both branches get whatever
+        // oci-spec's own Linux::default() supplies, unmodified.
+        let unprivileged = build_linux_spec("c", vec![], devices.as_slice(), false).unwrap();
+        assert_eq!(linux.resources(), unprivileged.resources());
     }
 
     fn sys_mount_options(privileged: bool) -> Vec<String> {
@@ -1342,10 +1317,8 @@ mod tests {
         let spec_for = |privileged: bool| {
             let security_policy = ResolvedSecurityPolicy {
                 capabilities: full_caps.clone(),
-                cgroup_namespace: privileged,
-                writable_sysfs: privileged,
-                allow_all_devices: privileged,
                 unconfined_paths: privileged,
+                writable_sysfs: privileged,
             };
             create_oci_spec(
                 "c",
@@ -1388,12 +1361,6 @@ mod tests {
             .masked_paths()
             .as_ref()
             .is_none_or(|paths| paths.is_empty()));
-        assert!(linux
-            .namespaces()
-            .as_ref()
-            .is_some_and(|namespaces| namespaces
-                .iter()
-                .any(|ns| { ns.typ() == oci_spec::runtime::LinuxNamespaceType::Cgroup })));
 
         let spec = spec_for(true);
         let sys_mount = spec
