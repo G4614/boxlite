@@ -190,10 +190,8 @@ impl ContainerService for GuestServer {
         let advanced = config.advanced.unwrap_or_default();
         let security_policy = ResolvedSecurityPolicy::from_resolved(
             advanced.capabilities.unwrap_or_default(),
-            advanced.cgroup_namespace,
-            advanced.writable_sysfs,
-            advanced.allow_all_devices,
             advanced.unconfined_paths,
+            advanced.writable_sysfs,
         )
         .map_err(BoxliteError::into_validation_status)?;
 

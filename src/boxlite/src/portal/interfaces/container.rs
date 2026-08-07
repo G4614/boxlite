@@ -93,20 +93,16 @@ pub struct ContainerInitConfig {
 #[derive(Debug, Clone, Default)]
 pub struct ContainerAdvancedConfig {
     pub capabilities: ContainerCapabilities,
-    pub(crate) cgroup_namespace: bool,
-    pub(crate) writable_sysfs: bool,
-    pub(crate) allow_all_devices: bool,
     pub(crate) unconfined_paths: bool,
+    pub(crate) writable_sysfs: bool,
 }
 
 impl From<ResolvedContainerSecurityConfig> for ContainerAdvancedConfig {
     fn from(value: ResolvedContainerSecurityConfig) -> Self {
         Self {
             capabilities: value.capabilities,
-            cgroup_namespace: value.cgroup_namespace,
-            writable_sysfs: value.writable_sysfs,
-            allow_all_devices: value.allow_all_devices,
             unconfined_paths: value.unconfined_paths,
+            writable_sysfs: value.writable_sysfs,
         }
     }
 }
@@ -153,10 +149,8 @@ impl ContainerInterface {
                     add: advanced.capabilities.add,
                     drop: advanced.capabilities.drop,
                 }),
-                cgroup_namespace: advanced.cgroup_namespace,
-                writable_sysfs: advanced.writable_sysfs,
-                allow_all_devices: advanced.allow_all_devices,
                 unconfined_paths: advanced.unconfined_paths,
+                writable_sysfs: advanced.writable_sysfs,
             }),
         };
 
@@ -468,10 +462,8 @@ mod tests {
                         add: vec!["ALL".into()],
                         ..Default::default()
                     },
-                    cgroup_namespace: true,
-                    writable_sysfs: true,
-                    allow_all_devices: true,
                     unconfined_paths: true,
+                    writable_sysfs: true,
                 },
             })
             .await
@@ -487,9 +479,7 @@ mod tests {
         // Non-default, so it proves the field is threaded rather than defaulted.
         assert!(container_config.tty);
         let advanced = container_config.advanced.expect("advanced options");
-        assert!(advanced.cgroup_namespace);
-        assert!(advanced.writable_sysfs);
-        assert!(advanced.allow_all_devices);
         assert!(advanced.unconfined_paths);
+        assert!(advanced.writable_sysfs);
     }
 }
