@@ -796,20 +796,22 @@ impl AdvancedBoxOptions {
 
         Ok(ResolvedContainerSecurityConfig {
             capabilities: normalized.capabilities,
-            cgroup_namespace: normalized.privileged,
-            writable_sysfs: normalized.privileged,
-            allow_all_devices: normalized.privileged,
             unconfined_paths: normalized.privileged,
+            writable_sysfs: normalized.privileged,
         })
     }
 }
 
 /// Atomic container security configuration crossing the host-to-guest boundary.
+///
+/// Only two flags: a private cgroup namespace and an allow-all device-cgroup
+/// rule were tested and found unnecessary for DinD (see
+/// docs/architecture/privileged-mode-design.md, Trade-offs) — the guest never
+/// enforced a restrictive device-cgroup default in the first place, and
+/// `dockerd` tolerated running without a private cgroup namespace view.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResolvedContainerSecurityConfig {
     pub(crate) capabilities: ContainerCapabilities,
-    pub(crate) cgroup_namespace: bool,
-    pub(crate) writable_sysfs: bool,
-    pub(crate) allow_all_devices: bool,
     pub(crate) unconfined_paths: bool,
+    pub(crate) writable_sysfs: bool,
 }

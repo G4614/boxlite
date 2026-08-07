@@ -74,26 +74,20 @@ pub(crate) struct CapabilitySet(HashSet<Capability>);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedSecurityPolicy {
     pub(crate) capabilities: CapabilitySet,
-    pub(crate) cgroup_namespace: bool,
-    pub(crate) writable_sysfs: bool,
-    pub(crate) allow_all_devices: bool,
     pub(crate) unconfined_paths: bool,
+    pub(crate) writable_sysfs: bool,
 }
 
 impl ResolvedSecurityPolicy {
     pub(crate) fn from_resolved(
         policy: ContainerCapabilities,
-        cgroup_namespace: bool,
-        writable_sysfs: bool,
-        allow_all_devices: bool,
         unconfined_paths: bool,
+        writable_sysfs: bool,
     ) -> BoxliteResult<Self> {
         Ok(Self {
             capabilities: CapabilitySet::resolve(&policy.add, &policy.drop)?,
-            cgroup_namespace,
-            writable_sysfs,
-            allow_all_devices,
             unconfined_paths,
+            writable_sysfs,
         })
     }
 }
@@ -296,15 +290,11 @@ mod tests {
             },
             true,
             true,
-            true,
-            true,
         )
         .expect("security policy should resolve");
 
-        assert!(policy.cgroup_namespace);
-        assert!(policy.writable_sysfs);
-        assert!(policy.allow_all_devices);
         assert!(policy.unconfined_paths);
+        assert!(policy.writable_sysfs);
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
         assert!(policy.capabilities.contains(&Capability::NetRaw));
     }
@@ -316,8 +306,6 @@ mod tests {
                 add: vec!["ALL".into()],
                 ..Default::default()
             },
-            false,
-            false,
             false,
             false,
         )
