@@ -1,4 +1,3 @@
-\
 # Ad-hoc test workflow: build the runner Go binary for linux/arm64, native on a
 # GitHub-hosted ARM64 runner. Not part of the real project — lives only on this
 # fork, for testing PR #1056's volume feature against an aarch64 box locally.
