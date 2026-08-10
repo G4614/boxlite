@@ -11,12 +11,13 @@ import shlex
 import boxlite
 import pytest
 
+from conftest import drain
 
 SERVICES = ((18080, b"python-sdk-tunnel-e2e-a"), (18082, b"python-sdk-tunnel-e2e-b"))
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "service_in_box_server.py"
 
 
-async def _get_over_tunnel(box: boxlite.SimpleBox, port: int, marker: bytes) -> bytes:
+async def _get_over_tunnel(box: boxlite.Box, port: int, marker: bytes) -> bytes:
     tunnel = await box.network.tunnel(port)
     connection = await tunnel.connect()
     response = bytearray()
@@ -39,19 +40,25 @@ async def _get_over_tunnel(box: boxlite.SimpleBox, port: int, marker: bytes) -> 
 async def _start_service(box, port: int, marker: bytes) -> str:
     encoded = base64.b64encode(FIXTURE.read_bytes()).decode()
     code = f"import base64;exec(base64.b64decode({encoded!r}))"
-    result = await box.exec(
+    ex = await box.exec(
         "sh",
-        "-lc",
-        f"python3 -u -c {shlex.quote(code)} {port} {marker.decode()} "
-        f">/tmp/tunnel-{port}.log 2>&1 & echo $!",
+        [
+            "-lc",
+            f"python3 -u -c {shlex.quote(code)} {port} {marker.decode()} "
+            f">/tmp/tunnel-{port}.log 2>&1 & echo $!",
+        ],
     )
-    assert result.exit_code == 0, result.stderr
-    return result.stdout.strip()
+    out, err = await drain(ex)
+    rc = await asyncio.wait_for(ex.wait(), timeout=30)
+    assert rc.exit_code == 0, err
+    return out.strip()
 
 
 async def _stop_service(box, pid: str) -> None:
-    result = await box.exec("sh", "-lc", f"kill {shlex.quote(pid)}")
-    assert result.exit_code == 0, result.stderr
+    ex = await box.exec("sh", ["-lc", f"kill {shlex.quote(pid)}"])
+    _, err = await drain(ex)
+    rc = await asyncio.wait_for(ex.wait(), timeout=30)
+    assert rc.exit_code == 0, err
 
 
 async def _request(tunnel, request: bytes, *, read_delay: float = 0) -> bytes:
@@ -116,7 +123,7 @@ async def _websocket_echo(tunnel, marker: bytes) -> bytes:
         await connection.close()
 
 
-async def _wait_for_http(box: boxlite.SimpleBox, port: int, marker: bytes) -> bytes:
+async def _wait_for_http(box: boxlite.Box, port: int, marker: bytes) -> bytes:
     deadline = asyncio.get_running_loop().time() + 30
     last_error: Exception | None = None
     while asyncio.get_running_loop().time() < deadline:
@@ -136,8 +143,8 @@ async def _wait_for_http(box: boxlite.SimpleBox, port: int, marker: bytes) -> by
 @pytest.mark.asyncio
 async def test_python_sdk_tunnel_proxies_http_from_rest_box(rt, image):
     """Cloud tunnels isolate ports, serve concurrent clients, and die with the box."""
-    box = boxlite.SimpleBox(image=image, runtime=rt, auto_remove=True)
-    async with box:
+    box = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
+    try:
         pids = [await _start_service(box, port, marker) for port, marker in SERVICES]
         await _wait_for_http(box, *SERVICES[0])
         prepared_tunnel = await box.network.tunnel(SERVICES[0][0])
@@ -199,6 +206,8 @@ async def test_python_sdk_tunnel_proxies_http_from_rest_box(rt, image):
             b"GET / HTTP/1.0\r\nHost: tunnel.test\r\n\r\n",
         )
         assert SERVICES[0][1] in restart_response
+    finally:
+        await rt.remove(box.id, force=True)
 
 
 @pytest.mark.xfail(
@@ -207,22 +216,29 @@ async def test_python_sdk_tunnel_proxies_http_from_rest_box(rt, image):
 )
 @pytest.mark.asyncio
 async def test_python_sdk_tunnel_rejects_stopped_box(rt, image):
-    box = boxlite.SimpleBox(image=image, runtime=rt, auto_remove=True)
-    async with box:
+    box = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
+    try:
         await _start_service(box, *SERVICES[0])
         await _wait_for_http(box, *SERVICES[0])
 
-    try:
-        stopped_response = await asyncio.wait_for(
-            _request(
-                await box.network.tunnel(SERVICES[0][0]),
-                b"GET / HTTP/1.0\r\nHost: tunnel.test\r\n\r\n",
-            ),
-            timeout=10,
-        )
-    except (OSError, RuntimeError, asyncio.TimeoutError):
-        return
-    assert SERVICES[0][1] not in stopped_response
+        # stop(), not remove(): this test is about tunnelling into a box
+        # that's merely stopped, not one that's gone.
+        await box.stop()
+        await asyncio.sleep(1)
+
+        try:
+            stopped_response = await asyncio.wait_for(
+                _request(
+                    await box.network.tunnel(SERVICES[0][0]),
+                    b"GET / HTTP/1.0\r\nHost: tunnel.test\r\n\r\n",
+                ),
+                timeout=10,
+            )
+        except (OSError, RuntimeError, asyncio.TimeoutError):
+            return
+        assert SERVICES[0][1] not in stopped_response
+    finally:
+        await rt.remove(box.id, force=True)
 
 
 @pytest.mark.xfail(
@@ -231,7 +247,8 @@ async def test_python_sdk_tunnel_rejects_stopped_box(rt, image):
 )
 @pytest.mark.asyncio
 async def test_python_sdk_tunnel_preserves_tcp_half_close(rt, image):
-    async with boxlite.SimpleBox(image=image, runtime=rt, auto_remove=True) as box:
+    box = await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
+    try:
         await _start_service(box, *SERVICES[0])
         await _wait_for_http(box, *SERVICES[0])
         connection = await (await box.network.tunnel(SERVICES[0][0])).connect()
@@ -246,14 +263,17 @@ async def test_python_sdk_tunnel_preserves_tcp_half_close(rt, image):
             response.extend(chunk)
         await connection.close()
         assert SERVICES[0][1] in response
+    finally:
+        await rt.remove(box.id, force=True)
 
 
 @pytest.mark.asyncio
 async def test_python_sdk_tunnel_keeps_boxes_isolated(rt, image):
     boxes = [
-        boxlite.SimpleBox(image=image, runtime=rt, auto_remove=True) for _ in range(2)
+        await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
+        for _ in range(2)
     ]
-    async with boxes[0], boxes[1]:
+    try:
         markers = (b"python-box-a", b"python-box-b")
         await asyncio.gather(
             *(
@@ -270,3 +290,9 @@ async def test_python_sdk_tunnel_keeps_boxes_isolated(rt, image):
         for response, marker, other in zip(responses, markers, reversed(markers)):
             assert marker in response
             assert other not in response
+    finally:
+        for box in boxes:
+            try:
+                await rt.remove(box.id, force=True)
+            except Exception:
+                pass
