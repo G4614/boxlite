@@ -13,15 +13,30 @@ function env(name: string, fallback: string): string {
   return value && value.length ? value : fallback
 }
 
-/** Polls until getInfo reports the box missing, or the timeout elapses. */
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes('not found')
+}
+
+/**
+ * Polls until getInfo reports the box missing, or the timeout elapses.
+ *
+ * The Node SDK has no typed not-found error over REST, so absence is
+ * detected by matching the REST 404 wording in the message rather than a
+ * `null` / typed-error check. Any other failure (pending state, transport
+ * blip, ...) is retried instead of being treated as proof of deletion - a
+ * false "not found" would hide the real leak this driver exists to catch.
+ */
 async function boxGone(runtime: JsBoxlite, id: string, timeoutMs = 15_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (true) {
     try {
       const info = await runtime.getInfo(id)
       if (info == null) return true
-    } catch {
-      return true
+    } catch (error) {
+      if (isNotFound(error)) return true
+      if (Date.now() > deadline) throw error
+      await delay(1_000)
+      continue
     }
     if (Date.now() > deadline) return false
     await delay(1_000)
@@ -53,11 +68,12 @@ async function main(): Promise<void> {
     const info = await runtime.getInfo(keptId)
     if (info == null) throw new Error(`box ${keptId} was deleted despite autoRemove=false`)
   } finally {
-    // stop() above can leave the box briefly `pending` server-side; give
-    // that a moment to clear before this cleanup remove(), same as the
-    // retry inside SimpleBox.stop() itself.
+    // stop() above can leave the box briefly `pending` server-side; retry
+    // once past that window, same as the retry inside SimpleBox.stop()
+    // itself. A failure here would leak this box, so it's rethrown rather
+    // than swallowed.
     await delay(1_000)
-    await runtime.remove(keptId, true).catch(() => undefined)
+    await runtime.remove(keptId, true)
   }
   console.log('AUTOREMOVE_FALSE_KEEPS=ok')
 }

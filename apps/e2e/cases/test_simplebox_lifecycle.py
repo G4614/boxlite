@@ -23,16 +23,24 @@ async def _box_gone(rt, box_id: str, *, timeout: float = 15.0) -> bool:
     """Poll until get_info reports the box missing, or the timeout elapses.
 
     The Python SDK has no typed NotFound exception over REST (`map_err`
-    collapses every server error to a generic RuntimeError), so - like the
-    rest of this suite - absence is detected by catching the call failing
-    rather than by an `is None` / typed-error check.
+    collapses every server error to a generic RuntimeError), so absence is
+    detected by matching the REST 404 wording in the message rather than an
+    `is None` / typed-error check. Any other failure (pending state,
+    transport blip, ...) is retried instead of being treated as proof of
+    deletion - a false "not found" would hide the real leak this test
+    exists to catch.
     """
     deadline = time.monotonic() + timeout
     while True:
         try:
             await rt.get_info(box_id)
-        except Exception:
-            return True
+        except Exception as exc:
+            if "not found" in str(exc).lower():
+                return True
+            if time.monotonic() > deadline:
+                raise
+            await asyncio.sleep(1.0)
+            continue
         if time.monotonic() > deadline:
             return False
         await asyncio.sleep(1.0)
