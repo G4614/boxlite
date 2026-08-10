@@ -41,7 +41,11 @@ jobs:
           archive=$(find /tmp/c-sdk -maxdepth 1 -name 'boxlite-c-v*-linux-arm64-gnu.tar.gz' -print -quit)
           test -n "$archive"
           tar xzf "$archive" -C /tmp/
-          cp "/tmp/$(basename "$archive" .tar.gz)/lib/libboxlite.a" sdks/go/libboxlite.a
+          # -tags boxlite_dev links target/debug/libboxlite.a (bridge_cgo_dev.go),
+          # not sdks/go/libboxlite.a (that path is only for the !boxlite_dev /
+          # prebuilt bridge) — place it where the dev-mode linker actually looks.
+          mkdir -p target/debug
+          cp "/tmp/$(basename "$archive" .tar.gz)/lib/libboxlite.a" target/debug/libboxlite.a
 
       - name: Build runner binary
         run: |
