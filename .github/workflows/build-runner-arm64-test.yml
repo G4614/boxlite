@@ -1,0 +1,62 @@
+\
+# Ad-hoc test workflow: build the runner Go binary for linux/arm64, native on a
+# GitHub-hosted ARM64 runner. Not part of the real project — lives only on this
+# fork, for testing PR #1056's volume feature against an aarch64 box locally.
+name: Build Runner ARM64 (test)
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Runner (linux-arm64)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.4'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libxinerama-dev
+
+      - name: Download commit libboxlite.a (linux-arm64-gnu)
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: '31380231736'
+          name: c-sdk-linux-arm64-gnu
+          path: /tmp/c-sdk
+
+      - name: Extract libboxlite.a
+        run: |
+          set -euo pipefail
+          archive=$(find /tmp/c-sdk -maxdepth 1 -name 'boxlite-c-v*-linux-arm64-gnu.tar.gz' -print -quit)
+          test -n "$archive"
+          tar xzf "$archive" -C /tmp/
+          cp "/tmp/$(basename "$archive" .tar.gz)/lib/libboxlite.a" sdks/go/libboxlite.a
+
+      - name: Build runner binary
+        run: |
+          set -euo pipefail
+          cd apps
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -tags boxlite_dev -o boxlite-runner-arm64 ./runner/cmd/runner
+          sha256sum boxlite-runner-arm64 > boxlite-runner-arm64.sha256
+          file boxlite-runner-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-linux-arm64
+          path: |
+            apps/boxlite-runner-arm64
+            apps/boxlite-runner-arm64.sha256
+          if-no-files-found: error
