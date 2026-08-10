@@ -48,7 +48,7 @@ async def _start_service(box, port: int, marker: bytes) -> str:
             f">/tmp/tunnel-{port}.log 2>&1 & echo $!",
         ],
     )
-    out, err = await drain(ex)
+    out, err = await asyncio.wait_for(drain(ex), timeout=30)
     rc = await asyncio.wait_for(ex.wait(), timeout=30)
     assert rc.exit_code == 0, err
     return out.strip()
@@ -56,7 +56,7 @@ async def _start_service(box, port: int, marker: bytes) -> str:
 
 async def _stop_service(box, pid: str) -> None:
     ex = await box.exec("sh", ["-lc", f"kill {shlex.quote(pid)}"])
-    _, err = await drain(ex)
+    _, err = await asyncio.wait_for(drain(ex), timeout=30)
     rc = await asyncio.wait_for(ex.wait(), timeout=30)
     assert rc.exit_code == 0, err
 
@@ -269,11 +269,16 @@ async def test_python_sdk_tunnel_preserves_tcp_half_close(rt, image):
 
 @pytest.mark.asyncio
 async def test_python_sdk_tunnel_keeps_boxes_isolated(rt, image):
-    boxes = [
-        await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
-        for _ in range(2)
-    ]
+    # Appended one at a time inside try, not built as a list literal before
+    # it: if the second create() raised, the first box would already exist
+    # remotely but `boxes` would never be assigned, so `finally` couldn't
+    # see it to clean it up.
+    boxes = []
     try:
+        for _ in range(2):
+            boxes.append(
+                await rt.create(boxlite.BoxOptions(image=image, auto_remove=True))
+            )
         markers = (b"python-box-a", b"python-box-b")
         await asyncio.gather(
             *(
