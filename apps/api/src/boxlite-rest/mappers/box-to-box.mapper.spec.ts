@@ -35,6 +35,17 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
+  it('does not fall back to host_path when source is an empty string', () => {
+    // DTO validation (IsNotEmpty) is the primary guard against this reaching
+    // the mapper at all; this locks in that the mapper itself also fails
+    // closed rather than treating '' as absent via `??`.
+    expect(() =>
+      createBoxToCreateBox({
+        volumes: [{ source: '', host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
+      }),
+    ).toThrow('volume source must use the volume:// scheme')
+  })
+
   it('prefers source over host_path when both are present', () => {
     const mapped = createBoxToCreateBox({
       volumes: [

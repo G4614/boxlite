@@ -160,6 +160,38 @@ describe('CreateBoxDto managed volumes', () => {
     expect(errors).toHaveLength(0)
   })
 
+  it('rejects an empty source', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ source: '', guest_path: '/data' }],
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isNotEmpty')
+  })
+
+  it('rejects an empty host_path', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ host_path: '', guest_path: '/data' }],
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isNotEmpty')
+  })
+
+  it('rejects an empty source even with a valid host_path fallback available', async () => {
+    // An empty string is a malformed `source`, not an absent one - it must
+    // not be silently swapped for host_path in the mapper.
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ source: '', host_path: 'volume://volume-123', guest_path: '/data' }],
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isNotEmpty')
+  })
+
   it('rejects read-only cloud volume mounts until the backend supports them', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {

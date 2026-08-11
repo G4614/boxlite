@@ -7,6 +7,7 @@
 import { Type } from 'class-transformer'
 import {
   ArrayMaxSize,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsNumber,
@@ -63,8 +64,12 @@ export class NetworkSpecDto {
 }
 
 export class VolumeSpecDto {
+  // IsNotEmpty (not just IsOptional + IsString) so an explicit `source: ''`
+  // is a validation error on its own rather than being treated as "absent"
+  // and silently falling through to host_path in the mapper.
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
   source?: string
 
   /**
@@ -74,6 +79,7 @@ export class VolumeSpecDto {
    */
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
   host_path?: string
 
   @IsString()
