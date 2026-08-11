@@ -431,11 +431,21 @@ impl RuntimeImpl {
     /// existing box with `created=false`.
     async fn create_inner(
         self: &Arc<Self>,
-        mut options: BoxOptions,
+        options: BoxOptions,
         name: Option<String>,
         reuse_existing: bool,
     ) -> BoxliteResult<(LiteBox, bool)> {
-        options.advanced.normalize_privileged();
+        // Every reachable caller is `LocalRuntime` (`RuntimeImpl` isn't
+        // re-exported), which normalizes via `sanitize_local_options` before
+        // reaching here — assert the invariant instead of re-normalizing.
+        debug_assert!(
+            !options.advanced.privileged
+                || options
+                    .advanced
+                    .capabilities
+                    .is_privileged_capability_shape(),
+            "create_inner expects options already normalized by sanitize_local_options"
+        );
 
         // Check if runtime has been shut down
         if self.shutdown_token.is_cancelled() {
@@ -3139,14 +3149,17 @@ mod tests {
             .unwrap();
         assert!(created);
 
+        // set_privileged (not a hand-built struct literal) so this request is
+        // already in the normalized shape a real caller produces — create_inner
+        // itself no longer normalizes; it trusts sanitize_local_options did.
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.set_privileged(true);
+
         let result = runtime
             .get_or_create(
                 BoxOptions {
                     rootfs: RootfsSpec::Image("alpine:latest".into()),
-                    advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                        privileged: true,
-                        ..Default::default()
-                    },
+                    advanced,
                     ..Default::default()
                 },
                 name,
