@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { Type } from 'class-transformer'
+import { BadRequestException, Logger } from '@nestjs/common'
+import { Transform, Type, plainToInstance } from 'class-transformer'
 import {
   ArrayMaxSize,
   IsOptional,
@@ -22,6 +23,8 @@ import {
 } from 'class-validator'
 import { isValidNetworkAllowEntry, MAX_NETWORK_ALLOW_LIST_ENTRIES } from '../../box/utils/network-validation.util'
 
+const logger = new Logger('CreateBoxDto')
+
 @ValidatorConstraint({ name: 'isNetworkAllowEntry', async: false })
 class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {
@@ -30,21 +33,6 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
 
   defaultMessage(): string {
     return 'each allow_net entry must be an IPv4 address, IPv4 CIDR, hostname, or wildcard hostname'
-  }
-}
-
-@ValidatorConstraint({ name: 'isNestedNetworkSpec', async: false })
-class IsNestedNetworkSpecConstraint implements ValidatorConstraintInterface {
-  validate(value: unknown): boolean {
-    if (value === undefined || value === null || typeof value !== 'object') {
-      return true
-    }
-    const network = value as Record<string, unknown>
-    return !('mode' in network || 'allow_net' in network || 'service_access' in network)
-  }
-
-  defaultMessage(): string {
-    return 'network must use nested outbound/inbound fields'
   }
 }
 
@@ -87,6 +75,45 @@ export class NetworkSpecDto {
   @ValidateNested()
   @Type(() => InboundNetworkSpecDto)
   inbound?: InboundNetworkSpecDto
+}
+
+// Deprecated legacy wire shape, predating the outbound/inbound split:
+// `{ mode, allow_net, service_access }` at the top level of `network`,
+// instead of nested under `outbound`/`inbound`. Still accepted so already-
+// deployed callers keep working; normalized into the nested shape here and
+// logged so callers can be tracked down and migrated. `service_access`
+// mapped `'public'`/`'private'` to what is now `inbound.mode`. Mixing legacy
+// and nested fields in the same request is rejected outright — there's no
+// sane precedence to guess between them.
+function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
+  if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return value
+  }
+  const network = value as Record<string, unknown>
+  const hasLegacyField = 'mode' in network || 'allow_net' in network || 'service_access' in network
+  const hasNestedField = 'outbound' in network || 'inbound' in network
+
+  if (hasLegacyField && hasNestedField) {
+    throw new BadRequestException(
+      'network must not mix legacy top-level fields with nested outbound/inbound fields',
+    )
+  }
+  if (!hasLegacyField) {
+    return plainToInstance(NetworkSpecDto, network)
+  }
+
+  logger.warn(
+    'Deprecated: network.{mode,allow_net,service_access} — use network.{outbound,inbound}. Support for the flat shape will be removed in a future release.',
+  )
+
+  const { mode, allow_net, service_access, ...rest } = network
+  // allow_net alone (no explicit mode) implies enabled, matching outbound's
+  // existing default — an allowlist with nothing to enable would be inert.
+  const outbound =
+    mode !== undefined || allow_net !== undefined ? { mode: mode ?? 'enabled', allow_net } : undefined
+  const inbound =
+    service_access !== undefined ? { mode: service_access === 'public' ? 'enabled' : 'disabled' } : undefined
+  return plainToInstance(NetworkSpecDto, { ...rest, outbound, inbound })
 }
 
 export class CreateBoxDto {
@@ -156,8 +183,7 @@ export class CreateBoxDto {
 
   @IsOptional()
   @IsObject()
-  @Validate(IsNestedNetworkSpecConstraint)
+  @Transform(({ value }) => normalizeNetworkShape(value))
   @ValidateNested()
-  @Type(() => NetworkSpecDto)
   network?: NetworkSpecDto
 }

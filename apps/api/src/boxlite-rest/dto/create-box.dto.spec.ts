@@ -129,17 +129,27 @@ describe('CreateBoxDto network validation', () => {
   })
 
   it.each([
-    ['mode', { mode: 'disabled' }],
-    ['allow_net', { allow_net: ['api.openai.com'] }],
-    ['service_access', { service_access: 'private' }],
-  ])('rejects legacy flat network.%s', async (_field, network) => {
-    const errors = await validate(
-      plainToInstance(CreateBoxDto, {
-        network,
-      }),
-    )
+    ['mode', { mode: 'disabled' }, { outbound: { mode: 'disabled' } }],
+    [
+      'allow_net',
+      { allow_net: ['api.openai.com'] },
+      { outbound: { mode: 'enabled', allow_net: ['api.openai.com'] } },
+    ],
+    ['service_access', { service_access: 'private' }, { inbound: { mode: 'disabled' } }],
+  ])('accepts deprecated legacy flat network.%s, normalized to %j', async (_field, network, expected) => {
+    const instance = plainToInstance(CreateBoxDto, { network })
+    const errors = await validate(instance)
 
-    expect(JSON.stringify(errors)).toContain('isNestedNetworkSpec')
+    expect(errors).toEqual([])
+    expect(instance.network).toMatchObject(expected)
+  })
+
+  it('rejects legacy flat fields mixed with nested outbound/inbound', () => {
+    expect(() =>
+      plainToInstance(CreateBoxDto, {
+        network: { mode: 'enabled', outbound: { mode: 'disabled' } },
+      }),
+    ).toThrow('network must not mix legacy top-level fields with nested outbound/inbound fields')
   })
 
   it.each([
