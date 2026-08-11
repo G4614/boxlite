@@ -130,11 +130,7 @@ describe('CreateBoxDto network validation', () => {
 
   it.each([
     ['mode', { mode: 'disabled' }, { outbound: { mode: 'disabled' } }],
-    [
-      'allow_net',
-      { allow_net: ['api.openai.com'] },
-      { outbound: { mode: 'enabled', allow_net: ['api.openai.com'] } },
-    ],
+    ['allow_net', { allow_net: ['api.openai.com'] }, { outbound: { mode: 'enabled', allow_net: ['api.openai.com'] } }],
     ['service_access', { service_access: 'private' }, { inbound: { mode: 'disabled' } }],
   ])('accepts deprecated legacy flat network.%s, normalized to %j', async (_field, network, expected) => {
     const instance = plainToInstance(CreateBoxDto, { network })
@@ -142,6 +138,14 @@ describe('CreateBoxDto network validation', () => {
 
     expect(errors).toEqual([])
     expect(instance.network).toMatchObject(expected)
+  })
+
+  it('rejects an unsupported legacy service_access value', () => {
+    expect(() =>
+      plainToInstance(CreateBoxDto, {
+        network: { service_access: 'shared' },
+      }),
+    ).toThrow('network.service_access must be "public" or "private"')
   })
 
   it('rejects legacy flat fields mixed with nested outbound/inbound', () => {

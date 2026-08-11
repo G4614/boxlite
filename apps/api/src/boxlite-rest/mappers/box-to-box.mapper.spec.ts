@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
+import { Logger } from '@nestjs/common'
 import { BoxState } from '../../box/enums/box-state.enum'
 import { boxToBoxResponse, createBoxToCreateBox } from './box-to-box.mapper'
 
@@ -19,6 +20,34 @@ describe('BoxLite lifecycle policy mapper', () => {
     })
 
     expect(mapped.public).toBe(expected)
+  })
+
+  it('warns when an enabled inbound allowlist is accepted but not enforced', () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation()
+
+    createBoxToCreateBox({
+      network: {
+        outbound: { mode: 'enabled' },
+        inbound: { mode: 'enabled', allow_net: ['10.0.0.0/8'] },
+      },
+    })
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('inbound.allow_net is accepted but not yet enforced'))
+    warnSpy.mockRestore()
+  })
+
+  it('does not warn when inbound has no allowlist', () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation()
+
+    createBoxToCreateBox({
+      network: {
+        outbound: { mode: 'enabled' },
+        inbound: { mode: 'enabled' },
+      },
+    })
+
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
   })
 
   it('maps second-based create fields into the control-plane DTO', () => {

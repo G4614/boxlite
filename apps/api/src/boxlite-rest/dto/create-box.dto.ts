@@ -94,9 +94,7 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
   const hasNestedField = 'outbound' in network || 'inbound' in network
 
   if (hasLegacyField && hasNestedField) {
-    throw new BadRequestException(
-      'network must not mix legacy top-level fields with nested outbound/inbound fields',
-    )
+    throw new BadRequestException('network must not mix legacy top-level fields with nested outbound/inbound fields')
   }
   if (!hasLegacyField) {
     return plainToInstance(NetworkSpecDto, network)
@@ -107,10 +105,14 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
   )
 
   const { mode, allow_net, service_access, ...rest } = network
+  if (service_access !== undefined && service_access !== 'public' && service_access !== 'private') {
+    throw new BadRequestException(
+      `network.service_access must be "public" or "private", got ${JSON.stringify(service_access)}`,
+    )
+  }
   // allow_net alone (no explicit mode) implies enabled, matching outbound's
   // existing default — an allowlist with nothing to enable would be inert.
-  const outbound =
-    mode !== undefined || allow_net !== undefined ? { mode: mode ?? 'enabled', allow_net } : undefined
+  const outbound = mode !== undefined || allow_net !== undefined ? { mode: mode ?? 'enabled', allow_net } : undefined
   const inbound =
     service_access !== undefined ? { mode: service_access === 'public' ? 'enabled' : 'disabled' } : undefined
   return plainToInstance(NetworkSpecDto, { ...rest, outbound, inbound })
