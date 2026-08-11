@@ -46,9 +46,16 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   createDto.autoDelete = dto.auto_delete
   createDto.autoResume = dto.auto_resume
   if (dto.network) {
-    const allowNet = dto.network.allow_net?.map((entry) => entry.trim()).filter(Boolean)
-    createDto.networkBlockAll = dto.network.mode === 'disabled'
-    createDto.networkAllowList = dto.network.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
+    const allowNet = dto.network.outbound?.allow_net?.map((entry) => entry.trim()).filter(Boolean)
+    createDto.networkBlockAll = dto.network.outbound?.mode === 'disabled'
+    createDto.networkAllowList =
+      dto.network.outbound?.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
+    // The runner DTO only has a public/private boolean — inbound.allow_net
+    // has no downstream sink yet (no runner-side host-based inbound
+    // restriction), so it isn't mapped here.
+    createDto.public = dto.network.inbound?.mode
+      ? dto.network.inbound.mode === 'enabled'
+      : undefined
   }
   return createDto
 }

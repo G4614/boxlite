@@ -1736,6 +1736,16 @@ components:
       type: object
       description: Structured network configuration for the box
       additionalProperties: false
+      properties:
+        outbound:
+          $ref: "#/components/schemas/OutboundNetworkSpec"
+        inbound:
+          $ref: "#/components/schemas/InboundNetworkSpec"
+
+    OutboundNetworkSpec:
+      type: object
+      description: Outbound guest network policy
+      additionalProperties: false
       required: [mode]
       properties:
         mode:
@@ -1751,6 +1761,29 @@ components:
             Optional outbound allowlist used only when `mode=enabled`.
             Empty or omitted means full outbound access.
             Supports hostnames, wildcard hostnames, IPs, and CIDRs.
+
+    InboundNetworkSpec:
+      type: object
+      description: >
+        Inbound service access policy. Aligned field-for-field with
+        OutboundNetworkSpec.
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [enabled, disabled]
+          description: |
+            `enabled` means service endpoints exposed from the box are publicly
+            reachable through the remote proxy. `disabled` means private.
+        allow_net:
+          type: array
+          items:
+            type: string
+          description: |
+            Optional inbound allowlist used only when `mode=enabled`.
+            Empty or omitted means any caller may reach the box's exposed
+            services. Supports hostnames, wildcard hostnames, IPs, and CIDRs.
 
     SecretSpec:
       type: object

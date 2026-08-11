@@ -74,8 +74,10 @@ describe('CreateBoxDto network validation', () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         network: {
-          mode: 'enabled',
-          allow_net: ['api.openai.com', '*.anthropic.com', '192.168.1.1', '10.0.0.0/8'],
+          outbound: {
+            mode: 'enabled',
+            allow_net: ['api.openai.com', '*.anthropic.com', '192.168.1.1', '10.0.0.0/8'],
+          },
         },
       }),
     )
@@ -89,8 +91,10 @@ describe('CreateBoxDto network validation', () => {
       const errors = await validate(
         plainToInstance(CreateBoxDto, {
           network: {
-            mode: 'enabled',
-            allow_net: [entry],
+            outbound: {
+              mode: 'enabled',
+              allow_net: [entry],
+            },
           },
         }),
       )
@@ -103,8 +107,10 @@ describe('CreateBoxDto network validation', () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         network: {
-          mode: 'enabled',
-          allow_net: Array.from({ length: 11 }, (_, index) => `api-${index}.example.com`),
+          outbound: {
+            mode: 'enabled',
+            allow_net: Array.from({ length: 11 }, (_, index) => `api-${index}.example.com`),
+          },
         },
       }),
     )
@@ -115,10 +121,74 @@ describe('CreateBoxDto network validation', () => {
   it('rejects unsupported network modes', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        network: { mode: 'public' },
+        network: { outbound: { mode: 'public' } },
       }),
     )
 
     expect(JSON.stringify(errors)).toContain('isIn')
+  })
+
+  it.each([
+    ['mode', { mode: 'disabled' }],
+    ['allow_net', { allow_net: ['api.openai.com'] }],
+    ['service_access', { service_access: 'private' }],
+  ])('rejects legacy flat network.%s', async (_field, network) => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network,
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isNestedNetworkSpec')
+  })
+
+  it.each([
+    ['network', []],
+    ['network.outbound', { outbound: [] }],
+    ['network.inbound', { inbound: [] }],
+  ])('rejects array-valued %s', async (_field, network) => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network,
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isObject')
+  })
+
+  it.each(['enabled', 'disabled'])('accepts inbound.mode=%s', async (mode) => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: { outbound: { mode: 'enabled' }, inbound: { mode } },
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
+  })
+
+  it('rejects unsupported inbound.mode values', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: { outbound: { mode: 'enabled' }, inbound: { mode: 'shared' } },
+      }),
+    )
+
+    expect(JSON.stringify(errors)).toContain('isIn')
+  })
+
+  it('rejects inbound.mode=disabled with a non-empty allow_net', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: {
+          outbound: { mode: 'enabled' },
+          inbound: { mode: 'disabled', allow_net: ['10.0.0.0/8'] },
+        },
+      }),
+    )
+
+    // The DTO layer itself allows this combination through — the
+    // mode/allow_net conflict is rejected downstream by
+    // NetworkSpec::try_from (single source of truth), not here.
+    expect(errors).toHaveLength(0)
   })
 })

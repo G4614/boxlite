@@ -33,7 +33,22 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
-export class NetworkSpecDto {
+@ValidatorConstraint({ name: 'isNestedNetworkSpec', async: false })
+class IsNestedNetworkSpecConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (value === undefined || value === null || typeof value !== 'object') {
+      return true
+    }
+    const network = value as Record<string, unknown>
+    return !('mode' in network || 'allow_net' in network || 'service_access' in network)
+  }
+
+  defaultMessage(): string {
+    return 'network must use nested outbound/inbound fields'
+  }
+}
+
+export class OutboundNetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
 
@@ -43,6 +58,35 @@ export class NetworkSpecDto {
   @IsString({ each: true })
   @Validate(IsNetworkAllowEntryConstraint, { each: true })
   allow_net?: string[]
+}
+
+// Aligned field-for-field with OutboundNetworkSpecDto: mode="enabled" means
+// services the box exposes are publicly reachable (optionally restricted to
+// allow_net); mode="disabled" means private.
+export class InboundNetworkSpecDto {
+  @IsIn(['enabled', 'disabled'])
+  mode: 'enabled' | 'disabled'
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_NETWORK_ALLOW_LIST_ENTRIES)
+  @IsString({ each: true })
+  @Validate(IsNetworkAllowEntryConstraint, { each: true })
+  allow_net?: string[]
+}
+
+export class NetworkSpecDto {
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => OutboundNetworkSpecDto)
+  outbound?: OutboundNetworkSpecDto
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => InboundNetworkSpecDto)
+  inbound?: InboundNetworkSpecDto
 }
 
 export class CreateBoxDto {
@@ -111,6 +155,8 @@ export class CreateBoxDto {
   auto_resume?: boolean
 
   @IsOptional()
+  @IsObject()
+  @Validate(IsNestedNetworkSpecConstraint)
   @ValidateNested()
   @Type(() => NetworkSpecDto)
   network?: NetworkSpecDto
