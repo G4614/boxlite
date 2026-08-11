@@ -587,7 +587,7 @@ pub struct BoxOptions {
     /// Run independently of parent process (default: false)
     pub detach: bool,
 
-    /// Advanced options for expert users (capabilities, privileged mode, security, mount isolation).
+    /// Advanced options for expert users (capabilities, security, mount isolation).
     pub advanced: AdvancedBoxOptions,
 }
 ```
@@ -640,7 +640,6 @@ the isolation protections supported by the host platform.
 ```rust
 pub struct AdvancedBoxOptions {
     pub capabilities: ContainerCapabilities,
-    pub privileged: bool,
     pub security: SecurityOptions,
     pub isolate_mounts: bool,
     pub health_check: Option<HealthCheckOptions>,
@@ -650,7 +649,6 @@ pub struct AdvancedBoxOptions {
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `capabilities` | `ContainerCapabilities` | Empty add/drop lists | Linux capability delta policy for init and exec processes |
-| `privileged` | `bool` | `false` | Enable the complete guest-level privileged shape for DinD: all guest capabilities, writable `/sys`, guest cgroups, and guest devices |
 | `security` | `SecurityOptions` | `SecurityOptions::default()` (fully enabled profile; jailer enabled) | Security isolation options (jailer, seccomp, namespaces) |
 | `isolate_mounts` | `bool` | `false` | Enable bind mount isolation (requires CAP_SYS_ADMIN on Linux) |
 | `health_check` | `Option<HealthCheckOptions>` | `None` | Optional guest-agent health monitoring |
