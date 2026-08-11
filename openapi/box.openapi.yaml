@@ -1719,12 +1719,15 @@ components:
 
     VolumeSpec:
       type: object
-      description: Host-to-guest filesystem mount
-      required: [host_path, guest_path]
+      description: Filesystem mount attached to a box
+      required: [source, guest_path]
       properties:
-        host_path:
+        source:
           type: string
-          description: Path on the host filesystem
+          description: |
+            Scheme-qualified mount source. Use `volume://<volume_id>` for managed
+            volumes.
+          example: volume://vol_01K2EXAMPLE
         guest_path:
           type: string
           description: Mount point inside the container
