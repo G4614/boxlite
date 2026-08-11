@@ -27,6 +27,24 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
+  it('maps the deprecated host_path field to managed volume mounts', () => {
+    const mapped = createBoxToCreateBox({
+      volumes: [{ host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
+    })
+
+    expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
+  })
+
+  it('prefers source over host_path when both are present', () => {
+    const mapped = createBoxToCreateBox({
+      volumes: [
+        { source: 'volume://source-wins', host_path: 'volume://ignored', guest_path: '/data', read_only: false },
+      ],
+    })
+
+    expect(mapped.volumes).toEqual([{ volumeId: 'source-wins', mountPath: '/data' }])
+  })
+
   it('rejects non-volume scheme sources on the remote managed-volume mapper', () => {
     expect(() =>
       createBoxToCreateBox({

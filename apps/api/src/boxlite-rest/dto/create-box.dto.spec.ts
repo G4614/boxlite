@@ -140,14 +140,24 @@ describe('CreateBoxDto managed volumes', () => {
     expect(errors).toHaveLength(0)
   })
 
-  it('rejects volume mounts without a source', async () => {
+  it('rejects volume mounts with neither source nor host_path', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         volumes: [{ guest_path: '/data', read_only: false }],
       }),
     )
 
-    expect(JSON.stringify(errors)).toContain('isString')
+    expect(JSON.stringify(errors)).toContain('hasVolumeSource')
+  })
+
+  it('accepts the deprecated host_path in place of source', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ host_path: 'volume://volume-123', guest_path: '/data' }],
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
   })
 
   it('rejects read-only cloud volume mounts until the backend supports them', async () => {

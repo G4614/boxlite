@@ -1719,14 +1719,25 @@ components:
 
     VolumeSpec:
       type: object
-      description: Filesystem mount attached to a box
-      required: [source, guest_path]
+      description: |
+        Filesystem mount attached to a box. One of `source` or the deprecated
+        `host_path` is required.
+      required: [guest_path]
       properties:
         source:
           type: string
           description: |
             Scheme-qualified mount source. Use `volume://<volume_id>` for managed
             volumes.
+          example: volume://vol_01K2EXAMPLE
+        host_path:
+          type: string
+          deprecated: true
+          description: |
+            Deprecated alias for `source`, kept for backward compatibility with
+            existing /v1 clients built against the pre-managed-volumes schema.
+            Use `source` with the `volume://<volume_id>` scheme instead; this
+            field will be removed in a future API version.
           example: volume://vol_01K2EXAMPLE
         guest_path:
           type: string

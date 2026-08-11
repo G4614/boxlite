@@ -59,8 +59,12 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
 }
 
 function resolveVolumeId(volume: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
-  if (volume.source.startsWith('volume://')) {
-    const volumeId = volume.source.slice('volume://'.length)
+  // `host_path` is the deprecated pre-managed-volumes field name; DTO
+  // validation (HasVolumeSourceConstraint) already guarantees one of the two
+  // is present.
+  const source = volume.source ?? volume.host_path
+  if (source?.startsWith('volume://')) {
+    const volumeId = source.slice('volume://'.length)
     if (volumeId) {
       return volumeId
     }

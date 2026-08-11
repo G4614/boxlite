@@ -18,6 +18,7 @@ import {
   Validate,
   ValidateIf,
   ValidateNested,
+  ValidationArguments,
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator'
@@ -34,6 +35,21 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
+// Attached to `guest_path` (always validated) rather than `source`, since
+// `@IsOptional()` on `source` would skip a validator stacked on that same
+// property whenever `source` is absent - exactly the case this needs to see.
+@ValidatorConstraint({ name: 'hasVolumeSource', async: false })
+class HasVolumeSourceConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const volume = args.object as VolumeSpecDto
+    return typeof volume.source === 'string' || typeof volume.host_path === 'string'
+  }
+
+  defaultMessage(): string {
+    return 'volume requires source (or the deprecated host_path)'
+  }
+}
+
 export class NetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
@@ -47,10 +63,21 @@ export class NetworkSpecDto {
 }
 
 export class VolumeSpecDto {
+  @IsOptional()
   @IsString()
-  source: string
+  source?: string
+
+  /**
+   * @deprecated Use `source` with the `volume://<volume_id>` scheme instead.
+   * Accepted for backward compatibility with existing /v1 clients built
+   * against the pre-managed-volumes `VolumeSpec` schema; will be removed.
+   */
+  @IsOptional()
+  @IsString()
+  host_path?: string
 
   @IsString()
+  @Validate(HasVolumeSourceConstraint)
   guest_path: string
 
   @ValidateIf((_, value) => value !== undefined)
