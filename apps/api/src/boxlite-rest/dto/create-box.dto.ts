@@ -48,18 +48,31 @@ export class OutboundNetworkSpecDto {
   allow_net?: string[]
 }
 
+// Rejects any non-empty inbound allowlist: no layer enforces it yet (the
+// proxy gates purely on mode), so accepting one would hand the caller a
+// box that is fully open while they believe it is restricted. Lift this
+// once inbound allowlist enforcement lands.
+@ValidatorConstraint({ name: 'isUnsupportedInboundAllowNet', async: false })
+class IsUnsupportedInboundAllowNetConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    return value === undefined || (Array.isArray(value) && value.length === 0)
+  }
+
+  defaultMessage(): string {
+    return 'inbound.allow_net is not supported yet; remove it (inbound access is controlled by mode only)'
+  }
+}
+
 // Aligned field-for-field with OutboundNetworkSpecDto: mode="enabled" means
-// services the box exposes are publicly reachable (optionally restricted to
-// allow_net); mode="disabled" means private.
+// services the box exposes are publicly reachable; mode="disabled" means
+// private. allow_net exists for wire-shape symmetry but is rejected when
+// non-empty until enforcement exists.
 export class InboundNetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
 
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(MAX_NETWORK_ALLOW_LIST_ENTRIES)
-  @IsString({ each: true })
-  @Validate(IsNetworkAllowEntryConstraint, { each: true })
+  @Validate(IsUnsupportedInboundAllowNetConstraint)
   allow_net?: string[]
 }
 

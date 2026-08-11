@@ -190,19 +190,32 @@ describe('CreateBoxDto network validation', () => {
     expect(JSON.stringify(errors)).toContain('isIn')
   })
 
-  it('rejects inbound.mode=disabled with a non-empty allow_net', async () => {
+  // No layer enforces an inbound allowlist yet, so a non-empty allow_net
+  // is rejected outright — under either mode — rather than accepted as a
+  // restriction that silently doesn't apply.
+  it.each(['enabled', 'disabled'])('rejects a non-empty inbound.allow_net under mode=%s', async (mode) => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         network: {
           outbound: { mode: 'enabled' },
-          inbound: { mode: 'disabled', allow_net: ['10.0.0.0/8'] },
+          inbound: { mode, allow_net: ['10.0.0.0/8'] },
         },
       }),
     )
 
-    // The DTO layer itself allows this combination through — the
-    // mode/allow_net conflict is rejected downstream by
-    // NetworkSpec::try_from (single source of truth), not here.
+    expect(JSON.stringify(errors)).toContain('isUnsupportedInboundAllowNet')
+  })
+
+  it('accepts an explicitly empty inbound.allow_net', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        network: {
+          outbound: { mode: 'enabled' },
+          inbound: { mode: 'enabled', allow_net: [] },
+        },
+      }),
+    )
+
     expect(errors).toHaveLength(0)
   })
 })

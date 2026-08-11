@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { Logger } from '@nestjs/common'
 import { BoxDto } from '../../box/dto/box.dto'
 import { BoxState } from '../../box/enums/box-state.enum'
 import {
@@ -15,8 +14,6 @@ import {
 import { BoxResponseDto } from '../dto/box-response.dto'
 import { CreateBoxDto as RestCreateBoxDto } from '../dto/create-box.dto'
 import { CreateBoxDto } from '../../box/dto/create-box.dto'
-
-const logger = new Logger('BoxToBoxMapper')
 
 export function boxToBoxResponse(box: BoxDto): BoxResponseDto {
   return {
@@ -53,16 +50,9 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
     createDto.networkBlockAll = dto.network.outbound?.mode === 'disabled'
     createDto.networkAllowList =
       dto.network.outbound?.mode === 'enabled' && allowNet?.length ? allowNet.join(',') : undefined
-    // The runner DTO only has a public/private boolean — inbound.allow_net
-    // has no downstream sink yet (no runner-side host-based inbound
-    // restriction), so it isn't mapped here. Warn rather than silently
-    // dropping it: a caller who set an allowlist expecting it to restrict
-    // access would otherwise have no signal that the box is fully open.
-    if (dto.network.inbound?.mode === 'enabled' && dto.network.inbound?.allow_net?.length) {
-      logger.warn(
-        `inbound.allow_net is accepted but not yet enforced; all callers can still reach this box's exposed ports (allow_net=${JSON.stringify(dto.network.inbound.allow_net)})`,
-      )
-    }
+    // The runner DTO only has a public/private boolean; a non-empty
+    // inbound.allow_net never reaches here — the DTO rejects it at the
+    // request boundary until enforcement exists.
     createDto.public = dto.network.inbound?.mode ? dto.network.inbound.mode === 'enabled' : undefined
   }
   return createDto
