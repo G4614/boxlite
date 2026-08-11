@@ -1833,24 +1833,59 @@ components:
           type: boolean
           default: false
 
-    Volume:
+    VolumeState:
+      type: string
+      description: Managed volume lifecycle state
+      enum: [creating, ready, pending_create, pending_delete, deleting, deleted, error]
+
+    VolumeSummary:
       type: object
-      description: Managed persistent volume metadata
+      description: Managed persistent volume summary, as returned by the list endpoint
       additionalProperties: false
-      required: [id, created_at]
+      required: [id, name, state, created_at]
       properties:
         id:
           type: string
           description: Server-assigned managed volume identifier
+        name:
+          type: string
+          description: User-assigned volume name
+        state:
+          $ref: "#/components/schemas/VolumeState"
         created_at:
           type: string
           format: date-time
           description: Volume creation timestamp (UTC)
-        size_bytes:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Payload size when available
+
+    Volume:
+      type: object
+      description: Managed persistent volume detail, as returned by create/get
+      additionalProperties: false
+      required: [id, name, state, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: Server-assigned managed volume identifier
+        name:
+          type: string
+          description: User-assigned volume name
+        state:
+          $ref: "#/components/schemas/VolumeState"
+        created_at:
+          type: string
+          format: date-time
+          description: Volume creation timestamp (UTC)
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp (UTC)
+        last_used_at:
+          type: string
+          format: date-time
+          description: Last time the volume was attached to a box, if ever
+        error_reason:
+          type: string
+          description: Failure detail when state is "error"
 
     ListVolumesResponse:
       type: object
@@ -1860,7 +1895,7 @@ components:
         volumes:
           type: array
           items:
-            $ref: "#/components/schemas/Volume"
+            $ref: "#/components/schemas/VolumeSummary"
 
     NetworkSpec:
       type: object
