@@ -251,13 +251,13 @@ pub(crate) struct CreateBoxNetworkSpec {
 impl From<&crate::runtime::options::NetworkSpec> for CreateBoxNetworkSpec {
     fn from(spec: &crate::runtime::options::NetworkSpec) -> Self {
         let config = crate::runtime::options::NetworkConfig::from(spec);
-        let mode = match config.mode {
+        let mode = match config.outbound.mode {
             crate::runtime::options::NetworkMode::Enabled => "enabled",
             crate::runtime::options::NetworkMode::Disabled => "disabled",
         };
         Self {
             mode: mode.to_string(),
-            allow_net: config.allow_net,
+            allow_net: config.outbound.allow_net,
         }
     }
 }
@@ -673,9 +673,7 @@ mod tests {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
             cpus: Some(4),
             memory_mib: Some(1024),
-            network: NetworkSpec::Enabled {
-                allow_net: vec!["api.openai.com".into()],
-            },
+            network: NetworkSpec::enabled(vec!["api.openai.com".into()]),
             secrets: vec![Secret {
                 name: "openai".into(),
                 value: "sk-test".into(),
@@ -805,7 +803,7 @@ mod tests {
 
         let opts = BoxOptions {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
-            network: NetworkSpec::Disabled,
+            network: NetworkSpec::disabled(),
             ..Default::default()
         };
 

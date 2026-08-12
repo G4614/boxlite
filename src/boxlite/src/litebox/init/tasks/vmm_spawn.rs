@@ -14,7 +14,7 @@ use crate::rootfs::guest::{GuestRootfs, Strategy};
 use crate::runtime::constants::{guest_paths, mount_tags};
 use crate::runtime::id::BoxID;
 use crate::runtime::layout::BoxFilesystemLayout;
-use crate::runtime::options::BoxOptions;
+use crate::runtime::options::{BoxOptions, OutboundNetworkSpec};
 use crate::runtime::rt_impl::SharedRuntimeImpl;
 use crate::runtime::types::ContainerID;
 use crate::util::find_binary;
@@ -260,10 +260,7 @@ async fn build_config(
         guest_rootfs,
         network_backend_spec,
         network_backend_endpoint: None,
-        disable_network: matches!(
-            options.network,
-            crate::runtime::options::NetworkSpec::Disabled
-        ),
+        disable_network: matches!(options.network.outbound, OutboundNetworkSpec::Disabled),
         home_dir: runtime.layout.home_dir().to_path_buf(),
         // Diagnostic files in box_dir (preserved on crash)
         console_output: Some(layout.console_output_path()),
@@ -359,9 +356,9 @@ fn build_network_backend(
     runtime: &SharedRuntimeImpl,
 ) -> BoxliteResult<Option<Box<dyn NetworkBackend>>> {
     // Disabled = no network at all.
-    let allow_net = match &options.network {
-        crate::runtime::options::NetworkSpec::Enabled { allow_net } => allow_net.clone(),
-        crate::runtime::options::NetworkSpec::Disabled => return Ok(None),
+    let allow_net = match &options.network.outbound {
+        OutboundNetworkSpec::Enabled { allow_net } => allow_net.clone(),
+        OutboundNetworkSpec::Disabled => return Ok(None),
     };
 
     let config = NetworkBackendConfig {
@@ -379,10 +376,7 @@ fn unpublished_exposed_tcp_ports(
     image_config: &ContainerImageConfig,
     options: &BoxOptions,
 ) -> Vec<u16> {
-    if matches!(
-        options.network,
-        crate::runtime::options::NetworkSpec::Disabled
-    ) {
+    if matches!(options.network.outbound, OutboundNetworkSpec::Disabled) {
         return Vec::new();
     }
 
@@ -462,7 +456,7 @@ mod tests {
         );
 
         let disabled_options = BoxOptions {
-            network: crate::runtime::options::NetworkSpec::Disabled,
+            network: crate::runtime::options::NetworkSpec::disabled(),
             ..Default::default()
         };
         assert!(

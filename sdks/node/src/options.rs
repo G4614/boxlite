@@ -4,8 +4,9 @@ use std::time::Duration;
 use boxlite::runtime::advanced_options::{AdvancedBoxOptions, HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
-    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret, VolumeSpec,
+    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkConfig,
+    NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig, PortProtocol, PortSpec,
+    RegistryTransport, RootfsSpec, Secret, VolumeSpec,
 };
 use napi::bindgen_prelude::Error;
 use napi_derive::napi;
@@ -393,8 +394,11 @@ impl TryFrom<JsNetworkSpec> for NetworkSpec {
     fn try_from(js_spec: JsNetworkSpec) -> Result<Self, Self::Error> {
         let mode = js_spec.mode.parse::<NetworkMode>()?;
         NetworkSpec::try_from(NetworkConfig {
-            mode,
-            allow_net: js_spec.allow_net.unwrap_or_default(),
+            outbound: OutboundNetworkConfig {
+                mode,
+                allow_net: js_spec.allow_net.unwrap_or_default(),
+            },
+            inbound: InboundNetworkConfig::default(),
         })
     }
 }
@@ -855,11 +859,13 @@ mod tests {
         assert_eq!(opts.auto_delete, None);
         assert!(opts.advanced.capabilities.add.is_empty());
         assert!(opts.advanced.capabilities.drop.is_empty());
-        match opts.network {
-            NetworkSpec::Enabled { allow_net } => {
+        match opts.network.outbound {
+            boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
             }
-            NetworkSpec::Disabled => panic!("network should be enabled"),
+            boxlite::runtime::options::OutboundNetworkSpec::Disabled => {
+                panic!("network should be enabled")
+            }
         }
     }
 

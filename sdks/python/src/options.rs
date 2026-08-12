@@ -5,8 +5,9 @@ use boxlite::litebox::copy::CopyOptions;
 use boxlite::runtime::advanced_options::{HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
-    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkConfig, NetworkMode,
-    NetworkSpec, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, VolumeSpec,
+    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkConfig,
+    NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig, PortProtocol, PortSpec,
+    RegistryTransport, RootfsSpec, VolumeSpec,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -277,8 +278,11 @@ impl TryFrom<PyNetworkSpec> for NetworkSpec {
     fn try_from(py_spec: PyNetworkSpec) -> Result<Self, Self::Error> {
         let mode = py_spec.mode.parse::<NetworkMode>()?;
         NetworkSpec::try_from(NetworkConfig {
-            mode,
-            allow_net: py_spec.allow_net,
+            outbound: OutboundNetworkConfig {
+                mode,
+                allow_net: py_spec.allow_net,
+            },
+            inbound: InboundNetworkConfig::default(),
         })
     }
 }
