@@ -659,7 +659,7 @@ mod tests {
                 id: ContainerID::new(),
             },
             options: BoxOptions {
-                network: crate::runtime::options::NetworkSpec::enabled(vec![
+                network: crate::runtime::options::NetworkSpec::outbound_enabled(vec![
                     "api.example.com".to_string(),
                 ]),
                 ..Default::default()

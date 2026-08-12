@@ -1273,7 +1273,7 @@ pub async fn execute(args: ServeArgs, global: &GlobalFlags) -> anyhow::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boxlite::runtime::options::InboundNetworkSpec;
+    use boxlite::runtime::options::{InboundNetworkSpec, OutboundNetworkSpec};
     use std::time::Duration;
 
     // --- API-key auth decision (pure; no runtime/network needed) ---
@@ -1429,12 +1429,10 @@ mod tests {
         .expect("nested network body must deserialize");
         let opts = build_box_options(&req).expect("build");
         match opts.network.outbound {
-            boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
+            OutboundNetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["api.openai.com"]);
             }
-            boxlite::runtime::options::OutboundNetworkSpec::Disabled => {
-                panic!("network should be enabled")
-            }
+            OutboundNetworkSpec::Disabled => panic!("network should be enabled"),
         }
         assert!(
             matches!(opts.network.inbound, InboundNetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())

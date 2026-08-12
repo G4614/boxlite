@@ -404,7 +404,7 @@ pub unsafe fn options_add_port(
 pub unsafe fn options_set_network_enabled(handle: *mut OptionsHandle) {
     unsafe {
         if !handle.is_null() {
-            (*handle).options.network = NetworkSpec::enabled(Vec::new());
+            (*handle).options.network = NetworkSpec::outbound_enabled(Vec::new());
         }
     }
 }
@@ -412,7 +412,7 @@ pub unsafe fn options_set_network_enabled(handle: *mut OptionsHandle) {
 pub unsafe fn options_set_network_disabled(handle: *mut OptionsHandle) {
     unsafe {
         if !handle.is_null() {
-            (*handle).options.network = NetworkSpec::disabled();
+            (*handle).options.network = NetworkSpec::outbound_disabled();
         }
     }
 }

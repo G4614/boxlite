@@ -1421,7 +1421,7 @@ mod tests {
             .apply_to(&mut opts)
             .expect_err("unknown mode must error");
 
-        assert!(err.to_string().contains("network.mode"));
+        assert!(err.to_string().contains("network mode"));
     }
 
     fn process_flags_with_entrypoint(entrypoint: Option<&str>) -> ProcessFlags {

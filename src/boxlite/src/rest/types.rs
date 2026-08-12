@@ -673,7 +673,7 @@ mod tests {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
             cpus: Some(4),
             memory_mib: Some(1024),
-            network: NetworkSpec::enabled(vec!["api.openai.com".into()]),
+            network: NetworkSpec::outbound_enabled(vec!["api.openai.com".into()]),
             secrets: vec![Secret {
                 name: "openai".into(),
                 value: "sk-test".into(),
@@ -803,7 +803,7 @@ mod tests {
 
         let opts = BoxOptions {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
-            network: NetworkSpec::disabled(),
+            network: NetworkSpec::outbound_disabled(),
             ..Default::default()
         };
 

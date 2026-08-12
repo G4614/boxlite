@@ -585,7 +585,7 @@ impl BoxOptions {
         if matches!(self.network.outbound, OutboundNetworkSpec::Disabled) && !self.ports.is_empty()
         {
             return Err(boxlite_shared::errors::BoxliteError::Config(
-                "ports require network.mode=\"enabled\"".to_string(),
+                "ports require network.outbound.mode=\"enabled\"".to_string(),
             ));
         }
 
@@ -668,7 +668,7 @@ impl std::str::FromStr for NetworkMode {
             "enabled" => Ok(Self::Enabled),
             "disabled" => Ok(Self::Disabled),
             _ => Err(boxlite_shared::errors::BoxliteError::Config(format!(
-                "invalid network.mode {:?}. Expected \"enabled\" or \"disabled\".",
+                "invalid network mode {:?}. Expected \"enabled\" or \"disabled\".",
                 value
             ))),
         }
@@ -716,7 +716,7 @@ impl TryFrom<NetworkConfig> for NetworkSpec {
             },
             NetworkMode::Disabled if !config.outbound.allow_net.is_empty() => {
                 return Err(boxlite_shared::errors::BoxliteError::Config(
-                    "network.mode=\"disabled\" is incompatible with allow_net. \
+                    "network.outbound.mode=\"disabled\" is incompatible with allow_net. \
                      Remove allow_net or use mode=\"enabled\"."
                         .to_string(),
                 ));
@@ -891,14 +891,19 @@ impl Default for InboundNetworkSpec {
 }
 
 impl NetworkSpec {
-    pub fn enabled(allow_net: Vec<String>) -> Self {
+    /// Spec with outbound egress enabled (empty `allow_net` = full access)
+    /// and inbound left at its default (`Enabled`/public).
+    pub fn outbound_enabled(allow_net: Vec<String>) -> Self {
         Self {
             outbound: OutboundNetworkSpec::Enabled { allow_net },
             inbound: InboundNetworkSpec::default(),
         }
     }
 
-    pub fn disabled() -> Self {
+    /// Spec with outbound disabled — the guest gets no network interface at
+    /// all — and inbound left at its default (`Enabled`/public), which is
+    /// moot without a NIC.
+    pub fn outbound_disabled() -> Self {
         Self {
             outbound: OutboundNetworkSpec::Disabled,
             inbound: InboundNetworkSpec::default(),
@@ -1546,7 +1551,7 @@ mod tests {
     #[test]
     fn test_network_mode_from_str_rejects_invalid_values() {
         let err = "broken".parse::<NetworkMode>().unwrap_err().to_string();
-        assert!(err.contains("invalid network.mode"));
+        assert!(err.contains("invalid network mode"));
     }
 
     #[test]
@@ -1615,12 +1620,12 @@ mod tests {
         .unwrap_err()
         .to_string();
 
-        assert!(err.contains("network.mode=\"disabled\""));
+        assert!(err.contains("network.outbound.mode=\"disabled\""));
     }
 
     #[test]
     fn test_network_spec_converts_to_public_network_config() {
-        let config = NetworkConfig::from(&NetworkSpec::disabled());
+        let config = NetworkConfig::from(&NetworkSpec::outbound_disabled());
         assert_eq!(config.outbound.mode, NetworkMode::Disabled);
         assert!(config.outbound.allow_net.is_empty());
     }

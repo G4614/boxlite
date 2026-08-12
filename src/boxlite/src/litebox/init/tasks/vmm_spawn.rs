@@ -456,7 +456,7 @@ mod tests {
         );
 
         let disabled_options = BoxOptions {
-            network: crate::runtime::options::NetworkSpec::disabled(),
+            network: crate::runtime::options::NetworkSpec::outbound_disabled(),
             ..Default::default()
         };
         assert!(

@@ -617,6 +617,7 @@ impl From<&JsBoxliteRestOptions> for boxlite::BoxliteRestOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boxlite::runtime::options::OutboundNetworkSpec;
 
     fn js_registry(host: &str) -> JsImageRegistry {
         JsImageRegistry {
@@ -860,12 +861,10 @@ mod tests {
         assert!(opts.advanced.capabilities.add.is_empty());
         assert!(opts.advanced.capabilities.drop.is_empty());
         match opts.network.outbound {
-            boxlite::runtime::options::OutboundNetworkSpec::Enabled { allow_net } => {
+            OutboundNetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
             }
-            boxlite::runtime::options::OutboundNetworkSpec::Disabled => {
-                panic!("network should be enabled")
-            }
+            OutboundNetworkSpec::Disabled => panic!("network should be enabled"),
         }
     }
 
@@ -916,6 +915,9 @@ mod tests {
         })
         .unwrap_err();
 
-        assert!(err.to_string().contains("network.mode=\"disabled\""));
+        assert!(
+            err.to_string()
+                .contains("network.outbound.mode=\"disabled\"")
+        );
     }
 }

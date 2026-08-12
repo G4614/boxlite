@@ -23,7 +23,8 @@ fn default_is_enabled_with_empty_allowlist() {
 
 #[test]
 fn serde_enabled_roundtrip() {
-    let spec = NetworkSpec::enabled(vec!["api.openai.com".into(), "*.anthropic.com".into()]);
+    let spec =
+        NetworkSpec::outbound_enabled(vec!["api.openai.com".into(), "*.anthropic.com".into()]);
     let json = serde_json::to_string(&spec).unwrap();
     let rt: NetworkSpec = serde_json::from_str(&json).unwrap();
     match rt.outbound {
@@ -34,7 +35,7 @@ fn serde_enabled_roundtrip() {
 
 #[test]
 fn serde_disabled_roundtrip() {
-    let spec = NetworkSpec::disabled();
+    let spec = NetworkSpec::outbound_disabled();
     let json = serde_json::to_string(&spec).unwrap();
     let rt: NetworkSpec = serde_json::from_str(&json).unwrap();
     assert!(matches!(rt.outbound, OutboundNetworkSpec::Disabled));
@@ -52,7 +53,7 @@ fn box_options_default_has_enabled_network() {
 #[test]
 fn box_options_with_allowlist_serde() {
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["api.openai.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["api.openai.com".into()]),
         ..Default::default()
     };
     let json = serde_json::to_string(&opts).unwrap();
@@ -76,7 +77,7 @@ async fn disabled_network_returns_no_network_config() {
 
     // Box with Disabled network should still create (just no eth0)
     let opts = BoxOptions {
-        network: NetworkSpec::disabled(),
+        network: NetworkSpec::outbound_disabled(),
         ..common::alpine_opts()
     };
     let litebox = runtime.create(opts, None).await.unwrap();
@@ -93,7 +94,7 @@ async fn disabled_network_runs_without_eth0() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::disabled(),
+        network: NetworkSpec::outbound_disabled(),
         ..common::alpine_opts()
     };
 
@@ -336,7 +337,7 @@ async fn dns_sinkhole_blocks_unlisted_host() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["example.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -364,7 +365,7 @@ async fn dns_sinkhole_allows_listed_host() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["example.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -392,7 +393,7 @@ async fn empty_allowlist_allows_all() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec![]),
+        network: NetworkSpec::outbound_enabled(vec![]),
         ..common::alpine_opts()
     };
 
@@ -420,7 +421,7 @@ async fn tcp_filter_blocks_direct_ip_connection() {
 
     // Allow only example.com — direct IP connections should be blocked
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["example.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -463,7 +464,7 @@ async fn udp_filter_blocks_direct_ip_datagram() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["example.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -499,7 +500,7 @@ async fn udp_to_host_alias_blocked_by_restrictive_allowlist() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["example.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -536,7 +537,7 @@ async fn udp_reaches_host_alias_when_listed() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec![HOST_IP.into()]),
+        network: NetworkSpec::outbound_enabled(vec![HOST_IP.into()]),
         ..common::alpine_opts()
     };
 
@@ -568,7 +569,7 @@ async fn tcp_filter_sni_allows_https_to_allowed_host() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["example.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -652,7 +653,7 @@ async fn host_alias_blocked_by_restrictive_allowlist() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec!["example.com".into()]),
+        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
         ..common::alpine_opts()
     };
 
@@ -692,7 +693,7 @@ async fn host_alias_reaches_host_loopback_service_when_listed() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::enabled(vec![HOST_IP.into()]),
+        network: NetworkSpec::outbound_enabled(vec![HOST_IP.into()]),
         ..common::alpine_opts()
     };
 
@@ -723,7 +724,7 @@ async fn disabled_network_cannot_reach_host_virtual_ip() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::disabled(),
+        network: NetworkSpec::outbound_disabled(),
         ..common::alpine_opts()
     };
 
