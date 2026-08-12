@@ -386,16 +386,17 @@ message ContainerConfig {
 message ContainerAdvancedOptions {
   ContainerCapabilities capabilities = 1;
 
-  // OCI masked-path list, host-resolved. Empty means unconfined.
-  repeated string masked_paths = 2;
-
   // OCI read-only-path list, host-resolved. Empty means unconfined.
-  repeated string readonly_paths = 3;
+  repeated string readonly_paths = 2;
 
   // Full option list for the container's /sys recursive bind (including
   // cgroup2), host-resolved. The guest applies it verbatim — no flag to
   // reinterpret.
-  repeated string sys_mount_options = 4;
+  repeated string sys_mount_options = 3;
+
+  // No masked-path field: masked paths never varied with `privileged` in
+  // practice (see docs/architecture/privileged-mode-design.md, Trade-offs) —
+  // the guest keeps applying its own oci-spec default unconditionally.
 }
 
 message ContainerCapabilities {

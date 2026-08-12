@@ -141,14 +141,13 @@ async fn run_guest_init(
             .require_min_version(MIN_CAPABILITY_GUEST_VERSION)
             .await?;
     }
-    // `resolve_container_security` clears both lists together only for a
-    // privileged box (see advanced_options.rs); an older guest's Container.Init
-    // doesn't understand masked_paths/readonly_paths/sys_mount_options at all
-    // and would silently keep its own hardened defaults, so privileged mode
-    // needs a version gate the same way capability overrides do.
-    if bootstrap.container.advanced.masked_paths.is_empty()
-        && bootstrap.container.advanced.readonly_paths.is_empty()
-    {
+    // An older guest's Container.Init doesn't understand
+    // readonly_paths/sys_mount_options at all and would silently keep its own
+    // hardened defaults, so privileged mode needs a version gate the same way
+    // capability overrides do. (No masked_paths here: it never varies with
+    // `privileged` — see advanced_options.rs — so it carries no version
+    // requirement of its own.)
+    if bootstrap.container.advanced.readonly_paths.is_empty() {
         guest_interface
             .require_min_version(MIN_PRIVILEGED_CONTAINER_GUEST_VERSION)
             .await?;

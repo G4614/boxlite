@@ -69,15 +69,17 @@ pub(crate) struct CapabilitySet(HashSet<Capability>);
 /// The guest's resolved security policy for one container.
 ///
 /// The host has already resolved high-level security semantics into the
-/// literal OCI values below — `masked_paths`/`readonly_paths`/
-/// `sys_mount_options` are applied verbatim, never re-derived here (see
-/// docs/architecture/privileged-mode-design.md, Trade-offs, option F). The
-/// guest resolves only `capabilities`: canonical add/drop names against its
-/// own kernel, the one thing the host cannot know across the VM boundary.
+/// literal OCI values below — `readonly_paths`/`sys_mount_options` are
+/// applied verbatim, never re-derived here (see
+/// docs/architecture/privileged-mode-design.md, Trade-offs, option F). No
+/// `masked_paths`: nothing in the DinD workflow reads a masked path, so the
+/// guest keeps applying its own oci-spec default unconditionally, unaffected
+/// by `privileged`. The guest resolves only `capabilities`: canonical
+/// add/drop names against its own kernel, the one thing the host cannot know
+/// across the VM boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedSecurityPolicy {
     pub(crate) capabilities: CapabilitySet,
-    pub(crate) masked_paths: Vec<String>,
     pub(crate) readonly_paths: Vec<String>,
     pub(crate) sys_mount_options: Vec<String>,
 }
@@ -85,13 +87,11 @@ pub(crate) struct ResolvedSecurityPolicy {
 impl ResolvedSecurityPolicy {
     pub(crate) fn from_resolved(
         policy: ContainerCapabilities,
-        masked_paths: Vec<String>,
         readonly_paths: Vec<String>,
         sys_mount_options: Vec<String>,
     ) -> BoxliteResult<Self> {
         Ok(Self {
             capabilities: CapabilitySet::resolve(&policy.add, &policy.drop)?,
-            masked_paths,
             readonly_paths,
             sys_mount_options,
         })
@@ -295,7 +295,6 @@ mod tests {
                 ..Default::default()
             },
             Vec::new(),
-            Vec::new(),
             vec![
                 "rbind".into(),
                 "nosuid".into(),
@@ -305,7 +304,6 @@ mod tests {
         )
         .expect("security policy should resolve");
 
-        assert!(policy.masked_paths.is_empty());
         assert!(policy.readonly_paths.is_empty());
         assert!(!policy.sys_mount_options.contains(&"rro".to_string()));
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
@@ -314,18 +312,16 @@ mod tests {
 
     /// Capabilities and OCI paths are separate knobs the host resolves
     /// independently: capability escalation (`ALL`) does not imply the host
-    /// also cleared masked/readonly paths — the guest applies whatever it was
-    /// sent, verbatim, with no re-derivation from the capability policy.
+    /// also cleared readonly paths — the guest applies whatever it was sent,
+    /// verbatim, with no re-derivation from the capability policy.
     #[test]
     fn all_capabilities_with_hardened_paths_keeps_them_readonly() {
         let readonly_paths = vec!["/proc/sys".to_string()];
-        let masked_paths = vec!["/proc/acpi".to_string()];
         let policy = ResolvedSecurityPolicy::from_resolved(
             ContainerCapabilities {
                 add: vec!["ALL".into()],
                 ..Default::default()
             },
-            masked_paths.clone(),
             readonly_paths.clone(),
             vec![
                 "rbind".into(),
@@ -338,7 +334,6 @@ mod tests {
         .expect("capability-only policy should resolve");
 
         assert_eq!(policy.readonly_paths, readonly_paths);
-        assert_eq!(policy.masked_paths, masked_paths);
         assert!(policy.capabilities.contains(&Capability::SysAdmin));
     }
 

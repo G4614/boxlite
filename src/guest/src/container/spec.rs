@@ -167,7 +167,6 @@ pub fn create_oci_spec(
     tracing::info!(
         container_id,
         sys_mount_options = ?security_policy.sys_mount_options,
-        masked_paths_count = security_policy.masked_paths.len(),
         readonly_paths_count = security_policy.readonly_paths.len(),
         "building container spec"
     );
@@ -211,7 +210,6 @@ pub fn create_oci_spec(
         container_id,
         namespaces,
         devices.as_slice(),
-        security_policy.masked_paths.clone(),
         security_policy.readonly_paths.clone(),
     )?;
 
@@ -494,14 +492,17 @@ fn build_root_spec(rootfs: &str) -> BoxliteResult<oci_spec::runtime::Root> {
 
 /// Build Linux-specific configuration
 ///
-/// `masked_paths`/`readonly_paths` are host-resolved literal OCI values,
-/// assigned verbatim — the guest no longer decides what "unconfined" means
-/// (see docs/architecture/privileged-mode-design.md, Trade-offs, option F).
+/// `readonly_paths` is a host-resolved literal OCI value, assigned verbatim —
+/// the guest no longer decides what "unconfined" means for it (see
+/// docs/architecture/privileged-mode-design.md, Trade-offs, option F).
+/// Masked paths are deliberately absent here: nothing in the DinD workflow
+/// reads a masked path, so this never calls `.masked_paths(..)` at all and
+/// the builder fills its own oci-spec default, unconditionally, exactly as it
+/// did before `privileged` existed.
 fn build_linux_spec(
     container_id: &str,
     namespaces: Vec<oci_spec::runtime::LinuxNamespace>,
     devices: &[LinuxDevice],
-    masked_paths: Vec<String>,
     readonly_paths: Vec<String>,
 ) -> BoxliteResult<oci_spec::runtime::Linux> {
     // UID/GID mappings for user namespace
@@ -528,7 +529,6 @@ fn build_linux_spec(
         .namespaces(namespaces)
         .uid_mappings(uid_mappings)
         .gid_mappings(gid_mappings)
-        .masked_paths(masked_paths)
         .readonly_paths(readonly_paths);
 
     // No device-cgroup rule: tested and found unnecessary for DinD (see
@@ -687,14 +687,7 @@ mod tests {
         }])
         .unwrap();
 
-        let linux = build_linux_spec(
-            "test-box",
-            vec![],
-            devices.as_slice(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
+        let linux = build_linux_spec("test-box", vec![], devices.as_slice(), Vec::new()).unwrap();
         let mapped = linux.devices().as_ref().expect("mapped device");
         assert_eq!(mapped.len(), 1);
         let device = &mapped[0];
@@ -713,7 +706,6 @@ mod tests {
             "test-box",
             vec![],
             ContainerDevices::default().as_slice(),
-            Vec::new(),
             Vec::new(),
         )
         .unwrap();
@@ -1192,54 +1184,55 @@ mod tests {
     // Privileged (DinD) plumbing
     // ==================
 
-    /// `build_linux_spec` assigns whatever masked/readonly paths it is given,
-    /// verbatim — it no longer decides what "unconfined" means (see
+    /// `build_linux_spec` assigns whatever readonly paths it is given,
+    /// verbatim — it no longer decides what "unconfined" means for them (see
     /// docs/architecture/privileged-mode-design.md, Trade-offs, option F).
     /// The privileged-vs-hardened decision itself is tested where it's made:
-    /// `advanced_options::resolve_container_security`.
+    /// `advanced_options::resolve_container_security`. Masked paths are
+    /// deliberately absent from the function's inputs — see the next test.
     #[test]
-    fn linux_spec_assigns_host_resolved_paths_verbatim() {
+    fn linux_spec_assigns_host_resolved_readonly_paths_verbatim() {
         let devices = ContainerDevices::default();
-        let masked = vec!["/proc/acpi".to_string(), "/sys/firmware".to_string()];
         let readonly = vec!["/proc/sys".to_string()];
 
-        let linux = build_linux_spec(
-            "c",
-            vec![],
-            devices.as_slice(),
-            masked.clone(),
-            readonly.clone(),
-        )
-        .unwrap();
+        let linux = build_linux_spec("c", vec![], devices.as_slice(), readonly.clone()).unwrap();
 
-        assert_eq!(linux.masked_paths().as_deref(), Some(masked.as_slice()));
         assert_eq!(linux.readonly_paths().as_deref(), Some(readonly.as_slice()));
     }
 
+    /// Nothing in the DinD workflow reads a masked path (see
+    /// docs/architecture/privileged-mode-design.md, Trade-offs), so
+    /// `build_linux_spec` never calls `.masked_paths(..)` at all — this stays
+    /// at oci-spec's own default regardless of what `readonly_paths` carries.
+    /// Pinned to the exact list for the same no-silent-drift reason as
+    /// `advanced_options::unprivileged_resolves_hardened_path_defaults`.
     #[test]
-    fn linux_spec_assigns_empty_paths_verbatim() {
+    fn linux_spec_never_touches_masked_paths() {
         let devices = ContainerDevices::default();
-        let linux =
-            build_linux_spec("c", vec![], devices.as_slice(), Vec::new(), Vec::new()).unwrap();
+        let expected_default = oci_spec::runtime::get_default_maskedpaths();
 
-        assert!(linux.masked_paths().as_ref().is_some_and(|p| p.is_empty()));
-        assert!(linux
-            .readonly_paths()
-            .as_ref()
-            .is_some_and(|p| p.is_empty()));
-
-        // Device-cgroup policy no longer varies with path shape — tested and
-        // found unnecessary for DinD; both get whatever oci-spec's own
-        // Linux::default() supplies, unmodified.
         let hardened = build_linux_spec(
             "c",
             vec![],
             devices.as_slice(),
-            vec!["/proc/acpi".to_string()],
             vec!["/proc/sys".to_string()],
         )
         .unwrap();
-        assert_eq!(linux.resources(), hardened.resources());
+        let unconfined = build_linux_spec("c", vec![], devices.as_slice(), Vec::new()).unwrap();
+
+        assert_eq!(
+            hardened.masked_paths().as_deref(),
+            Some(expected_default.as_slice())
+        );
+        assert_eq!(
+            unconfined.masked_paths().as_deref(),
+            Some(expected_default.as_slice())
+        );
+
+        // Device-cgroup policy no longer varies with path shape either —
+        // tested and found unnecessary for DinD; both get whatever oci-spec's
+        // own Linux::default() supplies, unmodified.
+        assert_eq!(hardened.resources(), unconfined.resources());
     }
 
     /// `build_standard_mounts` assigns the `/sys` bind's options verbatim — no
@@ -1279,12 +1272,9 @@ mod tests {
             return;
         };
 
-        let spec_for = |masked_paths: Vec<String>,
-                        readonly_paths: Vec<String>,
-                        sys_mount_options: Vec<String>| {
+        let spec_for = |readonly_paths: Vec<String>, sys_mount_options: Vec<String>| {
             let security_policy = ResolvedSecurityPolicy {
                 capabilities: full_caps.clone(),
-                masked_paths,
                 readonly_paths,
                 sys_mount_options,
             };
@@ -1306,7 +1296,6 @@ mod tests {
         };
 
         let hardened = spec_for(
-            vec!["/proc/acpi".to_string()],
             vec!["/proc/sys".to_string()],
             vec![
                 "rbind".to_string(),
@@ -1321,13 +1310,8 @@ mod tests {
             linux.readonly_paths().as_deref(),
             Some(["/proc/sys".to_string()].as_slice())
         );
-        assert_eq!(
-            linux.masked_paths().as_deref(),
-            Some(["/proc/acpi".to_string()].as_slice())
-        );
 
         let unconfined = spec_for(
-            Vec::new(),
             Vec::new(),
             vec![
                 "rbind".to_string(),
@@ -1341,7 +1325,13 @@ mod tests {
             .readonly_paths()
             .as_ref()
             .is_some_and(|p| p.is_empty()));
-        assert!(linux.masked_paths().as_ref().is_some_and(|p| p.is_empty()));
+        // Masked paths never move with the hardened/unconfined shape — both
+        // specs get the same oci-spec default, unconditionally (see
+        // linux_spec_never_touches_masked_paths).
+        assert_eq!(
+            hardened.linux().as_ref().unwrap().masked_paths(),
+            linux.masked_paths()
+        );
 
         let sys_mount = unconfined
             .mounts()

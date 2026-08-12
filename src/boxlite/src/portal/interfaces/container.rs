@@ -93,7 +93,6 @@ pub struct ContainerInitConfig {
 #[derive(Debug, Clone, Default)]
 pub struct ContainerAdvancedConfig {
     pub capabilities: ContainerCapabilities,
-    pub(crate) masked_paths: Vec<String>,
     pub(crate) readonly_paths: Vec<String>,
     pub(crate) sys_mount_options: Vec<String>,
 }
@@ -102,7 +101,6 @@ impl From<ResolvedContainerSecurityConfig> for ContainerAdvancedConfig {
     fn from(value: ResolvedContainerSecurityConfig) -> Self {
         Self {
             capabilities: value.capabilities,
-            masked_paths: value.masked_paths,
             readonly_paths: value.readonly_paths,
             sys_mount_options: value.sys_mount_options,
         }
@@ -151,7 +149,6 @@ impl ContainerInterface {
                     add: advanced.capabilities.add,
                     drop: advanced.capabilities.drop,
                 }),
-                masked_paths: advanced.masked_paths,
                 readonly_paths: advanced.readonly_paths,
                 sys_mount_options: advanced.sys_mount_options,
             }),
@@ -465,7 +462,6 @@ mod tests {
                         add: vec!["ALL".into()],
                         ..Default::default()
                     },
-                    masked_paths: Vec::new(),
                     readonly_paths: Vec::new(),
                     sys_mount_options: vec![
                         "rbind".to_string(),
@@ -490,7 +486,6 @@ mod tests {
         let advanced = container_config.advanced.expect("advanced options");
         // Non-default resolved values, so they prove the fields are threaded
         // verbatim rather than defaulted or recomputed on the way to the wire.
-        assert!(advanced.masked_paths.is_empty());
         assert!(advanced.readonly_paths.is_empty());
         assert!(!advanced.sys_mount_options.contains(&"rro".to_string()));
     }

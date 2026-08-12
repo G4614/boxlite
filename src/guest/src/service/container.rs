@@ -190,7 +190,6 @@ impl ContainerService for GuestServer {
         let advanced = config.advanced.unwrap_or_default();
         let security_policy = ResolvedSecurityPolicy::from_resolved(
             advanced.capabilities.unwrap_or_default(),
-            advanced.masked_paths,
             advanced.readonly_paths,
             advanced.sys_mount_options,
         )
