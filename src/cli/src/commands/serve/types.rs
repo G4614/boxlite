@@ -66,7 +66,6 @@ pub(super) struct CreateBoxRequest {
 #[serde(default, deny_unknown_fields)]
 pub(super) struct CreateBoxAdvancedOptions {
     pub capabilities: ContainerCapabilitiesRequest,
-    pub privileged: bool,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -179,7 +178,6 @@ pub(super) struct ServerConfig {
 #[derive(Serialize)]
 pub(super) struct ServerCapabilities {
     pub linux_capabilities_enabled: bool,
-    pub privileged_enabled: bool,
     pub snapshots_enabled: bool,
     pub clone_enabled: bool,
     pub export_enabled: bool,

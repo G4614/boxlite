@@ -73,11 +73,15 @@ impl CreateArgs {
             .require_enabled(global.experimental_features())?;
         let mut options = BoxOptions::default();
         self.resource.apply_to(&mut options);
-        self.capability.apply_to(&mut options)?;
+        self.capability.apply_to(&mut options);
         self.boot.apply_to(&mut options);
         self.management.apply_to(&mut options)?;
         self.publish.apply_to(&mut options)?;
         self.volume.apply_to(&mut options, global.home.as_deref())?;
+        if self.volume.has_managed_volumes() && !global.resolves_rest_runtime() {
+            anyhow::bail!("managed volume mounts require a REST runtime");
+        }
+        self.volume.apply_managed_to(&mut options)?;
         self.network.apply_to(&mut options)?;
 
         // A `create`d box is a background box: `create` then `start`/`exec` runs
@@ -188,20 +192,5 @@ mod tests {
             .expect("options should build");
         assert_eq!(opts.advanced.capabilities.add, vec!["SYS_ADMIN"]);
         assert_eq!(opts.advanced.capabilities.drop, vec!["CAP_NET_RAW"]);
-    }
-
-    #[test]
-    fn create_privileged_flag_reaches_box_options() {
-        let cli = Cli::try_parse_from(["boxlite", "create", "--privileged", "alpine"])
-            .expect("--privileged should parse");
-        let Commands::Create(args) = cli.command else {
-            panic!("expected create command");
-        };
-
-        let opts = args
-            .to_box_options(&cli.global)
-            .expect("privileged options should build");
-
-        assert!(opts.advanced.privileged);
     }
 }
