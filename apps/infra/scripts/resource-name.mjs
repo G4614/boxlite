@@ -6,17 +6,18 @@
  *
  *   <namespace>-<workload>-<stage>-<name>[-<attribute>...]
  *
- * The workload slot exists because the account holds more than one: the application stack, the
- * ops console (boxlite-ops-console*), and the e2e fleet (boxlite-e2e-*). Without it nothing
- * distinguishes a workload token from a stage — `boxlite-e2e-runner` reads equally as stage=e2e
- * or workload=e2e — and a reader cannot parse a name back into its parts.
+ * The workload slot exists because the account holds more than one: the application stack and the
+ * e2e fleet (boxlite-e2e-*). Without it nothing distinguishes a workload token from a stage —
+ * `boxlite-e2e-runner` reads equally as stage=e2e or workload=e2e — and a reader cannot parse a
+ * name back into its parts.
  *
- * Eight files touch one of these two names, but only THREE spell it, because they cannot call
- * JavaScript: ci/github-deploy-role.yaml declares both, deploy-infra.yml writes the bucket into a
- * shell variable, and build-apps-api-image.yml writes the image name. Everything else — this
- * module's two callers and their callers — goes through awsResourceName and never re-spells the
- * string. Those three are what release-deployment-safety.test.mjs pins, which is what turns a
- * drift into a test failure instead of a deploy that cannot find its own artifact.
+ * Most files that touch one of these two names go through awsResourceName; the exceptions are
+ * the ones that cannot call JavaScript: ci/github-deploy-role.yaml declares both,
+ * deploy-infra.yml writes the bucket into a shell variable, and build-apps-api-image.yml writes
+ * the Api image name. Everything else, this module's two callers (api-artifact.mjs,
+ * runner-artifact.mjs) and their callers, never re-spells the string. The in-repo spellings are
+ * what release-deployment-safety.test.mjs pins, which is what turns a drift into a test failure
+ * instead of a deploy that cannot find its own artifact.
  *
  * A fourth place is easy to miss and is not a spelling at all: ci/github-deploy-role.yaml's
  * runtime permissions boundary allows S3 by ARN prefix. A boundary intersects with every identity
@@ -37,7 +38,7 @@
  * they already exist and are referenced elsewhere, not because anything makes them unrenamable.
  */
 
-// The application stack, as distinct from the ops-console and e2e workloads in the same account.
+// The application stack, as distinct from the e2e workload in the same account.
 const WORKLOAD = 'app'
 
 export function awsResourceName({ app, stage, name, attributes = [] }) {

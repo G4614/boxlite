@@ -21,6 +21,7 @@ pub(in crate::service) mod error;
 pub mod exec_handle;
 pub(in crate::service) mod executor;
 mod output;
+pub(crate) mod process_instance;
 pub(in crate::service) mod registry;
 pub(in crate::service) mod state;
 mod timeout;
@@ -44,7 +45,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// The execution core, addressed in native types.
 ///
@@ -310,35 +311,36 @@ async fn spawn_execution(
 ) -> Result<ExecResponse, ExecResponse> {
     let started_at_ms = now_ms();
 
-    // Read the clock before the spawn: the tenant is built in the zygote and is
-    // already running when its pid comes back over IPC, so it can exit before we
-    // ever see the pid. Anything reaped after this instant is therefore ours;
-    // anything older belongs to a previous owner of a recycled pid.
     let spawned_at = std::time::Instant::now();
 
     // Step 1: Spawn process using executor selected by BOXLITE_EXECUTOR env var
     let (child, container_ref) =
         spawn_with_executor(server, &req, &execution_id, ssh_workload).await?;
 
-    let pid = child.pid().as_raw() as u32;
+    let leader_pid = child.pid();
+    let pid = leader_pid.as_raw() as u32;
+    let process = process_instance::ProcessInstance::capture(leader_pid);
+    if process.is_none() {
+        warn!(
+            execution_id = %execution_id,
+            pid = leader_pid.as_raw(),
+            "failed to capture process identity; signals will be skipped"
+        );
+    }
 
-    // Claim this pid's exit slot. A detached exec sends no Wait until its caller
-    // chooses to, so the slot must exist from the spawn rather than from the
-    // wait, or the exit would age out as an ownerless stray in between.
-    let exit = crate::reaper::REAPER
+    let reaper = crate::reaper::REAPER
         .get()
-        .expect("reaper installed at startup")
-        .register(child.pid(), spawned_at)
-        .await;
+        .expect("reaper installed at startup");
+    let exit = reaper.register(leader_pid, spawned_at).await;
 
     // Step 2: Create execution state and register
     // If running inside a container, pass the init health checker for death detection
     let state = match container_ref {
         Some(container) => {
             let health: std::sync::Arc<tokio::sync::Mutex<dyn InitHealthCheck>> = container;
-            state::ExecutionState::new_with_init_health(child, health, exit)
+            state::ExecutionState::new_with_init_health(child, health, exit, process)
         }
-        None => state::ExecutionState::new(child, exit),
+        None => state::ExecutionState::new(child, exit, process),
     };
     server
         .registry
@@ -348,7 +350,7 @@ async fn spawn_execution(
     // Step 3: Start timeout watcher (if requested)
     if req.timeout_ms > 0 {
         timeout::start_timeout_watcher(
-            state,
+            timeout::TimeoutTarget::new(process),
             execution_id.clone(),
             std::time::Duration::from_millis(req.timeout_ms),
         );

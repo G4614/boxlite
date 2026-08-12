@@ -8,6 +8,7 @@ import { BadRequestException, Logger } from '@nestjs/common'
 import { Transform, Type, plainToInstance } from 'class-transformer'
 import {
   ArrayMaxSize,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsNumber,
@@ -17,7 +18,9 @@ import {
   Min,
   IsIn,
   Validate,
+  ValidateIf,
   ValidateNested,
+  ValidationArguments,
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator'
@@ -33,6 +36,21 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
 
   defaultMessage(): string {
     return 'each allow_net entry must be an IPv4 address, IPv4 CIDR, hostname, or wildcard hostname'
+  }
+}
+
+// Attached to `guest_path` (always validated) rather than `source`, since
+// `@IsOptional()` on `source` would skip a validator stacked on that same
+// property whenever `source` is absent - exactly the case this needs to see.
+@ValidatorConstraint({ name: 'hasVolumeSource', async: false })
+class HasVolumeSourceConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const volume = args.object as VolumeSpecDto
+    return typeof volume.source === 'string' || typeof volume.host_path === 'string'
+  }
+
+  defaultMessage(): string {
+    return 'volume requires source (or the deprecated host_path)'
   }
 }
 
@@ -131,6 +149,34 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
   return plainToInstance(NetworkSpecDto, { ...rest, outbound, inbound })
 }
 
+export class VolumeSpecDto {
+  // IsNotEmpty (not just IsOptional + IsString) so an explicit `source: ''`
+  // is a validation error on its own rather than being treated as "absent"
+  // and silently falling through to host_path in the mapper.
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  source?: string
+
+  /**
+   * @deprecated Use `source` with the `volume://<volume_id>` scheme instead.
+   * Accepted for backward compatibility with existing /v1 clients built
+   * against the pre-managed-volumes `VolumeSpec` schema; will be removed.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  host_path?: string
+
+  @IsString()
+  @Validate(HasVolumeSourceConstraint)
+  guest_path: string
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsIn([false])
+  read_only?: false
+}
+
 export class CreateBoxDto {
   @IsOptional()
   @IsString()
@@ -201,4 +247,10 @@ export class CreateBoxDto {
   @Transform(({ value }) => normalizeNetworkShape(value))
   @ValidateNested()
   network?: NetworkSpecDto
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VolumeSpecDto)
+  volumes?: VolumeSpecDto[]
 }

@@ -194,6 +194,26 @@ pub struct SynchronizedState {
     active_boxes_by_name: HashMap<String, Weak<crate::litebox::box_impl::BoxImpl>>,
 }
 
+/// Headroom `ImageDiskManager` reserves in every image disk it builds, for
+/// the `boxlite-guest` binary `GuestRootfsManager` injects into a copy of it
+/// afterward. `ImageDiskManager` folds this into its cache key
+/// (`disk_path`), so a disk cached under a different value is never reused.
+///
+/// Fixed, not derived from the real guest binary's current size: this
+/// manager has no GC (unlike `GuestRootfsManager`'s paired `version_key` +
+/// `gc()`), so a value that changed on every guest-binary rebuild would
+/// orphan a cache entry per digest on every rebuild — a routine, frequent
+/// event for developers. Because this is instead a source-level constant, it
+/// only changes on the rare, deliberate occasions *this number itself* gets
+/// edited (e.g. if a future guest binary outgrows it), each such change
+/// creating at most one new generation of cache entries, not a continuous
+/// leak. An unstripped debug build measures ~232 MB (see
+/// `guest_binary_fits_in_image_disk_headroom` below); 512 MiB covers that
+/// with margin to grow, in both debug and (far smaller) release builds, at
+/// the cost of some unused — but sparse, so cheap on disk — space in every
+/// cached image disk.
+const IMAGE_DISK_GUEST_BINARY_HEADROOM_BYTES: u64 = 512 * 1024 * 1024;
+
 impl RuntimeImpl {
     // ========================================================================
     // CONSTRUCTION
@@ -211,7 +231,20 @@ impl RuntimeImpl {
         experimental_features: ExperimentalFeatures,
     ) -> BoxliteResult<SharedRuntimeImpl> {
         let _sys = crate::system_check::SystemCheck::run()?;
+        Self::initialize(options, experimental_features)
+    }
 
+    /// Build a runtime without host validation. Tests using this must not exercise
+    /// VM or hypervisor operations.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(options: BoxliteOptions) -> BoxliteResult<SharedRuntimeImpl> {
+        Self::initialize(options, ExperimentalFeatures::default())
+    }
+
+    fn initialize(
+        options: BoxliteOptions,
+        experimental_features: ExperimentalFeatures,
+    ) -> BoxliteResult<SharedRuntimeImpl> {
         // Validate Early: Check preconditions before expensive work
         if !options.home_dir.is_absolute() {
             return Err(BoxliteError::Internal(format!(
@@ -301,8 +334,13 @@ impl RuntimeImpl {
             "Initialized lock manager"
         );
 
-        let image_disk_mgr =
-            ImageDiskManager::new(layout.image_layout().disk_images_dir(), layout.temp_dir());
+        // See IMAGE_DISK_GUEST_BINARY_HEADROOM_BYTES for why this is a fixed
+        // budget rather than derived from the guest binary actually on disk.
+        let image_disk_mgr = ImageDiskManager::new(
+            layout.image_layout().disk_images_dir(),
+            layout.temp_dir(),
+            IMAGE_DISK_GUEST_BINARY_HEADROOM_BYTES,
+        );
         let guest_rootfs_mgr = GuestRootfsManager::new(base_disk_mgr.clone(), layout.temp_dir());
 
         let inner = Arc::new(Self {
@@ -378,6 +416,11 @@ impl RuntimeImpl {
         archive: BoxArchive,
         name: Option<String>,
     ) -> BoxliteResult<LiteBox> {
+        if self.shutdown_token.is_cancelled() {
+            return Err(BoxliteError::Stopped(
+                "Cannot import box: runtime has been shut down".into(),
+            ));
+        }
         super::import::import_box(self, archive, name).await
     }
 
@@ -1352,8 +1395,7 @@ impl RuntimeImpl {
             // lifecycle, so it only matters when no shim is alive.
             match PidFileReader::at(&pid_path).process_identity() {
                 ProcessIdentity::Verified(pid) => {
-                    state.set_pid(Some(pid));
-                    state.set_status(BoxStatus::Running);
+                    state.adopt_recovered_shim(pid);
                     // Live shim wins — archive any prior-lifecycle exit
                     // file so the next crash gets the canonical slot.
                     if had_stale_exit {
@@ -1375,8 +1417,7 @@ impl RuntimeImpl {
                     // Pre-fingerprint PID file. Adopt the live PID so VMs
                     // aren't lost on upgrade; the next stop/start writes a
                     // two-line file and the fingerprint check takes over.
-                    state.set_pid(Some(pid));
-                    state.set_status(BoxStatus::Running);
+                    state.adopt_recovered_shim(pid);
                     if had_stale_exit {
                         stash_exit_file(&box_layout);
                         tracing::warn!(
@@ -1836,7 +1877,32 @@ mod tests {
     use crate::runtime::backend::RuntimeBackend;
     use crate::runtime::images::ImageBackend;
     use crate::runtime::options::RootfsSpec;
+    use crate::vmm::guest_binary::GuestBinary;
     use tempfile::TempDir;
+
+    /// `IMAGE_DISK_GUEST_BINARY_HEADROOM_BYTES` must stay ahead of the real
+    /// embedded `boxlite-guest` binary — silently falling behind would
+    /// reintroduce the exact "Could not allocate block in ext2 filesystem"
+    /// failure this constant exists to prevent, undetected until a real box
+    /// tried to boot. Skipped when the guest binary isn't assembled (no
+    /// `make guest`/`make runtime:debug`).
+    #[test]
+    fn guest_binary_fits_in_image_disk_headroom() {
+        let Ok(guest) = GuestBinary::get() else {
+            eprintln!("skipping: boxlite-guest not found (run `make guest`)");
+            return;
+        };
+        let guest_len = std::fs::metadata(guest.path())
+            .expect("stat resolved guest binary")
+            .len();
+        assert!(
+            guest_len < IMAGE_DISK_GUEST_BINARY_HEADROOM_BYTES,
+            "guest binary is {} MiB, headroom budget is only {} MiB -- bump \
+             IMAGE_DISK_GUEST_BINARY_HEADROOM_BYTES",
+            guest_len / (1024 * 1024),
+            IMAGE_DISK_GUEST_BINARY_HEADROOM_BYTES / (1024 * 1024)
+        );
+    }
 
     #[test]
     fn local_runtime_rejects_explicit_lifecycle_policy() {
@@ -1950,6 +2016,17 @@ mod tests {
             image_registries: vec![],
         };
         let runtime = RuntimeImpl::new(options).expect("Failed to create runtime");
+        (runtime, temp_dir)
+    }
+
+    fn create_test_runtime_without_host_preflight() -> (SharedRuntimeImpl, TempDir) {
+        let temp_dir = TempDir::new_in("/tmp").expect("Failed to create temp dir");
+        let options = BoxliteOptions {
+            home_dir: temp_dir.path().to_path_buf(),
+            image_registries: vec![],
+        };
+        let runtime = RuntimeImpl::initialize(options, ExperimentalFeatures::default())
+            .expect("Failed to create test runtime");
         (runtime, temp_dir)
     }
 
@@ -3056,6 +3133,27 @@ mod tests {
     // ====================================================================
     // Post-shutdown operation rejection
     // ====================================================================
+
+    #[tokio::test]
+    async fn test_import_after_shutdown_returns_stopped_before_archive_validation() {
+        let (runtime, dir) = create_test_runtime_without_host_preflight();
+        runtime.shutdown_token.cancel();
+
+        let result = runtime
+            .import_box(
+                BoxArchive::new(dir.path().join("missing.boxlite")),
+                Some("imported".to_string()),
+            )
+            .await;
+
+        match result {
+            Err(BoxliteError::Stopped(message)) => {
+                assert!(message.contains("shut down"), "{message}");
+            }
+            Err(other) => panic!("expected Stopped before archive validation, got: {other}"),
+            Ok(_) => panic!("import should fail after shutdown"),
+        }
+    }
 
     #[tokio::test]
     async fn test_create_after_shutdown_returns_stopped() {

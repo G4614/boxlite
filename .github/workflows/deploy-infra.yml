@@ -1,7 +1,7 @@
 name: Deploy stack
-run-name: Deploy ${{ inputs.stage }} stack
+run-name: Deploy ${{ inputs.components }} to ${{ inputs.stage }}
 
-# A build deploy sources both deployable components from one commit — on main, or the head of an
+# A build deploy sources both deployable components from one commit — on main, or the merge of an
 # open pull request when a change needs a real stage before it merges — each in its own job:
 #
 #   Api    → Build commit Api image ───────────────→ per-commit ECR tag
@@ -10,6 +10,12 @@ run-name: Deploy ${{ inputs.stage }} stack
 # The two legs share only resolve-ref, so they run side by side. The final deploy sets one
 # BOXLITE_ARTIFACT_SOURCE=build selector for both and compiles neither. A release deploy uses the
 # other selector and consumes the Api image / Runner tarball published for VERSION instead.
+#
+# `components` narrows both halves at once: an unselected leg is neither built nor deployed. It
+# drops the build jobs here and becomes `--exclude <Component>` on the SST commands below, which
+# apps/infra/scripts/deployment-scope.mjs accepts as one of exactly two reviewed partial shapes.
+# Never `--target`: PR #1095 stalled this stack mid-provider-migration that way, because a targeted
+# update omits the shared resources it still depends on. `--exclude` keeps them in the plan.
 
 on:
   workflow_dispatch:
@@ -21,13 +27,26 @@ on:
         type: choice
         options:
           - dev
+      components:
+        description: 'Which legs to build and deploy. An unselected leg is neither built nor reconciled.'
+        required: true
+        default: api+runner
+        type: choice
+        options:
+          - api+runner
+          - api
+          - runner
       apply:
-        description: Preview again, then deploy the full stack
+        description: Preview again, then deploy the selected components
         required: true
         default: false
         type: boolean
       ref:
-        description: 'Full SHA of a commit on main, or the head of an open PR. Defaults to current main.'
+        description: 'Full SHA of a commit on main. Mutually exclusive with pr. Defaults to current main.'
+        required: false
+        type: string
+      pr:
+        description: 'PR number. Deploys its merge with main, not its head. Mutually exclusive with ref.'
         required: false
         type: string
 
@@ -45,7 +64,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     # A job-level block replaces the workflow-level one rather than merging with it, so
-    # contents: read is restated. pull-requests: read is what lets a PR head qualify below.
+    # contents: read is restated. pull-requests: read is what lets a PR's merge resolve below.
     permissions:
       contents: read
       pull-requests: read
@@ -63,45 +82,101 @@ jobs:
         shell: bash
         env:
           INPUT_REF: ${{ inputs.ref }}
+          INPUT_PR: ${{ inputs.pr }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          candidate="${INPUT_REF:-$GITHUB_SHA}"
-          [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || { echo "ref must be a full commit SHA" >&2; exit 1; }
+          [ -z "$INPUT_REF" ] || [ -z "$INPUT_PR" ] || {
+            echo "ref and pr are mutually exclusive — give at most one" >&2
+            exit 1
+          }
 
-          # On main needs no further proof. `cat-file` only rules out a SHA this clone has never
-          # seen — fetch-depth: 0 brings every branch, so a same-repo PR head is present and it is
-          # `merge-base` that sends it to the pull-request path below.
-          if git cat-file -e "$candidate^{commit}" 2>/dev/null \
-            && git merge-base --is-ancestor "$candidate" origin/main; then
-            echo "$candidate is on main"
-            echo "sha=$candidate" >> "$GITHUB_OUTPUT"
+          # A PR number needs no SHA-shape check of its own: `gh pr view` is the validation, and
+          # it fails on a nonexistent PR the same way cat-file fails on a nonexistent commit below.
+          # This is the fix for the SHA-first design PR #1148 shipped: that guard took a SHA and
+          # asked the API which PR (if any) it belonged to via /commits/{sha}/pulls, which returns
+          # an empty array for a fork PR's head — confirmed live — so no patch to that lookup could
+          # ever accept a fork. Asking the API for a known PR NUMBER's head, instead, works
+          # unconditionally for same-repo and fork PRs alike; there is no lookup to fail.
+          if [ -n "$INPUT_PR" ]; then
+            [[ "$INPUT_PR" =~ ^[0-9]+$ ]] || { echo "pr must be a PR number" >&2; exit 1; }
+            pr_json="$(gh pr view "$INPUT_PR" --json state,headRefOid,isCrossRepository,mergeable,potentialMergeCommit)"
+            state="$(jq -r '.state' <<<"$pr_json")"
+            [ "$state" = "OPEN" ] || {
+              echo "PR #$INPUT_PR is $state, not open" >&2
+              exit 1
+            }
+            # The MERGE, not the head. This workflow's definition comes from main while this job
+            # decides what gets checked out, so deploying the head pairs main's YAML with the
+            # tooling the branch happens to carry — which is how a components=api dispatch reached
+            # an apps/infra that could not scope at all. refs/pull/N/merge is main+PR by
+            # construction, so the deployed tree can never be behind main. Resolved before `fork`
+            # below so the conflict refusals stay out of the fork-acceptance path.
+            #
+            # GitHub recomputes this ref whenever main or the head moves, so the SHA is a snapshot
+            # of "this PR against main right now" — pinned once here and consumed by every
+            # downstream job, but not a commit in anyone's history and not necessarily a tree any
+            # CI run built (CI triggers on pull_request, not on every push to the base).
+            #
+            # Mergeability is computed lazily, so UNKNOWN is a "not yet", not a verdict; retry it
+            # rather than failing a dispatch on a cold cache. There is no event to await here —
+            # the answer only exists once GitHub recomputes it — so this polls.
+            for attempt in 1 2 3 4 5; do
+              mergeable="$(jq -r '.mergeable' <<<"$pr_json")"
+              sha="$(jq -r '.potentialMergeCommit.oid // empty' <<<"$pr_json")"
+              [ "$mergeable" = "UNKNOWN" ] || [ -z "$sha" ] || break
+              [ "$attempt" -lt 5 ] || break
+              sleep 5
+              pr_json="$(gh pr view "$INPUT_PR" --json state,headRefOid,isCrossRepository,mergeable,potentialMergeCommit)"
+            done
+            [ "$mergeable" != "CONFLICTING" ] || {
+              echo "PR #$INPUT_PR conflicts with main, so it has no merge commit to deploy." >&2
+              echo "Resolve the conflict and redispatch." >&2
+              exit 1
+            }
+            [ -n "$sha" ] || {
+              echo "PR #$INPUT_PR has no merge commit yet (mergeable=$mergeable) after 5 attempts." >&2
+              echo "GitHub computes this lazily; open the PR once to force it, then redispatch." >&2
+              exit 1
+            }
+            head_sha="$(jq -r '.headRefOid' <<<"$pr_json")"
+            fork="$(jq -r '.isCrossRepository' <<<"$pr_json")"
+            # $fork is logged for whoever reviews the run below, never gated on: PR #1148 refused a
+            # fork head here deliberately, as its own security boundary. Accepting one is the point
+            # of this change (it's how #1141 becomes deployable) — dispatching this workflow at all
+            # already requires repo write access, and build-api/deploy additionally sit behind the
+            # dev environment's required reviewer before their AWS OIDC role activates, same as for
+            # any ref. That part is unchanged: a fork head reaches those two jobs' secrets no more
+            # easily than a same-repo head always could.
+            #
+            # build-c/build-runner are the honest exception: neither declares an `environment:` or
+            # touches AWS credentials, so a fork's own Cargo/Go/make code now runs on a GitHub-hosted
+            # runner right after resolve-ref, with no second human look and nothing to steal. Risk
+            # there is compute abuse and build-time tampering (e.g. a rewritten .gitmodules URL), not
+            # credential theft — call it out rather than fold it into the build-api/deploy gate above.
+            echo "PR #$INPUT_PR ($([ "$fork" = "true" ] && echo fork || echo same-repo)) head is $head_sha; deploying merge $sha"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Otherwise it has to be what an open pull request in THIS repository proposes.
-          #
-          # Same repository, because everything downstream treats the resolved commit as trusted:
-          # build-c and build-runner check it out holding contents: write, and the deploy job runs
-          # its `npm ci` / `npm test` after the OIDC role is configured, so a fork head would be
-          # arbitrary code with credentials in the environment — the exposure e2e-cloud.yml
-          # documents. Pushing to a branch here already needs write access. Same test as
-          # e2e-local.yml's fork gate, expressed against the API payload.
-          #
-          # Heads only, because /commits/{sha}/pulls also lists a PR's intermediate commits, and
-          # deploying one of those would ship a state no review is looking at.
-          number="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${candidate}/pulls" \
-            --jq "[.[] | select(.state == \"open\" and .head.sha == \"${candidate}\" and .head.repo.full_name == \"${GITHUB_REPOSITORY}\") | .number] | first // empty")"
-          [ -n "$number" ] || {
-            echo "$candidate is not on main, and not the head of an open pull request in ${GITHUB_REPOSITORY}" >&2
+          # Otherwise: a commit already on main. `cat-file` only rules out a SHA this clone has
+          # never seen — fetch-depth: 0 brings every branch, so `merge-base` is the real test.
+          candidate="${INPUT_REF:-$GITHUB_SHA}"
+          [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || { echo "ref must be a full commit SHA" >&2; exit 1; }
+          if ! git cat-file -e "$candidate^{commit}" 2>/dev/null \
+            || ! git merge-base --is-ancestor "$candidate" origin/main; then
+            echo "$candidate is not a commit on main" >&2
             exit 1
-          }
-          echo "$candidate is the head of open PR #${number}"
+          fi
+          echo "$candidate is on main"
           echo "sha=$candidate" >> "$GITHUB_OUTPUT"
 
   build-api:
     name: Build commit Api image
     needs: resolve-ref
+    # `contains` rather than equality: the value is one of api+runner / api / runner, and no
+    # option's name contains the other's, so a substring test reads as the membership it is.
+    if: ${{ contains(inputs.components, 'api') }}
     # Nothing here depends on the C SDK, so this runs beside build-c rather than behind it.
     # The called workflow reaches ECR through OIDC, and a job-level block replaces the
     # workflow-level one rather than merging with it, so contents: read is restated.
@@ -116,6 +191,7 @@ jobs:
   build-c:
     name: Build commit C SDK
     needs: resolve-ref
+    if: ${{ contains(inputs.components, 'runner') }}
     # The called workflow's release-upload job declares contents: write, and a callee cannot go
     # past what its caller grants (see the caller-grant test in release-deployment-safety.test.mjs
     # for what is documented and what is inferred). Granted here rather than at workflow level so
@@ -130,6 +206,9 @@ jobs:
   build-runner:
     name: Build commit Runner
     needs: [resolve-ref, build-c]
+    # Stated as well as inherited: a skipped build-c already cascades here, but the C SDK is an
+    # input to this job rather than the reason it exists, so the scope is declared on both.
+    if: ${{ contains(inputs.components, 'runner') }}
     # The called workflow's release-upload job declares contents: write, and a callee cannot go
     # past what its caller grants (see the caller-grant test in release-deployment-safety.test.mjs
     # for what is documented and what is inferred). Granted here rather than at workflow level so
@@ -142,9 +221,16 @@ jobs:
       libboxlite_source: artifact
 
   deploy:
-    name: Deploy ${{ inputs.stage }} stack
+    name: Deploy ${{ inputs.components }} to ${{ inputs.stage }}
     needs: [resolve-ref, build-api, build-runner]
-    if: github.ref == 'refs/heads/main'
+    # A narrowed scope SKIPS a build job, and a skipped `needs` entry would cascade a skip to this
+    # job under the implicit success(). Naming any status-check function turns that off, so the
+    # states that must still stop the deploy — a build that failed or was cancelled — are listed.
+    if: >-
+      ${{ !cancelled()
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && github.ref == 'refs/heads/main' }}
     environment: ${{ inputs.stage }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -157,6 +243,11 @@ jobs:
       API_ARTIFACT_SOURCE: build
       RUNNER_ARTIFACT_SOURCE: build
       BOXLITE_ARTIFACT_REF: ${{ needs.resolve-ref.outputs.sha }}
+      # The SST resource whose leg this run leaves alone; empty for a full deploy. Both selectors
+      # stay `build` above even when one leg is excluded: everything the plan declares still comes
+      # from this one commit, and an exclusion that turned out to be narrower than the leg would
+      # then fail loudly on the missing artifact rather than quietly reinstalling a release.
+      DEPLOY_EXCLUDE: ${{ inputs.components == 'api' && 'Runner' || inputs.components == 'runner' && 'Api' || '' }}
 
     steps:
       - name: Checkout selected commit
@@ -164,6 +255,61 @@ jobs:
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
           persist-credentials: false
+
+      # workflow_dispatch takes the workflow definition from the dispatch ref — main's tip — while
+      # this job checks out the SELECTED commit, so the two halves are versioned independently and
+      # a narrowed scope couples them: `--exclude` reaches a wrapper that may predate it.
+      #
+      # A backstop, not the primary defence. resolve-ref answers `pr` with the merge commit, which
+      # carries main's tooling, so an ordinary branch being behind main no longer reaches here.
+      # Two things still can: `ref`, which names any commit on main including one older than
+      # component selection, and a pull request that itself removes or breaks the module. Detected
+      # on the deployed tree rather than assumed, because the alternative failure is `partial SST
+      # deploys are disabled` from the older guard — true of that commit, but it reads as a
+      # statement about this workflow and sends the operator to the wrong file.
+      #
+      # It answers "can this tree scope at all", not "does it support THIS scope": the probe reads
+      # one export. A commit that knew `--exclude Runner` but not some later selector would pass
+      # here and be refused by resolveDeployScope's own allowlist instead.
+      #
+      # Runs before the AWS credential step on purpose: an unsupported scope is knowable from the
+      # checkout alone, so it should never reach the deploy role.
+      #
+      # Probes the export rather than grepping for it: the capability is what matters, and the
+      # module is pure, so importing it costs nothing.
+      #
+      # Absence is checked before the probe, not inferred from an import failure. The module only
+      # exists from PR #1095 onward, so a `ref` older than that has no such file — the ordinary
+      # "too old" case, sharing a remedy with a module that lacks the export. Folding it into the
+      # load-failure arm instead would answer "the module is present but unreadable" for a file
+      # that is simply not there.
+      - name: Require component selection support in the selected commit
+        if: ${{ env.DEPLOY_EXCLUDE != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          module=apps/infra/scripts/deployment-scope.mjs
+          if [ ! -f "$module" ]; then
+            status=unsupported
+          else
+            status=$(node -e "import('./$module').then(m => console.log(typeof m.resolveDeployScope === 'function' ? 'supported' : 'unsupported')).catch(e => { console.log('unreadable'); console.error(e.message) })")
+          fi
+          case "$status" in
+            supported) ;;
+            unsupported)
+              echo "commit $BOXLITE_ARTIFACT_REF predates component selection, so it cannot honour" >&2
+              echo "--exclude $DEPLOY_EXCLUDE and would deploy the full stack instead." >&2
+              echo "Redispatch with components=api+runner, or name a newer ref: this needs a commit" >&2
+              echo "whose $module exports resolveDeployScope." >&2
+              exit 1
+              ;;
+            *)
+              echo "$module exists at commit $BOXLITE_ARTIFACT_REF but failed to load (reason" >&2
+              echo "above). That is not an age problem, so fix the module rather than widening" >&2
+              echo "the scope to api+runner." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Verify native AMD64 Docker
         shell: bash
@@ -188,12 +334,16 @@ jobs:
           role-session-name: deploy-${{ inputs.stage }}-stack-${{ github.run_id }}
 
       - name: Download commit Runner artifact
+        if: ${{ contains(inputs.components, 'runner') }}
         uses: actions/download-artifact@v4
         with:
           name: runner-linux-amd64
           path: dist/runner
 
+      # Both steps are gated: with the Runner out of scope build-runner never ran, so there is no
+      # artifact to download and nothing to publish under this commit's prefix.
       - name: Stage commit Runner artifact
+        if: ${{ contains(inputs.components, 'runner') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -276,7 +426,7 @@ jobs:
       # scripts/sst-with-cloudflare.mjs prefers an already-set env var and
       # otherwise reads SSM, so a stage seeded via SSM keeps working with
       # these unset.
-      - name: Preview the full stack
+      - name: Preview the selected components
         shell: bash
         working-directory: apps/infra
         env:
@@ -284,16 +434,29 @@ jobs:
           CLOUDFLARE_DEFAULT_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEFAULT_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npm run --silent sst -- diff --stage "$STAGE" --policy . --json |
+          # An array, so an empty scope contributes no argument at all rather than an empty string
+          # SST would read as a component name. The fixed arguments seed it because expanding an
+          # EMPTY array under `set -u` is an unbound-variable error before bash 4.4 — seeded, it
+          # is never empty, so the line does not depend on the runner image's bash version.
+          args=(diff --stage "$STAGE" --policy .)
+          [ -z "$DEPLOY_EXCLUDE" ] || args+=(--exclude "$DEPLOY_EXCLUDE")
+          args+=(--json)
+          npm run --silent sst -- "${args[@]}" |
             node scripts/deployment-preview.mjs
 
-      - name: Deploy the full stack
+      - name: Deploy the selected components
         if: ${{ inputs.apply }}
+        shell: bash
         working-directory: apps/infra
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_DEFAULT_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEFAULT_ACCOUNT_ID }}
-        run: npm run deploy -- --stage "$STAGE" --policy .
+        run: |
+          set -euo pipefail
+          # Seeded for the same reason as the preview above: an empty array must never be expanded.
+          args=(--stage "$STAGE" --policy .)
+          [ -z "$DEPLOY_EXCLUDE" ] || args+=(--exclude "$DEPLOY_EXCLUDE")
+          npm run deploy -- "${args[@]}"
 
       - name: Remove materialized configuration
         if: always()
@@ -310,6 +473,10 @@ jobs:
   #
   # The stage is always `dev`, so the suite's own BOXLITE_DEV_API_URL
   # default is the right target and no api_url is passed.
+  #
+  # Runs whatever `components` was: a narrowed deploy leaves the excluded leg on the commit some
+  # earlier run put there, so the suite is then testing a mixed-commit stack. That is the point of
+  # exercising it — the pairing is exactly what a partial deploy makes uncertain.
   e2e:
     name: E2E suite against ${{ inputs.stage }}
     needs: [resolve-ref, deploy]

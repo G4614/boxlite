@@ -161,13 +161,25 @@ is enabled. The workflow is dormant until repository variable
 
 ### `deploy-infra.yml`
 
-Previews or deploys the full stack from one commit — already on `main` (current
-`main` by default), or the head of an open pull request in this repository, so a
-change can reach a stage before it merges; a fork's head is refused because the
-resolved commit is checked out with write permissions and run after the deploy
-role is configured — on a native AMD64 GitHub runner, for a
-`workflow_dispatch`-selected `stage` (an allowlisted `choice` input, `dev`
-today). Each component is built by its own job, and the two legs share only
+Previews or deploys the full stack from one commit, on a native AMD64 GitHub
+runner, for a `workflow_dispatch`-selected `stage` (an allowlisted `choice`
+input, `dev` today). That commit is either already on `main` (current `main` by
+default) or the merge of an open pull request with `main`, so a change can reach
+a stage before it merges.
+
+The merge commit rather than the head: the workflow definition comes from the
+dispatch ref while the deploy job checks out the resolved commit, so a head that
+is behind `main` would pair new workflow YAML with old `apps/infra` tooling.
+GitHub recomputes that merge whenever `main` or the head moves, so the resolved
+SHA is a snapshot rather than a commit in anyone's history.
+
+A fork's PR is accepted: dispatching already requires write access, and the
+credential-bearing jobs sit behind the stage Environment's required reviewer.
+`build-c`/`build-runner` are the exception — neither declares an `environment:`,
+so a fork's build code runs on a hosted runner with no second look; the risk
+there is compute abuse and build-time tampering, not credential theft.
+
+Each component is built by its own job, and the two legs share only
 `resolve-ref`, so they run side by side: the reusable C/Runner workflows produce
 a Linux AMD64 Runner with `<workspace-version>+<sha>` identity and stage it in
 the stage's private commit-keyed S3 path, while `build-api` calls
@@ -178,15 +190,31 @@ preview-only; `apply=true` repeats the full structured preview and deploys only
 when the Runner safety gate accepts the
 plan. Routine control-plane deployment rejects every Runner create, delete,
 replacement, or protected-property change; the routine workflow does not
-provision Runners. The job rejects partial `--target`/`--exclude` deploys so
-provider changes and resources reconcile together. It is serialized, uses the
+provision Runners. The job rejects `--target` deploys outright — a targeted
+update omits the shared and provider resources it still depends on, which is
+how a `--target Api` dispatch stalled this stack on `StorageBucket`
+mid-provider-migration — and accepts `--exclude` only for the two scopes the
+`components` input can produce. It is serialized, uses the
 selected stage's protected GitHub Environment, and authenticates to AWS with
 short-lived OIDC credentials. Docker runs entirely in CI; no developer machine
 or public SSH builder participates.
 
-The `stage` input is an allowlist rather than free text, so a
+`components` (`api+runner`, `api`, `runner`) narrows a dispatch to one
+deployable leg: the other leg's build jobs are skipped and its mutable half — the
+service or instance, and the binary-upgrade commands — leaves the plan, so an
+Api-only change need not rebuild the Runner. Its ref-independent scaffolding
+(IAM role, instance profile, security group) still reconciles as a no-op. The
+exclusion covers `sst.config.ts` as well as the SST command line — the
+`UpgradeRunnerBinary-*` commands are siblings of the Runner instance rather
+than children, so `--exclude Runner` alone would leave them firing against an
+artifact the skipped build never published. `apps/infra/scripts/deployment-scope.mjs`
+is the allowlist for both halves. A narrowed deploy leaves the excluded leg on
+whatever commit an earlier run put there, so the stack is then mixed-commit.
+
+The `stage` and `components` inputs are allowlists rather than free text: a
 required-reviewers Environment cannot be targeted by an unbootstrapped or
-misspelled name. Every workflow that binds `environment:` to an input follows
+misspelled name, and a deploy scope is picked from reviewed shapes rather than
+composed on the spot. Every workflow that binds `environment:` to an input follows
 this rule, and each list is independent — it names the stages *that* path is
 meant to reach. Today the commit-build path (`deploy-infra.yml`) lists `dev`,
 while the release path (`deploy-release.yml`, and `build-apps-api-image.yml`'s

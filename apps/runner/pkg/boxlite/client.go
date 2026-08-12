@@ -298,6 +298,14 @@ func (c *Client) Create(ctx context.Context, boxDto dto.CreateBoxDTO) (string, s
 		boxDto.Image,
 	)
 
+	// bx.Start must stay the last step of Create that can fail.
+	//
+	// A successful Start makes BoxLite publish the box's StartedAt,
+	// and BoxSync reads it as evidence this job body succeeded — it is what
+	// lets a lost job-completion callback be repaired later. A fallible step
+	// added below would publish that evidence for a Create that then returns
+	// an error, and the two would disagree with no way to tell which is right.
+	// TestCreateHasNoFallibleStepAfterStart enforces this.
 	skipStart := boxDto.SkipStart != nil && *boxDto.SkipStart
 	if !skipStart {
 		if err := bx.Start(ctx); err != nil {
@@ -359,34 +367,16 @@ func (c *Client) Destroy(ctx context.Context, boxId string) error {
 	return nil
 }
 
-// GetBoxState returns the current state of a box.
+// ToBoxState maps a box's local lifecycle state onto the control plane's
+// vocabulary, one arm per state the runtime can report. Unknown is not a
+// neutral default: the API counts it as compute-consuming while Error is not,
+// so Failed must map explicitly to Error.
 //
-// It reads through the runtime rather than the handle cache. The box sync loop
-// calls this for every box on a 10s ticker (services/box_sync.go), and a state
-// read needs no bootable handle — only the persisted record. Routing it through
-// getOrFetchBox would evict and re-fetch a handle for every non-running box on
-// every tick, and eviction cannot free the old one (see evictBox), so the
-// runner would accumulate dead handles for as long as it ran.
-func (c *Client) GetBoxState(ctx context.Context, boxId string) (enums.BoxState, error) {
-	info, err := c.runtime.GetInfo(ctx, boxId)
-	if err != nil {
-		if boxlite.IsNotFound(err) {
-			return enums.BoxStateUnknown, nil
-		}
-		return enums.BoxStateUnknown, err
-	}
-
-	return apiStateFromCore(info.State), nil
-}
-
-// apiStateFromCore maps a core box status onto the control-plane state, one arm
-// per BoxStatus the runtime can report.
-//
-// Unknown is not a neutral default here: the API counts it as compute-consuming
-// (BOX_STATES_CONSUMING_COMPUTE), while Error is not. Falling through left a
-// Failed box billed as if it were still running, and a Stopping box reported as
-// Unknown even though the control plane has that exact state.
-func apiStateFromCore(state boxlite.State) enums.BoxState {
+// Exported apart from GetBoxState because a caller that already holds a
+// BoxInfo must not fetch a second one: BoxSync pairs the state with the box's
+// StartedAt, and reading the two at different moments is what lets a stale
+// timestamp meet a fresh state.
+func ToBoxState(state boxlite.State) enums.BoxState {
 	switch state {
 	case boxlite.StateRunning:
 		return enums.BoxStateStarted
@@ -407,6 +397,26 @@ func apiStateFromCore(state boxlite.State) enums.BoxState {
 	default:
 		return enums.BoxStateUnknown
 	}
+}
+
+// GetBoxState returns the current state of a box.
+//
+// It reads through the runtime rather than the handle cache. The box sync loop
+// calls this for every box on a 10s ticker (services/box_sync.go), and a state
+// read needs no bootable handle — only the persisted record. Routing it through
+// getOrFetchBox would evict and re-fetch a handle for every non-running box on
+// every tick, and eviction cannot free the old one (see evictBox), so the
+// runner would accumulate dead handles for as long as it ran.
+func (c *Client) GetBoxState(ctx context.Context, boxId string) (enums.BoxState, error) {
+	info, err := c.runtime.GetInfo(ctx, boxId)
+	if err != nil {
+		if boxlite.IsNotFound(err) {
+			return enums.BoxStateUnknown, nil
+		}
+		return enums.BoxStateUnknown, err
+	}
+
+	return ToBoxState(info.State), nil
 }
 
 // StartExecution starts an interactive execution in a box.

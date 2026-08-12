@@ -5,7 +5,7 @@ nested KVM, RDS Postgres, ElastiCache Redis, S3, and CloudFront.
 
 - **Region** — `AWS_REGION`, default `ap-southeast-1`
 - **IaC** — SST v4 (Pulumi underneath)
-- **Cost** — ~$570/month always-on; see [Cost](#cost)
+- **Cost** — ~$600/month always-on; see [Cost](#cost)
 
 **Where the "why" lives:** design rationale sits in `sst.config.ts` comments,
 next to the code it explains. This file is the runbook.
@@ -168,12 +168,46 @@ preview before the full-stack deploy:
 npm run deploy -- --stage dev
 ```
 
-Both commands deliberately avoid `--target` and `--exclude`. Pulumi treats both
-as partial updates, which cannot safely migrate a provider while omitted
-resources still reference the old provider. Full reconciliation also avoids
-silently accumulating stack drift. The deployment wrapper rejects partial
-deploy selectors; targeted `diff` remains available for read-only inspection.
-The Runner EC2 identity and binary remain stable through the controls under
+`--target` is rejected for deploys, always. Pulumi treats a targeted update as a
+partial one that still depends on resources it omits, so it cannot safely migrate
+a provider while those resources reference the old registration — deploying this
+stack with `--target Api` stopped SST on `StorageBucket` before any application
+resource reached AWS. Targeted `diff` remains available for read-only inspection.
+
+`--exclude` is accepted for exactly two scopes, which drop the mutable half of one
+deployable leg — its service or instance, and the binary-upgrade commands that go
+with it — while keeping every shared and provider resource in the plan. The leg's
+ref-independent scaffolding (`RunnerRole`, `RunnerProfile`, `RunnerSecurityGroup`,
+`RunnerArtifactS3Policy`) still reconciles, as a no-op:
+
+```bash
+npm run deploy -- --stage dev                     # both legs
+npm run deploy -- --stage dev --exclude Runner    # Api leg only
+npm run deploy -- --stage dev --exclude Api       # Runner leg only
+```
+
+`scripts/deployment-scope.mjs` is the allowlist, and it is also what tells the
+preflight which artifacts to verify — an excluded leg is not deployed, so its
+artifact is not required to exist. Any other selector is refused. `deploy-infra.yml`
+exposes the same three scopes as its `components` input and skips the build jobs
+for a leg it excludes.
+
+A narrowed scope needs a *deployed commit* that understands it, which is not the
+same commit as the workflow: `workflow_dispatch` reads the workflow definition
+from the dispatch ref while the deploy job checks out the selected one. So a
+`ref`/`pr` dispatch can pair a new workflow with a wrapper that predates
+`resolveDeployScope`. The job probes for it right after checkout and refuses
+before assuming the deploy role; redispatch such a commit with `api+runner`, or
+rebase it. Only a narrowed scope is affected — `api+runner` passes no selector
+and works against any commit.
+
+A narrowed deploy leaves the excluded leg on whatever commit an earlier run put
+there, so the stack is then mixed-commit; the residual partial-update risk above
+is why `apply` defaults to false and the guarded preview runs first. Run the
+first `--exclude Api` (`components=runner`) dispatch with `apply=false` and read
+the plan: only `--exclude Runner` has been exercised against this stack, and that
+scope is also the one that turns off the Api image preflight. The Runner
+EC2 identity and binary remain stable through the controls under
 [Operating rules](#operating-rules), and the matching artifact preflight always
 runs before deployment.
 
@@ -183,7 +217,7 @@ access keys are stored in GitHub. `DEPLOY_ENV` materializes the stage's gitignor
 `.env` only for the job and is deleted even if deployment fails.
 
 `ci/github-deploy-role.yaml` bootstraps three things that must exist **before** an
-SST deploy: the OIDC role, the immutable stage ECR repository, and the private
+SST deploy: the OIDC role, the immutable Api ECR repository, and the private
 Runner artifact bucket. That bucket expires only superseded object versions —
 first boot re-fetches the commit-keyed tarball at every instance launch, so
 expiring the current object would make a later replacement fail to boot. The role
@@ -207,7 +241,7 @@ each stage you run.
 
 | What | Stored in | Set by |
 | --- | --- | --- |
-| App secrets (`OIDC_CLIENT_ID`, Auth0 Management API, Svix, PostHog) | SST secret store | `npm run bootstrap`; others via `npm run sst -- secret set <NAME> --stage <stage>` reading stdin |
+| App secrets (`OIDC_CLIENT_ID`, Auth0 Management API, Svix, PostHog, `USAGE_EXPORT_TOKEN`) | SST secret store | `npm run bootstrap`; others via `npm run sst -- secret set <NAME> --stage <stage>` reading stdin |
 | Cloudflare creds (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_DEFAULT_ACCOUNT_ID`) | AWS SSM SecureString, or GitHub Environment secrets (which win) | `npm run bootstrap` |
 | Stage config (`STACK_DOMAIN`, `OIDC_*`, toggles) | GitHub Environment secret `DEPLOY_ENV` | `npm run bootstrap` |
 
@@ -346,13 +380,13 @@ ap-southeast-1 on-demand, approximate:
 | Resource | Monthly |
 | --- | --- |
 | EC2 c8i.2xlarge (Runner) | ~$325 |
-| Load balancers (5 ALB + 2 NLB) | ~$115 |
-| 7x Fargate 0.25 vCPU / 0.5 GB | ~$65 |
+| Load balancers (6 ALB + 2 NLB) | ~$135 |
+| 8x Fargate 0.25 vCPU / 0.5 GB | ~$74 |
 | CloudFront + S3 + CloudWatch Logs | ~$20 |
 | 2x NAT EC2 (`t4g.nano`) + public IPv4 | ~$16 |
 | RDS `t4g.micro` Postgres | ~$15 |
 | ElastiCache Redis | ~$15 |
-| **Total** | **~$570** |
+| **Total** | **~$600** |
 
 Only the `prod` stage retains S3 buckets and RDS snapshots on removal
 (`removal: 'retain'`); every other stage is disposable. Whole-stack teardown

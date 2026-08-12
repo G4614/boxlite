@@ -259,8 +259,11 @@ pub struct JsEnvVar {
 #[napi(object)]
 #[derive(Clone, Debug)]
 pub struct JsVolumeSpec {
-    /// Path on host machine
-    pub host_path: String,
+    /// Scheme-qualified source such as `volume://vol_123`.
+    pub source: Option<String>,
+
+    /// Path on host machine for local host-path mounts.
+    pub host_path: Option<String>,
 
     /// Path inside container
     pub guest_path: String,
@@ -269,13 +272,32 @@ pub struct JsVolumeSpec {
     pub read_only: Option<bool>,
 }
 
-impl From<JsVolumeSpec> for VolumeSpec {
-    fn from(v: JsVolumeSpec) -> Self {
-        VolumeSpec {
-            host_path: v.host_path,
+impl TryFrom<JsVolumeSpec> for VolumeSpec {
+    type Error = boxlite_shared::errors::BoxliteError;
+
+    fn try_from(v: JsVolumeSpec) -> Result<Self, Self::Error> {
+        let host_path = match (v.source, v.host_path) {
+            (Some(source), _) => {
+                if !source.starts_with("volume://") {
+                    return Err(Self::Error::InvalidArgument(
+                        "volume source must use the volume:// scheme".into(),
+                    ));
+                }
+                source
+            }
+            (None, Some(host_path)) => host_path,
+            (None, None) => {
+                return Err(Self::Error::InvalidArgument(
+                    "volume source or hostPath is required".into(),
+                ));
+            }
+        };
+
+        Ok(VolumeSpec {
+            host_path,
             guest_path: v.guest_path,
             read_only: v.read_only.unwrap_or(false),
-        }
+        })
     }
 }
 
@@ -389,8 +411,8 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             .volumes
             .unwrap_or_default()
             .into_iter()
-            .map(VolumeSpec::from)
-            .collect();
+            .map(VolumeSpec::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Convert network spec
         let network = match js_opts.network {
@@ -694,6 +716,41 @@ mod tests {
         for registry in cases {
             assert!(js_image_registry_into_core(registry).is_err());
         }
+    }
+
+    #[test]
+    fn js_volume_source_requires_volume_scheme() {
+        let volume = VolumeSpec::try_from(JsVolumeSpec {
+            source: Some("volume://vol_123".into()),
+            host_path: None,
+            guest_path: "/data".into(),
+            read_only: None,
+        })
+        .unwrap();
+
+        assert_eq!(volume.host_path, "volume://vol_123");
+        assert_eq!(volume.guest_path, "/data");
+        assert!(!volume.read_only);
+
+        let err = VolumeSpec::try_from(JsVolumeSpec {
+            source: Some("vol_123".into()),
+            host_path: None,
+            guest_path: "/data".into(),
+            read_only: None,
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("volume:// scheme"));
+
+        let err = VolumeSpec::try_from(JsVolumeSpec {
+            source: None,
+            host_path: None,
+            guest_path: "/data".into(),
+            read_only: None,
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("source or hostPath is required"));
     }
 
     #[test]

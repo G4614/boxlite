@@ -314,6 +314,14 @@ impl GlobalFlags {
         }
     }
 
+    pub fn resolves_rest_runtime(&self) -> bool {
+        let stored = crate::credentials::load_named(&self.resolved_profile())
+            .ok()
+            .flatten();
+        let env_api_key = std::env::var("BOXLITE_API_KEY").ok();
+        self.resolve_rest_options(stored, env_api_key).is_some()
+    }
+
     /// Build REST connection options from the selected credential profile and
     /// the ambient `BOXLITE_API_KEY`. Returns `None` when no URL is configured
     /// (the caller then falls back to the local runtime). Pure — takes the
@@ -749,6 +757,10 @@ pub struct VolumeFlags {
     /// Mount a volume (format: hostPath:boxPath[:options], or boxPath for anonymous volume, e.g. /data:/app/data, /data:ro)
     #[arg(short = 'v', long = "volume", value_name = "VOLUME")]
     pub volume: Vec<String>,
+
+    /// Mount a source into the box (e.g. src=volume://vol_123,target=/data)
+    #[arg(long = "mount", value_name = "MOUNT")]
+    pub mount: Vec<String>,
 }
 
 /// True if the segment is a single ASCII letter (Windows drive, e.g. "C" in "C:\path").
@@ -920,6 +932,71 @@ impl VolumeFlags {
         }
         Ok(())
     }
+
+    /// Apply managed volume id mounts. These are only meaningful for REST runtimes,
+    /// where the server resolves the id to backing object storage before creating the box.
+    pub fn apply_managed_to(&self, opts: &mut BoxOptions) -> anyhow::Result<()> {
+        for s in self.mount.iter() {
+            let (volume_id, guest_path) = parse_managed_mount_spec(s)?;
+            if volume_id.is_empty() {
+                anyhow::bail!("managed volume id must be non-empty");
+            }
+            if guest_path.is_empty() || !guest_path.starts_with('/') {
+                anyhow::bail!("managed volume box path must be absolute (e.g. vol_123:/data)");
+            }
+            opts.volumes.push(VolumeSpec {
+                host_path: volume_id.to_string(),
+                guest_path: guest_path.to_string(),
+                read_only: false,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn has_managed_volumes(&self) -> bool {
+        !self.mount.is_empty()
+    }
+}
+
+fn parse_managed_mount_spec(s: &str) -> anyhow::Result<(String, String)> {
+    let mut source: Option<String> = None;
+    let mut target: Option<String> = None;
+
+    for part in s.split(',') {
+        let (key, value) = part
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("mount options must use key=value pairs"))?;
+        let key = key.trim();
+        let value = value.trim();
+        match key {
+            "type" => anyhow::bail!("mount type is inferred from the source scheme"),
+            "src" | "source" => source = Some(value.to_string()),
+            "dst" | "destination" | "target" => target = Some(value.to_string()),
+            "volume" => {
+                anyhow::bail!("use source=volume://<volume_id> instead of the volume= shorthand")
+            }
+            "readonly" | "ro" => {
+                if value.eq_ignore_ascii_case("true") || value == "1" {
+                    anyhow::bail!("managed volume mounts are read-write only for now");
+                }
+            }
+            other => anyhow::bail!("unsupported mount option {other:?}"),
+        }
+    }
+
+    let volume_source = source
+        .ok_or_else(|| anyhow::anyhow!("mount volume source is required (src=volume://vol_123)"))?;
+    let volume_id = normalize_managed_volume_source(&volume_source)?;
+    let guest_path =
+        target.ok_or_else(|| anyhow::anyhow!("mount target is required (target=/data)"))?;
+    Ok((volume_id, guest_path))
+}
+
+fn normalize_managed_volume_source(source: &str) -> anyhow::Result<String> {
+    if let Some(volume_id) = source.strip_prefix("volume://") {
+        return Ok(volume_id.to_string());
+    }
+    anyhow::bail!("managed volume source must use the volume:// scheme")
 }
 
 // ============================================================================
@@ -1632,6 +1709,7 @@ mod tests {
                 "/host/data:/guest/data".to_string(),
                 "/readonly:/ro:ro".to_string(),
             ],
+            mount: vec![],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts, None).unwrap();
@@ -1651,6 +1729,7 @@ mod tests {
                 r"C:\host\data:/guest/data".to_string(),
                 r"D:\readonly:/ro:ro".to_string(),
             ],
+            mount: vec![],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts, None).unwrap();
@@ -1668,6 +1747,7 @@ mod tests {
         let base = std::env::temp_dir();
         let flags = VolumeFlags {
             volume: vec!["/data".to_string(), "/cache:ro".to_string()],
+            mount: vec![],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts, Some(&base)).unwrap();
@@ -1682,6 +1762,143 @@ mod tests {
         assert_eq!(opts.volumes[1].guest_path, "/cache");
         assert!(opts.volumes[1].read_only);
         assert!(opts.volumes[1].host_path.contains("anonymous"));
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_bare_id() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["src=vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("bare volume ids must use the volume:// scheme");
+
+        assert!(
+            err.to_string().contains("volume:// scheme"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_source_scheme() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["src=volume://vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_managed_to(&mut opts).unwrap();
+
+        assert_eq!(opts.volumes[0].host_path, "vol_123");
+        assert_eq!(opts.volumes[0].guest_path, "/data");
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_host_scheme() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["src=host:///tmp/data,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("host scheme must be rejected for managed volume mounts");
+
+        assert!(
+            err.to_string().contains("volume:// scheme"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_missing_id() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            // Must carry the `volume://` prefix so parsing reaches the
+            // empty-id check (`apply_managed_to`) instead of failing earlier
+            // at the scheme check (`normalize_managed_volume_source`).
+            mount: vec!["src=volume://,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("managed volume id must be rejected when empty");
+
+        assert!(
+            err.to_string().contains("id must be non-empty"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_relative_box_path() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["src=volume://vol_123,target=data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("managed volume guest path must be absolute");
+
+        assert!(
+            err.to_string().contains("box path must be absolute"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_shorthand() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["volume=vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("volume= shorthand must be rejected");
+
+        assert!(
+            err.to_string().contains("source=volume://"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_managed_volume_rejects_type_option() {
+        let flags = VolumeFlags {
+            volume: vec![],
+            mount: vec!["type=volume,src=volume://vol_123,target=/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_managed_to(&mut opts)
+            .expect_err("mount type option must be inferred from source scheme");
+
+        assert!(
+            err.to_string()
+                .contains("type is inferred from the source scheme"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_run_parses_managed_mount_flag() {
+        let cli = Cli::try_parse_from([
+            "boxlite",
+            "run",
+            "--mount",
+            "src=volume://vol_123,target=/data",
+            "alpine",
+        ])
+        .expect("run --mount should parse");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        assert_eq!(args.volume.mount, vec!["src=volume://vol_123,target=/data"]);
+        assert!(args.volume.volume.is_empty());
     }
 
     // ─── auth subcommand parse tests ───────────────────────────────────────

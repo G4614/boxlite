@@ -369,8 +369,19 @@ impl ContainerService for GuestServer {
                 // container.
                 let init_exit = match container.take_init_exec_handle() {
                     Ok(Some(handle)) => {
-                        // Claim init's exit slot and register the follow-up the
-                        // reaper fires on delivery (docker semantics: the box
+                        let process =
+                            crate::service::exec::process_instance::ProcessInstance::capture(
+                                handle.pid(),
+                            );
+                        if process.is_none() {
+                            warn!(
+                                container_id = %container_id,
+                                pid = handle.pid().as_raw(),
+                                "failed to capture init process identity; signals will be skipped"
+                            );
+                        }
+                        // Register init's exit slot and the follow-up the reaper
+                        // fires on delivery (docker semantics: the box
                         // stops when init exits). Init is created but not yet
                         // started here — it blocks on libcontainer's exec fifo —
                         // so it cannot have exited, and `now` is a sound cutoff:
@@ -461,14 +472,16 @@ impl ContainerService for GuestServer {
                                 }
                             });
                         });
-                        let exit = crate::reaper::REAPER
+                        let reaper = crate::reaper::REAPER
                             .get()
-                            .expect("reaper installed at startup")
+                            .expect("reaper installed at startup");
+                        let exit = reaper
                             .on_exit(handle.pid(), std::time::Instant::now(), action)
                             .await;
                         let state = crate::service::exec::state::ExecutionState::new_init_session(
                             handle,
                             exit.clone(),
+                            process,
                         );
                         self.registry
                             .register(init_execution_id.clone(), state)

@@ -12,8 +12,9 @@ import { persistWithGeneratedBoxName } from '../utils/box-name-generator'
 import { CreateBoxDto } from '../dto/create-box.dto'
 import { BoxState } from '../enums/box-state.enum'
 import { BoxClass } from '../enums/box-class.enum'
+import { RunnerState } from '../enums/runner-state.enum'
 import { BoxDesiredState } from '../enums/box-desired-state.enum'
-import { RunnerService } from './runner.service'
+import { GetRunnerParams, RunnerService } from './runner.service'
 import { BoxError } from '../../exceptions/box-error.exception'
 import { BadRequestError } from '../../exceptions/bad-request.exception'
 import { Cron, CronExpression } from '@nestjs/schedule'
@@ -50,11 +51,15 @@ import {
 } from '../dto/list-boxes-query.dto'
 import { createRangeFilter } from '../../common/utils/range-filter'
 import { LogExecution } from '../../common/decorators/log-execution.decorator'
-import { RedisLockProvider } from '../common/redis-lock.provider'
+import { RedisLockProvider, withRedisLockLease } from '../common/redis-lock.provider'
 import { customAlphabet as customNanoid, nanoid, urlAlphabet } from 'nanoid'
 import { WithInstrumentation } from '../../common/decorators/otel.decorator'
 import { validateMountPaths, validateSubpaths } from '../utils/volume-mount-path-validation.util'
 import { BoxRepository } from '../repositories/box.repository'
+import { getRunnerAssignmentLockKey } from '../utils/lock-key.util'
+import { Job } from '../entities/job.entity'
+import { JobService } from './job.service'
+import { JobStatus, JobType, ResourceType } from '../dto/job.dto'
 import { PortPreviewUrlDto, SignedPortPreviewUrlDto } from '../dto/port-preview-url.dto'
 import { RegionService } from '../../region/services/region.service'
 import { BoxCreatedEvent } from '../events/box-create.event'
@@ -110,10 +115,58 @@ export class BoxService {
     private readonly regionService: RegionService,
     private readonly boxLookupCacheInvalidationService: BoxLookupCacheInvalidationService,
     private readonly boxActivityService: BoxActivityService,
+    @InjectRepository(Job)
+    private readonly jobRepository: Repository<Job>,
+    private readonly jobService: JobService,
   ) {}
 
   protected getLockKey(id: string): string {
     return `box:${id}:state-change`
+  }
+
+  private async persistWithRunnerAssignmentFence(
+    box: Box,
+    runnerParams: GetRunnerParams,
+    persist: () => Promise<Box>,
+  ): Promise<Box> {
+    const excludedRunnerIds = [...(runnerParams.excludedRunnerIds ?? [])]
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const runner = await this.runnerService.getRandomAvailableRunner({ ...runnerParams, excludedRunnerIds })
+      const lockKey = getRunnerAssignmentLockKey(runner.id)
+      const lease = await this.redisLockProvider.acquireLease(lockKey, 30)
+      if (!lease) {
+        excludedRunnerIds.push(runner.id)
+        continue
+      }
+
+      let committed: Box | null = null
+      try {
+        const inserted = await withRedisLockLease(lease, async (signal) => {
+          const currentRunner = await this.runnerService.findOneUncachedOrFail(runner.id)
+          if (currentRunner.draining || currentRunner.state !== RunnerState.READY) {
+            excludedRunnerIds.push(runner.id)
+            return null
+          }
+
+          signal.throwIfAborted()
+          box.runnerId = currentRunner.id
+          committed = await persist()
+          return committed
+        })
+        if (inserted) {
+          return inserted
+        }
+      } catch (error) {
+        // Once insert committed, returning the entity keeps quota realization
+        // and CREATED event handling consistent even if the lease is lost while releasing.
+        if (committed) {
+          return committed
+        }
+        throw error
+      }
+    }
+
+    throw new BadRequestError('No runner remained available while assigning the box')
   }
 
   private assertBoxNotErrored(box: Box): void {
@@ -138,17 +191,13 @@ export class BoxService {
     box.mem = warmPoolItem.mem
     box.disk = warmPoolItem.disk
 
-    // TODO(image-rewrite): box image resolution removed with the image subsystem; rebuild here.
-    const runner = await this.runnerService.getRandomAvailableRunner({
-      regions: [box.region],
-      boxClass: box.class,
-    })
-
-    box.runnerId = runner.id
     box.pending = true
 
-    await this.boxRepository.insert(box)
-    return box
+    return this.persistWithRunnerAssignmentFence(
+      box,
+      { regions: [box.region], boxClass: box.class },
+      () => this.boxRepository.insert(box),
+    )
   }
 
   async create(createBoxDto: CreateBoxDto, organization: Organization): Promise<BoxDto> {
@@ -213,11 +262,6 @@ export class BoxService {
         }
       }
 
-      const runner = await this.runnerService.getRandomAvailableRunner({
-        regions: [region.id],
-        boxClass,
-      })
-
       const box = new Box(region.id, createBoxDto.name)
 
       box.organizationId = organization.id
@@ -258,18 +302,22 @@ export class BoxService {
         box.volumes = this.resolveVolumes(createBoxDto.volumes)
       }
 
-      box.runnerId = runner.id
       box.pending = true
 
       // No caller-provided name -> assign a fun default (e.g. "cozy-otter"),
       // falling back to "cozy-otter-{boxId}" if it collides with the per-org
       // @Unique(['organizationId', 'name']) constraint.
-      const insertedBox = createBoxDto.name
-        ? await this.boxRepository.insert(box)
-        : await persistWithGeneratedBoxName(box.id, (name) => {
-            box.name = name
-            return this.boxRepository.insert(box)
-          })
+      const insertedBox = await this.persistWithRunnerAssignmentFence(
+        box,
+        { regions: [region.id], boxClass },
+        () =>
+          createBoxDto.name
+            ? this.boxRepository.insert(box)
+            : persistWithGeneratedBoxName(box.id, (name) => {
+                box.name = name
+                return this.boxRepository.insert(box)
+              }),
+      )
 
       this.eventEmitter
         .emitAsync(BoxEvents.CREATED, new BoxCreatedEvent(insertedBox))
@@ -553,15 +601,63 @@ export class BoxService {
     return this.getExpectedDesiredStateForState(state) !== undefined
   }
 
+  private getStartupJobTypeForState(state: BoxState): JobType | undefined {
+    switch (state) {
+      case BoxState.CREATING:
+        return JobType.CREATE_BOX
+      case BoxState.STARTING:
+        return JobType.START_BOX
+      default:
+        return undefined
+    }
+  }
+
+  /**
+   * The box's own startup job, if it was claimed by its runner and has since
+   * stopped making progress.
+   *
+   * "Stalled" is measured from when the runner claimed the job, because that
+   * is what a lost completion callback looks like from here: claimed, never
+   * closed. A job still within the window is assumed to be running normally,
+   * and an unclaimed (PENDING) job has no runner to have lost anything.
+   */
+  private async findStalledStartupJob(box: Box): Promise<Job | null> {
+    const startupJobType = this.getStartupJobTypeForState(box.state)
+    if (!startupJobType || !box.runnerId) {
+      return null
+    }
+
+    const stallSeconds = this.configService.getOrThrow('boxSync.startConfirmationStallSeconds')
+    const claimedBefore = new Date(Date.now() - stallSeconds * 1000)
+
+    return this.jobRepository.findOne({
+      where: {
+        runnerId: box.runnerId,
+        resourceType: ResourceType.BOX,
+        resourceId: box.id,
+        type: startupJobType,
+        status: JobStatus.IN_PROGRESS,
+        startedAt: LessThan(claimedBefore),
+      },
+      order: { createdAt: 'DESC' },
+    })
+  }
+
   async findByRunnerId(runnerId: string, states?: BoxState[], skipReconcilingBoxes?: boolean): Promise<Box[]> {
     const where: FindOptionsWhere<Box> = { runnerId }
     if (states && states.length > 0) {
-      // Validate that all states have corresponding desired states
-      states.forEach((state) => {
-        if (!this.hasValidDesiredState(state)) {
-          throw new BadRequestError(`State ${state} does not have a corresponding desired state`)
-        }
-      })
+      // Only the skip filter needs a state to have a corresponding desired
+      // state — it is defined as "state already matches desired state". Asking
+      // for a transitional state is a legitimate query on its own (a runner
+      // reconciling a startup whose job completion was lost does exactly
+      // that), so the requirement belongs to the filter, not to the parameter.
+      if (skipReconcilingBoxes) {
+        states.forEach((state) => {
+          if (!this.hasValidDesiredState(state)) {
+            throw new BadRequestError(`State ${state} does not have a corresponding desired state`)
+          }
+        })
+      }
       where.state = In(states)
     }
 
@@ -1272,7 +1368,31 @@ export class BoxService {
 
     //  only allow updating the state of started | stopped boxes
     if (![BoxState.STARTED, BoxState.STOPPED].includes(box.state)) {
-      throw new BadRequestError('Box is not in a valid state to be updated')
+      // One exception: a runner reporting STARTED for a box we still show as
+      // coming up. That means its startup job finished on the runner but the
+      // completion never reached us. Believe it only once the job has stopped
+      // making progress on its own — until then the normal callback is still
+      // the better answer, and we say nothing rather than reject a runner that
+      // is telling the truth.
+      if (newState !== BoxState.STARTED || box.desiredState !== BoxDesiredState.STARTED) {
+        throw new BadRequestError('Box is not in a valid state to be updated')
+      }
+
+      const stalledStartupJob = await this.findStalledStartupJob(box)
+      if (!stalledStartupJob) {
+        this.logger.debug(`Box ${boxId} start not yet confirmable; startup job still progressing`)
+        return
+      }
+
+      // Completing the job is what moves the box: the normal completion
+      // handler owns the STARTED transition, the pending flag, the activity
+      // stamp, the state-change event, and releasing the box's Redis lock.
+      // Doing any of that here instead would fork that logic.
+      this.logger.warn(
+        `Completing stalled startup job ${stalledStartupJob.id} for box ${boxId} from runner-reported state`,
+      )
+      await this.jobService.updateJobStatus(stalledStartupJob.id, JobStatus.COMPLETED)
+      return
     }
 
     if (box.desiredState == BoxDesiredState.DESTROYED) {

@@ -118,6 +118,7 @@ export default $config({
     const { requireIamPermissionsBoundaryStage } = await import('./scripts/sst-stage.mjs')
     const { apiImageReference } = await import('./scripts/api-artifact.mjs')
     const { resolveArtifactSource } = await import('./scripts/artifact-source.mjs')
+    const { readDeployScope } = await import('./scripts/deployment-scope.mjs')
     const { resolveRunnerArtifact, runnerArtifactsBucketName } = await import('./scripts/runner-artifact.mjs')
     const REGION = resolveAwsRegion()
     const { accountId } = await aws.getCallerIdentity()
@@ -158,6 +159,11 @@ export default $config({
       )
     }
     const collectorExporters = clickHouseExporterEnabled ? '[boxlite_exporter,clickhouse]' : '[boxlite_exporter]'
+    // Traces additionally fan out to Jaeger; metrics/logs stay off it (Jaeger
+    // ingests traces only).
+    const collectorTraceExporters = clickHouseExporterEnabled
+      ? '[boxlite_exporter,clickhouse,otlphttp/jaeger]'
+      : '[boxlite_exporter,otlphttp/jaeger]'
 
     // HTTPS everywhere: the Router CloudFront Function deletes customOriginConfig
     // for http origins and CF then falls back to match-viewer (→ tries HTTPS on a
@@ -197,6 +203,23 @@ export default $config({
     const oidcMgmtClientSecret = new sst.Secret('OIDC_MANAGEMENT_API_CLIENT_SECRET')
     const posthogApiKey = new sst.Secret('POSTHOG_API_KEY', '')
     const svixAuthToken = new sst.Secret('SVIX_AUTH_TOKEN', '')
+    // The credential the usage exporter presents to Commerce's ingest route:
+    // half of a shared secret whose other half is a Secrets Manager container
+    // owned by boxlite-commerce's own stack, so both ends are set out of band
+    // from one value rather than generated here.
+    //
+    // It is a secret of this stack rather than a read of that container
+    // because the Api's *runtime* role could not read it if we tried. Its
+    // execution role carries the boxlite-<stage>-runtime-boundary, which
+    // admits only secret:boxlite-<stage>-* — deliberately, so one stage's
+    // tasks cannot reach another's secrets. ECS says so plainly when asked:
+    // it refuses to place the task with "no permissions boundary allows the
+    // secretsmanager:GetSecretValue action". (The deploy role is not the
+    // constraint — its boxlite-sst-deploy policy grants secretsmanager on
+    // every resource, and it carries no boundary at all.)
+    //
+    // Empty means the exporter stays off; see USAGE_EXPORT_ENABLED below.
+    const usageExportToken = new sst.Secret('USAGE_EXPORT_TOKEN', '')
 
     // ─── 2. PLATFORM ─────────────────────────────────────────────────────────
     // Network model + rationale (subnets / NAT / egress-only public IP, AWS citations): ./NETWORKING.md
@@ -334,17 +357,37 @@ export default $config({
     // Created before Api so API, runner, host, and box can all emit OTLP to the
     // same Collector. ClickHouse is external/managed only; no in-cluster
     // ClickHouseSpike fallback is part of the target architecture.
-    // Internal ALB by default: the trace UI exposes every span (URLs, headers,
-    // IDs, SQL, error bodies) with no auth, and nothing outside the VPC needs
-    // to read it. Reach it via VPN / bastion / `aws ssm start-session`.
-    // JAEGER_PUBLIC=true opts into an internet-facing ALB.
-    const jaegerPublic = envOr('JAEGER_PUBLIC', 'false') === 'true'
-    new sst.aws.Service('Jaeger', {
+    // Jaeger is VPC-internal only: the trace UI exposes every span (URLs,
+    // headers, IDs, SQL, error bodies) with no auth over plain HTTP, and its
+    // OTLP ingest is equally unauthenticated — reach the UI via VPN / bastion /
+    // `aws ssm start-session`. JAEGER_PUBLIC is rejected (fail loud) like
+    // MAILDEV_PUBLIC: no auth gate or TLS story makes public exposure safe.
+    if (envOr('JAEGER_PUBLIC', 'false') === 'true') {
+      throw new Error(
+        'JAEGER_PUBLIC is not supported: Jaeger has no auth and its UI is plain HTTP, so ' +
+          'it cannot be safely exposed to the internet. Reach it via VPN / bastion / ' +
+          '`aws ssm start-session`.',
+      )
+    }
+    const jaeger = new sst.aws.Service('Jaeger', {
       cluster,
       image: IMAGES.jaeger,
-      loadBalancer: { public: jaegerPublic, rules: [{ listen: '80/http', forward: `${PORTS.JAEGER_UI}/http` }] },
+      loadBalancer: {
+        public: false,
+        rules: [
+          { listen: '80/http', forward: `${PORTS.JAEGER_UI}/http` },
+          // OTLP HTTP ingest, fed by the OtelCollector's otlphttp/jaeger exporter.
+          { listen: `${PORTS.OTLP_HTTP}/http`, forward: `${PORTS.OTLP_HTTP}/http` },
+        ],
+        health: {
+          // The OTLP receiver returns a client-error status for a bare
+          // health-check GET, which still proves the receiver is listening.
+          [`${PORTS.OTLP_HTTP}/http`]: httpHealth('/', { successCodes: '200-499' }),
+        },
+      },
       environment: { COLLECTOR_OTLP_ENABLED: 'true' },
     })
+    const jaegerOtlpHttpEndpoint = stripTrailingSlash(jaeger.url).apply((url) => `${url}:${PORTS.OTLP_HTTP}`)
 
     const otelCollector = new sst.aws.Service('OtelCollector', {
       cluster,
@@ -353,7 +396,7 @@ export default $config({
         '--config',
         '/otelcol/collector-config.yaml',
         '--set',
-        `service::pipelines::traces::exporters=${collectorExporters}`,
+        `service::pipelines::traces::exporters=${collectorTraceExporters}`,
         '--set',
         `service::pipelines::metrics::exporters=${collectorExporters}`,
         '--set',
@@ -389,6 +432,7 @@ export default $config({
           'BOXLITE_API_KEY',
           envOr('OTEL_COLLECTOR_API_KEY', envOr('ADMIN_API_KEY', adminApiKey.result)),
         ),
+        JAEGER_OTLP_HTTP_ENDPOINT: jaegerOtlpHttpEndpoint,
       },
     })
     const otelCollectorOtlpHttpUrl = stripTrailingSlash(otelCollector.url).apply((url) => `${url}:${PORTS.OTLP_HTTP}`)
@@ -453,25 +497,9 @@ export default $config({
       link: [db, redis],
       permissions: [
         {
-          // DescribeLogGroups ignores log-group-name granularity, but scoping
-          // the resource still cuts cross-region/cross-account reach. The
-          // observability reader defaults to this region
-          // (ADMIN_OBSERVABILITY_CLOUDWATCH_REGION).
-          actions: ['logs:DescribeLogGroups'],
-          resources: [$interpolate`arn:aws:logs:${REGION}:${aws.getCallerIdentityOutput().accountId}:log-group:*`],
-        },
-        {
-          // Admin observability S3 reader + VolumeManager boot probe are
-          // list-only on the storage bucket (ListObjectsV2).
+          // VolumeManager boot probe is list-only on the storage bucket.
           actions: ['s3:ListBucket'],
           resources: [storage.arn],
-        },
-        {
-          actions: ['logs:FilterLogEvents'],
-          resources: [
-            $interpolate`arn:aws:logs:${REGION}:${aws.getCallerIdentityOutput().accountId}:log-group:/sst/cluster/${cluster.nodes.cluster.name}/*`,
-            $interpolate`arn:aws:logs:${REGION}:${aws.getCallerIdentityOutput().accountId}:log-group:/sst/cluster/${cluster.nodes.cluster.name}/*:*`,
-          ],
         },
         {
           // Vend per-org box storage credentials (object-storage.service.ts).
@@ -640,32 +668,6 @@ export default $config({
           'BOX_OTEL_ENDPOINT_URL',
           envOr('OTEL_EXPORTER_OTLP_ENDPOINT', otelCollectorOtlpHttpUrl),
         ),
-        ADMIN_OBSERVABILITY_CLOUDWATCH_REGION: envOr('ADMIN_OBSERVABILITY_CLOUDWATCH_REGION', REGION),
-        ADMIN_OBSERVABILITY_CLOUDWATCH_LOG_GROUPS: envOr('ADMIN_OBSERVABILITY_CLOUDWATCH_LOG_GROUPS', ''),
-        ADMIN_OBSERVABILITY_CLOUDWATCH_LOG_GROUP_PREFIX: envOr(
-          'ADMIN_OBSERVABILITY_CLOUDWATCH_LOG_GROUP_PREFIX',
-          $interpolate`/sst/cluster/${cluster.nodes.cluster.name}/`,
-        ),
-        ADMIN_OBSERVABILITY_CLOUDWATCH_LIMIT_PER_GROUP: envOr('ADMIN_OBSERVABILITY_CLOUDWATCH_LIMIT_PER_GROUP', '25'),
-        ADMIN_OBSERVABILITY_CLOUDWATCH_MAX_LOG_GROUPS: envOr('ADMIN_OBSERVABILITY_CLOUDWATCH_MAX_LOG_GROUPS', '20'),
-        ADMIN_OBSERVABILITY_S3_REGION: envOr('ADMIN_OBSERVABILITY_S3_REGION', REGION),
-        ADMIN_OBSERVABILITY_S3_BUCKETS: envOr('ADMIN_OBSERVABILITY_S3_BUCKETS', storage.name),
-        ADMIN_OBSERVABILITY_S3_MAX_OBJECTS: envOr('ADMIN_OBSERVABILITY_S3_MAX_OBJECTS', '25'),
-        ...(process.env.ADMIN_OBSERVABILITY_CLICKSTACK_URL && {
-          ADMIN_OBSERVABILITY_CLICKSTACK_URL: process.env.ADMIN_OBSERVABILITY_CLICKSTACK_URL,
-        }),
-        ...(process.env.ADMIN_OBSERVABILITY_CLICKSTACK_DASHBOARD_URL && {
-          ADMIN_OBSERVABILITY_CLICKSTACK_DASHBOARD_URL: process.env.ADMIN_OBSERVABILITY_CLICKSTACK_DASHBOARD_URL,
-        }),
-        ...(process.env.ADMIN_OBSERVABILITY_CLICKSTACK_LOG_SOURCE_ID && {
-          ADMIN_OBSERVABILITY_CLICKSTACK_LOG_SOURCE_ID: process.env.ADMIN_OBSERVABILITY_CLICKSTACK_LOG_SOURCE_ID,
-        }),
-        ...(process.env.ADMIN_OBSERVABILITY_CLICKSTACK_TRACE_SOURCE_ID && {
-          ADMIN_OBSERVABILITY_CLICKSTACK_TRACE_SOURCE_ID: process.env.ADMIN_OBSERVABILITY_CLICKSTACK_TRACE_SOURCE_ID,
-        }),
-        ...(process.env.ADMIN_OBSERVABILITY_CLICKSTACK_METRIC_SOURCE_ID && {
-          ADMIN_OBSERVABILITY_CLICKSTACK_METRIC_SOURCE_ID: process.env.ADMIN_OBSERVABILITY_CLICKSTACK_METRIC_SOURCE_ID,
-        }),
 
         // Dashboard — point its API client at the direct `api.<stackDomain>`
         // ALB hostname so long-lived /attach WS, build-log SSE, and file
@@ -693,6 +695,35 @@ export default $config({
         // Svix (webhook delivery; empty token = off → dashboard logs cosmetic errors)
         SVIX_AUTH_TOKEN: svixAuthToken.value,
         ...(process.env.SVIX_SERVER_URL && { SVIX_SERVER_URL: process.env.SVIX_SERVER_URL }),
+
+        // Where the dashboard's billing client calls, surfaced to it through
+        // GET /api/config. No default: this stack deploys no billing service,
+        // so without an explicit override the dashboard's billing surface —
+        // the page itself (apps/dashboard/src/pages/Billing.tsx) and every
+        // billing query hook, including the shell's wallet prefetch — stays
+        // gated off and shows its placeholder instead.
+        ...(process.env.BILLING_API_URL && {
+          BILLING_API_URL: process.env.BILLING_API_URL,
+
+          // Where finalized usage periods are shipped, from the outbox in
+          // apps/api/src/usage/services/usage-export-publisher.service.ts.
+          // The same signal and the same service as BILLING_API_URL, but
+          // deliberately not the same value: the publisher appends
+          // /internal/usage-events, which Commerce serves off its bare origin
+          // because that route authenticates a service rather than a user and
+          // so sits outside its /api/billing prefix. Sending BILLING_API_URL's
+          // value here would 404 every batch — which is why this derives the
+          // origin from it rather than taking a second setting that could be
+          // pointed somewhere else.
+          USAGE_EXPORT_URL: envOr('USAGE_EXPORT_URL', new URL(process.env.BILLING_API_URL).origin),
+          USAGE_EXPORT_TOKEN: usageExportToken.value,
+          // Derived from the credential rather than set outright, because
+          // configuration.ts refuses to boot when export is on without a
+          // token: a stage pointed at a billing service but never given the
+          // shared secret would crash-loop on deploy instead of simply not
+          // exporting yet. Setting the secret is what turns delivery on.
+          USAGE_EXPORT_ENABLED: usageExportToken.value.apply((token) => (token.trim() ? 'true' : 'false')),
+        }),
       },
     })
 
@@ -754,6 +785,8 @@ export default $config({
         ...(publicOidcIssuer && {
           OIDC_PUBLIC_DOMAIN: publicOidcIssuer,
         }),
+        OTEL_TRACING_ENABLED: envOr('OTEL_TRACING_ENABLED', 'true'),
+        OTEL_EXPORTER_OTLP_ENDPOINT: envOr('OTEL_EXPORTER_OTLP_ENDPOINT', otelCollectorOtlpHttpUrl),
       },
       transform: {
         loadBalancer: (_args, opts) => {
@@ -856,6 +889,7 @@ export default $config({
     // it owns the API repository: CI stages the object before this stack can consume it. The name
     // is derived in one helper shared with the preflight and the staging command.
     const artifactsBucketName = runnerArtifactsBucketName({ app: $app.name, stage: $app.stage, accountId })
+    const deploysRunner = readDeployScope().includes('runner')
     const runnerArtifactSource = resolveArtifactSource('runner')
     const runnerArtifact = resolveRunnerArtifact(runnerArtifactSource, {
       ...process.env,
@@ -1167,11 +1201,25 @@ export default $config({
       runnerArtifactSource.kind === 'build'
         ? `build:${runnerArtifactSource.version}:${runnerArtifactSource.ref}`
         : `release:${runnerArtifactSource.version}`
+    // Declared only when the Runner is in scope. `--exclude Runner` keeps the instance out of the
+    // plan but not these — they are siblings of it, not children, and SST is never passed
+    // --exclude-dependents. Their trigger carries the deployed commit, so on an Api-only deploy
+    // they would still fire and fetch runner/<sha>/ from S3 for a commit whose build-runner job
+    // was skipped, and deployment-preview.mjs would not catch it: isRunnerLikeResource matches a
+    // name against /^Runner(?:-|$)/ OR an aws:ec2/instance:Instance carrying Runner identity
+    // tags, and this command satisfies neither arm of that disjunction.
+    //
+    // Undeclaring is a delete in Pulumi's model, which is the honest trade here: command.local
+    // .Command has no `delete:` script, so the delete touches nothing on the host, and the next
+    // full deploy recreates it — `create:` re-runs the same convergence-guarded script, a no-op
+    // when the host already serves the target identity.
     let previousUpgrade: $util.Resource | undefined
-    for (const { label, instance } of [
-      { label: 'default', instance: defaultRunner },
-      ...extraRunners.map((r) => ({ label: r.name, instance: r.instance })),
-    ]) {
+    for (const { label, instance } of !deploysRunner
+      ? []
+      : [
+          { label: 'default', instance: defaultRunner },
+          ...extraRunners.map((r) => ({ label: r.name, instance: r.instance })),
+        ]) {
       previousUpgrade = new command.local.Command(
         `UpgradeRunnerBinary-${label}`,
         {

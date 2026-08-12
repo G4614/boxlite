@@ -78,12 +78,27 @@ test('SST deploy verifies the selected Runner artifact before invoking SST', () 
   // would skip the check for exactly the deploy `npm run runner:build-artifact` produces.
   assertLiveLine(source, /requireCheckoutMatchesArtifactRefs\(\[apiSource, runnerSource\]\)/)
   assert.match(source, /verifyRunnerArtifact \} from '\.\/runner-artifact\.mjs'/)
-  assert.match(source, /const runnerSource = resolveArtifactSource\('runner'/)
+  // Resolved only when the scope covers it. Dropping the guard restores the failure this scope
+  // exists to avoid: an Api-only deploy demanding a published Runner artifact for a commit whose
+  // Runner was deliberately never built, so a complete deploy fails on a missing thing nobody
+  // asked for. Pin the conditional itself — `resolveArtifactSource('runner')` alone would pass
+  // while verifying a component the plan excludes.
+  assertLiveLine(source, /const runnerSource = deployScope\.components\.includes\('runner'\)/)
+  assertLiveLine(source, /const apiSource = deployScope\.components\.includes\('api'\)/)
   assert.notEqual(preflightIndex, -1, 'the Runner artifact preflight is missing')
   assert.notEqual(sstIndex, -1, 'the guarded SST invocation is missing')
   assert.ok(preflightIndex < sstIndex, 'SST may run before Runner artifact availability is known')
-  assert.doesNotMatch(source, /isSstComponentExcluded/)
-  assert.match(source, /requireFullStackDeploy\(sstArgs\)/)
+  // The scope comes from the args SST is actually handed, resolved once. A second, independent
+  // notion of scope here (an env var, a re-parse) could disagree with the plan and verify the
+  // wrong half.
+  assertLiveLine(source, /deployScope = resolveDeployScope\(sstArgs\)/)
+  // Exported before sst is spawned, so the resource graph is built for the same scope as the
+  // plan. Without it sst.config.ts declares UpgradeRunnerBinary-* on an Api-only deploy, and that
+  // command — a sibling of the excluded instance, so `--exclude Runner` misses it — installs a
+  // Runner binary from a commit whose build-runner job never ran.
+  assertLiveLine(source, /exportDeployScope\(deployScope\)/)
+  const exportIndex = liveText('script', source).indexOf('exportDeployScope(deployScope)')
+  assert.ok(exportIndex !== -1 && exportIndex < sstIndex, 'the scope must be exported before SST is invoked')
   assert.match(source, /withRequiredRunnerPolicy\(sstArgs\)/)
   assert.doesNotMatch(source, /RUNNER_POLICY_ROOT/)
 })
@@ -122,12 +137,16 @@ test('SST deploy verifies the selected API image before invoking SST', () => {
   const preflightIndex = source.indexOf('const image = verifyApiImage(')
   const sstIndex = source.indexOf('await withPulumiEventLogCleanup(')
 
-  assert.match(source, /const apiSource = resolveArtifactSource\('api'\)/)
+  assert.match(source, /resolveArtifactSource\('api'\)/)
   assert.notEqual(preflightIndex, -1, 'the API image preflight is missing')
   assert.ok(preflightIndex < sstIndex, 'SST may run before the selected API image is known to exist')
   // Both published sources go through it. Gating on release alone would let a build deploy name a
   // commit tag nothing ever pushed, and discover it when the ECS task fails to pull.
-  assertLiveLine(source, /if \(apiSource\.kind === 'release' \|\| apiSource\.ref\) \{/)
+  //
+  // The `apiSource &&` is the out-of-scope case, not defensive noise: a Runner-only deploy
+  // excludes the Api, leaves apiSource undefined, and would otherwise throw reading `.kind`
+  // before SST is reached.
+  assertLiveLine(source, /if \(apiSource && \(apiSource\.kind === 'release' \|\| apiSource\.ref\)\) \{/)
 })
 
 test('SST deploy does not depend on a laptop-managed remote builder', () => {
@@ -157,14 +176,14 @@ test('deployment previews and reconciles the full stack in guarded GitHub CI', (
   )
   const materializeStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Materialize stage configuration')
   const installStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Install SST providers')
-  const previewStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Preview the full stack')
-  const deployStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Deploy the full stack')
+  const previewStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Preview the selected components')
+  const deployStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Deploy the selected components')
 
   assert.match(source, /workflow_dispatch:/)
   assert.equal(workflow.on.workflow_dispatch.inputs.stage.type, 'choice')
   assert.ok(workflow.on.workflow_dispatch.inputs.stage.options.includes('dev'))
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.apply, {
-    description: 'Preview again, then deploy the full stack',
+    description: 'Preview again, then deploy the selected components',
     required: true,
     default: false,
     type: 'boolean',
@@ -174,37 +193,90 @@ test('deployment previews and reconciles the full stack in guarded GitHub CI', (
   assert.equal(workflow.permissions['id-token'], 'write')
   assert.equal(workflow.jobs.deploy['runs-on'], 'ubuntu-24.04')
 
-  // `if:` restricts the workflow ref, not the dispatched `ref` input — this shell guard is the
-  // only thing binding the built commit to main or to a pull request someone is proposing. Read
-  // the step it lives in, since demoting a line to a comment leaves it greppable while the guard
-  // is gone.
+  // `if:` restricts the workflow ref, not the dispatched `ref`/`pr` inputs — this shell guard is
+  // the only thing binding the built commit to main or to a pull request someone is proposing.
+  // Read the step it lives in, since demoting a line to a comment leaves it greppable while the
+  // guard is gone.
   const refGuardStep = workflow.jobs['resolve-ref'].steps.find(
     (step) => step.name === 'Require a commit on main or an open pull request',
   )
   assert.ok(refGuardStep, 'the deployable-commit guard step is missing')
   // Anchored per line with no leading `#`: a parsed read still hands back the whole shell body,
-  // so commenting a check out leaves it matchable while it no longer runs. `&&` is allowed
-  // because the main test is the second half of an `if`, but `#` still is not.
-  assert.match(refGuardStep.run, /^\s*(&& )?git merge-base --is-ancestor "\$candidate" origin\/main/m)
-  assert.match(refGuardStep.run, /^\s*\[\[ "\$candidate" =~ \^\[0-9a-f\]\{40\}\$ \]\]/m)
+  // so commenting a check out leaves it matchable while it no longer runs.
   assert.match(refGuardStep.run, /^\s*set -euo pipefail/m)
-  // The pull-request path is the widened surface, so pin all three things that keep it narrow:
-  // only an OPEN pull request, only its head (/commits/{sha}/pulls also returns a PR's
-  // intermediate commits, which no review is looking at), and only one opened from THIS
-  // repository. The fork clause is the load-bearing one: build-c and build-runner check the
-  // resolved commit out with contents: write, and the deploy job runs its npm ci / npm test after
-  // the OIDC role is configured, so a fork head would be arbitrary code holding credentials.
+  assert.match(refGuardStep.run, /^\s*\[ -z "\$INPUT_REF" \] \|\| \[ -z "\$INPUT_PR" \] \|\| \{/m)
+  assert.match(refGuardStep.run, /ref and pr are mutually exclusive/)
+  // The PR path resolves by NUMBER, not by asking the API which PR (if any) owns a given SHA —
+  // that lookup (/commits/{sha}/pulls) returns an empty array for a fork PR's head, so no fix to
+  // it could ever accept a fork. gh pr view has no such gap: it works identically for a same-repo
+  // or a fork PR, which is the whole point of resolving this direction instead of the other.
+  assert.match(refGuardStep.run, /^\s*\[\[ "\$INPUT_PR" =~ \^\[0-9\]\+\$ \]\]/m)
   assert.match(
     refGuardStep.run,
-    /^\s*--jq .*select\(\.state == \\"open\\" and \.head\.sha == \\"\$\{candidate\}\\" and \.head\.repo\.full_name == \\"\$\{GITHUB_REPOSITORY\}\\"\)/m,
+    /^\s*pr_json="\$\(gh pr view "\$INPUT_PR" --json state,headRefOid,isCrossRepository,mergeable,potentialMergeCommit\)"/m,
   )
-  // Neither path matching has to fail the job; a guard that falls through deploys an arbitrary SHA.
-  assert.match(refGuardStep.run, /^\s*\[ -n "\$number" \] \|\| \{$/m)
-  assert.match(refGuardStep.run, /is not on main, and not the head of an open pull request in/)
-  // The API read the pull-request path depends on; without it the query 404s and every PR ref is
-  // rejected, silently reverting this to main-only.
+  assert.match(refGuardStep.run, /^\s*\[ "\$state" = "OPEN" \] \|\| \{/m)
+  // The MERGE commit, not the head. The workflow definition comes from main while this job picks
+  // what is checked out, so deploying a head pairs main's YAML with whatever tooling that branch
+  // carries — the mismatch that sent a components=api dispatch into an apps/infra with no scope
+  // support at all. refs/pull/N/merge is main+PR by construction, so it cannot be behind main.
+  assertShellLine(refGuardStep.run, /sha="\$\(jq -r '\.potentialMergeCommit\.oid \/\/ empty' <<<"\$pr_json"\)"/)
+  assertShellLine(refGuardStep.run, /head_sha="\$\(jq -r '\.headRefOid' <<<"\$pr_json"\)"/)
+  // A conflicting PR has no merge commit, and an uncomputed one is a "not yet" rather than a
+  // verdict — distinct causes, so distinct refusals. Emitting the head as a fallback would
+  // silently reintroduce exactly the behaviour this replaces.
+  assertShellLine(refGuardStep.run, /\[ "\$mergeable" != "CONFLICTING" \] \|\| \{/)
+  assertShellLine(refGuardStep.run, /\[ -n "\$sha" \] \|\| \{/)
+  // Mergeability is computed lazily, so a cold cache answers UNKNOWN and the merge SHA is empty.
+  // Both the loop AND its re-query are pinned: without the re-query the loop spins over the same
+  // stale JSON, which fails a dispatch that one refresh would have resolved and makes the "after
+  // 5 attempts" message untrue.
+  assertShellLine(refGuardStep.run, /for attempt in 1 2 3 4 5; do/)
+  assertShellLine(refGuardStep.run, /\[ "\$mergeable" = "UNKNOWN" \] \|\| \[ -z "\$sha" \] \|\| break/)
+  const retryBody = liveShell(refGuardStep.run)
+  const loopStart = retryBody.indexOf('for attempt in 1 2 3 4 5; do')
+  assert.match(
+    retryBody.slice(loopStart, retryBody.indexOf('done', loopStart)),
+    /pr_json="\$\(gh pr view/,
+    'the retry loop must re-query, or it polls its own stale answer',
+  )
+  // Raw, not live: the message embeds `PR #$INPUT_PR`, and liveShell's stripper reads a `#`
+  // preceded by whitespace as a comment and deletes the rest of the line. The guards above are
+  // pinned live — they carry the behaviour; these two only pin that each cause says its own name.
+  assert.match(refGuardStep.run, /conflicts with main, so it has no merge commit to deploy/)
+  assert.match(refGuardStep.run, /has no merge commit yet \(mergeable=\$mergeable\)/)
+  assert.doesNotMatch(
+    liveShell(refGuardStep.run),
+    /sha="\$head_sha"/,
+    'the head must never stand in for a missing merge commit',
+  )
+  // PR #1148 refused a fork head deliberately (`.head.repo.full_name == GITHUB_REPOSITORY`), a
+  // named security boundary — not a side effect of the SHA-reverse-lookup bug this guard fixes.
+  // This guard drops that boundary on purpose: isCrossRepository is fetched and logged for
+  // whoever reviews the run, but nothing here may branch on it. Pin the shape (fetched, echoed)
+  // AND the absence (no `exit 1` between computing it and the block's `exit 0`) so a fork
+  // exclusion added back later doesn't silently pass this test by accident.
+  assert.match(refGuardStep.run, /^\s*fork="\$\(jq -r '\.isCrossRepository' <<<"\$pr_json"\)"/m)
+  assert.match(
+    refGuardStep.run,
+    /^\s*echo "PR #\$INPUT_PR \(\$\(\[ "\$fork" = "true" \] && echo fork \|\| echo same-repo\)\) head is \$head_sha; deploying merge \$sha"/m,
+  )
+  const forkOnwards = refGuardStep.run.slice(refGuardStep.run.indexOf('fork="$(jq'))
+  const prBlockTail = forkOnwards.slice(0, forkOnwards.indexOf('exit 0') + 'exit 0'.length)
+  assert.doesNotMatch(
+    prBlockTail,
+    /exit 1/,
+    'a fork PR head must not be rejected between resolving it and exit 0 — same-repo and fork PRs are accepted identically',
+  )
+  assert.match(refGuardStep.run, /^\s*echo "sha=\$sha" >> "\$GITHUB_OUTPUT"/m)
+  // The main-commit path is untouched by the pr path above it.
+  assert.match(refGuardStep.run, /^\s*\[\[ "\$candidate" =~ \^\[0-9a-f\]\{40\}\$ \]\]/m)
+  assert.match(refGuardStep.run, /^\s*\|\| ! git merge-base --is-ancestor "\$candidate" origin\/main/m)
+  // The API the pr path depends on; without it every `pr` input 404s, which fails closed (the
+  // guard rejects), not open — but it's still the reason this permission is here.
   assert.equal(workflow.jobs['resolve-ref'].permissions['pull-requests'], 'read')
   assert.equal(workflow.jobs['resolve-ref'].permissions.contents, 'read')
+  assert.deepEqual(workflow.jobs['resolve-ref'].outputs, { sha: '${{ steps.ref.outputs.sha }}' })
 
   // The reusable builds and what they are told to build: `with:` values decide which commit and
   // which C SDK the Runner links, and build-runner-binary.yml defaults libboxlite_source to the
@@ -236,12 +308,106 @@ test('deployment previews and reconciles the full stack in guarded GitHub CI', (
   // expression, so the default success() is what stops the suite running behind a failed deploy.
   assert.deepEqual(workflow.jobs.e2e.needs, ['resolve-ref', 'deploy'])
 
+  // A narrowed scope must drop the build AND the reconcile, or it is not a scope. Each half is
+  // pinned separately because either alone is a distinct bug: the builds without the exclusion
+  // deploys a component from a commit it was never built for, and the exclusion without the
+  // build gating just burns the CI time the input exists to save.
+  const components = workflow.on.workflow_dispatch.inputs.components
+  assert.equal(components.type, 'choice', 'components must be an allowlist, not free text')
+  assert.deepEqual(components.options, ['api+runner', 'api', 'runner'])
+  assert.equal(components.default, 'api+runner', 'an unqualified dispatch must still deploy everything')
+  // `contains` reads as membership only while no single-leg option contains the other leg's name.
+  // The combined option contains both by design; a leg that contained the other would make its
+  // gate fire for a scope that excludes it — an `api`-only dispatch building the Runner anyway.
+  const legs = components.options.filter((option) => option !== 'api+runner')
+  for (const leg of legs) {
+    for (const other of legs.filter((candidate) => candidate !== leg)) {
+      assert.ok(!leg.includes(other), `option '${leg}' contains '${other}', which breaks the contains() gates`)
+    }
+    assert.ok(components.default.includes(leg), `the default must select '${leg}'`)
+  }
+  assert.equal(workflow.jobs['build-api'].if, "${{ contains(inputs.components, 'api') }}")
+  assert.equal(workflow.jobs['build-c'].if, "${{ contains(inputs.components, 'runner') }}")
+  assert.equal(workflow.jobs['build-runner'].if, "${{ contains(inputs.components, 'runner') }}")
+  for (const stepName of ['Download commit Runner artifact', 'Stage commit Runner artifact']) {
+    const step = workflow.jobs.deploy.steps.find((candidate) => candidate.name === stepName)
+    assert.ok(step, `${stepName} is missing`)
+    assert.equal(step.if, "${{ contains(inputs.components, 'runner') }}", `${stepName} must be scope-gated`)
+  }
+  // The SST component each scope excludes. `--target` must never appear: it omits the shared and
+  // provider resources a partial update still depends on, which is how PR #1095 stalled the stack
+  // mid-provider-migration. deployment-scope.mjs rejects it, and this keeps the workflow honest
+  // before it ever gets there.
+  assert.equal(
+    workflow.jobs.deploy.env.DEPLOY_EXCLUDE,
+    "${{ inputs.components == 'api' && 'Runner' || inputs.components == 'runner' && 'Api' || '' }}",
+  )
+  assert.doesNotMatch(liveShell(source), /--target/)
+  // The workflow definition comes from the dispatch ref while this job checks out the SELECTED
+  // commit, so the two are versioned independently and `--exclude` is the first thing that
+  // couples them. Observed: run 31229121181 dispatched `components=api` at a PR head predating
+  // component selection, and the old wrapper answered `partial SST deploys are disabled` — true
+  // of that commit, but it reads as a statement about this workflow.
+  const scopeSupportStep = workflow.jobs.deploy.steps.find(
+    (step) => step.name === 'Require component selection support in the selected commit',
+  )
+  assert.ok(scopeSupportStep, 'the component-selection capability check is missing')
+  assert.equal(scopeSupportStep.if, "${{ env.DEPLOY_EXCLUDE != '' }}", 'the check must run only for a narrowed scope')
+  // Probing the export, not grepping for it: a checkout can carry the identifier in a comment.
+  assertShellLine(scopeSupportStep.run, /typeof m\.resolveDeployScope === 'function'/)
+  // Absence is its own decision, taken before the probe. The module only exists from PR #1095
+  // onward, so most open pull-request heads do not have it at all — inferring that from an import
+  // failure lands them in the load-failure arm, which answers "present but failed to load" about
+  // a file that is not there and points at the wrong remedy.
+  assertShellLine(scopeSupportStep.run, /if \[ ! -f "\$module" \]; then/)
+  assertShellLine(scopeSupportStep.run, /status=unsupported/)
+  // Each arm, and the claim that distinguishes it. Pinning only the `if` leaves an arm free to
+  // carry another arm's message, which a passing suite would not notice: the arms differ solely
+  // in what they tell the operator, so a wrong cause here is invisible to every other assertion.
+  const scopeSupportShell = liveShell(scopeSupportStep.run)
+  assert.match(scopeSupportShell, /supported\) ;;/, 'the supported arm must be a no-op')
+  const tooOld = scopeSupportShell.slice(scopeSupportShell.indexOf('unsupported)'))
+  assert.match(
+    tooOld.slice(0, tooOld.indexOf(';;')),
+    /predates component selection/,
+    'the too-old arm must name age as the cause',
+  )
+  const unreadable = scopeSupportShell.slice(scopeSupportShell.indexOf('*)'))
+  assert.match(
+    unreadable,
+    /failed to load/,
+    'the load-failure arm must not describe the commit as too old — that is the other arm',
+  )
+  assert.doesNotMatch(
+    unreadable,
+    /predates component selection/,
+    'the load-failure arm must not reuse the too-old cause',
+  )
+  // Before the deploy role is assumed. An unsupported scope is knowable from the checkout alone,
+  // so it must never reach AWS credentials.
+  const deployStepNames = workflow.jobs.deploy.steps.map((step) => step.name)
+  assert.ok(
+    deployStepNames.indexOf('Require component selection support in the selected commit') <
+      deployStepNames.indexOf('Configure AWS credentials through OIDC'),
+    'the capability check must run before AWS credentials are configured',
+  )
+  // A skipped build job would cascade a skip to the deploy under the implicit success(). Naming a
+  // status-check function turns that off — without one, every narrowed dispatch silently deploys
+  // nothing while reporting green.
+  assert.match(workflow.jobs.deploy.if, /!cancelled\(\)/)
+  assert.match(workflow.jobs.deploy.if, /!contains\(needs\.\*\.result, 'failure'\)/)
+  assert.match(workflow.jobs.deploy.if, /!contains\(needs\.\*\.result, 'cancelled'\)/)
+  assert.match(workflow.jobs.deploy.if, /github\.ref == 'refs\/heads\/main'/)
+
   // Both components resolve to the one commit the build jobs actually produced. The stage secret
   // cannot redirect that: deploy-environment-validation.mjs rejects the selector keys outright.
   for (const selector of ['BOXLITE_ARTIFACT_SOURCE', 'API_ARTIFACT_SOURCE', 'RUNNER_ARTIFACT_SOURCE']) {
     assert.equal(workflow.jobs.deploy.env[selector], 'build', `${selector} must be set on the deploy job`)
   }
   assert.equal(workflow.jobs.deploy.env.BOXLITE_ARTIFACT_REF, '${{ needs.resolve-ref.outputs.sha }}')
+  const deployCheckoutStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Checkout selected commit')
+  assert.ok(deployCheckoutStep, 'the deploy job never checks out the resolved commit')
+  assert.equal(deployCheckoutStep.with.ref, '${{ needs.resolve-ref.outputs.sha }}')
   // Both build legs, not just the Runner's. Dropping build-api would let the deploy resolve a
   // commit image tag whose build had not finished — or never ran — and fail on the pull.
   assert.deepEqual(workflow.jobs.deploy.needs, ['resolve-ref', 'build-api', 'build-runner'])
@@ -288,18 +454,32 @@ test('deployment previews and reconciles the full stack in guarded GitHub CI', (
   assert.equal(previewStep.if, undefined, 'Preview validation must not be conditional')
   assert.equal(previewStep['continue-on-error'], undefined, 'Preview failures must stop deployment')
   assert.equal(previewStep.shell, 'bash')
-  assert.equal(
-    previewStep.run,
-    [
-      'set -euo pipefail',
-      'npm run --silent sst -- diff --stage "$STAGE" --policy . --json |',
-      '  node scripts/deployment-preview.mjs',
-      '',
-    ].join('\n'),
-  )
-  assert.ok(deployStep, 'the full-stack deployment step is missing')
+  // Every executed line and its order, comments stripped: the scope must reach SST, and nothing
+  // may be appended alongside it. Compared as lines rather than one string so rewording a comment
+  // does not churn the pin, while adding or dropping a command still fails.
+  const liveCommands = (run) => liveShell(run).split('\n').filter(Boolean)
+  // Seeded with the fixed arguments, never `args=()`: expanding an empty array under `set -u` is
+  // an unbound-variable error before bash 4.4, so a full-scope deploy would die on the runner's
+  // bash rather than on anything about this stack. Verified against bash 3.2.
+  assert.deepEqual(liveCommands(previewStep.run), [
+    'set -euo pipefail',
+    'args=(diff --stage "$STAGE" --policy .)',
+    '[ -z "$DEPLOY_EXCLUDE" ] || args+=(--exclude "$DEPLOY_EXCLUDE")',
+    'args+=(--json)',
+    'npm run --silent sst -- "${args[@]}" |',
+    '  node scripts/deployment-preview.mjs',
+  ])
+  assert.ok(deployStep, 'the deployment step is missing')
   assert.equal(deployStep.if, '${{ inputs.apply }}')
-  assert.equal(deployStep.run, 'npm run deploy -- --stage "$STAGE" --policy .')
+  assert.deepEqual(liveCommands(deployStep.run), [
+    'set -euo pipefail',
+    'args=(--stage "$STAGE" --policy .)',
+    '[ -z "$DEPLOY_EXCLUDE" ] || args+=(--exclude "$DEPLOY_EXCLUDE")',
+    'npm run deploy -- "${args[@]}"',
+  ])
+  // The `"${args[@]}"` spelling in both invocations above is the whole guard: `--exclude
+  // "$DEPLOY_EXCLUDE"` inline would hand SST an empty component name on every full deploy, and
+  // unquoted it would word-split. The deepEqual pins those lines exactly, so no separate check.
   assert.ok(
     workflow.jobs.deploy.steps.indexOf(previewStep) < workflow.jobs.deploy.steps.indexOf(deployStep),
     'Preview validation must complete before deployment',
@@ -319,7 +499,13 @@ test('deployment previews and reconciles the full stack in guarded GitHub CI', (
       workflow.jobs.deploy.steps.indexOf(installStep) < workflow.jobs.deploy.steps.indexOf(previewStep),
     'SST providers must be installed after stage config and before the deployment preview',
   )
-  assert.doesNotMatch(`${previewStep.run}\n${deployStep.run}`, /--(?:target|exclude)(?:[=\s]|$)/)
+  // A selector may name a component only through DEPLOY_EXCLUDE, whose value the `components`
+  // choice allowlists. Hardcoding one here would deploy a fixed partial scope on every dispatch,
+  // including the default full one — invisible to the input the operator actually set.
+  assert.doesNotMatch(
+    `${liveShell(previewStep.run)}\n${liveShell(deployStep.run)}`,
+    /--(?:target|exclude)[=\s]+(?!"\$DEPLOY_EXCLUDE")[A-Za-z]/,
+  )
   assert.doesNotMatch(source, /setup-qemu/)
 })
 
@@ -404,6 +590,26 @@ test('commit Runner builds consume the C SDK artifact from the same reusable run
   assert.ok(runnerWorkflow.on.workflow_call.inputs.libboxlite_source, 'the C SDK source input is gone')
   assert.ok(runnerWorkflow.on.workflow_call.inputs.ref, 'build-runner-binary.yml dropped the ref input')
 
+  // Each resolve-ref job's own checkout only sees THIS repo's branches (fetch-depth: 0), so its
+  // "Validate build commit" step's cat-file check fails for a commit an open pull request (same
+  // repo or fork) proposes, independently of whatever deploy-infra.yml already resolved — each
+  // needs its own fetch-if-needed fallback. A bare-SHA `git fetch` is a real, working fallback
+  // (confirmed live against the real GitHub server, fork heads included) — no PR number or ref
+  // name required, unlike deploy-infra.yml's own resolve-ref, which needs a PR number for a
+  // different reason (the security lookup, not fetchability). Anchored per line: a commented-out
+  // fallback still parses.
+  const cValidateRun = cWorkflow.jobs['resolve-ref'].steps.find((step) => step.name === 'Validate build commit')?.run
+  assert.ok(cValidateRun, 'build-c.yml lost its Validate build commit step')
+  assert.match(cValidateRun, /^\s*git cat-file -e "\$candidate\^\{commit\}" 2>\/dev\/null \|\| git fetch origin "\$candidate"/m)
+  const runnerValidateRun = runnerWorkflow.jobs['resolve-ref'].steps.find(
+    (step) => step.name === 'Validate build commit',
+  )?.run
+  assert.ok(runnerValidateRun, 'build-runner-binary.yml lost its Validate build commit step')
+  assert.match(
+    runnerValidateRun,
+    /^\s*git cat-file -e "\$candidate\^\{commit\}" 2>\/dev\/null \|\| git fetch origin "\$candidate"/m,
+  )
+
   // The upload/download names are the handshake between the two runs: build-c publishes
   // c-sdk-<target>, build-runner consumes c-sdk-linux-x64-gnu. Compare parsed values so a legal
   // requoting does not fail and a commented-out `name:` does not pass.
@@ -468,7 +674,9 @@ test('the cloud E2E suite is reachable only from a deploy or a human', () => {
 
   // The checkout has to follow the caller's commit. Falling back to github.sha alone would test
   // the tip of whatever ref the *caller* ran from, which for a re-deploy of an older commit is
-  // not the commit now on the stack.
+  // not the commit now on the stack. actions/checkout's own ref:-driven fetch already resolves a
+  // fork-derived commit — confirmed live against the real GitHub server — so no restructuring is
+  // needed here, fork-derived deploys included.
   const checkout = workflow.jobs.e2e.steps.find(
     (step) => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout'),
   )
@@ -878,7 +1086,7 @@ test('one release selector resolves the API and Runner to the same published ver
   // resolveArtifactSource uses the same resolveReleaseVersion(workspace, env) contract as the
   // public deployment config. VERSION therefore selects both artifacts instead of producing an
   // API/Runner split-brain release.
-  assert.match(source, /const runnerSource = resolveArtifactSource\('runner'\)/)
+  assert.match(source, /resolveArtifactSource\('runner'\)/)
   assert.match(source, /await verifyRunnerArtifact\(runnerSource/)
   assert.doesNotMatch(source, /verifyRunnerReleaseAssets\(publicDeploymentConfig\.releaseVersion\)/)
 })

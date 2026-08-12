@@ -143,13 +143,19 @@ typedef struct FFIError {
   char *message;
 } FFIError;
 
-typedef struct RuntimeHandle CBoxliteRuntime;
-
-typedef struct OptionsHandle CBoxliteOptions;
-
 typedef struct BoxHandle CBoxHandle;
 
 typedef struct FFIError CBoxliteError;
+
+// Box export completion.
+typedef void (*CBoxExportCb)(char*, CBoxliteError*, void*);
+
+typedef struct RuntimeHandle CBoxliteRuntime;
+
+// Runtime import completion.
+typedef void (*CRuntimeImportCb)(CBoxHandle*, CBoxliteError*, void*);
+
+typedef struct OptionsHandle CBoxliteOptions;
 
 // Box creation completion.
 typedef void (*CBoxCreateBoxCb)(CBoxHandle*, CBoxliteError*, void*);
@@ -312,6 +318,12 @@ typedef struct CBoxInfo {
   int64_t created_at;
   // Owned typed network metadata; null when network metadata is unavailable.
   struct CNetworkInfo *network;
+  // Unix milliseconds of the most recently recorded successful guest
+  // `Container.Start`; `0` when none was recorded. Preserved after stop or
+  // reboot; when [`Self::pid`] is nonzero, the timestamp describes that live
+  // PID. Milliseconds — not `created_at`'s seconds — preserve sub-second
+  // ordering against a job's timeline.
+  int64_t started_at;
 } CBoxInfo;
 
 // Box info completion. On success the callback owns the non-null metadata and
@@ -462,6 +474,28 @@ enum BoxliteErrorCode boxlite_advanced_options_set_capabilities_add(CAdvancedBox
 enum BoxliteErrorCode boxlite_advanced_options_set_capabilities_drop(CAdvancedBoxOptions *opts,
                                                                      const char *const *capabilities,
                                                                      int count);
+
+// Submit a box export.
+//
+// On success, the callback owns the returned path and must release it with
+// `boxlite_free_string`. The archive itself is never deleted by this bridge.
+enum BoxliteErrorCode boxlite_box_export(CBoxHandle *handle,
+                                         const char *dest,
+                                         CBoxExportCb cb,
+                                         void *user_data,
+                                         CBoxliteError *out_error);
+
+// Submit a trusted archive import.
+//
+// A null or empty `name_or_null` leaves the new box unnamed. The callback
+// owns the returned stopped box handle. The caller retains ownership of the
+// archive file; this bridge never removes it.
+enum BoxliteErrorCode boxlite_runtime_import(CBoxliteRuntime *runtime,
+                                             const char *archive_path,
+                                             const char *name_or_null,
+                                             CRuntimeImportCb cb,
+                                             void *user_data,
+                                             CBoxliteError *out_error);
 
 enum BoxliteErrorCode boxlite_create_box(CBoxliteRuntime *runtime,
                                          CBoxliteOptions *opts,

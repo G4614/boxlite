@@ -140,13 +140,22 @@ test('requires the OIDC client ID through the SST secret store', () => {
 })
 
 test('the runbook never hands an operator a deploy the wrapper rejects', () => {
-  // requireFullStackDeploy throws on --target/--exclude before any preflight runs, so a runbook
-  // command carrying one is not a documented escape hatch — it is a step that exits 1.
-  // Both spellings reach the same guard: package.json points `deploy` and `sst` at one wrapper,
-  // which calls requireFullStackDeploy unconditionally, and that gates on `args[0] === 'deploy'`.
-  // `npm run sst --` is what this runbook actually uses, so covering only `npm run deploy` would
-  // guard the rarer spelling. Targeted `diff` stays legal and must not be flagged.
-  assert.doesNotMatch(readme, /npm run (?:deploy|sst -- deploy)[^\n]*--(?:target|exclude)\b/)
+  // resolveDeployScope throws before any preflight runs, so a runbook command it refuses is not a
+  // documented escape hatch — it is a step that exits 1. Both spellings reach the same guard:
+  // package.json points `deploy` and `sst` at one wrapper, which resolves the scope
+  // unconditionally, and that gates on `args[0] === 'deploy'`. `npm run sst --` is what this
+  // runbook actually uses, so covering only `npm run deploy` would guard the rarer spelling.
+  // Targeted `diff` stays legal and must not be flagged.
+  //
+  // `--target` is still refused for deploys; `--exclude` is refused for anything but the two
+  // reviewed component scopes, so the runbook may show those and nothing else.
+  assert.doesNotMatch(readme, /npm run (?:deploy|sst -- deploy)[^\n]*--target\b/)
+  for (const [, excluded] of readme.matchAll(/npm run (?:deploy|sst -- deploy)[^\n]*--exclude[=\s]+(\S+)/g)) {
+    assert.ok(
+      ['Api', 'Runner'].includes(excluded),
+      `the runbook documents --exclude ${excluded}, which resolveDeployScope refuses`,
+    )
+  }
   // The prod stage is `prod`, and PRODUCTION_STAGE is why: a runbook naming `production` sends
   // an operator at a stage that does not exist, which is the same drift the guards above pin.
   assert.doesNotMatch(readme, /\bstage[= ]production\b/)
@@ -175,6 +184,23 @@ test('no stage-name comparison hardcodes a bare production literal', () => {
   assert.doesNotMatch(liveConfig, /\bstage\b\s*(?:===|!==|==|!=)\s*(?:'production'|"production"|`production`)/)
   assert.doesNotMatch(liveConfig, /(?:'production'|"production"|`production`)\s*(?:===|!==|==|!=)\s*\bstage\b/)
   assert.match(liveConfig, /NODE_ENV: 'production'/)
+})
+
+test('the Runner binary upgrade is declared only when the Runner is in scope', () => {
+  // `--exclude Runner` keeps the EC2 instance out of the plan, but UpgradeRunnerBinary-* is a
+  // sibling of it, not a child, and SST is never passed --exclude-dependents. Its trigger carries
+  // the deployed commit, so left declared on an Api-only deploy it fetches runner/<sha>/ for a
+  // commit whose build-runner job was skipped. deployment-preview.mjs cannot catch that:
+  // isRunnerLikeResource matches a name against /^Runner(?:-|$)/ OR an aws:ec2/instance:Instance
+  // carrying Runner identity tags, and this command satisfies neither arm.
+  const live = liveText('scriptEmittingShell', source)
+  assert.match(live, /const deploysRunner = readDeployScope\(\)\.includes\('runner'\)/)
+  assert.match(live, /readDeployScope \} = await import\('\.\/scripts\/deployment-scope\.mjs'\)/)
+  // The gate must sit on the loop that constructs them, not merely exist somewhere in the file.
+  const upgradeIndex = live.indexOf('`UpgradeRunnerBinary-${label}`')
+  assert.notEqual(upgradeIndex, -1, 'the Runner upgrade command is missing')
+  const loopHeader = live.slice(live.lastIndexOf('let previousUpgrade', upgradeIndex), upgradeIndex)
+  assert.match(loopHeader, /!deploysRunner\s*\?\s*\[\]/, 'the upgrade loop is not gated on the deploy scope')
 })
 
 test('every local Command pins dir, so it runs from the app root', () => {
@@ -356,4 +382,100 @@ test('no longer points operators at the deleted shell updater', () => {
   assert.doesNotMatch(liveConfig, /scripts\/deploy\/runner-update-binary\.sh/)
   assert.doesNotMatch(readme, /runner-update-binary\.sh/)
   assert.match(readme, /scripts\/runner-update-binary\.mjs/)
+})
+
+// BILLING_API_URL used to do more than tell the dashboard where to call: while organization
+// creation keyed off it, pointing it anywhere made the API create every non-default organization
+// suspended with 'Payment method required' — unclearable by a mock that registers no card. That
+// coupling is what must not come back. Suspension is now gated on its own flag, so the guard
+// belongs on the condition rather than on the URL.
+test('organization suspension is gated on its own flag, not on BILLING_API_URL', () => {
+  const organizationService = liveText(
+    'scriptEmittingShell',
+    readFileSync(new URL('../../api/src/organization/services/organization.service.ts', import.meta.url), 'utf8'),
+  )
+  // The reason string is only ever produced under the dedicated flag.
+  assert.match(organizationService, /configService\.get\('requirePaymentMethod'\)/)
+  assert.doesNotMatch(organizationService, /configService\.get\('billingApiUrl'\)/)
+  assert.match(
+    readFileSync(new URL('../../api/src/config/configuration.ts', import.meta.url), 'utf8'),
+    /requirePaymentMethod: process\.env\.REQUIRE_PAYMENT_METHOD === 'true'/,
+  )
+})
+
+// The dashboard decides whether its billing surfaces exist by whether the Api sent a billing URL,
+// so advertising one on a stage that deploys no billing service renders pages whose every request
+// 404s. The producing and consuming sides sit in different packages: nothing but a cross-file
+// guard notices when one of them moves.
+test('a billing URL is advertised only where a billing service answers', () => {
+  // Shape, not formatting: the block gained usage-export settings on the same gate, so pinning
+  // the one-line spelling would fail on a change that keeps the guarantee exactly. What matters
+  // is that the gate is the env var and the value is passed through with no default behind it.
+  assert.match(liveConfig, /\.\.\.\(process\.env\.BILLING_API_URL && \{/)
+  assert.match(liveConfig, /BILLING_API_URL: process\.env\.BILLING_API_URL,/)
+  assert.doesNotMatch(liveConfig, /BILLING_API_URL: envOr\(/)
+
+  // Wallet, plan and usage are sections of one /dashboard/billing page, so the gate moved from
+  // the route table into that page: it must refuse to render any section — none of which can
+  // load without the billing origin — before it reads one, and return the placeholder instead.
+  const billing = liveText(
+    'script',
+    readFileSync(new URL('../../dashboard/src/pages/Billing.tsx', import.meta.url), 'utf8'),
+  )
+  const gate = billing.indexOf('if (!config.billingApiUrl)')
+  assert.notEqual(gate, -1, 'Billing page must gate on config.billingApiUrl')
+  assert.match(billing.slice(gate), /return <BillingComingSoon \/>/)
+  for (const section of ['<BillingAlerts />', '<PlanSection />', '<UsageSection />', '<WalletSection />']) {
+    assert.ok(billing.indexOf(section) > gate, `${section} must render only past the billing gate`)
+  }
+
+  // The per-surface paths that used to be gated are now redirects into that page. A redirect
+  // issues no request of its own, so it is safe ungated — but it must not render a page, and
+  // must stay out of the force-redirect list that would send it to /boxes instead.
+  const app = liveText(
+    'script',
+    readFileSync(new URL('../../dashboard/src/App.tsx', import.meta.url), 'utf8'),
+  )
+  const redirectedRoutes = ['BILLING_SPENDING', 'BILLING_WALLET', 'LIMITS', 'PRICING']
+  for (const route of redirectedRoutes) {
+    // extractSection excludes its end marker, so the closer is matched by the marker itself.
+    const routeLine = extractSection(app, `getRouteSubPath(RoutePath.${route})`, '/>')
+    assert.match(routeLine, /element=\{<Navigate to=\{RoutePath\.BILLING\} replace $/)
+  }
+  const hiddenRoutes = extractSection(app, 'const HIDDEN_DASHBOARD_ROUTES = [', ']')
+  for (const route of redirectedRoutes) {
+    assert.doesNotMatch(hiddenRoutes, new RegExp(route))
+  }
+})
+
+// Where usage is shipped and where the dashboard calls are one letter apart in intent and a whole
+// route apart in fact: the publisher appends /internal/usage-events, which the billing service
+// serves off its bare origin because that route authenticates a service rather than a user, so it
+// sits outside the /api/billing prefix (boxlite-commerce src/http.ts). Handing the exporter
+// BILLING_API_URL's value is the plausible edit that 404s every batch, silently, for as long as
+// nobody reads the outbox — and the two sides sit in different repositories, where no type checks
+// the seam. Deriving the origin is what makes the two impossible to point apart by accident.
+test('usage is exported to the ingest origin, never to the dashboard billing URL', () => {
+  assert.match(
+    liveConfig,
+    /USAGE_EXPORT_URL: envOr\('USAGE_EXPORT_URL', new URL\(process\.env\.BILLING_API_URL\)\.origin\)/,
+  )
+  assert.doesNotMatch(liveConfig, /USAGE_EXPORT_URL: envOr\([^)]*\/api\/billing/)
+
+  // Delivery is gated on the credential, not asserted alongside it: configuration.ts throws when
+  // export is enabled without a token, so a stage pointed at a billing service but holding no
+  // secret must come up exporting nothing rather than crash-loop on boot.
+  assert.match(liveConfig, /USAGE_EXPORT_TOKEN: usageExportToken\.value/)
+  assert.match(
+    liveConfig,
+    /USAGE_EXPORT_ENABLED: usageExportToken\.value\.apply\(\(token\) => \(token\.trim\(\) \? 'true' : 'false'\)\)/,
+  )
+  assert.match(liveConfig, /const usageExportToken = new sst\.Secret\('USAGE_EXPORT_TOKEN', ''\)/)
+
+  // Nothing here can discover the receiving half — it belongs to the billing service's own stack —
+  // so the note naming the value to set is the only thing between an operator and a stage that
+  // 401s every batch, and it must keep naming it.
+  assert.match(environmentExample, /^# USAGE_EXPORT_URL=/m)
+  assert.match(environmentExample, /boxlite-commerce\/<stage>\/usage-ingest-token/)
+  assert.doesNotMatch(environmentExample, /^USAGE_EXPORT_TOKEN=/m)
 })
