@@ -1346,8 +1346,9 @@ mod tests {
             .resolve_container_security()
             .expect("privileged security should resolve");
 
-        assert!(resolved.unconfined_paths);
-        assert!(resolved.writable_sysfs);
+        assert!(resolved.masked_paths.is_empty());
+        assert!(resolved.readonly_paths.is_empty());
+        assert!(!resolved.sys_mount_options.contains(&"rro".to_string()));
         assert_eq!(resolved.capabilities.add, ["ALL"]);
         assert!(resolved.capabilities.drop.is_empty());
     }
