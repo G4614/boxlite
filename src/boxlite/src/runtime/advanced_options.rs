@@ -813,40 +813,21 @@ impl AdvancedBoxOptions {
     }
 }
 
-/// Default OCI masked-path list for a non-privileged container — mirrors
-/// `oci_spec::runtime::Linux::default()`'s own baseline. The guest no longer
-/// carries an opinion of its own about what "unconfined" means; the host
-/// hands over the literal list (see `ResolvedContainerSecurityConfig`).
+/// Default OCI masked-path list for a non-privileged container. The guest no
+/// longer carries an opinion of its own about what "unconfined" means; the
+/// host hands over the literal list (see `ResolvedContainerSecurityConfig`).
+/// Sourced from `oci_spec::runtime::get_default_maskedpaths()` rather than
+/// copied, so it can't drift from what the guest's own oci-spec dependency
+/// would otherwise have filled in by default.
 fn default_masked_paths() -> Vec<String> {
-    [
-        "/proc/acpi",
-        "/proc/asound",
-        "/proc/kcore",
-        "/proc/keys",
-        "/proc/latency_stats",
-        "/proc/timer_list",
-        "/proc/timer_stats",
-        "/proc/sched_debug",
-        "/sys/firmware",
-        "/proc/scsi",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
+    oci_spec::runtime::get_default_maskedpaths()
 }
 
-/// Default OCI readonly-path list for a non-privileged container.
+/// Default OCI readonly-path list for a non-privileged container. Sourced
+/// from `oci_spec::runtime::get_default_readonly_paths()` for the same
+/// no-drift reason as `default_masked_paths`.
 fn default_readonly_paths() -> Vec<String> {
-    [
-        "/proc/bus",
-        "/proc/fs",
-        "/proc/irq",
-        "/proc/sys",
-        "/proc/sysrq-trigger",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
+    oci_spec::runtime::get_default_readonly_paths()
 }
 
 /// Full resolved option list for the guest's `/sys` recursive bind mount.
@@ -890,12 +871,12 @@ pub(crate) struct ResolvedContainerSecurityConfig {
 mod resolved_security_tests {
     use super::*;
 
-    /// Guards the premise the privileged branch rests on rather than the
-    /// branch itself: clearing the lists only means anything while leaving
-    /// them unset yields a non-empty set upstream (the guest used to rely on
-    /// `oci_spec::runtime::Linux::default()` for exactly this). Pinned to the
-    /// exact lists for that reason: a changed entry is a decision to review,
-    /// not to inherit.
+    /// `default_masked_paths`/`default_readonly_paths` call straight into
+    /// `oci_spec::runtime::get_default_{maskedpaths,readonly_paths}()` — a
+    /// caret dependency, so a semver-compatible release could change what
+    /// those return without BoxLite choosing to. Pinned to the exact lists so
+    /// that happening is a decision to review, not a silent security-posture
+    /// change picked up on the next `cargo update`.
     #[test]
     fn unprivileged_resolves_hardened_path_defaults() {
         let resolved = AdvancedBoxOptions::default()
