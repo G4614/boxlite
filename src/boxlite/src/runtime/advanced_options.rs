@@ -783,9 +783,13 @@ impl AdvancedBoxOptions {
 
     /// Resolve the container security request before it crosses into the guest.
     ///
-    /// The host owns the public option semantics. The guest still resolves the
-    /// canonical capability names against its own kernel ceiling, but it must
-    /// not reinterpret `privileged` or silently discard capability overrides.
+    /// The host owns the public option semantics *and* the literal OCI values
+    /// that follow from it — masked/readonly paths and the `/sys` bind's
+    /// mount options are resolved here, not re-derived by the guest from a
+    /// flag (see docs/architecture/privileged-mode-design.md, Trade-offs,
+    /// option F). The guest still resolves the canonical capability names
+    /// against its own kernel ceiling, but it must not reinterpret
+    /// `privileged` or silently discard capability overrides.
     pub(crate) fn resolve_container_security(
         &self,
     ) -> boxlite_shared::errors::BoxliteResult<ResolvedContainerSecurityConfig> {
@@ -794,24 +798,174 @@ impl AdvancedBoxOptions {
         let mut normalized = self.clone();
         normalized.normalize_privileged();
 
+        let (masked_paths, readonly_paths) = if normalized.privileged {
+            (Vec::new(), Vec::new())
+        } else {
+            (default_masked_paths(), default_readonly_paths())
+        };
+
         Ok(ResolvedContainerSecurityConfig {
             capabilities: normalized.capabilities,
-            unconfined_paths: normalized.privileged,
-            writable_sysfs: normalized.privileged,
+            masked_paths,
+            readonly_paths,
+            sys_mount_options: sys_mount_options(normalized.privileged),
         })
     }
 }
 
-/// Atomic container security configuration crossing the host-to-guest boundary.
+/// Default OCI masked-path list for a non-privileged container — mirrors
+/// `oci_spec::runtime::Linux::default()`'s own baseline. The guest no longer
+/// carries an opinion of its own about what "unconfined" means; the host
+/// hands over the literal list (see `ResolvedContainerSecurityConfig`).
+fn default_masked_paths() -> Vec<String> {
+    [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/proc/sched_debug",
+        "/sys/firmware",
+        "/proc/scsi",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+/// Default OCI readonly-path list for a non-privileged container.
+fn default_readonly_paths() -> Vec<String> {
+    [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+/// Full resolved option list for the guest's `/sys` recursive bind mount.
+/// Recursive: `/sys` is an rbind, and OCI's plain `ro` is applied without
+/// `AT_RECURSIVE`, which would leave the guest's cgroup2 submount writable
+/// inside the container — hence `rro`, not `ro`, for the non-privileged case.
+fn sys_mount_options(privileged: bool) -> Vec<String> {
+    let mut options: Vec<String> = ["rbind", "nosuid", "noexec", "nodev"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    if !privileged {
+        options.push("rro".to_string());
+    }
+    options
+}
+
+/// Atomic container security configuration crossing the host-to-guest
+/// boundary. `masked_paths`/`readonly_paths`/`sys_mount_options` are literal,
+/// host-resolved OCI values the guest assigns verbatim — matching how Docker,
+/// Podman, and Kata Containers all hand the enforcing side a finished shape
+/// rather than a flag to reinterpret (see
+/// docs/architecture/privileged-mode-design.md, Trade-offs, option F).
+/// `capabilities` is the one exception: only the guest, across the VM
+/// boundary, knows its own kernel's capability ceiling, so it stays as
+/// add/drop deltas the guest resolves itself.
 ///
-/// Only two flags: a private cgroup namespace and an allow-all device-cgroup
-/// rule were tested and found unnecessary for DinD (see
-/// docs/architecture/privileged-mode-design.md, Trade-offs) — the guest never
-/// enforced a restrictive device-cgroup default in the first place, and
-/// `dockerd` tolerated running without a private cgroup namespace view.
+/// No cgroup namespace, no allow-all device-cgroup rule: both were tested
+/// and found unnecessary for DinD — the guest never enforced a restrictive
+/// device-cgroup default in the first place, and `dockerd` tolerated running
+/// without a private cgroup namespace view.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResolvedContainerSecurityConfig {
     pub(crate) capabilities: ContainerCapabilities,
-    pub(crate) unconfined_paths: bool,
-    pub(crate) writable_sysfs: bool,
+    pub(crate) masked_paths: Vec<String>,
+    pub(crate) readonly_paths: Vec<String>,
+    pub(crate) sys_mount_options: Vec<String>,
+}
+
+#[cfg(test)]
+mod resolved_security_tests {
+    use super::*;
+
+    /// Guards the premise the privileged branch rests on rather than the
+    /// branch itself: clearing the lists only means anything while leaving
+    /// them unset yields a non-empty set upstream (the guest used to rely on
+    /// `oci_spec::runtime::Linux::default()` for exactly this). Pinned to the
+    /// exact lists for that reason: a changed entry is a decision to review,
+    /// not to inherit.
+    #[test]
+    fn unprivileged_resolves_hardened_path_defaults() {
+        let resolved = AdvancedBoxOptions::default()
+            .resolve_container_security()
+            .expect("default (unprivileged) security should resolve");
+
+        assert_eq!(
+            resolved.readonly_paths,
+            [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger",
+            ]
+            .map(String::from)
+        );
+        assert_eq!(
+            resolved.masked_paths,
+            [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/proc/sched_debug",
+                "/sys/firmware",
+                "/proc/scsi",
+            ]
+            .map(String::from)
+        );
+        assert!(resolved.sys_mount_options.contains(&"rro".to_string()));
+    }
+
+    #[test]
+    fn privileged_resolves_cleared_paths_and_writable_sys() {
+        let mut options = AdvancedBoxOptions::default();
+        options.set_privileged(true);
+
+        let resolved = options
+            .resolve_container_security()
+            .expect("privileged security should resolve");
+
+        assert!(resolved.masked_paths.is_empty());
+        assert!(resolved.readonly_paths.is_empty());
+        assert!(!resolved.sys_mount_options.contains(&"rro".to_string()));
+        assert_eq!(resolved.capabilities.add, ["ALL"]);
+    }
+
+    /// Capabilities and the OCI path/mount shape are resolved from the same
+    /// `privileged` bool but are otherwise independent knobs: a capability
+    /// override alone (no `privileged`) must not relax the hardened paths.
+    #[test]
+    fn capability_override_without_privileged_keeps_hardened_paths() {
+        let options = AdvancedBoxOptions {
+            capabilities: ContainerCapabilities {
+                add: vec!["SYS_ADMIN".to_string()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let resolved = options
+            .resolve_container_security()
+            .expect("capability-only options should resolve");
+
+        assert!(!resolved.readonly_paths.is_empty());
+        assert!(!resolved.masked_paths.is_empty());
+        assert!(resolved.sys_mount_options.contains(&"rro".to_string()));
+    }
 }
