@@ -55,9 +55,6 @@ pub async fn execute(args: RunArgs, global: &GlobalFlags) -> anyhow::Result<i32>
     args.boot.require_enabled(global.experimental_features())?;
     args.management
         .require_enabled(global.experimental_features())?;
-    if args.volume.has_managed_volumes() && !global.resolves_rest_runtime() {
-        anyhow::bail!("managed volume mounts require a REST runtime");
-    }
     let (rootfs, command_args) = args.rootfs_and_command()?;
     let command_args = command_args.to_vec();
     let mut runner = BoxRunner::new(args, global)?;
@@ -133,14 +130,13 @@ impl BoxRunner {
     ) -> anyhow::Result<LiteBox> {
         let mut options = BoxOptions::default();
         self.args.resource.apply_to(&mut options);
-        self.args.capability.apply_to(&mut options);
+        self.args.capability.apply_to(&mut options)?;
         self.args.boot.apply_to(&mut options);
         self.args.management.apply_to(&mut options)?;
         self.args.publish.apply_to(&mut options)?;
         self.args
             .volume
             .apply_to(&mut options, self.home.as_deref())?;
-        self.args.volume.apply_managed_to(&mut options)?;
         self.args.network.apply_to(&mut options)?;
         self.args.process.apply_to(&mut options)?;
 
@@ -224,6 +220,45 @@ mod tests {
 
         assert_eq!(args.capability.cap_add, vec!["SYS_ADMIN", "NET_ADMIN"]);
         assert_eq!(args.capability.cap_drop, vec!["CAP_NET_RAW"]);
+    }
+
+    #[test]
+    fn run_privileged_flag_reaches_capability_options() {
+        let cli = Cli::try_parse_from(["boxlite", "run", "--privileged", "alpine"])
+            .expect("--privileged should parse");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        let mut opts = BoxOptions::default();
+        args.capability
+            .apply_to(&mut opts)
+            .expect("privileged options should apply");
+
+        assert!(opts.advanced.privileged);
+    }
+
+    #[test]
+    fn run_rejects_privileged_with_capability_overrides() {
+        let cli = Cli::try_parse_from([
+            "boxlite",
+            "run",
+            "--privileged",
+            "--cap-drop",
+            "ALL",
+            "alpine",
+        ])
+        .expect("flags should parse before semantic validation");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        let mut opts = BoxOptions::default();
+        let error = args
+            .capability
+            .apply_to(&mut opts)
+            .expect_err("privileged and cap-drop must be rejected together");
+        assert!(error.to_string().contains("cannot be combined"));
     }
 
     #[test]
