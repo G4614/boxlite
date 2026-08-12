@@ -103,6 +103,14 @@ export interface Secret {
  * Structured network configuration for a box.
  */
 export interface NetworkSpec {
+  /** Outbound guest network policy. */
+  outbound?: OutboundNetworkSpec;
+
+  /** Inbound service access policy. */
+  inbound?: InboundNetworkSpec;
+}
+
+export interface OutboundNetworkSpec {
   /** Network mode. */
   mode: "enabled" | "disabled";
 
@@ -110,7 +118,62 @@ export interface NetworkSpec {
   allowNet?: string[];
 }
 
+export interface InboundNetworkSpec {
+  /** Inbound mode: "enabled" (publicly reachable) or "disabled" (private). */
+  mode: "enabled" | "disabled";
+  /**
+   * Not supported yet: a non-empty value is rejected. Exists for shape
+   * symmetry with the outbound spec; inbound access follows `mode` alone.
+   */
+  allowNet?: string[];
+}
+
 const MAX_SAFE_U64_NUMBER = Number.MAX_SAFE_INTEGER;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertNetworkSpecShape(value: unknown): void {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new TypeError(
+      "SimpleBoxOptions.network must be an object. Use network: { outbound, inbound }.",
+    );
+  }
+  if ("mode" in value || "allowNet" in value) {
+    throw new TypeError(
+      "SimpleBoxOptions.network must use outbound/inbound. Use network: { outbound: { mode, allowNet }, inbound }.",
+    );
+  }
+  if (!("outbound" in value) && !("inbound" in value)) {
+    throw new TypeError(
+      "SimpleBoxOptions.network must include outbound or inbound.",
+    );
+  }
+  // `mode` is required on each supplied direction. Without this check an
+  // empty `{}` passes here and only fails later, inside lazy native
+  // creation, with a napi deserialization error that does not name the
+  // field the caller got wrong.
+  for (const direction of ["outbound", "inbound"] as const) {
+    if (!(direction in value)) {
+      continue;
+    }
+    const policy = value[direction];
+    if (!isRecord(policy)) {
+      throw new TypeError(
+        `SimpleBoxOptions.network.${direction} must be an object.`,
+      );
+    }
+    if (typeof policy.mode !== "string") {
+      throw new TypeError(
+        `SimpleBoxOptions.network.${direction}.mode is required and must be "enabled" or "disabled".`,
+      );
+    }
+  }
+}
 
 function normalizeU64Limit(
   value: number | undefined,
@@ -407,15 +470,11 @@ export class SimpleBox {
 
     if (legacyOptions.allowNet !== undefined) {
       throw new TypeError(
-        "SimpleBoxOptions.allowNet was removed. Use network: { mode, allowNet }.",
+        "SimpleBoxOptions.allowNet was removed. Use network: { outbound: { mode, allowNet } }.",
       );
     }
 
-    if (typeof legacyOptions.network === "string") {
-      throw new TypeError(
-        "SimpleBoxOptions.network must be an object. Use network: { mode, allowNet }.",
-      );
-    }
+    assertNetworkSpecShape(legacyOptions.network);
 
     // Use provided runtime or get global default
     if (options.runtime) {

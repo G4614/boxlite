@@ -6,9 +6,9 @@ use boxlite::runtime::advanced_options::{
 };
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
-    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkMode, NetworkSpec,
-    OutboundNetworkConfig, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret,
-    VolumeSpec,
+    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkConfig,
+    NetworkMode, NetworkSpec, OutboundNetworkConfig, PortProtocol, PortSpec, RegistryTransport,
+    RootfsSpec, Secret, VolumeSpec,
 };
 use napi::bindgen_prelude::Error;
 use napi_derive::napi;
@@ -348,6 +348,16 @@ pub struct JsSecret {
 #[napi(object)]
 #[derive(Clone, Debug)]
 pub struct JsNetworkSpec {
+    /// Outbound guest network policy.
+    pub outbound: Option<JsOutboundNetworkSpec>,
+
+    /// Inbound service access policy.
+    pub inbound: Option<JsInboundNetworkSpec>,
+}
+
+#[napi(object)]
+#[derive(Clone, Debug)]
+pub struct JsOutboundNetworkSpec {
     /// Network mode: "enabled" or "disabled".
     pub mode: String,
 
@@ -355,6 +365,22 @@ pub struct JsNetworkSpec {
     /// Hostname entries rely on TLS SNI / HTTP Host inspection, which only TCP
     /// carries, so a hostname-only list denies all UDP egress — add the IP or
     /// CIDR to keep UDP open.
+    #[napi(js_name = "allowNet")]
+    pub allow_net: Option<Vec<String>>,
+}
+
+/// Aligned field-for-field with `JsOutboundNetworkSpec`: `mode="enabled"`
+/// means services the box exposes are publicly reachable, `mode="disabled"`
+/// means private. `allowNet` exists for shape symmetry only — no layer
+/// enforces an inbound allowlist yet, so a non-empty value is rejected.
+#[napi(object)]
+#[derive(Clone, Debug)]
+pub struct JsInboundNetworkSpec {
+    /// Inbound mode: "enabled" or "disabled".
+    pub mode: String,
+
+    /// Not supported yet: a non-empty value is rejected. Exists for shape
+    /// symmetry with the outbound spec; inbound access follows `mode` alone.
     #[napi(js_name = "allowNet")]
     pub allow_net: Option<Vec<String>>,
 }
@@ -391,15 +417,29 @@ impl From<PortSpec> for JsPortSpec {
     }
 }
 
-impl TryFrom<JsNetworkSpec> for NetworkSpec {
+/// Both directions of the JS-facing network spec, converted into the two
+/// independent `BoxOptions` fields.
+impl TryFrom<JsNetworkSpec> for (NetworkSpec, NetworkSpec) {
     type Error = boxlite_shared::errors::BoxliteError;
 
     fn try_from(js_spec: JsNetworkSpec) -> Result<Self, Self::Error> {
-        let mode = js_spec.mode.parse::<NetworkMode>()?;
-        NetworkSpec::try_from(OutboundNetworkConfig {
-            mode,
-            allow_net: js_spec.allow_net.unwrap_or_default(),
-        })
+        let JsNetworkSpec { outbound, inbound } = js_spec;
+
+        let outbound = match outbound {
+            Some(outbound) => NetworkSpec::try_from(OutboundNetworkConfig {
+                mode: outbound.mode.parse::<NetworkMode>()?,
+                allow_net: outbound.allow_net.unwrap_or_default(),
+            })?,
+            None => NetworkSpec::default(),
+        };
+        let inbound = match inbound {
+            Some(inbound) => NetworkSpec::try_from(InboundNetworkConfig {
+                mode: inbound.mode.parse::<NetworkMode>()?,
+                allow_net: inbound.allow_net.unwrap_or_default(),
+            })?,
+            None => NetworkSpec::default(),
+        };
+        Ok((outbound, inbound))
     }
 }
 
@@ -418,10 +458,10 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             .map(VolumeSpec::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Convert network spec
-        let network = match js_opts.network {
-            Some(spec) => NetworkSpec::try_from(spec)?,
-            None => NetworkSpec::default(),
+        // Convert network spec — the two directions become two fields
+        let (network, inbound_network) = match js_opts.network {
+            Some(spec) => <(NetworkSpec, NetworkSpec)>::try_from(spec)?,
+            None => (NetworkSpec::default(), NetworkSpec::default()),
         };
 
         // Convert ports
@@ -490,7 +530,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
-            inbound_network: Default::default(),
+            inbound_network,
             ports,
             auto_remove,
             advanced,
@@ -827,8 +867,14 @@ mod tests {
             env: None,
             volumes: None,
             network: Some(JsNetworkSpec {
-                mode: "enabled".into(),
-                allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
+                outbound: Some(JsOutboundNetworkSpec {
+                    mode: "enabled".into(),
+                    allow_net: Some(vec!["example.com".into(), "*.openai.com".into()]),
+                }),
+                inbound: Some(JsInboundNetworkSpec {
+                    mode: "enabled".into(),
+                    allow_net: None,
+                }),
             }),
             ports: None,
             auto_remove: None,
@@ -871,6 +917,10 @@ mod tests {
         assert!(!opts.auto_remove);
         assert_eq!(opts.auto_delete, None);
         assert!(opts.advanced.capabilities().is_none());
+        assert!(matches!(
+            opts.inbound_network,
+            NetworkSpec::Enabled { ref allow_net } if allow_net.is_empty()
+        ));
         match opts.network {
             NetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
@@ -920,9 +970,12 @@ mod tests {
 
     #[test]
     fn disabled_network_rejects_allow_net() {
-        let err = NetworkSpec::try_from(JsNetworkSpec {
-            mode: "disabled".into(),
-            allow_net: Some(vec!["example.com".into()]),
+        let err = <(NetworkSpec, NetworkSpec)>::try_from(JsNetworkSpec {
+            outbound: Some(JsOutboundNetworkSpec {
+                mode: "disabled".into(),
+                allow_net: Some(vec!["example.com".into()]),
+            }),
+            inbound: None,
         })
         .unwrap_err();
 
@@ -930,5 +983,20 @@ mod tests {
             err.to_string()
                 .contains("network.outbound.mode=\"disabled\"")
         );
+    }
+
+    #[test]
+    fn nested_network_spec_converts() {
+        let (outbound, inbound) = <(NetworkSpec, NetworkSpec)>::try_from(JsNetworkSpec {
+            outbound: None,
+            inbound: Some(JsInboundNetworkSpec {
+                mode: "disabled".into(),
+                allow_net: None,
+            }),
+        })
+        .unwrap();
+
+        assert!(matches!(inbound, NetworkSpec::Disabled));
+        assert!(matches!(outbound, NetworkSpec::Enabled { .. }));
     }
 }

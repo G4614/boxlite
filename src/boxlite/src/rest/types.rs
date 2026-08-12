@@ -188,7 +188,10 @@ impl CreateBoxRequest {
             disk_size_gb: options.disk_size_gb,
             working_dir: options.working_dir.clone(),
             env,
-            network: Some(CreateBoxNetworkSpec::from(&options.network)),
+            network: Some(CreateBoxNetworkSpec::from_options(
+                &options.network,
+                &options.inbound_network,
+            )),
             entrypoint: options.entrypoint.clone(),
             cmd: options.cmd.clone(),
             user: options.user.clone(),
@@ -247,21 +250,46 @@ impl From<&crate::runtime::options::VolumeSpec> for CreateBoxVolumeSpec {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxNetworkSpec {
+    pub outbound: CreateBoxOutboundNetworkSpec,
+    pub inbound: CreateBoxInboundNetworkSpec,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CreateBoxOutboundNetworkSpec {
     pub mode: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow_net: Vec<String>,
 }
 
-impl From<&crate::runtime::options::NetworkSpec> for CreateBoxNetworkSpec {
-    fn from(spec: &crate::runtime::options::NetworkSpec) -> Self {
-        let config = crate::runtime::options::OutboundNetworkConfig::from(spec);
-        let mode = match config.mode {
-            crate::runtime::options::NetworkMode::Enabled => "enabled",
-            crate::runtime::options::NetworkMode::Disabled => "disabled",
-        };
+#[derive(Debug, Serialize)]
+pub(crate) struct CreateBoxInboundNetworkSpec {
+    pub mode: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allow_net: Vec<String>,
+}
+
+fn mode_str(mode: crate::runtime::options::NetworkMode) -> String {
+    match mode {
+        crate::runtime::options::NetworkMode::Enabled => "enabled".to_string(),
+        crate::runtime::options::NetworkMode::Disabled => "disabled".to_string(),
+    }
+}
+
+impl CreateBoxNetworkSpec {
+    fn from_options(
+        outbound: &crate::runtime::options::NetworkSpec,
+        inbound: &crate::runtime::options::NetworkSpec,
+    ) -> Self {
+        let config = crate::runtime::options::NetworkConfig::from_specs(outbound, inbound);
         Self {
-            mode: mode.to_string(),
-            allow_net: config.allow_net,
+            outbound: CreateBoxOutboundNetworkSpec {
+                mode: mode_str(config.outbound.mode),
+                allow_net: config.outbound.allow_net,
+            },
+            inbound: CreateBoxInboundNetworkSpec {
+                mode: mode_str(config.inbound.mode),
+                allow_net: config.inbound.allow_net,
+            },
         }
     }
 }
@@ -651,8 +679,14 @@ mod tests {
             working_dir: None,
             env: None,
             network: Some(CreateBoxNetworkSpec {
-                mode: "enabled".into(),
-                allow_net: vec!["api.openai.com".into()],
+                outbound: CreateBoxOutboundNetworkSpec {
+                    mode: "enabled".into(),
+                    allow_net: vec!["api.openai.com".into()],
+                },
+                inbound: CreateBoxInboundNetworkSpec {
+                    mode: "enabled".into(),
+                    allow_net: vec![],
+                },
             }),
             entrypoint: None,
             cmd: None,
@@ -675,9 +709,13 @@ mod tests {
         assert!(json.contains("\"name\":\"mybox\""));
         assert!(json.contains("\"image\":\"python:3.11\""));
         assert!(json.contains("\"cpus\":2"));
-        assert!(
-            json.contains("\"network\":{\"mode\":\"enabled\",\"allow_net\":[\"api.openai.com\"]}")
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["network"]["outbound"]["mode"], "enabled");
+        assert_eq!(
+            value["network"]["outbound"]["allow_net"][0],
+            "api.openai.com"
         );
+        assert_eq!(value["network"]["inbound"]["mode"], "enabled");
         assert!(json.contains("\"secrets\""));
         // None fields should be skipped
         assert!(!json.contains("rootfs_path"));
@@ -695,6 +733,7 @@ mod tests {
             network: NetworkSpec::Enabled {
                 allow_net: vec!["api.openai.com".into()],
             },
+            inbound_network: NetworkSpec::Disabled,
             secrets: vec![Secret {
                 name: "openai".into(),
                 value: "sk-test".into(),
@@ -713,12 +752,16 @@ mod tests {
         assert_eq!(req.cpus, Some(4));
         assert_eq!(req.memory_mib, Some(1024));
         assert_eq!(
-            req.network.as_ref().map(|n| n.mode.as_str()),
+            req.network.as_ref().map(|n| n.outbound.mode.as_str()),
             Some("enabled")
         );
         assert_eq!(
-            req.network.as_ref().map(|n| n.allow_net.clone()),
+            req.network.as_ref().map(|n| n.outbound.allow_net.clone()),
             Some(vec!["api.openai.com".into()])
+        );
+        assert_eq!(
+            req.network.as_ref().map(|n| n.inbound.mode.as_str()),
+            Some("disabled")
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
         let volume = &req.volumes.as_ref().unwrap()[0];
@@ -893,10 +936,14 @@ mod tests {
 
         let req = CreateBoxRequest::from_options(&opts, None);
         assert_eq!(
-            req.network.as_ref().map(|n| n.mode.as_str()),
+            req.network.as_ref().map(|n| n.outbound.mode.as_str()),
             Some("disabled")
         );
-        assert!(req.network.as_ref().unwrap().allow_net.is_empty());
+        assert!(req.network.as_ref().unwrap().outbound.allow_net.is_empty());
+        // NetworkSpec::outbound_disabled() only overrides outbound; inbound keeps its
+        // default (Enabled/public), matching the control plane's existing
+        // preview-URL default.
+        assert_eq!(req.network.as_ref().unwrap().inbound.mode, "enabled");
     }
 
     /// REST is intentionally a "the server picks the security policy"

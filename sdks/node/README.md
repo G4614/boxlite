@@ -179,8 +179,13 @@ const box = new SimpleBox({
   autoRemove: true,  // Auto-remove on stop (default: true)
   workingDir: '/app',
   network: {
-    mode: 'enabled',
-    allowNet: ['api.openai.com'],
+    outbound: {
+      mode: 'enabled',
+      allowNet: ['api.openai.com'],
+    },
+    inbound: {
+      mode: 'disabled',
+    },
   },
   advanced: {
     capabilities: {

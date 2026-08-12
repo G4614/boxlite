@@ -171,23 +171,75 @@ describe("SimpleBoxOptions", () => {
   test("accepts structured network allowlist", () => {
     const opts: SimpleBoxOptions = {
       network: {
-        mode: "enabled",
-        allowNet: ["example.com", "*.openai.com"],
+        outbound: {
+          mode: "enabled",
+          allowNet: ["example.com", "*.openai.com"],
+        },
       },
     };
 
-    expect(opts.network?.mode).toBe("enabled");
-    expect(opts.network?.allowNet).toEqual(["example.com", "*.openai.com"]);
+    expect(opts.network?.outbound?.mode).toBe("enabled");
+    expect(opts.network?.outbound?.allowNet).toEqual([
+      "example.com",
+      "*.openai.com",
+    ]);
   });
 
   test("accepts disabled network mode", () => {
     const opts: SimpleBoxOptions = {
       network: {
-        mode: "disabled",
+        outbound: {
+          mode: "disabled",
+        },
       },
     };
 
-    expect(opts.network?.mode).toBe("disabled");
+    expect(opts.network?.outbound?.mode).toBe("disabled");
+  });
+
+  test.each([
+    ["array", []],
+    ["number", 42],
+    ["boolean", true],
+  ])("rejects malformed network %s", async (_name, network) => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(() => new SimpleBox({ network } as any)).toThrow(
+      "SimpleBoxOptions.network must be an object",
+    );
+  });
+
+  test("rejects empty network objects", async () => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(() => new SimpleBox({ network: {} } as any)).toThrow(
+      "SimpleBoxOptions.network must include outbound or inbound",
+    );
+  });
+
+  test.each([
+    ["outbound", { outbound: [] }],
+    ["inbound", { inbound: [] }],
+  ])("rejects array-valued network.%s", async (field, network) => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(() => new SimpleBox({ network } as any)).toThrow(
+      `SimpleBoxOptions.network.${field} must be an object`,
+    );
+  });
+
+  // Without a mode check here an empty `{}` reaches lazy native creation and
+  // fails with a napi deserialization error that never names the field.
+  test.each([
+    ["outbound", { outbound: {} }],
+    ["inbound", { inbound: {} }],
+    ["outbound", { outbound: { allowNet: ["api.openai.com"] } }],
+  ])("rejects network.%s without mode", async (field, network) => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(() => new SimpleBox({ network } as any)).toThrow(
+      `SimpleBoxOptions.network.${field}.mode is required`,
+    );
   });
 
   test("accepts managed volume mounts by id and by name", async () => {
