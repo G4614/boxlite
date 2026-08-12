@@ -254,8 +254,8 @@ Configuration options for creating a box.
 
 `NetworkSpec` uses:
 
-- `mode: str` - `"enabled"` or `"disabled"`
-- `allow_net: List[str]` - Optional outbound allowlist when `mode="enabled"`
+- `outbound: OutboundNetworkSpec` - Guest egress policy
+- `inbound: InboundNetworkSpec` - Service access policy
 
 `allow_net` restricts both TCP and UDP egress. Hostname entries are enforced by
 inspecting TLS SNI / HTTP Host, which only TCP carries, so an `allow_net`
@@ -283,8 +283,11 @@ options = boxlite.BoxOptions(
         (5432, 5432, "tcp"),  # PostgreSQL
     ],
     network=boxlite.NetworkSpec(
-        mode="enabled",
-        allow_net=["api.openai.com"],
+        outbound=boxlite.OutboundNetworkSpec(
+            mode="enabled",
+            allow_net=["api.openai.com"],
+        ),
+        inbound=boxlite.InboundNetworkSpec(mode="disabled"),
     ),
     advanced=boxlite.AdvancedBoxOptions(
         capabilities=boxlite.ContainerCapabilities(

@@ -218,6 +218,7 @@ int main() {
         return 1;
     }
     boxlite_options_set_network_enabled(opts);
+    boxlite_options_set_network_inbound_disabled(opts);
 
     CAdvancedBoxOptions* advanced = NULL;
     if (boxlite_advanced_options_new(&advanced, &error) != Ok) {
