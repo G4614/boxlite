@@ -8,6 +8,7 @@ import { BoxService } from './box.service'
 import { BoxState } from '../enums/box-state.enum'
 import { BoxDesiredState } from '../enums/box-desired-state.enum'
 import { RunnerState } from '../enums/runner-state.enum'
+import { VolumeState } from '../enums/volume-state.enum'
 import { BoxEvents } from '../constants/box-events.constants'
 
 // ensureStartedForProxy touches boxRepository + eventEmitter +
@@ -305,6 +306,7 @@ describe('BoxService public defaults', () => {
         release: jest.fn().mockResolvedValue(undefined),
       }),
     }
+    const volumeService = { validateVolumes: jest.fn().mockResolvedValue([]) }
     const service = Object.create(BoxService.prototype) as BoxService
     Object.assign(service as any, {
       getValidatedOrDefaultRegion: jest.fn().mockResolvedValue({ id: 'region-1' }),
@@ -318,10 +320,11 @@ describe('BoxService public defaults', () => {
       runnerService,
       redisLockProvider,
       boxRepository,
+      volumeService,
       eventEmitter: { emitAsync: jest.fn().mockResolvedValue(undefined) },
       toBoxDto: jest.fn((box) => box),
     })
-    return { service, boxRepository, runnerService, redisLockProvider }
+    return { service, boxRepository, runnerService, redisLockProvider, volumeService }
   }
 
   it.each([
@@ -388,6 +391,46 @@ describe('BoxService public defaults', () => {
     expect(update).toHaveBeenCalledWith(
       'warm-box',
       expect.objectContaining({ updateData: expect.objectContaining({ public: expectedPublic }) }),
+    )
+  })
+
+  // Regression: validateVolumes confirms a name/id resolves and is READY,
+  // but create() used to persist the caller's raw string verbatim instead
+  // of the resolved id — so a box created with a volume *name* stored that
+  // name as volumeId, and the runner could never find the matching S3
+  // bucket (named by id, not by the human-readable name).
+  it('persists the volume real id, not the name, when requested by name', async () => {
+    const { service, boxRepository, volumeService } = makeCreateService()
+    const readyVolume = { id: 'vol-uuid-1', name: 'my-vol', state: VolumeState.READY } as any
+    volumeService.validateVolumes.mockResolvedValue([readyVolume])
+
+    await service.create(
+      { name: 'box-with-named-volume', volumes: [{ volumeId: 'my-vol', mountPath: '/data' }] } as any,
+      { id: 'org-1' } as any,
+    )
+
+    expect(volumeService.validateVolumes).toHaveBeenCalledWith('org-1', ['my-vol'])
+    expect(boxRepository.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        volumes: [{ volumeId: 'vol-uuid-1', mountPath: '/data' }],
+      }),
+    )
+  })
+
+  it('persists the volume id unchanged when requested by id', async () => {
+    const { service, boxRepository, volumeService } = makeCreateService()
+    const readyVolume = { id: 'vol-uuid-1', name: 'my-vol', state: VolumeState.READY } as any
+    volumeService.validateVolumes.mockResolvedValue([readyVolume])
+
+    await service.create(
+      { name: 'box-with-volume-by-id', volumes: [{ volumeId: 'vol-uuid-1', mountPath: '/data' }] } as any,
+      { id: 'org-1' } as any,
+    )
+
+    expect(boxRepository.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        volumes: [{ volumeId: 'vol-uuid-1', mountPath: '/data' }],
+      }),
     )
   })
 })

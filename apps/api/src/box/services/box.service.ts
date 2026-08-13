@@ -42,6 +42,7 @@ import { BoxDto, BoxVolume } from '../dto/box.dto'
 import { RunnerAdapterFactory } from '../runner-adapter/runnerAdapter'
 import { validateNetworkAllowList } from '../utils/network-validation.util'
 import { VolumeService } from './volume.service'
+import { Volume } from '../entities/volume.entity'
 import { PaginatedList } from '../../common/interfaces/paginated-list.interface'
 import {
   BoxSortField,
@@ -234,9 +235,16 @@ export class BoxService {
         gpu,
       )
 
+      // Keyed by both id and name so the create-time substitution below can
+      // resolve either back to the volume's real id.
+      const volumeByIdOrName = new Map<string, Volume>()
       if (createBoxDto.volumes && createBoxDto.volumes.length > 0) {
         const volumeIdOrNames = createBoxDto.volumes.map((v) => v.volumeId)
-        await this.volumeService.validateVolumes(organization.id, volumeIdOrNames)
+        const volumes = await this.volumeService.validateVolumes(organization.id, volumeIdOrNames)
+        for (const volume of volumes) {
+          volumeByIdOrName.set(volume.id, volume)
+          volumeByIdOrName.set(volume.name, volume)
+        }
       } else if (image) {
         //  No volumes requested — try to claim a pre-warmed box matching this image/spec
         //  before creating a fresh one.
@@ -299,7 +307,16 @@ export class BoxService {
       box.autoResume = lifecyclePolicy.autoResume
 
       if (createBoxDto.volumes !== undefined) {
-        box.volumes = this.resolveVolumes(createBoxDto.volumes)
+        // Persist the volume's real id, not whatever the caller passed
+        // (id or name) — validateVolumes above guarantees every entry
+        // resolved, so this lookup cannot miss. Storing the caller's
+        // string verbatim would silently break the runner's lookup of
+        // the volume's backing S3 bucket whenever a name was used.
+        const withResolvedIds = createBoxDto.volumes.map((v) => ({
+          ...v,
+          volumeId: volumeByIdOrName.get(v.volumeId)?.id ?? v.volumeId,
+        }))
+        box.volumes = this.resolveVolumes(withResolvedIds)
       }
 
       box.pending = true

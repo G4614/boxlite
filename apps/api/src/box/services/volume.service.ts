@@ -197,9 +197,14 @@ export class VolumeService {
     return volume
   }
 
-  async validateVolumes(organizationId: string, volumeIdOrNames: string[]): Promise<void> {
+  /**
+   * Validates that every id-or-name resolves to a READY volume in this
+   * organization, and returns the resolved entities so callers can persist
+   * the volume's real id instead of whatever the caller passed in.
+   */
+  async validateVolumes(organizationId: string, volumeIdOrNames: string[]): Promise<Volume[]> {
     if (!volumeIdOrNames.length) {
-      return
+      return []
     }
 
     const volumes = await this.volumeRepository.find({
@@ -224,6 +229,8 @@ export class VolumeService {
         throw new BadRequestError(`Volume '${volume.name}' is not in a ready state. Current state: ${volume.state}`)
       }
     }
+
+    return volumes
   }
 
   async getOrganizationId(params: { id: string } | { name: string; organizationId: string }): Promise<string> {
