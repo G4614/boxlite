@@ -224,14 +224,14 @@ describe('CreateBoxDto managed volumes', () => {
   it('accepts read-write managed volume mounts', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: false }],
+        volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: false }],
       }),
     )
 
     expect(errors).toHaveLength(0)
   })
 
-  it('rejects volume mounts with neither source nor host_path', async () => {
+  it('rejects volume mounts with neither volume_id nor host_path', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         volumes: [{ guest_path: '/data', read_only: false }],
@@ -241,7 +241,7 @@ describe('CreateBoxDto managed volumes', () => {
     expect(JSON.stringify(errors)).toContain('hasVolumeSource')
   })
 
-  it('accepts the deprecated host_path in place of source', async () => {
+  it('accepts the deprecated host_path in place of volume_id', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         volumes: [{ host_path: 'volume://volume-123', guest_path: '/data' }],
@@ -251,10 +251,10 @@ describe('CreateBoxDto managed volumes', () => {
     expect(errors).toHaveLength(0)
   })
 
-  it('rejects an empty source', async () => {
+  it('rejects an empty volume_id', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ source: '', guest_path: '/data' }],
+        volumes: [{ volume_id: '', guest_path: '/data' }],
       }),
     )
 
@@ -271,12 +271,12 @@ describe('CreateBoxDto managed volumes', () => {
     expect(JSON.stringify(errors)).toContain('isNotEmpty')
   })
 
-  it('rejects an empty source even with a valid host_path fallback available', async () => {
-    // An empty string is a malformed `source`, not an absent one - it must
+  it('rejects an empty volume_id even with a valid host_path fallback available', async () => {
+    // An empty string is a malformed `volume_id`, not an absent one - it must
     // not be silently swapped for host_path in the mapper.
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ source: '', host_path: 'volume://volume-123', guest_path: '/data' }],
+        volumes: [{ volume_id: '', host_path: 'volume://volume-123', guest_path: '/data' }],
       }),
     )
 
@@ -286,7 +286,7 @@ describe('CreateBoxDto managed volumes', () => {
   it('rejects read-only cloud volume mounts until the backend supports them', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: true }],
+        volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: true }],
       }),
     )
 
@@ -296,7 +296,7 @@ describe('CreateBoxDto managed volumes', () => {
   it('rejects null read_only values', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: null }],
+        volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: null }],
       }),
     )
 

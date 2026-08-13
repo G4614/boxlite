@@ -39,18 +39,18 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
-// Attached to `guest_path` (always validated) rather than `source`, since
-// `@IsOptional()` on `source` would skip a validator stacked on that same
-// property whenever `source` is absent - exactly the case this needs to see.
+// Attached to `guest_path` (always validated) rather than `volume_id`, since
+// `@IsOptional()` on `volume_id` would skip a validator stacked on that same
+// property whenever `volume_id` is absent - exactly the case this needs to see.
 @ValidatorConstraint({ name: 'hasVolumeSource', async: false })
 class HasVolumeSourceConstraint implements ValidatorConstraintInterface {
   validate(_value: unknown, args: ValidationArguments): boolean {
     const volume = args.object as VolumeSpecDto
-    return typeof volume.source === 'string' || typeof volume.host_path === 'string'
+    return typeof volume.volume_id === 'string' || typeof volume.host_path === 'string'
   }
 
   defaultMessage(): string {
-    return 'volume requires source (or the deprecated host_path)'
+    return 'volume requires volume_id (or the deprecated host_path)'
   }
 }
 
@@ -150,18 +150,20 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
 }
 
 export class VolumeSpecDto {
-  // IsNotEmpty (not just IsOptional + IsString) so an explicit `source: ''`
+  // Bare id — no scheme prefix needed, unlike the deprecated host_path below.
+  // IsNotEmpty (not just IsOptional + IsString) so an explicit `volume_id: ''`
   // is a validation error on its own rather than being treated as "absent"
   // and silently falling through to host_path in the mapper.
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  source?: string
+  volume_id?: string
 
   /**
-   * @deprecated Use `source` with the `volume://<volume_id>` scheme instead.
-   * Accepted for backward compatibility with existing /v1 clients built
-   * against the pre-managed-volumes `VolumeSpec` schema; will be removed.
+   * @deprecated Use `volume_id` instead. Accepted for backward compatibility
+   * with existing /v1 clients built against the pre-`volume_id` schema; still
+   * requires the `volume://<volume_id>` scheme those clients send. Will be
+   * removed.
    */
   @IsOptional()
   @IsString()

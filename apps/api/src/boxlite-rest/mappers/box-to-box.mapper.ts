@@ -64,17 +64,28 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
 }
 
 function resolveVolumeId(volume: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
-  // `host_path` is the deprecated pre-managed-volumes field name; DTO
-  // validation (HasVolumeSourceConstraint) already guarantees one of the two
-  // is present.
-  const source = volume.source ?? volume.host_path
-  if (source?.startsWith('volume://')) {
-    const volumeId = source.slice('volume://'.length)
+  // `volume_id` is a bare id. DTO validation (HasVolumeSourceConstraint)
+  // already guarantees one of the two fields is present. Checked by presence
+  // (typeof), not truthiness — an explicit `volume_id: ''` must fail as a
+  // malformed id rather than being silently treated as absent and falling
+  // through to host_path.
+  if (typeof volume.volume_id === 'string') {
+    if (volume.volume_id) {
+      return volume.volume_id
+    }
+    throw new BadRequestException('volume_id must be non-empty')
+  }
+
+  // `host_path` is the deprecated pre-`volume_id` field name; it still
+  // requires the `volume://` scheme those older clients send.
+  const legacySource = volume.host_path
+  if (legacySource?.startsWith('volume://')) {
+    const volumeId = legacySource.slice('volume://'.length)
     if (volumeId) {
       return volumeId
     }
   }
-  throw new BadRequestException('volume source must use the volume:// scheme')
+  throw new BadRequestException('deprecated host_path volume source must use the volume:// scheme')
 }
 
 function mapState(state: string | BoxState | undefined): string {
