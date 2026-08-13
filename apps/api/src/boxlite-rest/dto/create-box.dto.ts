@@ -109,19 +109,18 @@ export class NetworkSpecDto {
 }
 
 // Deprecated legacy wire shape, predating the outbound/inbound split:
-// `{ mode, allow_net, service_access }` at the top level of `network`,
-// instead of nested under `outbound`/`inbound`. Still accepted so already-
-// deployed callers keep working; normalized into the nested shape here and
-// logged so callers can be tracked down and migrated. `service_access`
-// mapped `'public'`/`'private'` to what is now `inbound.mode`. Mixing legacy
-// and nested fields in the same request is rejected outright — there's no
-// sane precedence to guess between them.
+// `{ mode, allow_net }` at the top level of `network`, instead of nested
+// under `outbound`. Still accepted so already-deployed callers keep
+// working; normalized into the nested shape here and logged so callers can
+// be tracked down and migrated. Mixing legacy and nested fields in the same
+// request is rejected outright — there's no sane precedence to guess
+// between them.
 function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
   if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
     return value
   }
   const network = value as Record<string, unknown>
-  const hasLegacyField = 'mode' in network || 'allow_net' in network || 'service_access' in network
+  const hasLegacyField = 'mode' in network || 'allow_net' in network
   const hasNestedField = 'outbound' in network || 'inbound' in network
 
   if (hasLegacyField && hasNestedField) {
@@ -132,21 +131,14 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
   }
 
   logger.warn(
-    'Deprecated: network.{mode,allow_net,service_access} — use network.{outbound,inbound}. Support for the flat shape will be removed in a future release.',
+    'Deprecated: network.{mode,allow_net} — use network.{outbound,inbound}. Support for the flat shape will be removed in a future release.',
   )
 
-  const { mode, allow_net, service_access, ...rest } = network
-  if (service_access !== undefined && service_access !== 'public' && service_access !== 'private') {
-    throw new BadRequestException(
-      `network.service_access must be "public" or "private", got ${JSON.stringify(service_access)}`,
-    )
-  }
+  const { mode, allow_net, ...rest } = network
   // allow_net alone (no explicit mode) implies enabled, matching outbound's
   // existing default — an allowlist with nothing to enable would be inert.
   const outbound = mode !== undefined || allow_net !== undefined ? { mode: mode ?? 'enabled', allow_net } : undefined
-  const inbound =
-    service_access !== undefined ? { mode: service_access === 'public' ? 'enabled' : 'disabled' } : undefined
-  return plainToInstance(NetworkSpecDto, { ...rest, outbound, inbound })
+  return plainToInstance(NetworkSpecDto, { ...rest, outbound })
 }
 
 export class VolumeSpecDto {
