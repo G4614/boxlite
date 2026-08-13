@@ -1913,13 +1913,41 @@ components:
 
     NetworkSpec:
       type: object
-      description: Structured network configuration for the box
+      description: |
+        Structured network configuration for the box.
+
+        Send the nested `outbound`/`inbound` shape. The pre-split flat shape
+        (`mode`, `allow_net`, and the never-released `service_access`) is
+        still accepted for already-deployed callers and normalized server
+        side, but is deprecated and will be removed; mixing it with the
+        nested fields in one request is rejected with 400.
       additionalProperties: false
       properties:
         outbound:
           $ref: "#/components/schemas/OutboundNetworkSpec"
         inbound:
           $ref: "#/components/schemas/InboundNetworkSpec"
+        mode:
+          deprecated: true
+          type: string
+          enum: [enabled, disabled]
+          description: |
+            Deprecated: use `outbound.mode`. Legacy flat outbound mode.
+        allow_net:
+          deprecated: true
+          type: array
+          items:
+            type: string
+          description: |
+            Deprecated: use `outbound.allow_net`. Legacy flat outbound
+            allowlist; implies `mode=enabled` when sent without `mode`.
+        service_access:
+          deprecated: true
+          type: string
+          enum: [public, private]
+          description: |
+            Deprecated: use `inbound.mode` (`public` maps to `enabled`,
+            `private` to `disabled`).
 
     OutboundNetworkSpec:
       type: object
