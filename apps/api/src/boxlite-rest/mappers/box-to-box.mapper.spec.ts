@@ -35,7 +35,7 @@ describe('BoxLite lifecycle policy mapper', () => {
 
   it('maps REST volume specs to managed volume mounts', () => {
     const mapped = createBoxToCreateBox({
-      volumes: [{ volume_id: 'volume-123', guest_path: '/data', read_only: false }],
+      volumes: [{ volume: 'volume-123', guest_path: '/data', read_only: false }],
     })
 
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
@@ -43,18 +43,18 @@ describe('BoxLite lifecycle policy mapper', () => {
 
   // host_path is reserved for a future host-filesystem bind mount (its
   // original, pre-managed-volumes meaning on this REST surface) - not a
-  // volume_id alias. A REST box runs on a remote runner, so it isn't
+  // volume alias. A REST box runs on a remote runner, so it isn't
   // implemented; reject its mere presence rather than misreading it as a
   // volume reference or silently ignoring it.
-  it('rejects host_path even when a valid volume_id is also present', () => {
+  it('rejects host_path even when a valid volume is also present', () => {
     expect(() =>
       createBoxToCreateBox({
-        volumes: [{ volume_id: 'volume-123', host_path: '/some/path', guest_path: '/data', read_only: false }],
+        volumes: [{ volume: 'volume-123', host_path: '/some/path', guest_path: '/data', read_only: false }],
       }),
     ).toThrow('host_path (host-filesystem bind mount) is not supported for remote boxes')
   })
 
-  it('rejects host_path alone (no volume_id)', () => {
+  it('rejects host_path alone (no volume)', () => {
     expect(() =>
       createBoxToCreateBox({
         volumes: [{ host_path: '/some/path', guest_path: '/data', read_only: false }],

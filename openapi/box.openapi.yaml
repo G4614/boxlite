@@ -1821,12 +1821,14 @@ components:
     VolumeSpec:
       type: object
       description: Managed-volume mount attached to a box.
-      required: [volume_id, guest_path]
+      required: [volume, guest_path]
       properties:
-        volume_id:
+        volume:
           type: string
           minLength: 1
-          description: Id of a managed volume created via `POST /volumes`.
+          description: |
+            Id or name of a managed volume created via `POST /volumes`,
+            scoped to the caller's organization.
           example: vol_01K2EXAMPLE
         host_path:
           type: string

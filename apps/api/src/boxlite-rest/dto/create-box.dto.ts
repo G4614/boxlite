@@ -38,7 +38,7 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
-export class NetworkSpecDto {
+export class OutboundNetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
 
@@ -134,15 +134,18 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
 }
 
 export class VolumeSpecDto {
-  // The only way to reference a managed volume — bare id, no scheme prefix.
+  // The only way to reference a managed volume. Bare id or name, no scheme
+  // prefix — VolumeService.validateVolumes (unaffected by this rename)
+  // already resolves either against this organization's volumes.
   @IsString()
   @IsNotEmpty()
-  volume_id: string
+  volume: string
 
   /**
    * Reserved for a future host-filesystem bind mount (its original meaning
    * on this REST surface, before a since-corrected mistake briefly
-   * repurposed the same field name as a deprecated alias for `volume_id`).
+   * repurposed the same field name as a deprecated alias for referencing a
+   * managed volume).
    * Not implemented: a REST box runs on a remote runner, so "the host
    * filesystem" isn't the caller's machine, and there is no path a client
    * could safely name there today. Rejected explicitly (see

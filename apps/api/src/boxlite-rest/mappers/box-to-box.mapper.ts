@@ -46,9 +46,9 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   createDto.autoStop = dto.auto_stop
   createDto.autoDelete = dto.auto_delete
   createDto.autoResume = dto.auto_resume
-  createDto.volumes = dto.volumes?.map((volume) => ({
-    volumeId: resolveVolumeId(volume),
-    mountPath: volume.guest_path,
+  createDto.volumes = dto.volumes?.map((spec) => ({
+    volumeId: resolveVolumeId(spec),
+    mountPath: spec.guest_path,
   }))
   if (dto.network) {
     const allowNet = dto.network.outbound?.allow_net?.map((entry) => entry.trim()).filter(Boolean)
@@ -63,16 +63,18 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   return createDto
 }
 
-function resolveVolumeId(volume: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
+function resolveVolumeId(spec: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
   // `host_path` is reserved for a future host-filesystem bind mount (not
   // implemented — a REST box runs on a remote runner, so there is no path a
   // client could safely name there today). Reject it explicitly instead of
   // misreading it as a volume reference, which is what this field name
   // briefly, mistakenly meant on this REST surface.
-  if (volume.host_path !== undefined) {
+  if (spec.host_path !== undefined) {
     throw new BadRequestException('host_path (host-filesystem bind mount) is not supported for remote boxes')
   }
-  return volume.volume_id
+  // Bare id or name — VolumeService.validateVolumes (unaffected by this
+  // mapper) resolves either against this organization's volumes.
+  return spec.volume
 }
 
 function mapState(state: string | BoxState | undefined): string {

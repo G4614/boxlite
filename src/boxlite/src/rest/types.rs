@@ -218,7 +218,9 @@ pub(crate) struct CreateBoxAdvancedOptions {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CreateBoxVolumeSpec {
-    pub volume_id: String,
+    /// Bare id or name — the server resolves either against the caller's
+    /// organization (VolumeService.validateVolumes).
+    pub volume: String,
     pub guest_path: String,
     pub read_only: bool,
 }
@@ -231,12 +233,12 @@ impl From<&crate::runtime::options::VolumeSpec> for CreateBoxVolumeSpec {
             // `normalize_managed_volume_source` in the CLI), so stripping
             // here is a no-op for CLI input. The Node/Python/C SDK bindings
             // are a different story: their own public `source` field
-            // predates this volume_id rename, so they validate that it
-            // starts with `volume://` and then store it *verbatim* —
-            // scheme still attached — in `host_path`. Strip it here too, or
-            // an SDK-created volume mount reaches the server as
-            // `volume_id: "volume://<id>"`, which matches no real volume.
-            volume_id: volume
+            // predates this rename, so they validate that it starts with
+            // `volume://` and then store it *verbatim* — scheme still
+            // attached — in `host_path`. Strip it here too, or an
+            // SDK-created volume mount reaches the server as
+            // `volume: "volume://<id>"`, which matches no real volume.
+            volume: volume
                 .host_path
                 .strip_prefix("volume://")
                 .unwrap_or(&volume.host_path)
@@ -713,14 +715,14 @@ mod tests {
         );
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
         let volume = &req.volumes.as_ref().unwrap()[0];
-        assert_eq!(volume.volume_id, "volume-123");
+        assert_eq!(volume.volume, "volume-123");
         assert_eq!(volume.guest_path, "/data");
         assert!(!volume.read_only);
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(
             json["volumes"],
             serde_json::json!([{
-                "volume_id": "volume-123",
+                "volume": "volume-123",
                 "guest_path": "/data",
                 "read_only": false
             }])
@@ -737,9 +739,9 @@ mod tests {
     fn test_create_box_request_strips_scheme_from_sdk_volume_source() {
         // The Node/Python/C SDK bindings validate their own public `source`
         // field starts with "volume://" but then store it *verbatim* in
-        // VolumeSpec.host_path (their contract predates this volume_id wire
-        // rename) - unlike the CLI, which already normalizes to a bare id
-        // before this conversion ever sees it.
+        // VolumeSpec.host_path (their contract predates this wire rename) -
+        // unlike the CLI, which already normalizes to a bare id before this
+        // conversion ever sees it.
         use crate::runtime::options::{BoxOptions, VolumeSpec};
 
         let opts = BoxOptions {
@@ -753,7 +755,7 @@ mod tests {
 
         let req = CreateBoxRequest::from_options(&opts, None);
         let volume = &req.volumes.as_ref().unwrap()[0];
-        assert_eq!(volume.volume_id, "volume-123");
+        assert_eq!(volume.volume, "volume-123");
     }
 
     #[test]
