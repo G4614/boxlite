@@ -3,8 +3,8 @@
 //! Provides container creation, startup, and status checking using libcontainer.
 //! Follows the OCI Runtime Specification.
 
-use super::capabilities::ResolvedSecurityPolicy;
 use super::command::ContainerCommand;
+use super::security_policy::ResolvedSecurityPolicy;
 use super::spec::{ContainerDevices, UserMount};
 use super::stdio::{ContainerStdio, InitIo};
 use super::{console_socket, kill, spec, start};
