@@ -188,7 +188,7 @@ impl ContainerService for GuestServer {
 
         // Validate before resolving capabilities: an empty sys_mount_options
         // means the host predates these fields entirely (see
-        // container::resolved_security), and capability resolution needs a
+        // container::sys_mount_options), and capability resolution needs a
         // live /proc read this box shouldn't pay for on a request we're
         // about to reject anyway. The host has already expanded high-level
         // security options into atomic OCI choices; capabilities are the one

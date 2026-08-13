@@ -68,13 +68,13 @@ mod kill;
 #[cfg(target_os = "linux")]
 mod lifecycle;
 #[cfg(target_os = "linux")]
-mod resolved_security;
-#[cfg(target_os = "linux")]
 mod spec;
 #[cfg(target_os = "linux")]
 mod start;
 #[cfg(target_os = "linux")]
 mod stdio;
+#[cfg(target_os = "linux")]
+mod sys_mount_options;
 #[cfg(target_os = "linux")]
 pub(crate) mod user_profile;
 #[cfg(target_os = "linux")]
@@ -87,6 +87,6 @@ pub(crate) use command::SpawnResult;
 #[cfg(target_os = "linux")]
 pub use lifecycle::Container;
 #[cfg(target_os = "linux")]
-pub(crate) use resolved_security::validate_sys_mount_options;
-#[cfg(target_os = "linux")]
 pub use spec::{ContainerDevices, UserMount};
+#[cfg(target_os = "linux")]
+pub(crate) use sys_mount_options::validate_sys_mount_options;

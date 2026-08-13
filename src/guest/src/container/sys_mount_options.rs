@@ -1,11 +1,12 @@
-//! Guest-side validation for the security fields the host resolves.
+//! Guest-side version-compatibility guard on `sys_mount_options`.
 //!
-//! `readonly_paths`/`sys_mount_options` are host-resolved literal OCI values,
-//! carried by the caller and applied verbatim — nothing here re-derives them
-//! (see docs/architecture/privileged-mode-design.md, Trade-offs, option F).
-//! The only guest-side logic is this file: a version-compatibility guard on
-//! `sys_mount_options`. `capabilities` is resolved separately, against the
-//! guest's own kernel, by [`super::capabilities::CapabilitySet::resolve`].
+//! `sys_mount_options` is a host-resolved literal OCI value, carried by the
+//! caller and applied verbatim — nothing here re-derives it (see
+//! docs/architecture/privileged-mode-design.md, Trade-offs, option F).
+//! `readonly_paths` rides along on the same guarantee this guard checks (see
+//! [`validate_sys_mount_options`]) but has no logic of its own here.
+//! `capabilities` is a separate concern entirely, resolved against the
+//! guest's own kernel by [`super::capabilities::CapabilitySet::resolve`].
 
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 

@@ -1265,7 +1265,7 @@ mod tests {
     /// `sys_mount_options` straight through, with no branching of its own —
     /// a full capability set does not silently relax the shape.
     #[test]
-    fn create_oci_spec_threads_resolved_security_fields_verbatim() {
+    fn create_oci_spec_threads_security_fields_verbatim() {
         let dir = tempfile::tempdir().unwrap();
         let bundle = dir.path();
         let Ok(full_caps) = CapabilitySet::resolve(&["ALL".to_string()], &[]) else {
