@@ -5,6 +5,7 @@
  */
 
 import 'reflect-metadata'
+import { ValidationPipe } from '@nestjs/common'
 import { validate } from 'class-validator'
 import { plainToInstance } from 'class-transformer'
 import { CreateBoxDto } from './create-box.dto'
@@ -298,5 +299,40 @@ describe('CreateBoxDto managed volumes', () => {
     )
 
     expect(getReadOnlyConstraints(errors)).toHaveProperty('isIn')
+  })
+})
+
+// The DTO-level cases above call plainToInstance directly. This block drives
+// the same ValidationPipe main.ts installs, so it proves an already-deployed
+// client's request survives the whole request pipeline — the DTO shape
+// changed, the accepted wire format did not.
+describe('CreateBoxDto legacy network compatibility through the request pipeline', () => {
+  const pipe = new ValidationPipe({ transform: true })
+  const meta = { type: 'body' as const, metatype: CreateBoxDto }
+
+  it('accepts the pre-split flat shape and normalizes it to outbound', async () => {
+    const dto: CreateBoxDto = await pipe.transform(
+      { image: 'alpine:latest', network: { mode: 'enabled', allow_net: ['api.openai.com'] } },
+      meta,
+    )
+
+    expect(dto.network?.outbound?.mode).toBe('enabled')
+    expect(dto.network?.outbound?.allow_net).toEqual(['api.openai.com'])
+  })
+
+  it('accepts the pre-split flat disabled mode', async () => {
+    const dto: CreateBoxDto = await pipe.transform({ image: 'alpine:latest', network: { mode: 'disabled' } }, meta)
+
+    expect(dto.network?.outbound?.mode).toBe('disabled')
+  })
+
+  it('accepts the nested shape', async () => {
+    const dto: CreateBoxDto = await pipe.transform(
+      { image: 'alpine:latest', network: { outbound: { mode: 'disabled' }, inbound: { mode: 'disabled' } } },
+      meta,
+    )
+
+    expect(dto.network?.outbound?.mode).toBe('disabled')
+    expect(dto.network?.inbound?.mode).toBe('disabled')
   })
 })
