@@ -194,6 +194,11 @@ paths:
       summary: Create a managed persistent volume
       description: Creates a volume and waits until its backing object storage is ready.
       tags: [Volumes]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVolumeRequest"
       responses:
         "201":
           description: Volume created and ready for use
@@ -1851,6 +1856,18 @@ components:
       type: string
       description: Managed volume lifecycle state
       enum: [creating, ready, pending_create, pending_delete, deleting, deleted, error]
+
+    CreateVolumeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: |
+            Unique within the organization. Defaults to the server-assigned
+            id when omitted. Must not be shaped like a UUID (reserved for
+            server-assigned ids).
 
     VolumeSummary:
       type: object

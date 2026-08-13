@@ -36,10 +36,13 @@ describe('BoxliteVolumeController', () => {
     const organization = { id: 'org-1' }
 
     await expect(
-      controller.create({
-        organization,
-        organizationId: organization.id,
-      } as never),
+      controller.create(
+        {
+          organization,
+          organizationId: organization.id,
+        } as never,
+        {},
+      ),
     ).resolves.toEqual({
       id: volume.id,
       name: volume.name,
@@ -51,6 +54,21 @@ describe('BoxliteVolumeController', () => {
     })
     expect(volumeService.create).toHaveBeenCalledWith(organization, {})
     expect(volumeService.waitForReady).toHaveBeenCalledWith(volume.id, 30)
+  })
+
+  it('passes a caller-provided name through to the volume service', async () => {
+    const { controller, volumeService } = createController()
+    const organization = { id: 'org-1' }
+
+    await controller.create(
+      {
+        organization,
+        organizationId: organization.id,
+      } as never,
+      { name: 'my-volume' },
+    )
+
+    expect(volumeService.create).toHaveBeenCalledWith(organization, { name: 'my-volume' })
   })
 
   it('lists volumes for the authenticated organization', async () => {

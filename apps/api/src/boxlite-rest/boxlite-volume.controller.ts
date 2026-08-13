@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiExcludeController } from '@nestjs/swagger'
 import { CombinedAuthGuard } from '../auth/combined-auth.guard'
 import { OrganizationResourceActionGuard } from '../organization/guards/organization-resource-action.guard'
@@ -9,6 +9,7 @@ import { RequiredOrganizationResourcePermissions } from '../organization/decorat
 import { OrganizationResourcePermission } from '../organization/enums/organization-resource-permission.enum'
 import { VolumeAccessGuard } from '../box/guards/volume-access.guard'
 import { VolumeState } from '../box/enums/volume-state.enum'
+import { CreateVolumeDto } from './dto/create-volume.dto'
 
 type RestVolumeSummary = {
   id: string
@@ -31,8 +32,11 @@ export class BoxliteVolumeController {
 
   @Post()
   @RequiredOrganizationResourcePermissions([OrganizationResourcePermission.WRITE_VOLUMES])
-  async create(@AuthContext() authContext: OrganizationAuthContext): Promise<RestVolumeResponse> {
-    const volume = await this.volumeService.create(authContext.organization, {})
+  async create(
+    @AuthContext() authContext: OrganizationAuthContext,
+    @Body() body: CreateVolumeDto,
+  ): Promise<RestVolumeResponse> {
+    const volume = await this.volumeService.create(authContext.organization, body)
     return this.toResponse(await this.volumeService.waitForReady(volume.id, 30))
   }
 
