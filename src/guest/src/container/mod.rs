@@ -81,10 +81,12 @@ pub(crate) mod user_profile;
 pub(crate) mod zygote;
 
 #[cfg(target_os = "linux")]
+pub(crate) use capabilities::CapabilitySet;
+#[cfg(target_os = "linux")]
 pub(crate) use command::SpawnResult;
 #[cfg(target_os = "linux")]
 pub use lifecycle::Container;
 #[cfg(target_os = "linux")]
-pub(crate) use resolved_security::ResolvedSecurityPolicy;
+pub(crate) use resolved_security::validate_sys_mount_options;
 #[cfg(target_os = "linux")]
 pub use spec::{ContainerDevices, UserMount};

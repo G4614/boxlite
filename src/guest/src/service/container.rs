@@ -17,7 +17,9 @@ use nix::mount::{mount, MsFlags};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
-use crate::container::{Container, ContainerDevices, ResolvedSecurityPolicy, UserMount};
+use crate::container::{
+    validate_sys_mount_options, CapabilitySet, Container, ContainerDevices, UserMount,
+};
 use crate::layout::GuestLayout;
 use crate::storage::block_device::BlockDeviceMount;
 
@@ -184,16 +186,21 @@ impl ContainerService for GuestServer {
             }));
         }
 
-        // Resolve capability names before creating directories, mounting the
-        // rootfs, or modifying its trust store. The host has already expanded
-        // high-level security options into atomic OCI choices.
+        // Validate before resolving capabilities: an empty sys_mount_options
+        // means the host predates these fields entirely (see
+        // container::resolved_security), and capability resolution needs a
+        // live /proc read this box shouldn't pay for on a request we're
+        // about to reject anyway. The host has already expanded high-level
+        // security options into atomic OCI choices; capabilities are the one
+        // piece the guest still resolves itself, against its own kernel.
         let advanced = config.advanced.unwrap_or_default();
-        let security_policy = ResolvedSecurityPolicy::from_resolved(
-            advanced.capabilities.unwrap_or_default(),
-            advanced.readonly_paths,
-            advanced.sys_mount_options,
-        )
-        .map_err(BoxliteError::into_validation_status)?;
+        validate_sys_mount_options(&advanced.sys_mount_options)
+            .map_err(BoxliteError::into_validation_status)?;
+        let capability_policy = advanced.capabilities.unwrap_or_default();
+        let capabilities = CapabilitySet::resolve(&capability_policy.add, &capability_policy.drop)
+            .map_err(BoxliteError::into_validation_status)?;
+        let readonly_paths = advanced.readonly_paths;
+        let sys_mount_options = advanced.sys_mount_options;
 
         info!("🚀 Starting OCI container with received configuration");
 
@@ -342,7 +349,9 @@ impl ContainerService for GuestServer {
             &config.user,
             user_mounts,
             config.tty,
-            security_policy,
+            capabilities,
+            readonly_paths,
+            sys_mount_options,
             devices,
         ) {
             Ok(mut container) => {

@@ -3,8 +3,8 @@
 //! Provides container creation, startup, and status checking using libcontainer.
 //! Follows the OCI Runtime Specification.
 
+use super::capabilities::CapabilitySet;
 use super::command::ContainerCommand;
-use super::resolved_security::ResolvedSecurityPolicy;
 use super::spec::{ContainerDevices, UserMount};
 use super::stdio::{ContainerStdio, InitIo};
 use super::{console_socket, kill, spec, start};
@@ -64,8 +64,8 @@ pub struct Container {
     env: HashMap<String, String>,
     /// Resolved (uid, gid) from image USER directive, propagated to exec commands.
     user: (u32, u32),
-    /// Resolved security policy shared by the OCI spec and every exec process.
-    security_policy: ResolvedSecurityPolicy,
+    /// Resolved capability set shared by init and every exec process.
+    capabilities: CapabilitySet,
     /// Stdio pipes that keep init process alive.
     /// Dropping this closes pipes → init gets EOF → init exits.
     #[allow(dead_code)]
@@ -93,7 +93,8 @@ impl Container {
     /// - `env`: Environment variables in "KEY=VALUE" format
     /// - `workdir`: Working directory inside container
     /// - `user_mounts`: Bind mounts from guest VM paths into container
-    /// - `security_policy`: policy resolved at the RPC boundary
+    /// - `capabilities`/`readonly_paths`/`sys_mount_options`: security fields
+    ///   resolved at the RPC boundary
     ///
     /// # Errors
     ///
@@ -111,7 +112,9 @@ impl Container {
         user: &str,
         user_mounts: Vec<UserMount>,
         tty: bool,
-        security_policy: ResolvedSecurityPolicy,
+        capabilities: CapabilitySet,
+        readonly_paths: Vec<String>,
+        sys_mount_options: Vec<String>,
         devices: ContainerDevices,
     ) -> BoxliteResult<Self> {
         let rootfs = rootfs.as_ref();
@@ -185,7 +188,9 @@ impl Container {
             workdir,
             uid,
             gid,
-            &security_policy,
+            &capabilities,
+            &readonly_paths,
+            &sys_mount_options,
             &layout.containers_dir(),
             &user_mounts,
             tty,
@@ -227,7 +232,7 @@ impl Container {
             bundle_path,
             env: env_map,
             user: (uid, gid),
-            security_policy,
+            capabilities,
             stdio,
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
@@ -376,7 +381,7 @@ impl Container {
             self.env.clone(),
             self.user,
             self.bundle_path.join("rootfs"),
-            self.security_policy.capabilities.clone(),
+            self.capabilities.clone(),
         )
     }
 

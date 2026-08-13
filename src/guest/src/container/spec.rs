@@ -3,7 +3,6 @@
 //! Creates OCI-compliant runtime specifications following the runtime-spec standard.
 
 use super::capabilities::CapabilitySet;
-use super::resolved_security::ResolvedSecurityPolicy;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use boxlite_shared::ContainerDevice as ProtoContainerDevice;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
@@ -158,21 +157,23 @@ pub fn create_oci_spec(
     workdir: &str,
     uid: u32,
     gid: u32,
-    security_policy: &ResolvedSecurityPolicy,
+    capabilities: &CapabilitySet,
+    readonly_paths: &[String],
+    sys_mount_options: &[String],
     bundle_path: &Path,
     user_mounts: &[UserMount],
     tty: bool,
     devices: &ContainerDevices,
 ) -> BoxliteResult<Spec> {
-    let caps = security_policy.capabilities.to_oci()?;
+    let caps = capabilities.to_oci()?;
     tracing::info!(
         container_id,
-        sys_mount_options = ?security_policy.sys_mount_options,
-        readonly_paths_count = security_policy.readonly_paths.len(),
+        sys_mount_options = ?sys_mount_options,
+        readonly_paths_count = readonly_paths.len(),
         "building container spec"
     );
     let namespaces = build_default_namespaces()?;
-    let mut mounts = build_standard_mounts(bundle_path, security_policy.sys_mount_options.clone())?;
+    let mut mounts = build_standard_mounts(bundle_path, sys_mount_options.to_vec())?;
 
     // Add user-specified bind mounts
     for user_mount in user_mounts {
@@ -211,7 +212,7 @@ pub fn create_oci_spec(
         container_id,
         namespaces,
         devices.as_slice(),
-        security_policy.readonly_paths.clone(),
+        readonly_paths.to_vec(),
     )?;
 
     SpecBuilder::default()
@@ -1260,9 +1261,9 @@ mod tests {
     }
 
     /// Capabilities and the OCI path/mount shape are separate knobs the host
-    /// resolves independently: `create_oci_spec` threads whatever
-    /// `ResolvedSecurityPolicy` carries straight through, with no branching of
-    /// its own — a full capability set does not silently relax the shape.
+    /// resolves independently: `create_oci_spec` threads `readonly_paths` and
+    /// `sys_mount_options` straight through, with no branching of its own —
+    /// a full capability set does not silently relax the shape.
     #[test]
     fn create_oci_spec_threads_resolved_security_fields_verbatim() {
         let dir = tempfile::tempdir().unwrap();
@@ -1274,11 +1275,6 @@ mod tests {
         };
 
         let spec_for = |readonly_paths: Vec<String>, sys_mount_options: Vec<String>| {
-            let security_policy = ResolvedSecurityPolicy {
-                capabilities: full_caps.clone(),
-                readonly_paths,
-                sys_mount_options,
-            };
             create_oci_spec(
                 "c",
                 "/rootfs",
@@ -1287,7 +1283,9 @@ mod tests {
                 "/",
                 0,
                 0,
-                &security_policy,
+                &full_caps,
+                &readonly_paths,
+                &sys_mount_options,
                 bundle,
                 &[],
                 false,

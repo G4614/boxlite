@@ -3,7 +3,7 @@
 //! Provides setup, validation, and execution functions for starting containers.
 //! Separated from container.rs to group by lifecycle phase (Prepare → Execute).
 
-use super::resolved_security::ResolvedSecurityPolicy;
+use super::capabilities::CapabilitySet;
 use super::spec;
 use super::zygote;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
@@ -103,7 +103,9 @@ pub(crate) fn create_oci_bundle(
     workdir: &Path,
     uid: u32,
     gid: u32,
-    security_policy: &ResolvedSecurityPolicy,
+    capabilities: &CapabilitySet,
+    readonly_paths: &[String],
+    sys_mount_options: &[String],
     bundle_root: &Path,
     user_mounts: &[spec::UserMount],
     tty: bool,
@@ -135,7 +137,9 @@ pub(crate) fn create_oci_bundle(
             .ok_or_else(|| BoxliteError::Internal("Invalid workdir path".to_string()))?,
         uid,
         gid,
-        security_policy,
+        capabilities,
+        readonly_paths,
+        sys_mount_options,
         &bundle_path,
         user_mounts,
         tty,
