@@ -68,7 +68,7 @@ mod kill;
 #[cfg(target_os = "linux")]
 mod lifecycle;
 #[cfg(target_os = "linux")]
-mod security_policy;
+mod resolved_security;
 #[cfg(target_os = "linux")]
 mod spec;
 #[cfg(target_os = "linux")]
@@ -85,6 +85,6 @@ pub(crate) use command::SpawnResult;
 #[cfg(target_os = "linux")]
 pub use lifecycle::Container;
 #[cfg(target_os = "linux")]
-pub(crate) use security_policy::ResolvedSecurityPolicy;
+pub(crate) use resolved_security::ResolvedSecurityPolicy;
 #[cfg(target_os = "linux")]
 pub use spec::{ContainerDevices, UserMount};

@@ -3,7 +3,7 @@
 //! Provides setup, validation, and execution functions for starting containers.
 //! Separated from container.rs to group by lifecycle phase (Prepare → Execute).
 
-use super::security_policy::ResolvedSecurityPolicy;
+use super::resolved_security::ResolvedSecurityPolicy;
 use super::spec;
 use super::zygote;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};

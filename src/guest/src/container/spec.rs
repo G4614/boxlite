@@ -3,7 +3,7 @@
 //! Creates OCI-compliant runtime specifications following the runtime-spec standard.
 
 use super::capabilities::CapabilitySet;
-use super::security_policy::ResolvedSecurityPolicy;
+use super::resolved_security::ResolvedSecurityPolicy;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 use boxlite_shared::ContainerDevice as ProtoContainerDevice;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
