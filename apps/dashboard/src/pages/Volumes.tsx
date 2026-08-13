@@ -94,7 +94,7 @@ const Volumes: React.FC = () => {
   const handleDelete = async (volume: VolumeDto) => {
     setProcessingVolumeAction((prev) => ({ ...prev, [volume.id]: true }))
 
-    updateVolumeStateInCache(volume.id, VolumeState.PENDING_DELETE)
+    updateVolumeStateInCache(volume.id, VolumeState.DESTROYING)
 
     try {
       await deleteVolumeMutation.mutateAsync({
@@ -141,7 +141,7 @@ const Volumes: React.FC = () => {
         })
 
         setProcessingVolumeAction((prev) => ({ ...prev, [volume.id]: true }))
-        updateVolumeStateInCache(volume.id, VolumeState.PENDING_DELETE)
+        updateVolumeStateInCache(volume.id, VolumeState.DESTROYING)
 
         try {
           await deleteVolumeMutation.mutateAsync({

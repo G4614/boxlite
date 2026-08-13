@@ -24,7 +24,7 @@ describe('VolumeService delete', () => {
     await expect(service.delete('volume-1', true)).resolves.toBeUndefined()
   })
 
-  it.each([VolumeState.PENDING_DELETE, VolumeState.DELETING, VolumeState.DELETED])(
+  it.each([VolumeState.DESTROYING, VolumeState.DESTROYED])(
     'treats a volume in %s as deleted with force',
     async (state) => {
       const { service } = createService({ id: 'volume-1', state })
@@ -33,8 +33,8 @@ describe('VolumeService delete', () => {
     },
   )
 
-  it('does not ignore a deleted volume without force', async () => {
-    const { service } = createService({ id: 'volume-1', state: VolumeState.DELETED })
+  it('does not ignore a destroyed volume without force', async () => {
+    const { service } = createService({ id: 'volume-1', state: VolumeState.DESTROYED })
 
     await expect(service.delete('volume-1')).rejects.toThrow("Volume must be in 'ready' or 'error' state")
   })
@@ -67,7 +67,7 @@ describe('VolumeService waitForReady', () => {
   })
 
   it('times out while the volume is still being created', async () => {
-    const { service } = createService({ id: 'volume-1', state: VolumeState.PENDING_CREATE })
+    const { service } = createService({ id: 'volume-1', state: VolumeState.CREATING })
 
     await expect(service.waitForReady('volume-1', 0)).rejects.toBeInstanceOf(RequestTimeoutException)
   })
