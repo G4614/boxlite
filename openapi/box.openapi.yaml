@@ -1766,9 +1766,9 @@ components:
     AttachVolumeRequest:
       type: object
       description: Request body for POST /boxes/{box_id}/volumes.
-      required: [volume_id, guest_path]
+      required: [volume, guest_path]
       properties:
-        volume_id:
+        volume:
           type: string
           description: Managed volume ID or name, scoped to the caller's organization
           example: vol_01K2EXAMPLE

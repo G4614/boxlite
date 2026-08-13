@@ -227,7 +227,7 @@ export class BoxliteBoxController {
     const box = await this.boxService.attachVolume(
       boxId,
       authContext.organizationId,
-      dto.volume_id,
+      dto.volume,
       dto.guest_path,
       dto.read_only ?? false,
     )

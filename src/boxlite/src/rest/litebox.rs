@@ -277,7 +277,7 @@ impl BoxBackend for RestBox {
         let box_id = self.box_id_str();
         let path = format!("/boxes/{}/volumes", box_id);
         let req = AttachVolumeRequest {
-            volume_id: volume_id_or_name.to_string(),
+            volume: volume_id_or_name.to_string(),
             guest_path: guest_path.to_string(),
             read_only,
         };
@@ -294,7 +294,9 @@ impl BoxBackend for RestBox {
             urlencoding::encode(volume_id_or_name)
         );
         if force {
-            self.client.delete_with_query(&path, &[("force", "true")]).await
+            self.client
+                .delete_with_query(&path, &[("force", "true")])
+                .await
         } else {
             self.client.delete(&path).await
         }

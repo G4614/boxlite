@@ -226,7 +226,6 @@ function makeVolumeAttachService() {
     noop, // warmPoolService
     noop, // eventEmitter
     noop, // organizationService
-    noop, // organizationUsageService
     noop, // runnerAdapterFactory
     noop, // redisLockProvider
     noop, // redis

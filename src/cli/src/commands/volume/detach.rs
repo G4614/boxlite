@@ -24,9 +24,7 @@ pub async fn run(args: DetachArgs, global: &GlobalFlags) -> anyhow::Result<()> {
         None => anyhow::bail!("No such box: {}", args.box_ref),
     };
 
-    litebox
-        .detach_volume(&args.volume_ref, args.force)
-        .await?;
+    litebox.detach_volume(&args.volume_ref, args.force).await?;
 
     println!("{}", args.volume_ref);
     Ok(())

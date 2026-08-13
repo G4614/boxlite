@@ -7,9 +7,11 @@
 import { IsIn, IsNotEmpty, IsString, ValidateIf } from 'class-validator'
 
 export class AttachVolumeDto {
+  // Id or name — BoxService.attachVolume resolves either against this
+  // organization's volumes (VolumeService.findOneByIdOrName).
   @IsString()
   @IsNotEmpty()
-  volume_id: string
+  volume: string
 
   @IsString()
   @IsNotEmpty()
