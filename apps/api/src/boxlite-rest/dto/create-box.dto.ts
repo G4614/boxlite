@@ -20,7 +20,6 @@ import {
   Validate,
   ValidateIf,
   ValidateNested,
-  ValidationArguments,
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator'
@@ -39,22 +38,7 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
-// Attached to `guest_path` (always validated) rather than `volume_id`, since
-// `@IsOptional()` on `volume_id` would skip a validator stacked on that same
-// property whenever `volume_id` is absent - exactly the case this needs to see.
-@ValidatorConstraint({ name: 'hasVolumeSource', async: false })
-class HasVolumeSourceConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, args: ValidationArguments): boolean {
-    const volume = args.object as VolumeSpecDto
-    return typeof volume.volume_id === 'string' || typeof volume.host_path === 'string'
-  }
-
-  defaultMessage(): string {
-    return 'volume requires volume_id (or the deprecated host_path)'
-  }
-}
-
-export class OutboundNetworkSpecDto {
+export class NetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
 
@@ -150,20 +134,20 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
 }
 
 export class VolumeSpecDto {
-  // Bare id — no scheme prefix needed, unlike the deprecated host_path below.
-  // IsNotEmpty (not just IsOptional + IsString) so an explicit `volume_id: ''`
-  // is a validation error on its own rather than being treated as "absent"
-  // and silently falling through to host_path in the mapper.
-  @IsOptional()
+  // The only way to reference a managed volume — bare id, no scheme prefix.
   @IsString()
   @IsNotEmpty()
-  volume_id?: string
+  volume_id: string
 
   /**
-   * @deprecated Use `volume_id` instead. Accepted for backward compatibility
-   * with existing /v1 clients built against the pre-`volume_id` schema; still
-   * requires the `volume://<volume_id>` scheme those clients send. Will be
-   * removed.
+   * Reserved for a future host-filesystem bind mount (its original meaning
+   * on this REST surface, before a since-corrected mistake briefly
+   * repurposed the same field name as a deprecated alias for `volume_id`).
+   * Not implemented: a REST box runs on a remote runner, so "the host
+   * filesystem" isn't the caller's machine, and there is no path a client
+   * could safely name there today. Rejected explicitly (see
+   * `resolveVolumeId` in box-to-box.mapper.ts) rather than silently ignored
+   * or misread as a volume reference.
    */
   @IsOptional()
   @IsString()
@@ -171,7 +155,7 @@ export class VolumeSpecDto {
   host_path?: string
 
   @IsString()
-  @Validate(HasVolumeSourceConstraint)
+  @IsNotEmpty()
   guest_path: string
 
   @ValidateIf((_, value) => value !== undefined)

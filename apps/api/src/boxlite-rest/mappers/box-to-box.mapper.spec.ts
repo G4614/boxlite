@@ -41,47 +41,25 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
-  it('maps the deprecated host_path field to managed volume mounts', () => {
-    const mapped = createBoxToCreateBox({
-      volumes: [{ host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
-    })
-
-    expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
-  })
-
-  it('does not fall back to host_path when volume_id is an empty string', () => {
-    // DTO validation (IsNotEmpty) is the primary guard against this reaching
-    // the mapper at all; this locks in that the mapper itself also fails
-    // closed rather than treating '' as absent via `??`.
+  // host_path is reserved for a future host-filesystem bind mount (its
+  // original, pre-managed-volumes meaning on this REST surface) - not a
+  // volume_id alias. A REST box runs on a remote runner, so it isn't
+  // implemented; reject its mere presence rather than misreading it as a
+  // volume reference or silently ignoring it.
+  it('rejects host_path even when a valid volume_id is also present', () => {
     expect(() =>
       createBoxToCreateBox({
-        volumes: [{ volume_id: '', host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
+        volumes: [{ volume_id: 'volume-123', host_path: '/some/path', guest_path: '/data', read_only: false }],
       }),
-    ).toThrow('volume_id must be non-empty')
+    ).toThrow('host_path (host-filesystem bind mount) is not supported for remote boxes')
   })
 
-  it('prefers volume_id over host_path when both are present', () => {
-    const mapped = createBoxToCreateBox({
-      volumes: [{ volume_id: 'volume-id-wins', host_path: 'volume://ignored', guest_path: '/data', read_only: false }],
-    })
-
-    expect(mapped.volumes).toEqual([{ volumeId: 'volume-id-wins', mountPath: '/data' }])
-  })
-
-  it('rejects non-volume scheme values on the deprecated host_path fallback', () => {
+  it('rejects host_path alone (no volume_id)', () => {
     expect(() =>
       createBoxToCreateBox({
-        volumes: [{ host_path: 'host:///tmp/data', guest_path: '/data', read_only: false }],
-      }),
-    ).toThrow('deprecated host_path volume source must use the volume:// scheme')
-  })
-
-  it('rejects deprecated host_path values without a supported scheme', () => {
-    expect(() =>
-      createBoxToCreateBox({
-        volumes: [{ host_path: 'volume-123', guest_path: '/data', read_only: false }],
-      }),
-    ).toThrow('deprecated host_path volume source must use the volume:// scheme')
+        volumes: [{ host_path: '/some/path', guest_path: '/data', read_only: false }],
+      } as any),
+    ).toThrow('host_path (host-filesystem bind mount) is not supported for remote boxes')
   })
 
   it('returns the effective second-based policy', () => {

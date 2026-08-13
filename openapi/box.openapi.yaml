@@ -1820,13 +1820,8 @@ components:
 
     VolumeSpec:
       type: object
-      description: |
-        Filesystem mount attached to a box. One of `volume_id` or the
-        deprecated `host_path` is required.
-      required: [guest_path]
-      anyOf:
-        - required: [volume_id]
-        - required: [host_path]
+      description: Managed-volume mount attached to a box.
+      required: [volume_id, guest_path]
       properties:
         volume_id:
           type: string
@@ -1835,15 +1830,11 @@ components:
           example: vol_01K2EXAMPLE
         host_path:
           type: string
-          deprecated: true
-          pattern: "^volume://.+$"
           description: |
-            Deprecated alias for `volume_id`, kept for backward compatibility
-            with existing /v1 clients built against the pre-`volume_id`
-            schema. Still requires the `volume://<volume_id>` scheme those
-            clients send. Use `volume_id` instead; this field will be removed
-            in a future API version.
-          example: volume://vol_01K2EXAMPLE
+            Reserved for a future host-filesystem bind mount. Not
+            implemented: a REST box runs on a remote runner, so there is no
+            path a client could name here today. Rejected with 400 rather
+            than silently ignored.
         guest_path:
           type: string
           description: Mount point inside the container

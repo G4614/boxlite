@@ -64,28 +64,15 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
 }
 
 function resolveVolumeId(volume: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
-  // `volume_id` is a bare id. DTO validation (HasVolumeSourceConstraint)
-  // already guarantees one of the two fields is present. Checked by presence
-  // (typeof), not truthiness — an explicit `volume_id: ''` must fail as a
-  // malformed id rather than being silently treated as absent and falling
-  // through to host_path.
-  if (typeof volume.volume_id === 'string') {
-    if (volume.volume_id) {
-      return volume.volume_id
-    }
-    throw new BadRequestException('volume_id must be non-empty')
+  // `host_path` is reserved for a future host-filesystem bind mount (not
+  // implemented — a REST box runs on a remote runner, so there is no path a
+  // client could safely name there today). Reject it explicitly instead of
+  // misreading it as a volume reference, which is what this field name
+  // briefly, mistakenly meant on this REST surface.
+  if (volume.host_path !== undefined) {
+    throw new BadRequestException('host_path (host-filesystem bind mount) is not supported for remote boxes')
   }
-
-  // `host_path` is the deprecated pre-`volume_id` field name; it still
-  // requires the `volume://` scheme those older clients send.
-  const legacySource = volume.host_path
-  if (legacySource?.startsWith('volume://')) {
-    const volumeId = legacySource.slice('volume://'.length)
-    if (volumeId) {
-      return volumeId
-    }
-  }
-  throw new BadRequestException('deprecated host_path volume source must use the volume:// scheme')
+  return volume.volume_id
 }
 
 function mapState(state: string | BoxState | undefined): string {
