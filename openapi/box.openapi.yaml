@@ -1960,9 +1960,10 @@ components:
           items:
             type: string
           description: |
-            Optional inbound allowlist used only when `mode=enabled`.
-            Empty or omitted means any caller may reach the box's exposed
-            services. Supports hostnames, wildcard hostnames, IPs, and CIDRs.
+            Not supported yet: a non-empty value is rejected with 400. The
+            field exists for shape symmetry with `OutboundNetworkSpec`; no
+            layer enforces an inbound allowlist today, so inbound access is
+            controlled by `mode` alone. Omit it, or send an empty array.
 
     SecretSpec:
       type: object
