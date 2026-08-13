@@ -1824,14 +1824,19 @@ components:
         Filesystem mount attached to a box. One of `volume_id` or the
         deprecated `host_path` is required.
       required: [guest_path]
+      anyOf:
+        - required: [volume_id]
+        - required: [host_path]
       properties:
         volume_id:
           type: string
+          minLength: 1
           description: Id of a managed volume created via `POST /volumes`.
           example: vol_01K2EXAMPLE
         host_path:
           type: string
           deprecated: true
+          pattern: "^volume://.+$"
           description: |
             Deprecated alias for `volume_id`, kept for backward compatibility
             with existing /v1 clients built against the pre-`volume_id`
