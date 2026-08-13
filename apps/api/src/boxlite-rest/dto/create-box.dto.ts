@@ -116,7 +116,15 @@ export class NetworkSpecDto {
 // request is rejected outright — there's no sane precedence to guess
 // between them.
 function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
-  if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+  // `network: []` used to slip through: before `@IsObject()` was added here,
+  // `@ValidateNested()` treated an array as a list to validate element-wise,
+  // so an empty one passed and behaved exactly like omitting `network`. Keep
+  // that verdict by mapping it to absent. A non-empty array still falls
+  // through to `@IsObject()` and is rejected, as it was before.
+  if (Array.isArray(value)) {
+    return value.length === 0 ? undefined : value
+  }
+  if (value === undefined || value === null || typeof value !== 'object') {
     return value
   }
   const network = value as Record<string, unknown>

@@ -148,8 +148,10 @@ describe('CreateBoxDto network validation', () => {
     ).toThrow('network must not mix legacy top-level fields with nested outbound/inbound fields')
   })
 
+  // `network: []` is deliberately absent here: it was accepted before the
+  // split and stays accepted (see the request-pipeline tests below).
   it.each([
-    ['network', []],
+    ['network', [{ mode: 'enabled' }]],
     ['network.outbound', { outbound: [] }],
     ['network.inbound', { inbound: [] }],
   ])('rejects array-valued %s', async (_field, network) => {
@@ -334,5 +336,18 @@ describe('CreateBoxDto legacy network compatibility through the request pipeline
 
     expect(dto.network?.outbound?.mode).toBe('disabled')
     expect(dto.network?.inbound?.mode).toBe('disabled')
+  })
+
+  // The one payload the added @IsObject() would otherwise have started
+  // rejecting: an empty array passed the old @ValidateNested()-only field and
+  // behaved like an absent `network`.
+  it('still accepts an empty array for network, treating it as absent', async () => {
+    const dto: CreateBoxDto = await pipe.transform({ image: 'alpine:latest', network: [] }, meta)
+
+    expect(dto.network).toBeUndefined()
+  })
+
+  it('rejects a non-empty array for network, as before', async () => {
+    await expect(pipe.transform({ image: 'alpine:latest', network: [{ mode: 'enabled' }] }, meta)).rejects.toThrow()
   })
 })
