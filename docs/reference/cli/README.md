@@ -694,7 +694,7 @@ Used by `run` and `create` (defined at `src/cli/src/cli.rs:584-604`).
 `-v`/`--volume` accepts the grammar implemented at `src/cli/src/cli.rs:838-918`
 (managed-volume form: `src/cli/src/cli.rs:799-827`):
 
-```
+```text
 VOLUME := 'volume://' VOLUME_NAME_OR_ID ':' BOX_PATH [':' 'rw']  # managed volume
         | HOST_PATH ':' BOX_PATH [':' OPTIONS]                   # bind mount
         | BOX_PATH [':' OPTIONS]                                 # anonymous volume
