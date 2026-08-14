@@ -673,7 +673,7 @@ Used by `run` and `create` (defined at `src/cli/src/cli.rs:407-578`).
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--volume VOLUME` | `-v` | Mount a volume; repeatable (see [Volume Mount Syntax](#volume-mount-syntax)) |
+| `--volume VOLUME` | `-v` | Mount a volume, local or managed; repeatable (see [Volume Mount Syntax](#volume-mount-syntax)) |
 
 ### `ManagementFlags`
 
@@ -691,10 +691,12 @@ Used by `run` and `create` (defined at `src/cli/src/cli.rs:584-604`).
 
 ## Volume Mount Syntax
 
-`-v`/`--volume` accepts the grammar implemented at `src/cli/src/cli.rs:442-519`:
+`-v`/`--volume` accepts the grammar implemented at `src/cli/src/cli.rs:836-916`
+(managed-volume form: `src/cli/src/cli.rs:799-825`):
 
 ```
-VOLUME := HOST_PATH ':' BOX_PATH [':' OPTIONS]          # bind mount
+VOLUME := 'volume://' VOLUME_NAME_OR_ID ':' BOX_PATH     # managed volume
+        | HOST_PATH ':' BOX_PATH [':' OPTIONS]           # bind mount
         | BOX_PATH [':' OPTIONS]                         # anonymous volume
 ```
 
@@ -705,8 +707,14 @@ VOLUME := HOST_PATH ':' BOX_PATH [':' OPTIONS]          # bind mount
 | `HOST_PATH:BOX_PATH` | `/host/data:/data` | Bind mount (host directory must exist) |
 | `HOST_PATH:BOX_PATH:OPTIONS` | `/host/data:/data:ro` | Bind mount with options |
 | `C:\HOST\PATH:/BOX_PATH[:OPTIONS]` | `C:\data:/app/data:ro` | Windows drive paths are handled — the drive-letter colon is not treated as a separator |
+| `volume://VOLUME_NAME_OR_ID:BOX_PATH` | `volume://myvolume:/data` | Managed volume, resolved server-side by name or id (REST runtime only, see `has_managed_volumes` at `src/cli/src/cli.rs:992-999`); box path must be absolute and read-write |
 
 **Options:** `ro` (read-only) or `rw` (read-write, default). Other options are ignored. Relative host paths are canonicalized at parse time; missing host paths fail with `volume host path ...`.
+
+The `volume://` prefix is required and unambiguous: without it, `-v` behaves
+exactly as it did before managed volumes existed — a bare token like
+`myvolume:/data` is always a local path (and fails if it doesn't exist), never
+guessed at as a volume name.
 
 The anonymous-volume base directory is resolved as: `--home`, else `$BOXLITE_HOME`, else `~/.boxlite`, else the system temp dir.
 

@@ -55,6 +55,9 @@ pub async fn execute(args: RunArgs, global: &GlobalFlags) -> anyhow::Result<i32>
     args.boot.require_enabled(global.experimental_features())?;
     args.management
         .require_enabled(global.experimental_features())?;
+    if args.volume.has_managed_volumes() && !global.resolves_rest_runtime() {
+        anyhow::bail!("managed volume mounts require a REST runtime");
+    }
     let (rootfs, command_args) = args.rootfs_and_command()?;
     let command_args = command_args.to_vec();
     let mut runner = BoxRunner::new(args, global)?;

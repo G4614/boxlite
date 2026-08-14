@@ -316,6 +316,14 @@ impl GlobalFlags {
         }
     }
 
+    pub fn resolves_rest_runtime(&self) -> bool {
+        let stored = crate::credentials::load_named(&self.resolved_profile())
+            .ok()
+            .flatten();
+        let env_api_key = std::env::var("BOXLITE_API_KEY").ok();
+        self.resolve_rest_options(stored, env_api_key).is_some()
+    }
+
     /// Build REST connection options from the selected credential profile and
     /// the ambient `BOXLITE_API_KEY`. Returns `None` when no URL is configured
     /// (the caller then falls back to the local runtime). Pure — takes the
@@ -748,10 +756,20 @@ struct ParsedVolumeSpec {
 
 #[derive(Args, Debug, Clone)]
 pub struct VolumeFlags {
-    /// Mount a volume (format: hostPath:boxPath[:options], or boxPath for anonymous volume, e.g. /data:/app/data, /data:ro)
+    /// Mount a volume. `hostPath:boxPath[:options]` for a local bind mount
+    /// (e.g. `/data:/app/data`, `/data:/app/data:ro`); `boxPath` (or
+    /// `boxPath:ro`) for an anonymous local volume;
+    /// `volume://<idOrName>:boxPath` for a managed volume, resolved
+    /// server-side and only meaningful against a REST runtime.
     #[arg(short = 'v', long = "volume", value_name = "VOLUME")]
     pub volume: Vec<String>,
 }
+
+/// Prefix that marks a `-v` host side as a managed-volume reference rather
+/// than a local path. Explicit and unambiguous by construction — unlike
+/// guessing from what a bare token "looks like", a real path can never
+/// collide with this prefix, so there is nothing to disambiguate.
+const MANAGED_VOLUME_SCHEME: &str = "volume://";
 
 /// True if the segment is a single ASCII letter (Windows drive, e.g. "C" in "C:\path").
 fn is_windows_drive(segment: &str) -> bool {
@@ -774,9 +792,47 @@ fn parse_volume_read_only(opts: &str) -> bool {
     opts.split(',').any(|o| o.trim().eq_ignore_ascii_case("ro"))
 }
 
+/// Parse the `volume://<idOrName>:boxPath` form. Split out of
+/// `parse_volume_spec` because embedding a `://` scheme breaks that
+/// function's colon-count-based grammar (`volume://x:/y`.split(':')` is
+/// three parts, not the two a bind mount would produce) — checking the
+/// scheme prefix first and handling it separately avoids that entirely
+/// rather than working around it inside the general parser.
+fn parse_managed_volume_spec(s: &str) -> anyhow::Result<ParsedVolumeSpec> {
+    let rest = s
+        .strip_prefix(MANAGED_VOLUME_SCHEME)
+        .expect("caller already matched the volume:// prefix");
+    let parts: Vec<&str> = rest.split(':').collect();
+    let (id, guest_path, read_only) = match parts.as_slice() {
+        [id, guest_path] => (*id, *guest_path, false),
+        [id, guest_path, opts] => (*id, *guest_path, parse_volume_read_only(opts)),
+        _ => anyhow::bail!(
+            "managed volume spec {s:?} must be {MANAGED_VOLUME_SCHEME}<id-or-name>:<box-path>[:ro|:rw]"
+        ),
+    };
+    if id.is_empty() {
+        anyhow::bail!("managed volume id or name must be non-empty (got {s:?})");
+    }
+    if guest_path.is_empty() || !guest_path.starts_with('/') {
+        anyhow::bail!(
+            "managed volume box path must be absolute (e.g. {MANAGED_VOLUME_SCHEME}{id}:/data)"
+        );
+    }
+    if read_only {
+        anyhow::bail!("managed volume mounts are read-write only for now (remove :ro from {s:?})");
+    }
+    Ok(ParsedVolumeSpec {
+        host_path: Some(format!("{MANAGED_VOLUME_SCHEME}{id}")),
+        guest_path: guest_path.to_string(),
+        read_only: false,
+    })
+}
+
 /// Parse a single volume spec.
-/// - Anonymous : `boxPath` or `boxPath:ro` (e.g. `/data`, `/data:ro`).
-/// - Bind mount: `hostPath:boxPath[:options]` (e.g. `/data:/app/data`, `/data:/app/data:ro`).
+/// - Managed volume: `volume://<idOrName>:boxPath` (e.g. `volume://myvolume:/data`),
+///   resolved server-side; only meaningful against a REST runtime.
+/// - Anonymous     : `boxPath` or `boxPath:ro` (e.g. `/data`, `/data:ro`).
+/// - Bind mount    : `hostPath:boxPath[:options]` (e.g. `/data:/app/data`, `/data:/app/data:ro`).
 ///
 /// Options: `ro` (read-only), `rw` (read-write, default). Other options are ignored.
 ///   Windows: host path may be a drive path like `C:\data`; the colon after the drive letter is not
@@ -785,6 +841,9 @@ fn parse_volume_spec(s: &str) -> anyhow::Result<ParsedVolumeSpec> {
     let s = s.trim();
     if s.is_empty() {
         anyhow::bail!("empty volume spec");
+    }
+    if s.starts_with(MANAGED_VOLUME_SCHEME) {
+        return parse_managed_volume_spec(s);
     }
     let parts: Vec<&str> = s.split(':').map(str::trim).collect();
 
@@ -887,12 +946,19 @@ impl VolumeFlags {
         let base = anonymous_volume_base(home);
         for s in self.volume.iter() {
             let spec = parse_volume_spec(s)?;
-            let host_path = match spec.host_path {
-                // TODO(#942): when the host side of a `-v <src>:<guest>` spec is a
-                // bare name (not a path) that matches a named volume, resolve it
-                // to the volume's mountpoint here (via the volume backend) and
-                // bind that payload dir instead of treating the name as a literal
-                // host path.
+            let ParsedVolumeSpec {
+                host_path,
+                guest_path,
+                read_only,
+            } = spec;
+            let host_path = match host_path {
+                // Managed volume reference: resolved server-side (REST
+                // create/attach already accept id-or-name, scoped to the
+                // caller's org), so — unlike a bind-mount path — this
+                // string is never touched on this host. Already fully
+                // validated (absolute guest path, no :ro) by
+                // parse_managed_volume_spec.
+                Some(host) if host.starts_with(MANAGED_VOLUME_SCHEME) => host,
                 Some(host) => {
                     let mut path = host;
                     if std::path::Path::new(&path).is_relative() && !is_windows_absolute_path(&path)
@@ -916,11 +982,24 @@ impl VolumeFlags {
             };
             opts.volumes.push(VolumeSpec {
                 host_path,
-                guest_path: spec.guest_path,
-                read_only: spec.read_only,
+                guest_path,
+                read_only,
             });
         }
         Ok(())
+    }
+
+    /// True if any `-v` entry is a managed-volume reference (`volume://...`)
+    /// rather than a local bind mount — these require a REST runtime.
+    /// Unparseable entries are treated as non-managed here; `apply_to`
+    /// surfaces the real parse error when it runs moments later.
+    pub fn has_managed_volumes(&self) -> bool {
+        self.volume.iter().any(|s| {
+            parse_volume_spec(s).is_ok_and(|spec| {
+                spec.host_path
+                    .is_some_and(|host| host.starts_with(MANAGED_VOLUME_SCHEME))
+            })
+        })
     }
 }
 
@@ -1685,6 +1764,140 @@ mod tests {
         assert_eq!(opts.volumes[1].guest_path, "/cache");
         assert!(opts.volumes[1].read_only);
         assert!(opts.volumes[1].host_path.contains("anonymous"));
+    }
+
+    // --- Managed volumes via -v (explicit volume:// scheme) ---
+
+    #[test]
+    fn test_parse_volume_spec_scheme_is_managed() {
+        let spec = super::parse_volume_spec("volume://myvolume:/data").unwrap();
+        assert_eq!(spec.host_path.as_deref(), Some("volume://myvolume"));
+        assert_eq!(spec.guest_path, "/data");
+        assert!(!spec.read_only);
+    }
+
+    #[test]
+    fn test_parse_volume_spec_bare_tokens_are_never_managed() {
+        // Without the scheme, everything parses exactly as it did before
+        // managed volumes existed — a bare token is a literal local path,
+        // canonicalized against this host, not guessed at as a volume name.
+        assert_eq!(
+            super::parse_volume_spec("myvolume:/data")
+                .unwrap()
+                .host_path
+                .as_deref(),
+            Some("myvolume")
+        );
+        assert_eq!(
+            super::parse_volume_spec("/host:/guest")
+                .unwrap()
+                .host_path
+                .as_deref(),
+            Some("/host")
+        );
+        assert_eq!(
+            super::parse_volume_spec(r"subdir\cache:/guest")
+                .unwrap()
+                .host_path
+                .as_deref(),
+            Some(r"subdir\cache")
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_apply_to_managed_volume() {
+        let flags = VolumeFlags {
+            volume: vec!["volume://myvolume:/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        flags.apply_to(&mut opts, None).unwrap();
+
+        assert_eq!(opts.volumes.len(), 1);
+        // Passed through verbatim: never canonicalized against this host's
+        // filesystem, unlike a bind-mount path.
+        assert_eq!(opts.volumes[0].host_path, "volume://myvolume");
+        assert_eq!(opts.volumes[0].guest_path, "/data");
+        assert!(!opts.volumes[0].read_only);
+    }
+
+    #[test]
+    fn test_volume_flags_apply_to_managed_volume_rejects_empty_id() {
+        let flags = VolumeFlags {
+            volume: vec!["volume://:/data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_to(&mut opts, None)
+            .expect_err("managed volume id must be rejected when empty");
+
+        assert!(
+            err.to_string().contains("must be non-empty"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_apply_to_managed_volume_rejects_relative_box_path() {
+        let flags = VolumeFlags {
+            volume: vec!["volume://myvolume:data".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_to(&mut opts, None)
+            .expect_err("managed volume box path must be absolute");
+
+        assert!(
+            err.to_string().contains("box path must be absolute"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_apply_to_managed_volume_rejects_read_only() {
+        let flags = VolumeFlags {
+            volume: vec!["volume://myvolume:/data:ro".to_string()],
+        };
+        let mut opts = BoxOptions::default();
+        let err = flags
+            .apply_to(&mut opts, None)
+            .expect_err("managed volume mounts are read-write only for now");
+
+        assert!(
+            err.to_string().contains("read-write only"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_volume_flags_has_managed_volumes_via_dash_v() {
+        let managed = VolumeFlags {
+            volume: vec!["volume://myvolume:/data".to_string()],
+        };
+        assert!(managed.has_managed_volumes());
+
+        let local = VolumeFlags {
+            volume: vec!["/host:/data".to_string()],
+        };
+        assert!(!local.has_managed_volumes());
+
+        // A bare token — no scheme — is a local path, not a managed volume,
+        // even though that's exactly the string a volume's name might be.
+        let bare_token = VolumeFlags {
+            volume: vec!["myvolume:/data".to_string()],
+        };
+        assert!(!bare_token.has_managed_volumes());
+    }
+
+    #[test]
+    fn test_run_parses_managed_volume_via_dash_v() {
+        let cli =
+            Cli::try_parse_from(["boxlite", "run", "-v", "volume://myvolume:/data", "alpine"])
+                .expect("run -v volume://myvolume:/data should parse");
+        let Commands::Run(args) = cli.command else {
+            panic!("expected run command");
+        };
+
+        assert_eq!(args.volume.volume, vec!["volume://myvolume:/data"]);
     }
 
     // ─── auth subcommand parse tests ───────────────────────────────────────
