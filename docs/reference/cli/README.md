@@ -691,13 +691,13 @@ Used by `run` and `create` (defined at `src/cli/src/cli.rs:584-604`).
 
 ## Volume Mount Syntax
 
-`-v`/`--volume` accepts the grammar implemented at `src/cli/src/cli.rs:836-916`
-(managed-volume form: `src/cli/src/cli.rs:799-825`):
+`-v`/`--volume` accepts the grammar implemented at `src/cli/src/cli.rs:838-918`
+(managed-volume form: `src/cli/src/cli.rs:799-827`):
 
 ```
-VOLUME := 'volume://' VOLUME_NAME_OR_ID ':' BOX_PATH     # managed volume
-        | HOST_PATH ':' BOX_PATH [':' OPTIONS]           # bind mount
-        | BOX_PATH [':' OPTIONS]                         # anonymous volume
+VOLUME := 'volume://' VOLUME_NAME_OR_ID ':' BOX_PATH [':' 'rw']  # managed volume
+        | HOST_PATH ':' BOX_PATH [':' OPTIONS]                   # bind mount
+        | BOX_PATH [':' OPTIONS]                                 # anonymous volume
 ```
 
 | Form | Example | Behavior |
@@ -707,9 +707,9 @@ VOLUME := 'volume://' VOLUME_NAME_OR_ID ':' BOX_PATH     # managed volume
 | `HOST_PATH:BOX_PATH` | `/host/data:/data` | Bind mount (host directory must exist) |
 | `HOST_PATH:BOX_PATH:OPTIONS` | `/host/data:/data:ro` | Bind mount with options |
 | `C:\HOST\PATH:/BOX_PATH[:OPTIONS]` | `C:\data:/app/data:ro` | Windows drive paths are handled — the drive-letter colon is not treated as a separator |
-| `volume://VOLUME_NAME_OR_ID:BOX_PATH` | `volume://myvolume:/data` | Managed volume, resolved server-side by name or id (REST runtime only, see `has_managed_volumes` at `src/cli/src/cli.rs:992-999`); box path must be absolute and read-write |
+| `volume://VOLUME_NAME_OR_ID:BOX_PATH[:rw]` | `volume://myvolume:/data` | Managed volume, resolved server-side by name or id (REST runtime only, see `has_managed_volumes` at `src/cli/src/cli.rs:994-1001`); box path must be absolute. `:ro` is rejected — managed volumes are read-write only for now; the accepted third component is only the redundant explicit `:rw`. |
 
-**Options:** `ro` (read-only) or `rw` (read-write, default). Other options are ignored. Relative host paths are canonicalized at parse time; missing host paths fail with `volume host path ...`.
+**Options:** `ro` (read-only) or `rw` (read-write, default) for local bind mounts and anonymous volumes — managed volumes reject `:ro` outright (see above). Other options are ignored. Relative host paths are canonicalized when the mount is applied (`VolumeFlags::apply_to`, `src/cli/src/cli.rs:939-988`), not during parsing; missing host paths fail with `volume host path ...`.
 
 The `volume://` prefix is required and unambiguous: without it, `-v` behaves
 exactly as it did before managed volumes existed — a bare token like
