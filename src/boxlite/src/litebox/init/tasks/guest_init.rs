@@ -142,7 +142,7 @@ async fn run_guest_init(
             .await?;
     }
     // An older guest's Container.Init doesn't understand
-    // readonly_paths/sys_mount_options at all and would silently keep its own
+    // readonly_paths/mount.options at all and would silently keep its own
     // hardened defaults, so privileged mode needs a version gate the same way
     // capability overrides do. (No masked_paths here: it never varies with
     // `privileged` — see advanced_options.rs — so it carries no version

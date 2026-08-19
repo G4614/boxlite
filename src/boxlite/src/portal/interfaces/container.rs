@@ -159,10 +159,10 @@ impl ContainerInterface {
                 }),
                 mount: Some(MountOptions {
                     // The only guest-side mount host policy ever overrides
-                    // today (see `advanced_options::sys_mount_options`).
+                    // today (see `advanced_options::mount_options`).
                     source: "/sys".to_string(),
                     destination: "/sys".to_string(),
-                    options: advanced.mount.sys_mount_options,
+                    options: advanced.mount.options,
                 }),
             }),
         };
@@ -481,7 +481,7 @@ mod tests {
                         readonly_paths: Vec::new(),
                     },
                     mount: ResolvedMountSecurity {
-                        sys_mount_options: vec![
+                        options: vec![
                             "rbind".to_string(),
                             "nosuid".to_string(),
                             "noexec".to_string(),

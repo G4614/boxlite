@@ -179,8 +179,8 @@ pub fn create_oci_spec(
     let caps = capabilities.to_oci()?;
     tracing::info!(
         container_id,
-        sys_mount_source = mount_override.source,
-        sys_mount_options = ?mount_override.options,
+        mount_source = mount_override.source,
+        mount_options = ?mount_override.options,
         readonly_paths_count = readonly_paths.len(),
         "building container spec"
     );
@@ -1253,7 +1253,7 @@ mod tests {
     /// `build_standard_mounts` assigns the `/sys` bind's source and options
     /// verbatim — no flag to reinterpret. The actual `rro`-vs-writable
     /// decision is tested where it's made:
-    /// `advanced_options::sys_mount_options`.
+    /// `advanced_options::mount_options`.
     #[test]
     fn sys_bind_uses_host_resolved_source_and_options_verbatim() {
         let dir = tempfile::tempdir().unwrap();
@@ -1284,7 +1284,7 @@ mod tests {
 
     /// Capabilities and the OCI path/mount shape are separate knobs the host
     /// resolves independently: `create_oci_spec` threads `readonly_paths` and
-    /// `sys_mount_options` straight through, with no branching of its own —
+    /// `mount_override` straight through, with no branching of its own —
     /// a full capability set does not silently relax the shape.
     #[test]
     fn create_oci_spec_threads_security_fields_verbatim() {
@@ -1296,10 +1296,10 @@ mod tests {
             return;
         };
 
-        let spec_for = |readonly_paths: Vec<String>, sys_mount_options: Vec<String>| {
+        let spec_for = |readonly_paths: Vec<String>, options: Vec<String>| {
             let mount_override = MountOverride {
                 source: "/sys".to_string(),
-                options: sys_mount_options,
+                options,
             };
             create_oci_spec(
                 "c",

@@ -23,7 +23,7 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 /// `source`/`options` have no legitimate empty value for `/sys`: every real
 /// host resolves `source = "/sys"` and at least
 /// `options = ["rbind", "nosuid", "noexec", "nodev"]`, privileged or not
-/// (advanced_options::sys_mount_options). Empty here can only mean the host
+/// (advanced_options::mount_options). Empty here can only mean the host
 /// predates these fields entirely — a version too old to know it should send
 /// anything — not a deliberate request. Rejecting it here also means
 /// `readonly_paths` being empty is trustworthy as the real "privileged"

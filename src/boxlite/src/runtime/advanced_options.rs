@@ -814,7 +814,7 @@ impl AdvancedBoxOptions {
             },
             linux: ResolvedLinuxSecurity { readonly_paths },
             mount: ResolvedMountSecurity {
-                sys_mount_options: sys_mount_options(normalized.privileged),
+                options: mount_options(normalized.privileged),
             },
         })
     }
@@ -831,7 +831,7 @@ fn default_readonly_paths() -> Vec<String> {
 /// Recursive: `/sys` is an rbind, and OCI's plain `ro` is applied without
 /// `AT_RECURSIVE`, which would leave the guest's cgroup2 submount writable
 /// inside the container — hence `rro`, not `ro`, for the non-privileged case.
-fn sys_mount_options(privileged: bool) -> Vec<String> {
+fn mount_options(privileged: bool) -> Vec<String> {
     let mut options: Vec<String> = ["rbind", "nosuid", "noexec", "nodev"]
         .into_iter()
         .map(String::from)
@@ -843,7 +843,7 @@ fn sys_mount_options(privileged: bool) -> Vec<String> {
 }
 
 /// Atomic container security configuration crossing the host-to-guest
-/// boundary. `readonly_paths`/`sys_mount_options` are literal, host-resolved
+/// boundary. `readonly_paths`/`mount.options` are literal, host-resolved
 /// OCI values the guest assigns verbatim — matching how Docker, Podman, and
 /// Kata Containers all hand the enforcing side a finished shape rather than a
 /// flag to reinterpret (see docs/architecture/privileged-mode-design.md,
@@ -886,7 +886,7 @@ pub(crate) struct ResolvedLinuxSecurity {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedMountSecurity {
-    pub(crate) sys_mount_options: Vec<String>,
+    pub(crate) options: Vec<String>,
 }
 
 #[cfg(test)]
@@ -916,12 +916,7 @@ mod resolved_security_tests {
             ]
             .map(String::from)
         );
-        assert!(
-            resolved
-                .mount
-                .sys_mount_options
-                .contains(&"rro".to_string())
-        );
+        assert!(resolved.mount.options.contains(&"rro".to_string()));
     }
 
     #[test]
@@ -934,12 +929,7 @@ mod resolved_security_tests {
             .expect("privileged security should resolve");
 
         assert!(resolved.linux.readonly_paths.is_empty());
-        assert!(
-            !resolved
-                .mount
-                .sys_mount_options
-                .contains(&"rro".to_string())
-        );
+        assert!(!resolved.mount.options.contains(&"rro".to_string()));
         assert_eq!(resolved.process.capabilities.add, ["ALL"]);
     }
 
@@ -961,11 +951,6 @@ mod resolved_security_tests {
             .expect("capability-only options should resolve");
 
         assert!(!resolved.linux.readonly_paths.is_empty());
-        assert!(
-            resolved
-                .mount
-                .sys_mount_options
-                .contains(&"rro".to_string())
-        );
+        assert!(resolved.mount.options.contains(&"rro".to_string()));
     }
 }
