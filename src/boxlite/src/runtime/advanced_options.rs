@@ -809,9 +809,13 @@ impl AdvancedBoxOptions {
         };
 
         Ok(ResolvedContainerSecurityConfig {
-            capabilities: normalized.capabilities,
-            readonly_paths,
-            sys_mount_options: sys_mount_options(normalized.privileged),
+            process: ResolvedProcessSecurity {
+                capabilities: normalized.capabilities,
+            },
+            linux: ResolvedLinuxSecurity { readonly_paths },
+            mount: ResolvedMountSecurity {
+                sys_mount_options: sys_mount_options(normalized.privileged),
+            },
         })
     }
 }
@@ -853,10 +857,35 @@ fn sys_mount_options(privileged: bool) -> Vec<String> {
 /// restrictive device-cgroup default in the first place, and `dockerd`
 /// tolerated running without a private cgroup namespace view. The guest keeps
 /// applying its own oci-spec masked-path default unconditionally.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Grouped under `process`/`linux`/`mount` the same way OCI runtime-spec
+/// groups the fields these resolve to — parallel top-level fields of one
+/// Spec — rather than flattened across a level of structure that doesn't
+/// exist in the source concept. Matches the wire shape
+/// (`ContainerAdvancedOptions`) it eventually becomes verbatim.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedContainerSecurityConfig {
-    pub(crate) capabilities: ContainerCapabilities,
+    pub(crate) process: ResolvedProcessSecurity,
+    pub(crate) linux: ResolvedLinuxSecurity,
+    pub(crate) mount: ResolvedMountSecurity,
+}
+
+// `pub`, not `pub(crate)`: `ContainerAdvancedConfig::process` (portal layer)
+// re-exposes this one publicly, matching `ContainerCapabilities`'s own
+// visibility — the same reason `ContainerAdvancedConfig::linux`/`::mount`
+// stay `pub(crate)` and so do `ResolvedLinuxSecurity`/`ResolvedMountSecurity`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResolvedProcessSecurity {
+    pub capabilities: ContainerCapabilities,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ResolvedLinuxSecurity {
     pub(crate) readonly_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ResolvedMountSecurity {
     pub(crate) sys_mount_options: Vec<String>,
 }
 
@@ -877,7 +906,7 @@ mod resolved_security_tests {
             .expect("default (unprivileged) security should resolve");
 
         assert_eq!(
-            resolved.readonly_paths,
+            resolved.linux.readonly_paths,
             [
                 "/proc/bus",
                 "/proc/fs",
@@ -887,7 +916,12 @@ mod resolved_security_tests {
             ]
             .map(String::from)
         );
-        assert!(resolved.sys_mount_options.contains(&"rro".to_string()));
+        assert!(
+            resolved
+                .mount
+                .sys_mount_options
+                .contains(&"rro".to_string())
+        );
     }
 
     #[test]
@@ -899,9 +933,14 @@ mod resolved_security_tests {
             .resolve_container_security()
             .expect("privileged security should resolve");
 
-        assert!(resolved.readonly_paths.is_empty());
-        assert!(!resolved.sys_mount_options.contains(&"rro".to_string()));
-        assert_eq!(resolved.capabilities.add, ["ALL"]);
+        assert!(resolved.linux.readonly_paths.is_empty());
+        assert!(
+            !resolved
+                .mount
+                .sys_mount_options
+                .contains(&"rro".to_string())
+        );
+        assert_eq!(resolved.process.capabilities.add, ["ALL"]);
     }
 
     /// Capabilities and the OCI path/mount shape are resolved from the same
@@ -921,7 +960,12 @@ mod resolved_security_tests {
             .resolve_container_security()
             .expect("capability-only options should resolve");
 
-        assert!(!resolved.readonly_paths.is_empty());
-        assert!(resolved.sys_mount_options.contains(&"rro".to_string()));
+        assert!(!resolved.linux.readonly_paths.is_empty());
+        assert!(
+            resolved
+                .mount
+                .sys_mount_options
+                .contains(&"rro".to_string())
+        );
     }
 }

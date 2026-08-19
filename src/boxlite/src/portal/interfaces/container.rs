@@ -11,7 +11,10 @@ use boxlite_shared::{
 use tonic::transport::Channel;
 
 use crate::images::ContainerImageConfig;
-use crate::runtime::advanced_options::{ContainerCapabilities, ResolvedContainerSecurityConfig};
+use crate::runtime::advanced_options::{
+    ResolvedContainerSecurityConfig, ResolvedLinuxSecurity, ResolvedMountSecurity,
+    ResolvedProcessSecurity,
+};
 use crate::volumes::ContainerMount;
 
 /// Container rootfs initialization strategy.
@@ -92,17 +95,17 @@ pub struct ContainerInitConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct ContainerAdvancedConfig {
-    pub capabilities: ContainerCapabilities,
-    pub(crate) readonly_paths: Vec<String>,
-    pub(crate) sys_mount_options: Vec<String>,
+    pub process: ResolvedProcessSecurity,
+    pub(crate) linux: ResolvedLinuxSecurity,
+    pub(crate) mount: ResolvedMountSecurity,
 }
 
 impl From<ResolvedContainerSecurityConfig> for ContainerAdvancedConfig {
     fn from(value: ResolvedContainerSecurityConfig) -> Self {
         Self {
-            capabilities: value.capabilities,
-            readonly_paths: value.readonly_paths,
-            sys_mount_options: value.sys_mount_options,
+            process: value.process,
+            linux: value.linux,
+            mount: value.mount,
         }
     }
 }
@@ -147,15 +150,15 @@ impl ContainerInterface {
             advanced: Some(ProtoContainerAdvancedOptions {
                 process: Some(AdvancedProcessOptions {
                     capabilities: Some(ProtoContainerCapabilities {
-                        add: advanced.capabilities.add,
-                        drop: advanced.capabilities.drop,
+                        add: advanced.process.capabilities.add,
+                        drop: advanced.process.capabilities.drop,
                     }),
                 }),
                 linux: Some(AdvancedLinuxOptions {
-                    readonly_paths: advanced.readonly_paths,
+                    readonly_paths: advanced.linux.readonly_paths,
                 }),
                 mount: Some(AdvancedMountOptions {
-                    sys_mount_options: advanced.sys_mount_options,
+                    sys_mount_options: advanced.mount.sys_mount_options,
                 }),
             }),
         };
@@ -464,17 +467,23 @@ mod tests {
                     file_mode: Some(0o666),
                 }],
                 advanced: ContainerAdvancedConfig {
-                    capabilities: crate::runtime::advanced_options::ContainerCapabilities {
-                        add: vec!["ALL".into()],
-                        ..Default::default()
+                    process: ResolvedProcessSecurity {
+                        capabilities: crate::runtime::advanced_options::ContainerCapabilities {
+                            add: vec!["ALL".into()],
+                            ..Default::default()
+                        },
                     },
-                    readonly_paths: Vec::new(),
-                    sys_mount_options: vec![
-                        "rbind".to_string(),
-                        "nosuid".to_string(),
-                        "noexec".to_string(),
-                        "nodev".to_string(),
-                    ],
+                    linux: ResolvedLinuxSecurity {
+                        readonly_paths: Vec::new(),
+                    },
+                    mount: ResolvedMountSecurity {
+                        sys_mount_options: vec![
+                            "rbind".to_string(),
+                            "nosuid".to_string(),
+                            "noexec".to_string(),
+                            "nodev".to_string(),
+                        ],
+                    },
                 },
             })
             .await

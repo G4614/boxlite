@@ -136,7 +136,7 @@ async fn run_guest_init(
     // Step 1: Guest Init (volumes + network)
     tracing::info!("Sending guest initialization request");
     let mut guest_interface = guest_session.guest().await?;
-    if !bootstrap.container.advanced.capabilities.is_empty() {
+    if !bootstrap.container.advanced.process.capabilities.is_empty() {
         guest_interface
             .require_min_version(MIN_CAPABILITY_GUEST_VERSION)
             .await?;
@@ -147,7 +147,7 @@ async fn run_guest_init(
     // capability overrides do. (No masked_paths here: it never varies with
     // `privileged` — see advanced_options.rs — so it carries no version
     // requirement of its own.)
-    if bootstrap.container.advanced.readonly_paths.is_empty() {
+    if bootstrap.container.advanced.linux.readonly_paths.is_empty() {
         guest_interface
             .require_min_version(MIN_PRIVILEGED_CONTAINER_GUEST_VERSION)
             .await?;

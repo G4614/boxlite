@@ -1346,10 +1346,15 @@ mod tests {
             .resolve_container_security()
             .expect("privileged security should resolve");
 
-        assert!(resolved.readonly_paths.is_empty());
-        assert!(!resolved.sys_mount_options.contains(&"rro".to_string()));
-        assert_eq!(resolved.capabilities.add, ["ALL"]);
-        assert!(resolved.capabilities.drop.is_empty());
+        assert!(resolved.linux.readonly_paths.is_empty());
+        assert!(
+            !resolved
+                .mount
+                .sys_mount_options
+                .contains(&"rro".to_string())
+        );
+        assert_eq!(resolved.process.capabilities.add, ["ALL"]);
+        assert!(resolved.process.capabilities.drop.is_empty());
     }
 
     #[test]
