@@ -385,33 +385,37 @@ message ContainerConfig {
 
 // Grouped the same way OCI runtime-spec groups them — process/linux/mounts
 // are parallel top-level fields of a Spec, so the fields that resolve to each
-// (capabilities -> process, readonly_paths -> linux, sys_mount_options ->
-// one mount's options) are nested under their own submessage here too,
-// instead of sitting flat as three unrelated siblings.
+// (capabilities -> process, readonly_paths -> linux, options -> one mount's
+// options) are nested under their own submessage here too, instead of
+// sitting flat as three unrelated siblings.
 message ContainerAdvancedOptions {
-  AdvancedProcessOptions process = 1;
-  AdvancedLinuxOptions linux = 2;
-  AdvancedMountOptions mount = 3;
+  ProcessOptions process = 1;
+  LinuxOptions linux = 2;
+  MountOptions mount = 3;
 
   // No masked-path field: masked paths never varied with `privileged` in
   // practice (see docs/architecture/privileged-mode-design.md, Trade-offs) —
   // the guest keeps applying its own oci-spec default unconditionally.
 }
 
-message AdvancedProcessOptions {
+message ProcessOptions {
   ContainerCapabilities capabilities = 1;
 }
 
-message AdvancedLinuxOptions {
+message LinuxOptions {
   // OCI read-only-path list, host-resolved. Empty means unconfined.
   repeated string readonly_paths = 1;
 }
 
-message AdvancedMountOptions {
-  // Full option list for the container's /sys recursive bind (including
-  // cgroup2), host-resolved. The guest applies it verbatim — no flag to
-  // reinterpret.
-  repeated string sys_mount_options = 1;
+message MountOptions {
+  // Which of the guest's own standard mounts these options apply to (e.g.
+  // "/sys" today). Carried as data, not baked into a field name, so a second
+  // overridable mount can be added without a wire-schema change.
+  string destination = 1;
+
+  // Full option list for that mount (including cgroup2 for /sys),
+  // host-resolved. The guest applies it verbatim — no flag to reinterpret.
+  repeated string options = 2;
 }
 
 message ContainerCapabilities {

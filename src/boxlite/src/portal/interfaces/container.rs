@@ -1,12 +1,12 @@
 //! Container service interface.
 
 use boxlite_shared::{
-    AdvancedLinuxOptions, AdvancedMountOptions, AdvancedProcessOptions, BindMount, BoxliteError,
-    BoxliteResult, CaCert, ContainerAdvancedOptions as ProtoContainerAdvancedOptions,
+    BindMount, BoxliteError, BoxliteResult, CaCert,
+    ContainerAdvancedOptions as ProtoContainerAdvancedOptions,
     ContainerCapabilities as ProtoContainerCapabilities, ContainerClient,
     ContainerConfig as ProtoContainerConfig, ContainerDevice, ContainerInitErrorKind,
-    ContainerInitRequest, DiskRootfs, MergedRootfs, OverlayRootfs, RootfsInit,
-    container_init_response,
+    ContainerInitRequest, DiskRootfs, LinuxOptions, MergedRootfs, MountOptions, OverlayRootfs,
+    ProcessOptions, RootfsInit, container_init_response,
 };
 use tonic::transport::Channel;
 
@@ -148,17 +148,20 @@ impl ContainerInterface {
             // process it applies to (OCI `process.terminal`).
             tty,
             advanced: Some(ProtoContainerAdvancedOptions {
-                process: Some(AdvancedProcessOptions {
+                process: Some(ProcessOptions {
                     capabilities: Some(ProtoContainerCapabilities {
                         add: advanced.process.capabilities.add,
                         drop: advanced.process.capabilities.drop,
                     }),
                 }),
-                linux: Some(AdvancedLinuxOptions {
+                linux: Some(LinuxOptions {
                     readonly_paths: advanced.linux.readonly_paths,
                 }),
-                mount: Some(AdvancedMountOptions {
-                    sys_mount_options: advanced.mount.sys_mount_options,
+                mount: Some(MountOptions {
+                    // The only guest-side mount host policy ever overrides
+                    // today (see `advanced_options::sys_mount_options`).
+                    destination: "/sys".to_string(),
+                    options: advanced.mount.sys_mount_options,
                 }),
             }),
         };
@@ -508,12 +511,8 @@ mod tests {
                 .readonly_paths
                 .is_empty()
         );
-        assert!(
-            !advanced
-                .mount
-                .expect("mount options")
-                .sys_mount_options
-                .contains(&"rro".to_string())
-        );
+        let mount = advanced.mount.expect("mount options");
+        assert_eq!(mount.destination, "/sys");
+        assert!(!mount.options.contains(&"rro".to_string()));
     }
 }
