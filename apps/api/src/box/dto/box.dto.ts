@@ -17,6 +17,28 @@ export interface BoxCapabilities {
   drop: string[]
 }
 
+// A plain `interface` has no runtime representation for Nest's Swagger
+// plugin to introspect, so `@ApiProperty({ type: BoxCapabilities })` below
+// would fall back to an untyped object in the generated spec (and, from
+// there, an untyped map/object in every generated client). This decorated
+// class gives it one, the same way BoxVolume does for `volumes`.
+@ApiSchema({ name: 'BoxCapabilities' })
+export class BoxCapabilitiesDto implements BoxCapabilities {
+  @ApiProperty({
+    description: 'Linux capabilities added to the default container capability set',
+    type: [String],
+    example: ['SYS_ADMIN'],
+  })
+  add: string[]
+
+  @ApiProperty({
+    description: 'Linux capabilities removed from the container capability set',
+    type: [String],
+    example: [],
+  })
+  drop: string[]
+}
+
 @ApiSchema({ name: 'BoxVolume' })
 export class BoxVolume {
   @ApiProperty({
@@ -107,7 +129,7 @@ export class BoxDto {
 
   @ApiProperty({
     description: 'Linux capabilities added to or removed from the box processes',
-    example: { add: ['SYS_ADMIN'], drop: [] },
+    type: BoxCapabilitiesDto,
   })
   capabilities: BoxCapabilities
 

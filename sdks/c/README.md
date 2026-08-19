@@ -226,7 +226,12 @@ int main() {
         return 1;
     }
     // Docker-style privileged mode enables the complete guest-level shape.
-    boxlite_advanced_options_set_privileged(advanced, 1);
+    if (boxlite_advanced_options_set_privileged(advanced, 1) != Ok) {
+        boxlite_advanced_options_free(advanced);
+        boxlite_options_free(opts);
+        boxlite_runtime_free(runtime);
+        return 1;
+    }
     boxlite_options_set_advanced(opts, advanced);
     boxlite_advanced_options_free(advanced);
 

@@ -487,7 +487,14 @@ void boxlite_advanced_options_set_security_enabled(CAdvancedBoxOptions *opts, in
 // Toggle Docker-style privileged mode. Enabling it also normalizes the
 // capability policy to `ALL` with no drops; the guest still receives the
 // privileged shape and capabilities as separate fields.
-void boxlite_advanced_options_set_privileged(CAdvancedBoxOptions *opts, int enabled);
+//
+// Enabling over an explicit, non-canonical capability override already set
+// via `boxlite_advanced_options_set_capabilities_add`/`_drop` fails closed
+// with `InvalidArgument` instead of silently keeping the override — the same
+// conflict those two functions themselves reject when called in the other
+// order (privileged first, then a conflicting override).
+enum BoxliteErrorCode boxlite_advanced_options_set_privileged(CAdvancedBoxOptions *opts,
+                                                              int enabled);
 
 // Replace the capabilities added to BoxLite's Docker-compatible baseline.
 //

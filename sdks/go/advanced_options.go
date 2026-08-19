@@ -63,10 +63,19 @@ func (a *AdvancedBoxOptions) SetSecurityEnabled(enabled bool) {
 }
 
 // SetPrivileged enables Docker-style privileged mode. Enabling it also
-// normalizes the capability policy to cap_add=["ALL"] and an empty cap_drop.
-func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) {
+// normalizes the capability policy to cap_add=["ALL"] and an empty cap_drop,
+// unless an explicit, non-canonical policy was already set via
+// SetCapabilities — then it returns an error, the same conflict
+// SetCapabilities itself rejects when called in the other order (privileged
+// first, then a conflicting override). Without this check here, calling the
+// two setters in reverse order silently kept whatever policy was set first.
+func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) error {
 	if a == nil || a.handle == nil {
-		return
+		return fmt.Errorf("boxlite: advanced options handle is closed")
+	}
+	if enabled && (len(a.capabilities.Add) > 0 || len(a.capabilities.Drop) > 0) &&
+		!isPrivilegedCapabilityShape(a.capabilities) {
+		return fmt.Errorf("boxlite: privileged mode cannot be combined with cap_add or cap_drop")
 	}
 	C.boxlite_advanced_options_set_privileged(a.handle, boolToCInt(enabled))
 	a.privileged = enabled
@@ -74,11 +83,21 @@ func (a *AdvancedBoxOptions) SetPrivileged(enabled bool) {
 		if len(a.capabilities.Add) == 0 && len(a.capabilities.Drop) == 0 {
 			a.capabilities = ContainerCapabilities{Add: []string{"ALL"}}
 		}
-	} else if len(a.capabilities.Drop) == 0 && len(a.capabilities.Add) == 1 && a.capabilities.Add[0] == "ALL" {
+	} else if isPrivilegedCapabilityShape(a.capabilities) {
 		// Mirror the withdrawal the native handle just performed, so the Go
 		// view does not keep reporting ALL for a non-privileged box.
 		a.capabilities = ContainerCapabilities{}
 	}
+	return nil
+}
+
+// isPrivilegedCapabilityShape reports whether capabilities is exactly the
+// canonical shape SetPrivileged(true) installs (add=["ALL"], drop=[]) —
+// mirroring the core `ContainerCapabilities::is_privileged_capability_shape`
+// this Go type sends over the wire. That shape is not a conflict: it is what
+// SetPrivileged itself would produce, whichever order the two setters ran in.
+func isPrivilegedCapabilityShape(c ContainerCapabilities) bool {
+	return len(c.Drop) == 0 && len(c.Add) == 1 && c.Add[0] == "ALL"
 }
 
 // SetCapabilities replaces advanced.capabilities for subsequently created
@@ -88,7 +107,8 @@ func (a *AdvancedBoxOptions) SetCapabilities(capabilities ContainerCapabilities)
 	if a == nil || a.handle == nil {
 		return fmt.Errorf("boxlite: advanced options handle is closed")
 	}
-	if a.privileged && (len(capabilities.Add) > 0 || len(capabilities.Drop) > 0) {
+	if a.privileged && (len(capabilities.Add) > 0 || len(capabilities.Drop) > 0) &&
+		!isPrivilegedCapabilityShape(capabilities) {
 		return fmt.Errorf("boxlite: privileged mode cannot be combined with cap_add or cap_drop")
 	}
 	if err := validateCapabilities("advanced.capabilities.add", capabilities.Add); err != nil {

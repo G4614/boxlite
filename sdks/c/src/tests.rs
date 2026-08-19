@@ -116,7 +116,8 @@ fn privileged_normalizes_capabilities() {
     let code = unsafe { boxlite_advanced_options_new(&mut advanced, &mut error as *mut _) };
     assert_eq!(code, BoxliteErrorCode::Ok);
 
-    unsafe { boxlite_advanced_options_set_privileged(advanced, 1) };
+    let set_code = unsafe { boxlite_advanced_options_set_privileged(advanced, 1) };
+    assert_eq!(set_code, BoxliteErrorCode::Ok);
     let options = unsafe { &(*advanced).options };
     assert!(options.privileged);
     assert_eq!(options.capabilities.add, ["ALL"]);
@@ -134,8 +135,14 @@ fn disabling_privileged_withdraws_the_capability_shape() {
     let code = unsafe { boxlite_advanced_options_new(&mut advanced, &mut error as *mut _) };
     assert_eq!(code, BoxliteErrorCode::Ok);
 
-    unsafe { boxlite_advanced_options_set_privileged(advanced, 1) };
-    unsafe { boxlite_advanced_options_set_privileged(advanced, 0) };
+    assert_eq!(
+        unsafe { boxlite_advanced_options_set_privileged(advanced, 1) },
+        BoxliteErrorCode::Ok
+    );
+    assert_eq!(
+        unsafe { boxlite_advanced_options_set_privileged(advanced, 0) },
+        BoxliteErrorCode::Ok
+    );
 
     let options = unsafe { &(*advanced).options };
     assert!(!options.privileged);
@@ -145,6 +152,66 @@ fn disabling_privileged_withdraws_the_capability_shape() {
         options.capabilities.add
     );
     assert!(options.capabilities.drop.is_empty());
+
+    unsafe { boxlite_advanced_options_free(advanced) };
+}
+
+/// The conflict `set_capabilities_add`/`_drop` reject when privileged is
+/// already set must also be rejected in the opposite order: an explicit
+/// override set first must not be silently kept once privileged is enabled.
+#[test]
+fn set_privileged_rejects_existing_capability_override() {
+    let mut advanced: *mut CAdvancedBoxOptions = ptr::null_mut();
+    let mut error = FFIError::default();
+    let code = unsafe { boxlite_advanced_options_new(&mut advanced, &mut error as *mut _) };
+    assert_eq!(code, BoxliteErrorCode::Ok);
+
+    let cap_add = [CString::new("NET_ADMIN").unwrap()];
+    let cap_add_ptrs: Vec<*const std::os::raw::c_char> =
+        cap_add.iter().map(|cap| cap.as_ptr()).collect();
+    let add_code = unsafe {
+        boxlite_advanced_options_set_capabilities_add(
+            advanced,
+            cap_add_ptrs.as_ptr(),
+            cap_add_ptrs.len() as c_int,
+        )
+    };
+    assert_eq!(add_code, BoxliteErrorCode::Ok);
+
+    let set_code = unsafe { boxlite_advanced_options_set_privileged(advanced, 1) };
+    assert_eq!(set_code, BoxliteErrorCode::InvalidArgument);
+    let options = unsafe { &(*advanced).options };
+    assert!(
+        !options.privileged,
+        "privileged must not be recorded as enabled after a rejected call"
+    );
+
+    unsafe { boxlite_advanced_options_free(advanced) };
+}
+
+/// The canonical add=["ALL"] shape is not a conflict in either order: it is
+/// exactly what `set_privileged(true)` itself installs.
+#[test]
+fn set_privileged_allows_canonical_shape_already_set() {
+    let mut advanced: *mut CAdvancedBoxOptions = ptr::null_mut();
+    let mut error = FFIError::default();
+    let code = unsafe { boxlite_advanced_options_new(&mut advanced, &mut error as *mut _) };
+    assert_eq!(code, BoxliteErrorCode::Ok);
+
+    let cap_add = [CString::new("ALL").unwrap()];
+    let cap_add_ptrs: Vec<*const std::os::raw::c_char> =
+        cap_add.iter().map(|cap| cap.as_ptr()).collect();
+    let add_code = unsafe {
+        boxlite_advanced_options_set_capabilities_add(
+            advanced,
+            cap_add_ptrs.as_ptr(),
+            cap_add_ptrs.len() as c_int,
+        )
+    };
+    assert_eq!(add_code, BoxliteErrorCode::Ok);
+
+    let set_code = unsafe { boxlite_advanced_options_set_privileged(advanced, 1) };
+    assert_eq!(set_code, BoxliteErrorCode::Ok);
 
     unsafe { boxlite_advanced_options_free(advanced) };
 }
