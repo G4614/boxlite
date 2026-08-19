@@ -263,6 +263,20 @@ class HandleCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(advanced.capabilities.add, ["ALL"])
         self.assertEqual(advanced.capabilities.drop, [])
 
+    def test_privileged_accepts_case_insensitive_and_cap_prefixed_all(self) -> None:
+        # Capability names are documented as case-insensitive with an optional
+        # CAP_ prefix (ContainerCapabilities.validate_capabilities); the
+        # canonical-shape check for privileged mode has to agree, the same
+        # way the Rust core's canonical_capability_name does.
+        for spelling in ("all", "Cap_All", "CAP_ALL"):
+            advanced = SERVER.CreateBoxAdvancedOptions(
+                capabilities=SERVER.ContainerCapabilities(add=[spelling]),
+                privileged=True,
+            )
+
+            self.assertEqual(advanced.capabilities.add, ["ALL"], msg=spelling)
+            self.assertEqual(advanced.capabilities.drop, [], msg=spelling)
+
     def test_create_box_rejects_malformed_capability_policy(self) -> None:
         for capability in ("NET-ADMIN", "123", "ß"):
             with self.assertRaises(ValueError):

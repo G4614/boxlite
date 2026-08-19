@@ -148,6 +148,14 @@ class ContainerCapabilities(BaseModel):
         return capabilities
 
 
+def _canonical_capability_name(capability: str) -> str:
+    """Mirrors the Rust core's `canonical_capability_name`: uppercase, then
+    strip an optional `CAP_` prefix — even if that leaves an empty string,
+    never fall back to treating the prefix as absent."""
+    normalized = capability.upper()
+    return normalized[4:] if normalized.startswith("CAP_") else normalized
+
+
 class CreateBoxAdvancedOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -162,8 +170,15 @@ class CreateBoxAdvancedOptions(BaseModel):
         # Privileged mode is a separate shape from capability overrides. Only
         # the canonical policy it expands to is accepted alongside it; anything
         # else is a conflict the caller must resolve, not something to rewrite
-        # behind their back.
-        canonical = self.capabilities.drop == [] and self.capabilities.add == ["ALL"]
+        # behind their back. Names are case-insensitive and the CAP_ prefix is
+        # optional (see ContainerCapabilities.validate_capabilities), so the
+        # comparison here has to canonicalize too — the Rust runtime does,
+        # via the same rule, before it checks this shape.
+        canonical = (
+            self.capabilities.drop == []
+            and len(self.capabilities.add) == 1
+            and _canonical_capability_name(self.capabilities.add[0]) == "ALL"
+        )
         if (self.capabilities.add or self.capabilities.drop) and not canonical:
             raise ValueError("privileged mode cannot be combined with cap_add or cap_drop")
 
