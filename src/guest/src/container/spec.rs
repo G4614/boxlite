@@ -16,7 +16,7 @@ use oci_spec::runtime::{
 
 /// Host-resolved source/options override for one of the guest's own standard
 /// mounts. Which mount is a separate concern, handled at the RPC boundary
-/// (`container::sys_mount_options`) before this is ever built — by the time
+/// (`container::mount_override`) before this is ever built — by the time
 /// one of these exists, its two fields are already known to belong to `/sys`,
 /// so the type itself doesn't need to say so.
 #[derive(Debug, Clone)]

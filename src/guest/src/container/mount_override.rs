@@ -6,10 +6,11 @@
 //! `destination` names which of the guest's own standard mounts those values
 //! are for; this guest only knows how to apply them to `/sys`. `readonly_paths`
 //! rides along on the same guarantee this guard checks (see
-//! [`validate_sys_mount_options`]) but has no logic of its own here.
+//! [`validate_mount_override`]) but has no logic of its own here.
 //! `capabilities` is a separate concern entirely, resolved against the
 //! guest's own kernel by [`super::capabilities::CapabilitySet::resolve`].
 
+use super::spec::MountOverride;
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 
 /// Reject a `destination` this guest can't apply, or a `source`/`options`
@@ -36,10 +37,9 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 /// `options` to treat `/sys` as a bind mount at all, so an empty list makes
 /// container creation fail with an unrelated "failed to prepare rootfs" error
 /// — this rejection turns that into a diagnosable one.
-pub(crate) fn validate_sys_mount_options(
-    source: &str,
+pub(crate) fn validate_mount_override(
     destination: &str,
-    options: &[String],
+    mount_override: &MountOverride,
 ) -> BoxliteResult<()> {
     if destination != "/sys" {
         return Err(BoxliteError::Unsupported(format!(
@@ -47,7 +47,7 @@ pub(crate) fn validate_sys_mount_options(
              only knows how to apply host-resolved options to /sys"
         )));
     }
-    if source.is_empty() {
+    if mount_override.source.is_empty() {
         return Err(BoxliteError::Unsupported(
             "advanced.mount.source is empty; the host predates \
              resolved security fields (privileged-mode-design.md, option F) \
@@ -55,7 +55,7 @@ pub(crate) fn validate_sys_mount_options(
                 .to_string(),
         ));
     }
-    if options.is_empty() {
+    if mount_override.options.is_empty() {
         return Err(BoxliteError::Unsupported(
             "advanced.mount.options is empty; the host predates \
              resolved security fields (privileged-mode-design.md, option F) \
@@ -70,9 +70,16 @@ pub(crate) fn validate_sys_mount_options(
 mod tests {
     use super::*;
 
+    fn mount_override(source: &str, options: &[&str]) -> MountOverride {
+        MountOverride {
+            source: source.to_string(),
+            options: options.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
     #[test]
     fn empty_options_is_rejected_as_a_version_mismatch() {
-        let error = validate_sys_mount_options("/sys", "/sys", &[])
+        let error = validate_mount_override("/sys", &mount_override("/sys", &[]))
             .expect_err("empty options must not pass");
 
         assert!(matches!(error, BoxliteError::Unsupported(_)), "{error:?}");
@@ -84,7 +91,7 @@ mod tests {
 
     #[test]
     fn empty_source_is_rejected_as_a_version_mismatch() {
-        let error = validate_sys_mount_options("", "/sys", &["rbind".to_string()])
+        let error = validate_mount_override("/sys", &mount_override("", &["rbind"]))
             .expect_err("empty source must not pass");
 
         assert!(matches!(error, BoxliteError::Unsupported(_)), "{error:?}");
@@ -96,13 +103,13 @@ mod tests {
 
     #[test]
     fn non_empty_source_and_options_for_sys_passes() {
-        validate_sys_mount_options("/sys", "/sys", &["rbind".to_string()])
+        validate_mount_override("/sys", &mount_override("/sys", &["rbind"]))
             .expect("non-empty source and options for /sys should pass");
     }
 
     #[test]
     fn unsupported_destination_is_rejected() {
-        let error = validate_sys_mount_options("/sys", "/proc", &["rbind".to_string()])
+        let error = validate_mount_override("/proc", &mount_override("/sys", &["rbind"]))
             .expect_err("a destination other than /sys must not pass");
 
         assert!(matches!(error, BoxliteError::Unsupported(_)), "{error:?}");

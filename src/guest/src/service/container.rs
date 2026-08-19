@@ -18,8 +18,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::container::{
-    validate_sys_mount_options, CapabilitySet, Container, ContainerDevices, MountOverride,
-    UserMount,
+    validate_mount_override, CapabilitySet, Container, ContainerDevices, MountOverride, UserMount,
 };
 use crate::layout::GuestLayout;
 use crate::storage::block_device::BlockDeviceMount;
@@ -190,19 +189,19 @@ impl ContainerService for GuestServer {
         // Validate before resolving capabilities: an unsupported destination
         // or empty options means either a host/guest version mismatch or a
         // mount this guest doesn't know how to override (see
-        // container::sys_mount_options), and capability resolution needs a
+        // container::mount_override), and capability resolution needs a
         // live /proc read this box shouldn't pay for on a request we're
         // about to reject anyway. The host has already expanded high-level
         // security options into atomic OCI choices; capabilities are the one
         // piece the guest still resolves itself, against its own kernel.
         let advanced = config.advanced.unwrap_or_default();
         let mount_options = advanced.mount.unwrap_or_default();
-        validate_sys_mount_options(
-            &mount_options.source,
-            &mount_options.destination,
-            &mount_options.options,
-        )
-        .map_err(BoxliteError::into_validation_status)?;
+        let mount_override = MountOverride {
+            source: mount_options.source,
+            options: mount_options.options,
+        };
+        validate_mount_override(&mount_options.destination, &mount_override)
+            .map_err(BoxliteError::into_validation_status)?;
         let capability_policy = advanced
             .process
             .unwrap_or_default()
@@ -211,10 +210,6 @@ impl ContainerService for GuestServer {
         let capabilities = CapabilitySet::resolve(&capability_policy.add, &capability_policy.drop)
             .map_err(BoxliteError::into_validation_status)?;
         let readonly_paths = advanced.linux.unwrap_or_default().readonly_paths;
-        let mount_override = MountOverride {
-            source: mount_options.source,
-            options: mount_options.options,
-        };
 
         info!("🚀 Starting OCI container with received configuration");
 
