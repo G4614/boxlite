@@ -160,6 +160,7 @@ impl ContainerInterface {
                 mount: Some(MountOptions {
                     // The only guest-side mount host policy ever overrides
                     // today (see `advanced_options::sys_mount_options`).
+                    source: "/sys".to_string(),
                     destination: "/sys".to_string(),
                     options: advanced.mount.sys_mount_options,
                 }),
@@ -512,6 +513,7 @@ mod tests {
                 .is_empty()
         );
         let mount = advanced.mount.expect("mount options");
+        assert_eq!(mount.source, "/sys");
         assert_eq!(mount.destination, "/sys");
         assert!(!mount.options.contains(&"rro".to_string()));
     }

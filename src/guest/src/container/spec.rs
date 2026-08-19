@@ -159,6 +159,7 @@ pub fn create_oci_spec(
     gid: u32,
     capabilities: &CapabilitySet,
     readonly_paths: &[String],
+    sys_mount_source: &str,
     sys_mount_options: &[String],
     bundle_path: &Path,
     user_mounts: &[UserMount],
@@ -168,12 +169,17 @@ pub fn create_oci_spec(
     let caps = capabilities.to_oci()?;
     tracing::info!(
         container_id,
+        sys_mount_source,
         sys_mount_options = ?sys_mount_options,
         readonly_paths_count = readonly_paths.len(),
         "building container spec"
     );
     let namespaces = build_default_namespaces()?;
-    let mut mounts = build_standard_mounts(bundle_path, sys_mount_options.to_vec())?;
+    let mut mounts = build_standard_mounts(
+        bundle_path,
+        sys_mount_source.to_string(),
+        sys_mount_options.to_vec(),
+    )?;
 
     // Add user-specified bind mounts
     for user_mount in user_mounts {
@@ -550,11 +556,13 @@ fn build_linux_spec(
 
 /// Build standard mounts for container filesystem
 ///
-/// `sys_mount_options` is the host-resolved, literal option list for the
-/// `/sys` bind — assigned verbatim, no flag to reinterpret (see
-/// docs/architecture/privileged-mode-design.md, Trade-offs, option F).
+/// `sys_mount_source`/`sys_mount_options` are the host-resolved, literal
+/// source and option list for the `/sys` bind — assigned verbatim, no flag
+/// to reinterpret (see docs/architecture/privileged-mode-design.md,
+/// Trade-offs, option F).
 fn build_standard_mounts(
     bundle_path: &Path,
+    sys_mount_source: String,
     sys_mount_options: Vec<String>,
 ) -> BoxliteResult<Vec<Mount>> {
     let dev_mount_options = vec![
@@ -615,12 +623,13 @@ fn build_standard_mounts(
             })?,
         // NOTE: /dev/mqueue removed - libkrunfw kernel doesn't have CONFIG_POSIX_MQUEUE
         // Most containers don't need POSIX message queues
-        // /sys - Sysfs. Options are the host's resolved list verbatim (see
-        // the `rro`-vs-`ro` note where the guest's cgroup2 submount lives).
+        // /sys - Sysfs. Source and options are the host's resolved values
+        // verbatim (see the `rro`-vs-`ro` note where the guest's cgroup2
+        // submount lives).
         MountBuilder::default()
             .destination("/sys")
             .typ("none")
-            .source("/sys")
+            .source(sys_mount_source)
             .options(sys_mount_options)
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /sys mount: {}", e)))?,
@@ -1237,12 +1246,16 @@ mod tests {
         assert_eq!(hardened.resources(), unconfined.resources());
     }
 
-    /// `build_standard_mounts` assigns the `/sys` bind's options verbatim — no
-    /// flag to reinterpret. The actual `rro`-vs-writable decision is tested
-    /// where it's made: `advanced_options::sys_mount_options`.
+    /// `build_standard_mounts` assigns the `/sys` bind's source and options
+    /// verbatim — no flag to reinterpret. The actual `rro`-vs-writable
+    /// decision is tested where it's made:
+    /// `advanced_options::sys_mount_options`.
     #[test]
-    fn sys_bind_uses_host_resolved_options_verbatim() {
+    fn sys_bind_uses_host_resolved_source_and_options_verbatim() {
         let dir = tempfile::tempdir().unwrap();
+        // Deliberately not the real "/sys": proves the value is threaded
+        // through rather than hardcoded to coincidentally match.
+        let source = "/sys-from-host".to_string();
         let options = vec![
             "rbind".to_string(),
             "nosuid".to_string(),
@@ -1251,12 +1264,13 @@ mod tests {
             "rro".to_string(),
         ];
 
-        let mounts = build_standard_mounts(dir.path(), options.clone()).unwrap();
+        let mounts = build_standard_mounts(dir.path(), source.clone(), options.clone()).unwrap();
         let sys = mounts
             .iter()
             .find(|mount| mount.destination().to_str() == Some("/sys"))
             .expect("/sys mount");
 
+        assert_eq!(sys.source().as_deref(), Some(Path::new(&source)));
         assert_eq!(sys.options().as_deref(), Some(options.as_slice()));
     }
 
@@ -1285,6 +1299,7 @@ mod tests {
                 0,
                 &full_caps,
                 &readonly_paths,
+                "/sys",
                 &sys_mount_options,
                 bundle,
                 &[],

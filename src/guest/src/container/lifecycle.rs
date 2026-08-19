@@ -93,8 +93,8 @@ impl Container {
     /// - `env`: Environment variables in "KEY=VALUE" format
     /// - `workdir`: Working directory inside container
     /// - `user_mounts`: Bind mounts from guest VM paths into container
-    /// - `capabilities`/`readonly_paths`/`sys_mount_options`: security fields
-    ///   resolved at the RPC boundary
+    /// - `capabilities`/`readonly_paths`/`sys_mount_source`/`sys_mount_options`:
+    ///   security fields resolved at the RPC boundary
     ///
     /// # Errors
     ///
@@ -114,6 +114,7 @@ impl Container {
         tty: bool,
         capabilities: CapabilitySet,
         readonly_paths: Vec<String>,
+        sys_mount_source: String,
         sys_mount_options: Vec<String>,
         devices: ContainerDevices,
     ) -> BoxliteResult<Self> {
@@ -190,6 +191,7 @@ impl Container {
             gid,
             &capabilities,
             &readonly_paths,
+            &sys_mount_source,
             &sys_mount_options,
             &layout.containers_dir(),
             &user_mounts,

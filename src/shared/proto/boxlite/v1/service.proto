@@ -408,14 +408,23 @@ message LinuxOptions {
 }
 
 message MountOptions {
-  // Which of the guest's own standard mounts these options apply to (e.g.
-  // "/sys" today). Carried as data, not baked into a field name, so a second
-  // overridable mount can be added without a wire-schema change.
-  string destination = 1;
+  // Mirrors OCI runtime-spec's Mount fields (source/destination/options) —
+  // the guest applies this verbatim to whichever of its own standard mounts
+  // `destination` names, no flag to reinterpret.
+
+  // What the guest's own standard mount at `destination` binds from (e.g.
+  // "/sys" today).
+  string source = 1;
+
+  // Which of the guest's own standard mounts these apply to. Carried as
+  // data, not baked into a field name, so a second overridable mount can be
+  // added without a wire-schema change.
+  string destination = 2;
 
   // Full option list for that mount (including cgroup2 for /sys),
-  // host-resolved. The guest applies it verbatim — no flag to reinterpret.
-  repeated string options = 2;
+  // host-resolved. E.g. ["rbind", "nosuid", "noexec", "nodev"], with "rro"
+  // appended for the hardened (non-privileged) case.
+  repeated string options = 3;
 }
 
 message ContainerCapabilities {
