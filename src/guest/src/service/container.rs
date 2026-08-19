@@ -194,13 +194,18 @@ impl ContainerService for GuestServer {
         // security options into atomic OCI choices; capabilities are the one
         // piece the guest still resolves itself, against its own kernel.
         let advanced = config.advanced.unwrap_or_default();
-        validate_sys_mount_options(&advanced.sys_mount_options)
+        let mount_options = advanced.mount.unwrap_or_default();
+        validate_sys_mount_options(&mount_options.sys_mount_options)
             .map_err(BoxliteError::into_validation_status)?;
-        let capability_policy = advanced.capabilities.unwrap_or_default();
+        let capability_policy = advanced
+            .process
+            .unwrap_or_default()
+            .capabilities
+            .unwrap_or_default();
         let capabilities = CapabilitySet::resolve(&capability_policy.add, &capability_policy.drop)
             .map_err(BoxliteError::into_validation_status)?;
-        let readonly_paths = advanced.readonly_paths;
-        let sys_mount_options = advanced.sys_mount_options;
+        let readonly_paths = advanced.linux.unwrap_or_default().readonly_paths;
+        let sys_mount_options = mount_options.sys_mount_options;
 
         info!("🚀 Starting OCI container with received configuration");
 

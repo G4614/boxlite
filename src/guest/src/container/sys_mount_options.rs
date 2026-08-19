@@ -30,7 +30,7 @@ use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 pub(crate) fn validate_sys_mount_options(sys_mount_options: &[String]) -> BoxliteResult<()> {
     if sys_mount_options.is_empty() {
         return Err(BoxliteError::Unsupported(
-            "advanced.sys_mount_options is empty; the host predates \
+            "advanced.mount.sys_mount_options is empty; the host predates \
              resolved security fields (privileged-mode-design.md, option F) \
              — recreate this box with a matching boxlite version"
                 .to_string(),

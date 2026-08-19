@@ -383,20 +383,35 @@ message ContainerConfig {
   ContainerAdvancedOptions advanced = 6;
 }
 
+// Grouped the same way OCI runtime-spec groups them — process/linux/mounts
+// are parallel top-level fields of a Spec, so the fields that resolve to each
+// (capabilities -> process, readonly_paths -> linux, sys_mount_options ->
+// one mount's options) are nested under their own submessage here too,
+// instead of sitting flat as three unrelated siblings.
 message ContainerAdvancedOptions {
-  ContainerCapabilities capabilities = 1;
-
-  // OCI read-only-path list, host-resolved. Empty means unconfined.
-  repeated string readonly_paths = 2;
-
-  // Full option list for the container's /sys recursive bind (including
-  // cgroup2), host-resolved. The guest applies it verbatim — no flag to
-  // reinterpret.
-  repeated string sys_mount_options = 3;
+  AdvancedProcessOptions process = 1;
+  AdvancedLinuxOptions linux = 2;
+  AdvancedMountOptions mount = 3;
 
   // No masked-path field: masked paths never varied with `privileged` in
   // practice (see docs/architecture/privileged-mode-design.md, Trade-offs) —
   // the guest keeps applying its own oci-spec default unconditionally.
+}
+
+message AdvancedProcessOptions {
+  ContainerCapabilities capabilities = 1;
+}
+
+message AdvancedLinuxOptions {
+  // OCI read-only-path list, host-resolved. Empty means unconfined.
+  repeated string readonly_paths = 1;
+}
+
+message AdvancedMountOptions {
+  // Full option list for the container's /sys recursive bind (including
+  // cgroup2), host-resolved. The guest applies it verbatim — no flag to
+  // reinterpret.
+  repeated string sys_mount_options = 1;
 }
 
 message ContainerCapabilities {

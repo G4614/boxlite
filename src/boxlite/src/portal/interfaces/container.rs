@@ -1,8 +1,8 @@
 //! Container service interface.
 
 use boxlite_shared::{
-    BindMount, BoxliteError, BoxliteResult, CaCert,
-    ContainerAdvancedOptions as ProtoContainerAdvancedOptions,
+    AdvancedLinuxOptions, AdvancedMountOptions, AdvancedProcessOptions, BindMount, BoxliteError,
+    BoxliteResult, CaCert, ContainerAdvancedOptions as ProtoContainerAdvancedOptions,
     ContainerCapabilities as ProtoContainerCapabilities, ContainerClient,
     ContainerConfig as ProtoContainerConfig, ContainerDevice, ContainerInitErrorKind,
     ContainerInitRequest, DiskRootfs, MergedRootfs, OverlayRootfs, RootfsInit,
@@ -145,12 +145,18 @@ impl ContainerInterface {
             // process it applies to (OCI `process.terminal`).
             tty,
             advanced: Some(ProtoContainerAdvancedOptions {
-                capabilities: Some(ProtoContainerCapabilities {
-                    add: advanced.capabilities.add,
-                    drop: advanced.capabilities.drop,
+                process: Some(AdvancedProcessOptions {
+                    capabilities: Some(ProtoContainerCapabilities {
+                        add: advanced.capabilities.add,
+                        drop: advanced.capabilities.drop,
+                    }),
                 }),
-                readonly_paths: advanced.readonly_paths,
-                sys_mount_options: advanced.sys_mount_options,
+                linux: Some(AdvancedLinuxOptions {
+                    readonly_paths: advanced.readonly_paths,
+                }),
+                mount: Some(AdvancedMountOptions {
+                    sys_mount_options: advanced.sys_mount_options,
+                }),
             }),
         };
 
@@ -486,7 +492,19 @@ mod tests {
         let advanced = container_config.advanced.expect("advanced options");
         // Non-default resolved values, so they prove the fields are threaded
         // verbatim rather than defaulted or recomputed on the way to the wire.
-        assert!(advanced.readonly_paths.is_empty());
-        assert!(!advanced.sys_mount_options.contains(&"rro".to_string()));
+        assert!(
+            advanced
+                .linux
+                .expect("linux options")
+                .readonly_paths
+                .is_empty()
+        );
+        assert!(
+            !advanced
+                .mount
+                .expect("mount options")
+                .sys_mount_options
+                .contains(&"rro".to_string())
+        );
     }
 }
