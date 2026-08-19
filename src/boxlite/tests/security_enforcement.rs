@@ -288,7 +288,7 @@ async fn disabled_network_blocks_tsi_socket_forwarding() {
     let bx = runtime
         .create(
             BoxOptions {
-                network: NetworkSpec::outbound_disabled(),
+                network: NetworkSpec::Disabled,
                 rootfs: RootfsSpec::Image("alpine:latest".into()),
                 auto_delete: Some(0),
                 ..Default::default()

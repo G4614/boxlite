@@ -17,7 +17,7 @@ use super::{InitCtx, task_start};
 use crate::litebox::CrashReport;
 use crate::net::NetworkBackendConfig;
 use crate::pipeline::PipelineTask;
-use crate::runtime::options::OutboundNetworkSpec;
+use crate::runtime::options::NetworkSpec;
 use crate::runtime::rt_impl::stash_exit_file;
 use crate::util::{PidFileReader, ProcessIdentity};
 use crate::vmm::ExitInfo;
@@ -36,11 +36,11 @@ impl PipelineTask<InitCtx> for VmmAttachTask {
         let (runtime, config_id, network) = {
             let ctx = ctx.lock().await;
             // Reattach still owns a control backend for the box's live gvproxy.
-            let network = match &ctx.config.options.network.outbound {
-                OutboundNetworkSpec::Enabled { allow_net } => {
+            let network = match &ctx.config.options.network {
+                NetworkSpec::Enabled { allow_net } => {
                     Some((allow_net.clone(), ctx.config.options.secrets.clone()))
                 }
-                OutboundNetworkSpec::Disabled => None,
+                NetworkSpec::Disabled => None,
             };
             (ctx.runtime.clone(), ctx.config.id.clone(), network)
         };

@@ -4,9 +4,9 @@ use std::time::Duration;
 use boxlite::runtime::advanced_options::{AdvancedBoxOptions, HealthCheckOptions, SecurityOptions};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
-    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, InboundNetworkConfig,
-    NetworkConfig, NetworkMode, NetworkSpec, OutboundNetworkConfig, PortProtocol, PortSpec,
-    RegistryTransport, RootfsSpec, Secret, VolumeSpec,
+    BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkMode, NetworkSpec,
+    OutboundNetworkConfig, PortProtocol, PortSpec, RegistryTransport, RootfsSpec, Secret,
+    VolumeSpec,
 };
 use napi::bindgen_prelude::Error;
 use napi_derive::napi;
@@ -393,12 +393,9 @@ impl TryFrom<JsNetworkSpec> for NetworkSpec {
 
     fn try_from(js_spec: JsNetworkSpec) -> Result<Self, Self::Error> {
         let mode = js_spec.mode.parse::<NetworkMode>()?;
-        NetworkSpec::try_from(NetworkConfig {
-            outbound: OutboundNetworkConfig {
-                mode,
-                allow_net: js_spec.allow_net.unwrap_or_default(),
-            },
-            inbound: InboundNetworkConfig::default(),
+        NetworkSpec::try_from(OutboundNetworkConfig {
+            mode,
+            allow_net: js_spec.allow_net.unwrap_or_default(),
         })
     }
 }
@@ -486,6 +483,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             rootfs,
             volumes,
             network,
+            inbound_network: Default::default(),
             ports,
             auto_remove,
             advanced: AdvancedBoxOptions {
@@ -617,7 +615,7 @@ impl From<&JsBoxliteRestOptions> for boxlite::BoxliteRestOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boxlite::runtime::options::OutboundNetworkSpec;
+    use boxlite::runtime::options::NetworkSpec;
 
     fn js_registry(host: &str) -> JsImageRegistry {
         JsImageRegistry {
@@ -860,11 +858,11 @@ mod tests {
         assert_eq!(opts.auto_delete, None);
         assert!(opts.advanced.capabilities.add.is_empty());
         assert!(opts.advanced.capabilities.drop.is_empty());
-        match opts.network.outbound {
-            OutboundNetworkSpec::Enabled { allow_net } => {
+        match opts.network {
+            NetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);
             }
-            OutboundNetworkSpec::Disabled => panic!("network should be enabled"),
+            NetworkSpec::Disabled => panic!("network should be enabled"),
         }
     }
 

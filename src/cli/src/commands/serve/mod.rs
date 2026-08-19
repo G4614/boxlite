@@ -23,9 +23,7 @@ use tokio::sync::RwLock;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
-use boxlite::runtime::options::{
-    InboundNetworkConfig, NetworkConfig, NetworkMode, OutboundNetworkConfig,
-};
+use boxlite::runtime::options::{NetworkMode, OutboundNetworkConfig};
 use boxlite::{
     BoxCommand, BoxInfo, BoxOptions, BoxliteRuntime, ExecStdin, Execution, LiteBox, NetworkSpec,
     RootfsSpec,
@@ -764,10 +762,7 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
                     network.legacy.allow_net.clone().unwrap_or_default(),
                 ),
             };
-            NetworkSpec::try_from(NetworkConfig {
-                outbound: OutboundNetworkConfig { mode, allow_net },
-                inbound: InboundNetworkConfig::default(),
-            })?
+            NetworkSpec::try_from(OutboundNetworkConfig { mode, allow_net })?
         }
         None => NetworkSpec::default(),
     };
@@ -1273,7 +1268,7 @@ pub async fn execute(args: ServeArgs, global: &GlobalFlags) -> anyhow::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boxlite::runtime::options::{InboundNetworkSpec, OutboundNetworkSpec};
+    use boxlite::runtime::options::NetworkSpec;
     use std::time::Duration;
 
     // --- API-key auth decision (pure; no runtime/network needed) ---
@@ -1409,7 +1404,7 @@ mod tests {
         .expect("legacy flat body must deserialize");
         let opts = build_box_options(&req).expect("build");
         assert!(
-            matches!(opts.network.inbound, InboundNetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
+            matches!(opts.inbound_network, NetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
         );
     }
 
@@ -1428,14 +1423,14 @@ mod tests {
         )
         .expect("nested network body must deserialize");
         let opts = build_box_options(&req).expect("build");
-        match opts.network.outbound {
-            OutboundNetworkSpec::Enabled { allow_net } => {
+        match opts.network {
+            NetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["api.openai.com"]);
             }
-            OutboundNetworkSpec::Disabled => panic!("network should be enabled"),
+            NetworkSpec::Disabled => panic!("network should be enabled"),
         }
         assert!(
-            matches!(opts.network.inbound, InboundNetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
+            matches!(opts.inbound_network, NetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
         );
     }
 

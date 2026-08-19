@@ -48,26 +48,28 @@ impl PipelineTask<InitCtx> for GuestInitTask {
         let task_name = self.name();
         let box_id = task_start(&ctx, task_name).await;
 
-        let (guest_session, volume_mgr, rootfs_init, container_mounts, bootstrap) =
-            {
-                let mut ctx = ctx.lock().await;
-                let guest_session = ctx
-                    .guest_session
-                    .take()
-                    .ok_or_else(|| BoxliteError::Internal("connect task must run first".into()))?;
-                let image = ctx
-                    .container_image_config
-                    .clone()
-                    .ok_or_else(|| BoxliteError::Internal("rootfs task must run first".into()))?;
-                let volume_mgr = ctx.volume_mgr.take().ok_or_else(|| {
-                    BoxliteError::Internal("vmm_spawn task must run first".into())
-                })?;
-                let rootfs_init = ctx.rootfs_init.take().ok_or_else(|| {
-                    BoxliteError::Internal("vmm_spawn task must run first".into())
-                })?;
-                let container_mounts = ctx.container_mounts.take().ok_or_else(|| {
-                    BoxliteError::Internal("vmm_spawn task must run first".into())
-                })?;
+        let (guest_session, volume_mgr, rootfs_init, container_mounts, bootstrap) = {
+            let mut ctx = ctx.lock().await;
+            let guest_session = ctx
+                .guest_session
+                .take()
+                .ok_or_else(|| BoxliteError::Internal("connect task must run first".into()))?;
+            let image = ctx
+                .container_image_config
+                .clone()
+                .ok_or_else(|| BoxliteError::Internal("rootfs task must run first".into()))?;
+            let volume_mgr = ctx
+                .volume_mgr
+                .take()
+                .ok_or_else(|| BoxliteError::Internal("vmm_spawn task must run first".into()))?;
+            let rootfs_init = ctx
+                .rootfs_init
+                .take()
+                .ok_or_else(|| BoxliteError::Internal("vmm_spawn task must run first".into()))?;
+            let container_mounts = ctx
+                .container_mounts
+                .take()
+                .ok_or_else(|| BoxliteError::Internal("vmm_spawn task must run first".into()))?;
 
             let network = match &ctx.config.options.network {
                 crate::runtime::options::NetworkSpec::Enabled { .. } => Some(NetworkInitConfig {
@@ -99,14 +101,14 @@ impl PipelineTask<InitCtx> for GuestInitTask {
                 },
             };
 
-                (
-                    guest_session,
-                    volume_mgr,
-                    rootfs_init,
-                    container_mounts,
-                    bootstrap,
-                )
-            };
+            (
+                guest_session,
+                volume_mgr,
+                rootfs_init,
+                container_mounts,
+                bootstrap,
+            )
+        };
 
         run_guest_init(guest_session.clone(), bootstrap)
             .await

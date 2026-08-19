@@ -422,7 +422,8 @@ impl BoxInfo {
         use crate::runtime::constants::vm_defaults::{DEFAULT_CPUS, DEFAULT_MEMORY_MIB};
         use crate::runtime::options::RootfsSpec;
 
-        let network_config = NetworkConfig::from(&config.options.network);
+        let network_config =
+            NetworkConfig::from_specs(&config.options.network, &config.options.inbound_network);
 
         Self {
             id: config.id.clone(),
@@ -659,9 +660,9 @@ mod tests {
                 id: ContainerID::new(),
             },
             options: BoxOptions {
-                network: crate::runtime::options::NetworkSpec::outbound_enabled(vec![
-                    "api.example.com".to_string(),
-                ]),
+                network: crate::runtime::options::NetworkSpec::Enabled {
+                    allow_net: vec!["api.example.com".to_string()],
+                },
                 ..Default::default()
             },
             engine_kind: crate::vmm::VmmKind::Libkrun,

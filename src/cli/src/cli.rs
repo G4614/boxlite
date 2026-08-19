@@ -7,8 +7,7 @@ use boxlite::experimental::{
     EXPERIMENTAL_FEATURES_ENV, ExperimentalFeature, ExperimentalFeatures, RuntimeBuilder,
 };
 use boxlite::runtime::options::{
-    InboundNetworkConfig, NetworkConfig, NetworkMode, OutboundNetworkConfig, PortProtocol,
-    PortSpec, VolumeSpec,
+    NetworkMode, OutboundNetworkConfig, PortProtocol, PortSpec, VolumeSpec,
 };
 use boxlite::{
     BoxCommand, BoxOptions, BoxliteOptions, BoxliteRestOptions, BoxliteRuntime, ImageRegistry,
@@ -652,12 +651,9 @@ impl NetworkFlags {
             Some(value) => value.parse::<NetworkMode>()?,
             None => NetworkMode::Enabled,
         };
-        opts.network = NetworkSpec::try_from(NetworkConfig {
-            outbound: OutboundNetworkConfig {
-                mode,
-                allow_net: self.allow_net.clone(),
-            },
-            inbound: InboundNetworkConfig::default(),
+        opts.network = NetworkSpec::try_from(OutboundNetworkConfig {
+            mode,
+            allow_net: self.allow_net.clone(),
         })?;
         Ok(())
     }
@@ -989,7 +985,7 @@ impl ManagementFlags {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boxlite::runtime::options::OutboundNetworkSpec;
+    use boxlite::runtime::options::NetworkSpec;
     use clap::CommandFactory;
     use std::fs;
     use std::path::PathBuf;
@@ -1365,7 +1361,7 @@ mod tests {
             .expect("no-op apply");
 
         assert!(
-            matches!(opts.network.outbound, OutboundNetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
+            matches!(opts.network, NetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
         );
     }
 
@@ -1377,10 +1373,7 @@ mod tests {
             .apply_to(&mut opts)
             .expect("disabled is valid");
 
-        assert!(matches!(
-            opts.network.outbound,
-            OutboundNetworkSpec::Disabled
-        ));
+        assert!(matches!(opts.network, NetworkSpec::Disabled));
     }
 
     #[test]
@@ -1392,8 +1385,8 @@ mod tests {
             .apply_to(&mut opts)
             .expect("allow-net implies enabled");
 
-        match opts.network.outbound {
-            OutboundNetworkSpec::Enabled { allow_net } => {
+        match opts.network {
+            NetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["api.openai.com", "10.0.0.0/8"]);
             }
             other => panic!("expected Enabled with allowlist, got {other:?}"),

@@ -1,65 +1,129 @@
-//! Tests for NetworkSpec enum behavior.
+//! Tests for NetworkSpec behavior.
 
 mod common;
 
 use boxlite::net::constants::{HOST_HOSTNAME, HOST_IP};
-use boxlite::runtime::options::{BoxOptions, BoxliteOptions, NetworkSpec, OutboundNetworkSpec};
+use boxlite::runtime::options::{BoxOptions, BoxliteOptions, NetworkSpec};
 use boxlite::{BoxCommand, BoxliteRuntime};
 use futures::StreamExt;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::sync::mpsc;
 use std::thread;
+
+/// Pre-split source compatibility. `NetworkSpec` is untouched by the split —
+/// same name, same variants, same field on `BoxOptions` — so every shape
+/// pre-split callers wrote still compiles verbatim, with no conversion at
+/// the assignment site. Inbound lives in the sibling field
+/// `BoxOptions::inbound_network`. This test is the contract: if it stops
+/// compiling, the Rust API broke.
+#[test]
+fn pre_split_network_spec_source_shape_still_compiles() {
+    let spec = NetworkSpec::Enabled {
+        allow_net: vec!["api.openai.com".into()],
+    };
+    match &spec {
+        NetworkSpec::Enabled { allow_net } => assert_eq!(allow_net.len(), 1),
+        NetworkSpec::Disabled => panic!("expected enabled"),
+    }
+
+    // No `.into()`, no container: the field type is still the enum.
+    let opts = BoxOptions {
+        network: NetworkSpec::Disabled,
+        ..Default::default()
+    };
+    assert!(matches!(opts.network, NetworkSpec::Disabled));
+
+    // The direction the pre-split API could not express defaults to public.
+    assert!(
+        matches!(opts.inbound_network, NetworkSpec::Enabled { ref allow_net } if allow_net.is_empty())
+    );
+}
+
+/// The two directions are independent: a box can refuse egress while the
+/// services it exposes stay reachable. Sibling fields express that directly.
+#[test]
+fn directions_are_independent() {
+    let opts = BoxOptions {
+        network: NetworkSpec::Disabled,
+        inbound_network: NetworkSpec::Enabled {
+            allow_net: Vec::new(),
+        },
+        ..Default::default()
+    };
+
+    assert!(matches!(opts.network, NetworkSpec::Disabled));
+    assert!(matches!(opts.inbound_network, NetworkSpec::Enabled { .. }));
+}
+
+/// Already-persisted box configs predate `inbound_network`; the missing
+/// field must default rather than fail the load.
+#[test]
+fn pre_split_persisted_json_still_deserializes() {
+    let json = r#"{
+        "rootfs": {"Image": "alpine:latest"},
+        "env": [],
+        "volumes": [],
+        "network": {"Enabled": {"allow_net": ["api.openai.com"]}},
+        "ports": []
+    }"#;
+    let opts: BoxOptions = serde_json::from_str(json).unwrap();
+    assert!(
+        matches!(opts.network, NetworkSpec::Enabled { ref allow_net } if allow_net == &["api.openai.com".to_string()])
+    );
+    assert!(matches!(opts.inbound_network, NetworkSpec::Enabled { .. }));
+}
+
 use std::time::{Duration, Instant};
 
 #[test]
 fn default_is_enabled_with_empty_allowlist() {
     let spec = NetworkSpec::default();
-    match spec.outbound {
-        OutboundNetworkSpec::Enabled { allow_net } => assert!(allow_net.is_empty()),
-        OutboundNetworkSpec::Disabled => panic!("default should be Enabled"),
+    match spec {
+        NetworkSpec::Enabled { allow_net } => assert!(allow_net.is_empty()),
+        NetworkSpec::Disabled => panic!("default should be Enabled"),
     }
 }
 
 #[test]
 fn serde_enabled_roundtrip() {
-    let spec =
-        NetworkSpec::outbound_enabled(vec!["api.openai.com".into(), "*.anthropic.com".into()]);
+    let spec = NetworkSpec::Enabled {
+        allow_net: vec!["api.openai.com".into(), "*.anthropic.com".into()],
+    };
     let json = serde_json::to_string(&spec).unwrap();
     let rt: NetworkSpec = serde_json::from_str(&json).unwrap();
-    match rt.outbound {
-        OutboundNetworkSpec::Enabled { allow_net } => assert_eq!(allow_net.len(), 2),
+    match rt {
+        NetworkSpec::Enabled { allow_net } => assert_eq!(allow_net.len(), 2),
         _ => panic!("should be Enabled"),
     }
 }
 
 #[test]
 fn serde_disabled_roundtrip() {
-    let spec = NetworkSpec::outbound_disabled();
+    let spec = NetworkSpec::Disabled;
     let json = serde_json::to_string(&spec).unwrap();
     let rt: NetworkSpec = serde_json::from_str(&json).unwrap();
-    assert!(matches!(rt.outbound, OutboundNetworkSpec::Disabled));
+    assert!(matches!(rt, NetworkSpec::Disabled));
 }
 
 #[test]
 fn box_options_default_has_enabled_network() {
     let opts = BoxOptions::default();
-    assert!(matches!(
-        opts.network.outbound,
-        OutboundNetworkSpec::Enabled { .. }
-    ));
+    assert!(matches!(opts.network, NetworkSpec::Enabled { .. }));
 }
 
 #[test]
 fn box_options_with_allowlist_serde() {
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["api.openai.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["api.openai.com".into()],
+        },
         ..Default::default()
     };
     let json = serde_json::to_string(&opts).unwrap();
     let rt: BoxOptions = serde_json::from_str(&json).unwrap();
-    match rt.network.outbound {
-        OutboundNetworkSpec::Enabled { allow_net } => {
+    match rt.network {
+        NetworkSpec::Enabled { allow_net } => {
             assert_eq!(allow_net, vec!["api.openai.com"]);
         }
         _ => panic!("should be Enabled"),
@@ -77,7 +141,7 @@ async fn disabled_network_returns_no_network_config() {
 
     // Box with Disabled network should still create (just no eth0)
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_disabled(),
+        network: NetworkSpec::Disabled,
         ..common::alpine_opts()
     };
     let litebox = runtime.create(opts, None).await.unwrap();
@@ -94,7 +158,7 @@ async fn disabled_network_runs_without_eth0() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_disabled(),
+        network: NetworkSpec::Disabled,
         ..common::alpine_opts()
     };
 
@@ -337,7 +401,9 @@ async fn dns_sinkhole_blocks_unlisted_host() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["example.com".into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -365,7 +431,9 @@ async fn dns_sinkhole_allows_listed_host() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["example.com".into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -393,7 +461,7 @@ async fn empty_allowlist_allows_all() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec![]),
+        network: NetworkSpec::Enabled { allow_net: vec![] },
         ..common::alpine_opts()
     };
 
@@ -421,7 +489,9 @@ async fn tcp_filter_blocks_direct_ip_connection() {
 
     // Allow only example.com — direct IP connections should be blocked
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["example.com".into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -464,7 +534,9 @@ async fn udp_filter_blocks_direct_ip_datagram() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["example.com".into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -500,7 +572,9 @@ async fn udp_to_host_alias_blocked_by_restrictive_allowlist() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["example.com".into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -537,7 +611,9 @@ async fn udp_reaches_host_alias_when_listed() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec![HOST_IP.into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec![HOST_IP.into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -569,7 +645,9 @@ async fn tcp_filter_sni_allows_https_to_allowed_host() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["example.com".into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -653,7 +731,9 @@ async fn host_alias_blocked_by_restrictive_allowlist() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec!["example.com".into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec!["example.com".into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -693,7 +773,9 @@ async fn host_alias_reaches_host_loopback_service_when_listed() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_enabled(vec![HOST_IP.into()]),
+        network: NetworkSpec::Enabled {
+            allow_net: vec![HOST_IP.into()],
+        },
         ..common::alpine_opts()
     };
 
@@ -724,7 +806,7 @@ async fn disabled_network_cannot_reach_host_virtual_ip() {
     .unwrap();
 
     let opts = BoxOptions {
-        network: NetworkSpec::outbound_disabled(),
+        network: NetworkSpec::Disabled,
         ..common::alpine_opts()
     };
 
