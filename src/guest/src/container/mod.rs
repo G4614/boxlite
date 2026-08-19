@@ -87,6 +87,6 @@ pub(crate) use command::SpawnResult;
 #[cfg(target_os = "linux")]
 pub use lifecycle::Container;
 #[cfg(target_os = "linux")]
-pub use spec::{ContainerDevices, UserMount};
+pub use spec::{ContainerDevices, MountOverride, UserMount};
 #[cfg(target_os = "linux")]
 pub(crate) use sys_mount_options::validate_sys_mount_options;

@@ -18,7 +18,8 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::container::{
-    validate_sys_mount_options, CapabilitySet, Container, ContainerDevices, UserMount,
+    validate_sys_mount_options, CapabilitySet, Container, ContainerDevices, MountOverride,
+    UserMount,
 };
 use crate::layout::GuestLayout;
 use crate::storage::block_device::BlockDeviceMount;
@@ -210,8 +211,10 @@ impl ContainerService for GuestServer {
         let capabilities = CapabilitySet::resolve(&capability_policy.add, &capability_policy.drop)
             .map_err(BoxliteError::into_validation_status)?;
         let readonly_paths = advanced.linux.unwrap_or_default().readonly_paths;
-        let sys_mount_source = mount_options.source;
-        let sys_mount_options = mount_options.options;
+        let mount_override = MountOverride {
+            source: mount_options.source,
+            options: mount_options.options,
+        };
 
         info!("🚀 Starting OCI container with received configuration");
 
@@ -362,8 +365,7 @@ impl ContainerService for GuestServer {
             config.tty,
             capabilities,
             readonly_paths,
-            sys_mount_source,
-            sys_mount_options,
+            mount_override,
             devices,
         ) {
             Ok(mut container) => {

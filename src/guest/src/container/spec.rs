@@ -14,6 +14,17 @@ use oci_spec::runtime::{
     PosixRlimitType, ProcessBuilder, RootBuilder, Spec, SpecBuilder, UserBuilder,
 };
 
+/// Host-resolved source/options override for one of the guest's own standard
+/// mounts. Which mount is a separate concern, handled at the RPC boundary
+/// (`container::sys_mount_options`) before this is ever built — by the time
+/// one of these exists, its two fields are already known to belong to `/sys`,
+/// so the type itself doesn't need to say so.
+#[derive(Debug, Clone)]
+pub struct MountOverride {
+    pub source: String,
+    pub options: Vec<String>,
+}
+
 /// User-specified bind mount for container
 #[derive(Debug, Clone)]
 pub struct UserMount {
@@ -159,8 +170,7 @@ pub fn create_oci_spec(
     gid: u32,
     capabilities: &CapabilitySet,
     readonly_paths: &[String],
-    sys_mount_source: &str,
-    sys_mount_options: &[String],
+    mount_override: &MountOverride,
     bundle_path: &Path,
     user_mounts: &[UserMount],
     tty: bool,
@@ -169,17 +179,13 @@ pub fn create_oci_spec(
     let caps = capabilities.to_oci()?;
     tracing::info!(
         container_id,
-        sys_mount_source,
-        sys_mount_options = ?sys_mount_options,
+        sys_mount_source = mount_override.source,
+        sys_mount_options = ?mount_override.options,
         readonly_paths_count = readonly_paths.len(),
         "building container spec"
     );
     let namespaces = build_default_namespaces()?;
-    let mut mounts = build_standard_mounts(
-        bundle_path,
-        sys_mount_source.to_string(),
-        sys_mount_options.to_vec(),
-    )?;
+    let mut mounts = build_standard_mounts(bundle_path, mount_override.clone())?;
 
     // Add user-specified bind mounts
     for user_mount in user_mounts {
@@ -556,14 +562,12 @@ fn build_linux_spec(
 
 /// Build standard mounts for container filesystem
 ///
-/// `sys_mount_source`/`sys_mount_options` are the host-resolved, literal
-/// source and option list for the `/sys` bind — assigned verbatim, no flag
-/// to reinterpret (see docs/architecture/privileged-mode-design.md,
-/// Trade-offs, option F).
+/// `mount_override` is the host-resolved, literal source and option list for
+/// the `/sys` bind — assigned verbatim, no flag to reinterpret (see
+/// docs/architecture/privileged-mode-design.md, Trade-offs, option F).
 fn build_standard_mounts(
     bundle_path: &Path,
-    sys_mount_source: String,
-    sys_mount_options: Vec<String>,
+    mount_override: MountOverride,
 ) -> BoxliteResult<Vec<Mount>> {
     let dev_mount_options = vec![
         "nosuid".to_string(),
@@ -629,8 +633,8 @@ fn build_standard_mounts(
         MountBuilder::default()
             .destination("/sys")
             .typ("none")
-            .source(sys_mount_source)
-            .options(sys_mount_options)
+            .source(mount_override.source)
+            .options(mount_override.options)
             .build()
             .map_err(|e| BoxliteError::Internal(format!("Failed to build /sys mount: {}", e)))?,
         // The guest init mounts cgroup2 at /sys/fs/cgroup. It is carried in as
@@ -1264,7 +1268,11 @@ mod tests {
             "rro".to_string(),
         ];
 
-        let mounts = build_standard_mounts(dir.path(), source.clone(), options.clone()).unwrap();
+        let mount_override = MountOverride {
+            source: source.clone(),
+            options: options.clone(),
+        };
+        let mounts = build_standard_mounts(dir.path(), mount_override).unwrap();
         let sys = mounts
             .iter()
             .find(|mount| mount.destination().to_str() == Some("/sys"))
@@ -1289,6 +1297,10 @@ mod tests {
         };
 
         let spec_for = |readonly_paths: Vec<String>, sys_mount_options: Vec<String>| {
+            let mount_override = MountOverride {
+                source: "/sys".to_string(),
+                options: sys_mount_options,
+            };
             create_oci_spec(
                 "c",
                 "/rootfs",
@@ -1299,8 +1311,7 @@ mod tests {
                 0,
                 &full_caps,
                 &readonly_paths,
-                "/sys",
-                &sys_mount_options,
+                &mount_override,
                 bundle,
                 &[],
                 false,
