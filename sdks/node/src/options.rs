@@ -509,7 +509,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             secrets,
         };
         options.advanced.validate_privileged_capability_conflict()?;
-        options.normalize_privileged();
+        options.advanced.normalize_privileged();
         Ok(options)
     }
 }

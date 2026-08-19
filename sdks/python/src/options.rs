@@ -569,7 +569,7 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
         }
 
         opts.advanced.validate_privileged_capability_conflict()?;
-        opts.normalize_privileged();
+        opts.advanced.normalize_privileged();
 
         // Convert Python secrets to Rust secrets
         opts.secrets = py_opts
