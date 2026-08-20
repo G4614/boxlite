@@ -435,18 +435,6 @@ impl RuntimeImpl {
         name: Option<String>,
         reuse_existing: bool,
     ) -> BoxliteResult<(LiteBox, bool)> {
-        // Every reachable caller is `LocalRuntime` (`RuntimeImpl` isn't
-        // re-exported), which normalizes via `sanitize_local_options` before
-        // reaching here — assert the invariant instead of re-normalizing.
-        debug_assert!(
-            !options.advanced.privileged
-                || options
-                    .advanced
-                    .capabilities
-                    .is_privileged_capability_shape(),
-            "create_inner expects options already normalized by sanitize_local_options"
-        );
-
         // Check if runtime has been shut down
         if self.shutdown_token.is_cancelled() {
             return Err(BoxliteError::Stopped(
@@ -549,8 +537,6 @@ impl RuntimeImpl {
         actual: &BoxConfig,
     ) -> BoxliteResult<()> {
         let box_name = actual.name.as_deref().unwrap_or_else(|| actual.id.as_str());
-        let mut actual_advanced = actual.options.advanced.clone();
-        actual_advanced.normalize_privileged();
 
         // One-way: a nested-capable box satisfies any request, but a plain box
         // cannot satisfy one that needs /dev/kvm. Reusing it would look like a
@@ -562,16 +548,21 @@ impl RuntimeImpl {
                 "box '{box_name}' was created without nested virtualization and cannot satisfy a required nested virtualization request; use a different name or recreate the box"
             )));
         }
-        if requested.advanced.privileged && !actual_advanced.privileged {
+        if requested.advanced.privileged && !actual.options.advanced.privileged {
             return Err(BoxliteError::Unsupported(format!(
                 "box '{box_name}' was created without privileged support and cannot satisfy a required privileged request; use a different name or recreate the box"
             )));
         }
 
+        // Compare effective capabilities, not the raw field: a privileged
+        // box persisted by an earlier version of this option has `add=["ALL"]`
+        // mutated into its stored capabilities, while a new privileged
+        // request idiomatically leaves capabilities empty — both resolve to
+        // the same thing.
         requested
             .advanced
-            .capabilities
-            .check_compatibility(&actual_advanced.capabilities, box_name)?;
+            .effective_capabilities()
+            .check_compatibility(&actual.options.advanced.effective_capabilities(), box_name)?;
 
         Ok(())
     }
@@ -1221,12 +1212,10 @@ impl RuntimeImpl {
         self: &Arc<Self>,
         staging_dir: std::path::PathBuf,
         name: Option<String>,
-        mut options: BoxOptions,
+        options: BoxOptions,
         initial_status: BoxStatus,
     ) -> BoxliteResult<LiteBox> {
         use crate::litebox::config::ContainerRuntimeConfig;
-
-        options.advanced.normalize_privileged();
 
         let box_id = BoxIDMint::mint();
         let container_id = ContainerID::new();
@@ -1748,12 +1737,11 @@ fn reject_local_lifecycle_policy(options: &BoxOptions) -> BoxliteResult<()> {
 
 async fn sanitize_local_options(
     features: &ExperimentalFeatures,
-    mut options: BoxOptions,
+    options: BoxOptions,
 ) -> BoxliteResult<BoxOptions> {
     features.require_for_options(&options)?;
     tokio::task::spawn_blocking(move || {
         options.sanitize()?;
-        options.advanced.normalize_privileged();
         Ok(options)
     })
     .await
@@ -3149,11 +3137,10 @@ mod tests {
             .unwrap();
         assert!(created);
 
-        // set_privileged (not a hand-built struct literal) so this request is
-        // already in the normalized shape a real caller produces — create_inner
-        // itself no longer normalizes; it trusts sanitize_local_options did.
-        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
-        advanced.set_privileged(true);
+        let advanced = crate::runtime::advanced_options::AdvancedBoxOptions {
+            privileged: true,
+            ..Default::default()
+        };
 
         let result = runtime
             .get_or_create(

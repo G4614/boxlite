@@ -1403,9 +1403,13 @@ mod tests {
         assert!(error.to_string().contains("cannot be combined"));
     }
 
+    /// The canonical shape is accepted, not rewritten: unlike an earlier
+    /// version of this option, `capabilities` is never mutated by
+    /// `privileged` — this exists for a box persisted by that earlier
+    /// version, whose stored `capabilities` already looks like this.
     #[test]
     fn privileged_canonical_capability_shape_remains_accepted() {
-        let mut options: BoxOptions = serde_json::from_str(
+        let options: BoxOptions = serde_json::from_str(
             r#"{"advanced":{"privileged":true,"capabilities":{"add":["ALL"],"drop":[]}}}"#,
         )
         .unwrap();
@@ -1413,8 +1417,7 @@ mod tests {
         options
             .advanced
             .validate_privileged_capability_conflict()
-            .expect("normalized privileged shape should be accepted");
-        options.advanced.normalize_privileged();
+            .expect("canonical privileged shape should be accepted");
 
         assert_eq!(options.advanced.capabilities.add, ["ALL"]);
         assert!(options.advanced.capabilities.drop.is_empty());
