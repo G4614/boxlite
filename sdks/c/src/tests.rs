@@ -439,8 +439,7 @@ fn capability_lists_default_empty_and_preserve_custom_values() {
     );
 
     unsafe {
-        assert!((*advanced).options.capabilities.add.is_empty());
-        assert!((*advanced).options.capabilities.drop.is_empty());
+        assert!((*advanced).options.capabilities().is_none());
     }
 
     let cap_add = [
@@ -475,14 +474,13 @@ fn capability_lists_default_empty_and_preserve_custom_values() {
         );
         boxlite_options_set_advanced(opts, advanced);
 
-        assert_eq!(
-            (*opts).options.advanced.capabilities.add,
-            ["NET_ADMIN", "SYS_PTRACE"]
-        );
-        assert_eq!(
-            (*opts).options.advanced.capabilities.drop,
-            ["MKNOD", "NET_RAW"]
-        );
+        let capabilities = (*opts)
+            .options
+            .advanced
+            .capabilities()
+            .expect("capabilities set");
+        assert_eq!(capabilities.add, ["NET_ADMIN", "SYS_PTRACE"]);
+        assert_eq!(capabilities.drop, ["MKNOD", "NET_RAW"]);
         boxlite_advanced_options_free(advanced);
         boxlite_options_free(opts);
     }

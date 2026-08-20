@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use boxlite::runtime::advanced_options::{AdvancedBoxOptions, HealthCheckOptions, SecurityOptions};
+use boxlite::runtime::advanced_options::{
+    AdvancedBoxOptions, ContainerCapabilities, HealthCheckOptions, SecurityOptions,
+};
 use boxlite::runtime::constants::images;
 use boxlite::runtime::options::{
     BoxOptions, BoxliteOptions, ImageRegistry, ImageRegistryAuth, NetworkMode, NetworkSpec,
@@ -455,11 +457,10 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             .unwrap_or_default();
 
         let health_check = js_opts.health_check.map(HealthCheckOptions::from);
-        let capabilities = js_opts
+        let capabilities: Option<ContainerCapabilities> = js_opts
             .advanced
             .and_then(|advanced| advanced.capabilities)
-            .map(Into::into)
-            .unwrap_or_default();
+            .map(Into::into);
         let secrets = js_opts
             .secrets
             .unwrap_or_default()
@@ -474,6 +475,11 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             })
             .collect();
 
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced.set_capabilities(capabilities)?;
+        advanced.security = security;
+        advanced.health_check = health_check;
+
         Ok(BoxOptions {
             cpus: js_opts.cpus,
             memory_mib: js_opts.memory_mib,
@@ -486,12 +492,7 @@ impl TryFrom<JsBoxOptions> for BoxOptions {
             inbound_network: Default::default(),
             ports,
             auto_remove,
-            advanced: AdvancedBoxOptions {
-                capabilities,
-                security,
-                health_check,
-                ..Default::default()
-            },
+            advanced,
             auto_stop: js_opts.auto_stop,
             auto_delete,
             auto_resume: js_opts.auto_resume,
@@ -844,20 +845,17 @@ mod tests {
             }),
         });
         let with_capabilities = BoxOptions::try_from(with_capabilities).unwrap();
-        assert_eq!(
-            with_capabilities.advanced.capabilities.add,
-            ["NET_ADMIN", "SYS_PTRACE"]
-        );
-        assert_eq!(
-            with_capabilities.advanced.capabilities.drop,
-            ["MKNOD", "NET_RAW"]
-        );
+        let capabilities = with_capabilities
+            .advanced
+            .capabilities()
+            .expect("capabilities set");
+        assert_eq!(capabilities.add, ["NET_ADMIN", "SYS_PTRACE"]);
+        assert_eq!(capabilities.drop, ["MKNOD", "NET_RAW"]);
 
         let opts = BoxOptions::try_from(js).unwrap();
         assert!(!opts.auto_remove);
         assert_eq!(opts.auto_delete, None);
-        assert!(opts.advanced.capabilities.add.is_empty());
-        assert!(opts.advanced.capabilities.drop.is_empty());
+        assert!(opts.advanced.capabilities().is_none());
         match opts.network {
             NetworkSpec::Enabled { allow_net } => {
                 assert_eq!(allow_net, vec!["example.com", "*.openai.com"]);

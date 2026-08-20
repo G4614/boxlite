@@ -588,7 +588,9 @@ impl BoxOptions {
         }
 
         self.advanced.validate_privileged_capability_conflict()?;
-        self.advanced.capabilities.validate()?;
+        if let Some(capabilities) = self.advanced.capabilities() {
+            capabilities.validate()?;
+        }
 
         if matches!(self.network, NetworkSpec::Disabled) && !self.ports.is_empty() {
             return Err(boxlite_shared::errors::BoxliteError::Config(
@@ -1077,8 +1079,8 @@ mod tests {
         );
         assert!(!opts.detach, "detach should default to false");
         assert!(
-            opts.advanced.capabilities.is_empty(),
-            "advanced capabilities should default to empty"
+            opts.advanced.capabilities().is_none(),
+            "advanced capabilities should default to unspecified"
         );
     }
 
@@ -1094,30 +1096,29 @@ mod tests {
         }"#;
 
         let opts: BoxOptions = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            opts.advanced.capabilities.add,
-            ["SYS_ADMIN", "CAP_NET_ADMIN"]
-        );
-        assert_eq!(opts.advanced.capabilities.drop, ["NET_RAW"]);
+        let capabilities = opts.advanced.capabilities().expect("capabilities set");
+        assert_eq!(capabilities.add, ["SYS_ADMIN", "CAP_NET_ADMIN"]);
+        assert_eq!(capabilities.drop, ["NET_RAW"]);
 
         let serialized = serde_json::to_string(&opts).unwrap();
         let roundtripped: BoxOptions = serde_json::from_str(&serialized).unwrap();
         assert_eq!(
-            roundtripped.advanced.capabilities,
-            opts.advanced.capabilities
+            roundtripped.advanced.capabilities(),
+            opts.advanced.capabilities()
         );
     }
 
     #[test]
     fn box_options_sanitize_accepts_valid_capability_names() {
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced
+            .set_capabilities(Some(ContainerCapabilities {
+                add: vec!["sys_admin".into(), "CAP_NET_ADMIN".into()],
+                drop: vec!["NET_RAW".into()],
+            }))
+            .unwrap();
         let opts = BoxOptions {
-            advanced: AdvancedBoxOptions {
-                capabilities: ContainerCapabilities {
-                    add: vec!["sys_admin".into(), "CAP_NET_ADMIN".into()],
-                    drop: vec!["NET_RAW".into()],
-                },
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -1127,14 +1128,15 @@ mod tests {
 
     #[test]
     fn box_options_sanitize_accepts_future_capability_names() {
-        let opts = BoxOptions {
-            advanced: AdvancedBoxOptions {
-                capabilities: ContainerCapabilities {
-                    add: vec!["FUTURE_KERNEL_FEATURE".into()],
-                    ..Default::default()
-                },
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced
+            .set_capabilities(Some(ContainerCapabilities {
+                add: vec!["FUTURE_KERNEL_FEATURE".into()],
                 ..Default::default()
-            },
+            }))
+            .unwrap();
+        let opts = BoxOptions {
+            advanced,
             ..Default::default()
         };
 
@@ -1144,48 +1146,33 @@ mod tests {
 
     #[test]
     fn box_options_sanitize_rejects_malformed_capability_names() {
-        for opts in [
-            BoxOptions {
-                advanced: AdvancedBoxOptions {
-                    capabilities: ContainerCapabilities {
-                        add: vec!["".into()],
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+        let malformed = [
+            ContainerCapabilities {
+                add: vec!["".into()],
                 ..Default::default()
             },
-            BoxOptions {
-                advanced: AdvancedBoxOptions {
-                    capabilities: ContainerCapabilities {
-                        drop: vec!["NET-ADMIN".into()],
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+            ContainerCapabilities {
+                drop: vec!["NET-ADMIN".into()],
                 ..Default::default()
             },
-            BoxOptions {
-                advanced: AdvancedBoxOptions {
-                    capabilities: ContainerCapabilities {
-                        add: vec!["123".into()],
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+            ContainerCapabilities {
+                add: vec!["123".into()],
                 ..Default::default()
             },
-            BoxOptions {
-                advanced: AdvancedBoxOptions {
-                    capabilities: ContainerCapabilities {
-                        add: vec!["ß".into()],
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+            ContainerCapabilities {
+                add: vec!["ß".into()],
                 ..Default::default()
             },
-        ] {
+        ];
+
+        for capabilities in malformed {
+            let mut advanced = AdvancedBoxOptions::default();
+            advanced.set_capabilities(Some(capabilities)).unwrap();
+            let opts = BoxOptions {
+                advanced,
+                ..Default::default()
+            };
+
             let err = opts
                 .sanitize()
                 .expect_err("malformed capability should be rejected");
@@ -1218,16 +1205,15 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         let format = KernelFormat::PeGz;
 
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced.kernel = Some(
+            KernelOptions::new(&kernel)
+                .with_format(format)
+                .with_initramfs(&initramfs)
+                .with_command_line("console=ttyS0 panic=-1"),
+        );
         let opts = BoxOptions {
-            advanced: AdvancedBoxOptions {
-                kernel: Some(
-                    KernelOptions::new(&kernel)
-                        .with_format(format)
-                        .with_initramfs(&initramfs)
-                        .with_command_line("console=ttyS0 panic=-1"),
-                ),
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -1242,11 +1228,10 @@ mod tests {
 
     #[test]
     fn custom_kernel_must_be_a_file() {
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced.kernel = Some(KernelOptions::new("/definitely/missing/vmlinux"));
         let opts = BoxOptions {
-            advanced: AdvancedBoxOptions {
-                kernel: Some(KernelOptions::new("/definitely/missing/vmlinux")),
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -1262,15 +1247,14 @@ mod tests {
         let format = KernelFormat::Elf;
         #[cfg(target_arch = "aarch64")]
         let format = KernelFormat::PeGz;
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced.kernel = Some(
+            KernelOptions::new("/source/removed/after-create")
+                .with_format(format)
+                .with_command_line("console=ttyS0"),
+        );
         let opts = BoxOptions {
-            advanced: AdvancedBoxOptions {
-                kernel: Some(
-                    KernelOptions::new("/source/removed/after-create")
-                        .with_format(format)
-                        .with_command_line("console=ttyS0"),
-                ),
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -1283,15 +1267,14 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let kernel = temp.path().join("vmlinux");
         std::fs::write(&kernel, b"\x7fELFcustom kernel").unwrap();
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced.kernel = Some(
+            KernelOptions::new(&kernel)
+                .with_format(KernelFormat::Elf)
+                .with_initramfs(temp.path().join("missing-initramfs")),
+        );
         let opts = BoxOptions {
-            advanced: AdvancedBoxOptions {
-                kernel: Some(
-                    KernelOptions::new(&kernel)
-                        .with_format(KernelFormat::Elf)
-                        .with_initramfs(temp.path().join("missing-initramfs")),
-                ),
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -1419,17 +1402,17 @@ mod tests {
             .validate_privileged_capability_conflict()
             .expect("canonical privileged shape should be accepted");
 
-        assert_eq!(options.advanced.capabilities.add, ["ALL"]);
-        assert!(options.advanced.capabilities.drop.is_empty());
+        let capabilities = options.advanced.capabilities().expect("capabilities set");
+        assert_eq!(capabilities.add, ["ALL"]);
+        assert!(capabilities.drop.is_empty());
     }
 
     #[test]
     fn privileged_security_is_resolved_before_guest_init() {
+        let mut advanced = crate::AdvancedBoxOptions::default();
+        advanced.privileged = true;
         let options = BoxOptions {
-            advanced: crate::AdvancedBoxOptions {
-                privileged: true,
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 

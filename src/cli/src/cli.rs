@@ -10,8 +10,8 @@ use boxlite::runtime::options::{
     NetworkMode, OutboundNetworkConfig, PortProtocol, PortSpec, VolumeSpec,
 };
 use boxlite::{
-    BoxCommand, BoxOptions, BoxliteOptions, BoxliteRestOptions, BoxliteRuntime, ImageRegistry,
-    NetworkSpec,
+    BoxCommand, BoxOptions, BoxliteOptions, BoxliteRestOptions, BoxliteRuntime,
+    ContainerCapabilities, ImageRegistry, NetworkSpec,
 };
 use clap::{Args, Command, Parser, Subcommand, ValueEnum};
 use clap_complete::shells::{Bash, Fish, Zsh};
@@ -485,8 +485,15 @@ pub struct CapabilityFlags {
 
 impl CapabilityFlags {
     pub fn apply_to(&self, opts: &mut BoxOptions) {
-        opts.advanced.capabilities.add.clone_from(&self.cap_add);
-        opts.advanced.capabilities.drop.clone_from(&self.cap_drop);
+        if self.cap_add.is_empty() && self.cap_drop.is_empty() {
+            return;
+        }
+        opts.advanced
+            .set_capabilities(Some(ContainerCapabilities {
+                add: self.cap_add.clone(),
+                drop: self.cap_drop.clone(),
+            }))
+            .expect("apply_to runs before options are resolved");
     }
 }
 

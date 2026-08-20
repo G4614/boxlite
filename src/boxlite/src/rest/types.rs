@@ -196,11 +196,13 @@ impl CreateBoxRequest {
             volumes,
             detach: Some(options.detach),
             tty: options.tty.then_some(true),
-            advanced: (!options.advanced.capabilities.is_empty()).then(|| {
-                CreateBoxAdvancedOptions {
-                    capabilities: options.advanced.capabilities.clone(),
-                }
-            }),
+            advanced: options
+                .advanced
+                .capabilities()
+                .filter(|capabilities| !capabilities.is_empty())
+                .map(|capabilities| CreateBoxAdvancedOptions {
+                    capabilities: capabilities.clone(),
+                }),
             // The deprecated remove-on-stop flag was never applied by the cloud
             // control-plane mapper. Keep remote defaults unchanged and only send
             // the modern lifecycle fields when callers explicitly configure them.
@@ -729,14 +731,15 @@ mod tests {
 
     #[test]
     fn test_create_box_request_carries_container_capabilities() {
+        let mut advanced = crate::AdvancedBoxOptions::default();
+        advanced
+            .set_capabilities(Some(ContainerCapabilities {
+                add: vec!["SYS_ADMIN".into()],
+                drop: vec!["CAP_NET_RAW".into()],
+            }))
+            .unwrap();
         let opts = BoxOptions {
-            advanced: crate::AdvancedBoxOptions {
-                capabilities: ContainerCapabilities {
-                    add: vec!["SYS_ADMIN".into()],
-                    drop: vec!["CAP_NET_RAW".into()],
-                },
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -832,12 +835,11 @@ mod tests {
         use crate::runtime::advanced_options::AdvancedBoxOptions;
         use crate::runtime::options::{BoxOptions, RootfsSpec};
 
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced.security = SecurityOptions::enabled();
         let opts = BoxOptions {
             rootfs: RootfsSpec::Image("alpine:latest".into()),
-            advanced: AdvancedBoxOptions {
-                security: SecurityOptions::enabled(),
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
         let req = CreateBoxRequest::from_options(&opts, None);

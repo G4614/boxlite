@@ -669,11 +669,20 @@ fn validate_capability_names(
 ///
 /// Entry-level users can ignore this — the defaults are secure and sensible.
 /// Only modify these if you understand the security implications.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct AdvancedBoxOptions {
     /// Linux capability policy for the container process.
+    ///
+    /// `None` means the caller left it unspecified. That's a distinct state
+    /// from `Some` of an empty policy: combined with `privileged`, leaving
+    /// this unspecified is the one-flag DinD case (see `privileged`'s own
+    /// doc comment), while an explicit override — even an empty one — is a
+    /// conflict `validate_privileged_capability_conflict` rejects. Private;
+    /// read via `capabilities()`, write via `set_capabilities`, which also
+    /// enforces that this can't change out from under an already-resolved
+    /// request (see `resolved`).
     #[serde(default)]
-    pub capabilities: ContainerCapabilities,
+    capabilities: Option<ContainerCapabilities>,
 
     /// Security isolation options (jailer, seccomp, namespaces, resource limits).
     ///
@@ -737,32 +746,94 @@ pub struct AdvancedBoxOptions {
     /// the caller" ambiguity to track.
     #[serde(default)]
     pub privileged: bool,
+
+    /// Set once `resolve_container_security` has run on this instance.
+    /// `set_capabilities` refuses to change the policy afterward — a
+    /// resolved request's capabilities shouldn't shift under it before the
+    /// resolved value is actually used. `AtomicBool`, not a plain `bool` or
+    /// `Cell`, for two reasons: `resolve_container_security` only borrows
+    /// `&self` (it's a read-only computation over everything except this
+    /// bookkeeping bit), and `AdvancedBoxOptions` crosses `Send`/`Sync`
+    /// boundaries (it lives inside `BoxOptions`, held across `.await`
+    /// points) where `Cell` doesn't qualify. Not persisted: a freshly
+    /// deserialized instance hasn't resolved anything yet in *this*
+    /// process, regardless of the box it was loaded for. `Clone` is
+    /// implemented manually below because atomics aren't `Clone` — a clone
+    /// is a fresh, unresolved copy, which is the right default for building
+    /// a new request off of an old one's data.
+    #[serde(skip)]
+    resolved: std::sync::atomic::AtomicBool,
+}
+
+impl Clone for AdvancedBoxOptions {
+    fn clone(&self) -> Self {
+        Self {
+            capabilities: self.capabilities.clone(),
+            security: self.security.clone(),
+            isolate_mounts: self.isolate_mounts,
+            health_check: self.health_check.clone(),
+            kernel: self.kernel.clone(),
+            nested_virtualization: self.nested_virtualization,
+            privileged: self.privileged,
+            resolved: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
 }
 
 impl AdvancedBoxOptions {
+    /// The caller's capability policy, if one was configured. `None` means
+    /// unspecified — see the field's own doc comment for why that's not the
+    /// same as an explicit empty policy.
+    pub fn capabilities(&self) -> Option<&ContainerCapabilities> {
+        self.capabilities.as_ref()
+    }
+
+    /// Replace the capability policy. `None` clears back to "unspecified".
+    ///
+    /// Errors if this options object has already been resolved (used to
+    /// build a box request via `resolve_container_security`) — capabilities
+    /// cannot change after that point.
+    pub fn set_capabilities(
+        &mut self,
+        capabilities: Option<ContainerCapabilities>,
+    ) -> boxlite_shared::errors::BoxliteResult<()> {
+        if self.resolved.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(boxlite_shared::errors::BoxliteError::InvalidArgument(
+                "capabilities cannot be changed after these options have been resolved".to_string(),
+            ));
+        }
+        self.capabilities = capabilities;
+        Ok(())
+    }
+
     /// Reject capability overrides that conflict with privileged mode.
     ///
     /// Moby's own `TweakCapabilities` silently ignores `CapAdd`/`CapDrop`
     /// once `--privileged` is set — a real, reported footgun. Failing loudly
     /// here instead means a caller who sets both finds out at request time,
     /// not by wondering later why their capability override had no effect.
-    /// The canonical `add=["ALL"]` shape is allowed: it is what a box already
-    /// created under an earlier version of this option (which mutated
-    /// `capabilities` in place) has persisted, and it's the same effective
-    /// result `resolve_container_security` would produce anyway.
+    /// `None` (unspecified) is the only value privileged mode tolerates; an
+    /// explicit `Some`, even an empty one, is rejected unless it's already
+    /// the canonical `add=["ALL"]` shape — that's what a box created under
+    /// an earlier version of this option (which mutated `capabilities` in
+    /// place) has persisted, and it's the same effective result
+    /// `resolve_container_security` would produce anyway.
     pub(crate) fn validate_privileged_capability_conflict(
         &self,
     ) -> boxlite_shared::errors::BoxliteResult<()> {
-        if self.privileged
-            && !self.capabilities.is_empty()
-            && !self.capabilities.is_privileged_capability_shape()
-        {
-            return Err(boxlite_shared::errors::BoxliteError::InvalidArgument(
-                "privileged mode cannot be combined with cap_add or cap_drop".to_string(),
-            ));
+        if !self.privileged {
+            return Ok(());
         }
 
-        Ok(())
+        match &self.capabilities {
+            None => Ok(()),
+            Some(caps) if caps.is_privileged_capability_shape() => Ok(()),
+            Some(_) => Err(boxlite_shared::errors::BoxliteError::InvalidArgument(
+                "privileged mode cannot be combined with an explicit capabilities override, \
+                 including an explicitly empty one — leave capabilities unspecified instead"
+                    .to_string(),
+            )),
+        }
     }
 
     /// Toggle privileged mode.
@@ -794,7 +865,7 @@ impl AdvancedBoxOptions {
                 drop: Vec::new(),
             }
         } else {
-            self.capabilities.clone()
+            self.capabilities.clone().unwrap_or_default()
         }
     }
 
@@ -817,6 +888,8 @@ impl AdvancedBoxOptions {
         &self,
     ) -> boxlite_shared::errors::BoxliteResult<ResolvedContainerSecurityConfig> {
         self.validate_privileged_capability_conflict()?;
+        self.resolved
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         let capabilities = self.effective_capabilities();
 
@@ -975,7 +1048,7 @@ mod resolved_security_tests {
             .resolve_container_security()
             .expect("privileged security should resolve");
 
-        assert!(options.capabilities.is_empty());
+        assert!(options.capabilities.is_none());
     }
 
     /// Capabilities and the OCI path/mount shape are resolved from the same
@@ -984,10 +1057,10 @@ mod resolved_security_tests {
     #[test]
     fn capability_override_without_privileged_keeps_hardened_paths() {
         let options = AdvancedBoxOptions {
-            capabilities: ContainerCapabilities {
+            capabilities: Some(ContainerCapabilities {
                 add: vec!["SYS_ADMIN".to_string()],
                 ..Default::default()
-            },
+            }),
             ..Default::default()
         };
 
@@ -1008,10 +1081,10 @@ mod resolved_security_tests {
     fn privileged_rejects_conflicting_capability_override() {
         let options = AdvancedBoxOptions {
             privileged: true,
-            capabilities: ContainerCapabilities {
+            capabilities: Some(ContainerCapabilities {
                 add: vec!["SYS_ADMIN".to_string()],
                 ..Default::default()
-            },
+            }),
             ..Default::default()
         };
 

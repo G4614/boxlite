@@ -127,7 +127,11 @@ impl RuntimeBackend for RestRuntime {
 
         // A server that does not advertise the capability policy would accept
         // the request and drop the field, silently granting default privileges.
-        if !options.advanced.capabilities.is_empty() {
+        if options
+            .advanced
+            .capabilities()
+            .is_some_and(|capabilities| !capabilities.is_empty())
+        {
             self.client.require_linux_capabilities_enabled().await?;
         }
 
@@ -296,14 +300,15 @@ mod tests {
     const BOX_RESPONSE: &str = r#"{"box_id":"01HJK4TNRPQSXYZ8WM6NCVT9R5","name":"named","status":"configured","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","pid":null,"image":"alpine:latest","cpus":2,"memory_mib":512,"labels":{}}"#;
 
     fn capability_options() -> BoxOptions {
-        BoxOptions {
-            advanced: crate::AdvancedBoxOptions {
-                capabilities: crate::ContainerCapabilities {
-                    drop: vec!["NET_RAW".into()],
-                    ..Default::default()
-                },
+        let mut advanced = crate::AdvancedBoxOptions::default();
+        advanced
+            .set_capabilities(Some(crate::ContainerCapabilities {
+                drop: vec!["NET_RAW".into()],
                 ..Default::default()
-            },
+            }))
+            .unwrap();
+        BoxOptions {
+            advanced,
             ..Default::default()
         }
     }
@@ -464,13 +469,12 @@ mod tests {
         std::fs::write(&kernel, b"custom kernel").unwrap();
         let options = BoxliteRestOptions::new("http://localhost:1");
         let runtime = RestRuntime::new(&options).expect("failed to create REST runtime");
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.kernel = Some(crate::experimental::custom_kernel::KernelOptions::new(
+            kernel,
+        ));
         let opts = BoxOptions {
-            advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                kernel: Some(crate::experimental::custom_kernel::KernelOptions::new(
-                    kernel,
-                )),
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -487,11 +491,10 @@ mod tests {
     async fn create_rejects_nested_virtualization_in_rest_mode() {
         let options = BoxliteRestOptions::new("http://localhost:1");
         let runtime = RestRuntime::new(&options).expect("failed to create REST runtime");
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.nested_virtualization = true;
         let box_options = BoxOptions {
-            advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                nested_virtualization: true,
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -511,13 +514,12 @@ mod tests {
         std::fs::write(&kernel, b"custom kernel").unwrap();
         let options = BoxliteRestOptions::new("http://localhost:1");
         let runtime = RestRuntime::new(&options).expect("failed to create REST runtime");
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.kernel = Some(crate::experimental::custom_kernel::KernelOptions::new(
+            kernel,
+        ));
         let opts = BoxOptions {
-            advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                kernel: Some(crate::experimental::custom_kernel::KernelOptions::new(
-                    kernel,
-                )),
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -534,11 +536,10 @@ mod tests {
     async fn get_or_create_rejects_nested_virtualization_in_rest_mode() {
         let options = BoxliteRestOptions::new("http://localhost:1");
         let runtime = RestRuntime::new(&options).expect("failed to create REST runtime");
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.nested_virtualization = true;
         let box_options = BoxOptions {
-            advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                nested_virtualization: true,
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 

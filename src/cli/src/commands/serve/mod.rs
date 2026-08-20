@@ -787,12 +787,13 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         cmd: req.cmd.clone(),
         user: req.user.clone(),
         tty: req.tty.unwrap_or(false),
-        advanced: boxlite::AdvancedBoxOptions {
-            capabilities: boxlite::ContainerCapabilities {
+        advanced: {
+            let mut advanced = boxlite::AdvancedBoxOptions::default();
+            advanced.set_capabilities(Some(boxlite::ContainerCapabilities {
                 add: req.advanced.capabilities.add.clone(),
                 drop: req.advanced.capabilities.drop.clone(),
-            },
-            ..Default::default()
+            }))?;
+            advanced
         },
         auto_stop: req.auto_stop,
         auto_delete: Some(auto_delete),
@@ -1364,8 +1365,9 @@ mod tests {
         .expect("capability request must deserialize");
 
         let opts = build_box_options(&req).expect("build capability options");
-        assert_eq!(opts.advanced.capabilities.add, vec!["SYS_ADMIN"]);
-        assert_eq!(opts.advanced.capabilities.drop, vec!["CAP_NET_RAW"]);
+        let capabilities = opts.advanced.capabilities().expect("capabilities set");
+        assert_eq!(capabilities.add, vec!["SYS_ADMIN"]);
+        assert_eq!(capabilities.drop, vec!["CAP_NET_RAW"]);
     }
 
     #[test]

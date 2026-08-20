@@ -41,7 +41,11 @@ pub(crate) const MAX_SUPPORTED_VERSION: u32 = PUBLISHED_PORTS_ARCHIVE_VERSION;
 pub(crate) fn archive_version_for_options(options: &crate::runtime::options::BoxOptions) -> u32 {
     if !options.ports.is_empty() {
         PUBLISHED_PORTS_ARCHIVE_VERSION
-    } else if options.advanced.capabilities.is_empty() {
+    } else if options
+        .advanced
+        .capabilities()
+        .is_none_or(|capabilities| capabilities.is_empty())
+    {
         ARCHIVE_VERSION
     } else {
         CAPABILITY_POLICY_ARCHIVE_VERSION
@@ -284,14 +288,17 @@ mod tests {
         let ordinary = crate::runtime::options::BoxOptions::default();
         assert_eq!(archive_version_for_options(&ordinary), ARCHIVE_VERSION);
 
-        let custom = crate::runtime::options::BoxOptions {
-            advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                capabilities: crate::runtime::advanced_options::ContainerCapabilities {
+        let mut custom_advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        custom_advanced
+            .set_capabilities(Some(
+                crate::runtime::advanced_options::ContainerCapabilities {
                     drop: vec!["NET_RAW".into()],
                     ..Default::default()
                 },
-                ..Default::default()
-            },
+            ))
+            .unwrap();
+        let custom = crate::runtime::options::BoxOptions {
+            advanced: custom_advanced,
             ..Default::default()
         };
         assert_eq!(

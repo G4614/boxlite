@@ -1936,16 +1936,23 @@ mod tests {
     #[test]
     fn options_compatibility_normalizes_capability_names() {
         let mut actual = test_box_config(false);
-        actual.options.advanced.capabilities.add =
-            vec!["NET_ADMIN".to_string(), "CAP_SYS_ADMIN".to_string()];
-        let requested = BoxOptions {
-            advanced: crate::AdvancedBoxOptions {
-                capabilities: crate::ContainerCapabilities {
-                    add: vec!["sys_admin".to_string(), "CAP_NET_ADMIN".to_string()],
-                    ..Default::default()
-                },
+        actual
+            .options
+            .advanced
+            .set_capabilities(Some(crate::ContainerCapabilities {
+                add: vec!["NET_ADMIN".to_string(), "CAP_SYS_ADMIN".to_string()],
                 ..Default::default()
-            },
+            }))
+            .unwrap();
+        let mut requested_advanced = crate::AdvancedBoxOptions::default();
+        requested_advanced
+            .set_capabilities(Some(crate::ContainerCapabilities {
+                add: vec!["sys_admin".to_string(), "CAP_NET_ADMIN".to_string()],
+                ..Default::default()
+            }))
+            .unwrap();
+        let requested = BoxOptions {
+            advanced: requested_advanced,
             ..Default::default()
         };
 
@@ -1957,7 +1964,14 @@ mod tests {
         let (runtime, _dir) = create_test_runtime();
         let mut config = test_box_config_in_layout(false, &runtime);
         config.name = Some("existing".to_string());
-        config.options.advanced.capabilities.drop = vec!["NET_RAW".to_string()];
+        config
+            .options
+            .advanced
+            .set_capabilities(Some(crate::ContainerCapabilities {
+                drop: vec!["NET_RAW".to_string()],
+                ..Default::default()
+            }))
+            .unwrap();
         runtime
             .box_manager
             .add_box(&config, &BoxState::new())
@@ -1998,11 +2012,10 @@ mod tests {
 
     #[tokio::test]
     async fn nested_virtualization_validation_uses_injected_features() {
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.nested_virtualization = true;
         let options = BoxOptions {
-            advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                nested_virtualization: true,
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -2021,11 +2034,10 @@ mod tests {
 
     #[tokio::test]
     async fn privileged_options_do_not_require_experimental_features() {
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.privileged = true;
         let options = BoxOptions {
-            advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                privileged: true,
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
 
@@ -3096,14 +3108,13 @@ mod tests {
             .unwrap();
         assert!(created);
 
+        let mut nested_advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        nested_advanced.nested_virtualization = true;
         let result = runtime
             .get_or_create(
                 BoxOptions {
                     rootfs: RootfsSpec::Image("alpine:latest".into()),
-                    advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                        nested_virtualization: true,
-                        ..Default::default()
-                    },
+                    advanced: nested_advanced,
                     ..Default::default()
                 },
                 name,
@@ -3166,14 +3177,13 @@ mod tests {
         let (runtime, _dir) = create_test_runtime();
         let name = Some("nested-box".to_string());
 
+        let mut nested_advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        nested_advanced.nested_virtualization = true;
         let (nested_box, created) = runtime
             .get_or_create(
                 BoxOptions {
                     rootfs: RootfsSpec::Image("alpine:latest".into()),
-                    advanced: crate::runtime::advanced_options::AdvancedBoxOptions {
-                        nested_virtualization: true,
-                        ..Default::default()
-                    },
+                    advanced: nested_advanced,
                     ..Default::default()
                 },
                 name.clone(),

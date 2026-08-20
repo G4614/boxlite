@@ -564,7 +564,8 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
             if let Some(health_check) = advanced.health_check {
                 opts.advanced.health_check = Some(HealthCheckOptions::from(health_check));
             }
-            opts.advanced.capabilities = advanced.capabilities.into();
+            opts.advanced
+                .set_capabilities(Some(advanced.capabilities.into()))?;
         }
 
         // Convert Python secrets to Rust secrets
