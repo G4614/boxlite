@@ -231,15 +231,24 @@ describe('CreateBoxDto managed volumes', () => {
     expect(errors).toHaveLength(0)
   })
 
-  it('rejects volume mounts missing volume', async () => {
+  it('rejects volume mounts missing both volume and the deprecated host_path', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         volumes: [{ guest_path: '/data', read_only: false }],
       }),
     )
 
-    const volumeErrors = errors.find((e) => e.property === 'volumes')?.children?.[0]?.children
-    expect(volumeErrors?.find((e) => e.property === 'volume')).toBeDefined()
+    expect(JSON.stringify(errors)).toContain('hasVolumeReference')
+  })
+
+  it('accepts a deprecated host_path alone, with no volume (DTO shape only — see box-to-box.mapper.spec.ts for scheme validation)', async () => {
+    const errors = await validate(
+      plainToInstance(CreateBoxDto, {
+        volumes: [{ host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
+      }),
+    )
+
+    expect(errors).toHaveLength(0)
   })
 
   it('rejects an empty volume', async () => {
@@ -262,9 +271,10 @@ describe('CreateBoxDto managed volumes', () => {
     expect(JSON.stringify(errors)).toContain('isNotEmpty')
   })
 
-  it('accepts host_path alongside volume at the DTO layer (mapper rejects it - see box-to-box.mapper.spec.ts)', async () => {
+  it('accepts volume and host_path both present at the DTO layer (mapper rejects the ambiguity - see box-to-box.mapper.spec.ts)', async () => {
     // host_path is a format-valid optional string here; resolveVolumeId()
-    // rejects its mere presence as a business rule, not a DTO shape rule.
+    // rejects the ambiguity of both being set as a business rule, not a DTO
+    // shape rule.
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         volumes: [{ volume: 'volume-123', host_path: '/some/path', guest_path: '/data' }],

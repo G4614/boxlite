@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, Logger } from '@nestjs/common'
 import { BoxDto } from '../../box/dto/box.dto'
 import { BoxState } from '../../box/enums/box-state.enum'
 import {
@@ -15,6 +15,9 @@ import {
 import { BoxResponseDto } from '../dto/box-response.dto'
 import { CreateBoxDto as RestCreateBoxDto } from '../dto/create-box.dto'
 import { CreateBoxDto } from '../../box/dto/create-box.dto'
+
+const logger = new Logger('BoxToBoxMapper')
+const VOLUME_SCHEME = 'volume://'
 
 export function boxToBoxResponse(box: BoxDto): BoxResponseDto {
   return {
@@ -64,17 +67,30 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
 }
 
 function resolveVolumeId(spec: NonNullable<RestCreateBoxDto['volumes']>[number]): string {
-  // `host_path` is reserved for a future host-filesystem bind mount (not
-  // implemented — a REST box runs on a remote runner, so there is no path a
-  // client could safely name there today). Reject it explicitly instead of
-  // misreading it as a volume reference, which is what this field name
-  // briefly, mistakenly meant on this REST surface.
-  if (spec.host_path !== undefined) {
-    throw new BadRequestException('host_path (host-filesystem bind mount) is not supported for remote boxes')
+  if (spec.volume !== undefined && spec.host_path !== undefined) {
+    throw new BadRequestException('volumes[] entries must not set both volume and the deprecated host_path')
   }
   // Bare id or name — VolumeService.validateVolumes (unaffected by this
   // mapper) resolves either against this organization's volumes.
-  return spec.volume
+  if (spec.volume !== undefined) {
+    return spec.volume
+  }
+  // Deprecated pre-rename alias: DTO's HasVolumeReferenceConstraint already
+  // guarantees one of `volume`/`host_path` is present, so getting here means
+  // `host_path` is set. It must still carry the old `volume://<id>` scheme —
+  // a bare path would be a genuine host-filesystem bind mount, which isn't
+  // implemented (a REST box runs on a remote runner, so there's no path a
+  // client could safely name there today).
+  if (spec.host_path?.startsWith(VOLUME_SCHEME)) {
+    const volumeId = spec.host_path.slice(VOLUME_SCHEME.length)
+    if (volumeId) {
+      logger.warn(
+        'Deprecated: volumes[].host_path="volume://..." — use volumes[].volume instead. Support for host_path will be removed in a future release.',
+      )
+      return volumeId
+    }
+  }
+  throw new BadRequestException(`host_path must use the ${VOLUME_SCHEME}<id> scheme (e.g. ${VOLUME_SCHEME}vol-123)`)
 }
 
 function mapState(state: string | BoxState | undefined): string {

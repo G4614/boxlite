@@ -41,25 +41,33 @@ describe('BoxLite lifecycle policy mapper', () => {
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
-  // host_path is reserved for a future host-filesystem bind mount (its
-  // original, pre-managed-volumes meaning on this REST surface) - not a
-  // volume alias. A REST box runs on a remote runner, so it isn't
-  // implemented; reject its mere presence rather than misreading it as a
-  // volume reference or silently ignoring it.
-  it('rejects host_path even when a valid volume is also present', () => {
-    expect(() =>
-      createBoxToCreateBox({
-        volumes: [{ volume: 'volume-123', host_path: '/some/path', guest_path: '/data', read_only: false }],
-      }),
-    ).toThrow('host_path (host-filesystem bind mount) is not supported for remote boxes')
+  // host_path is a deprecated alias for volume, kept for backward
+  // compatibility with existing /v1 clients built against the pre-rename
+  // `source` field. It must still carry the `volume://<id>` scheme.
+  it('resolves a deprecated host_path="volume://<id>" alias to the bare id', () => {
+    const mapped = createBoxToCreateBox({
+      volumes: [{ host_path: 'volume://volume-123', guest_path: '/data', read_only: false }] as any,
+    })
+
+    expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
-  it('rejects host_path alone (no volume)', () => {
+  it('rejects a bare host_path without the volume:// scheme (genuine host-filesystem bind mount, not implemented)', () => {
     expect(() =>
       createBoxToCreateBox({
-        volumes: [{ host_path: '/some/path', guest_path: '/data', read_only: false }],
-      } as any),
-    ).toThrow('host_path (host-filesystem bind mount) is not supported for remote boxes')
+        volumes: [{ host_path: '/some/path', guest_path: '/data', read_only: false }] as any,
+      }),
+    ).toThrow('host_path must use the volume://<id> scheme')
+  })
+
+  it('rejects volume and host_path both present (ambiguous, no precedence to guess)', () => {
+    expect(() =>
+      createBoxToCreateBox({
+        volumes: [
+          { volume: 'volume-123', host_path: 'volume://volume-123', guest_path: '/data', read_only: false },
+        ] as any,
+      }),
+    ).toThrow('must not set both volume and the deprecated host_path')
   })
 
   it('returns the effective second-based policy', () => {

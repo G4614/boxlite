@@ -20,6 +20,7 @@ import {
   Validate,
   ValidateIf,
   ValidateNested,
+  ValidationArguments,
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator'
@@ -133,24 +134,36 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
   return plainToInstance(NetworkSpecDto, { ...rest, outbound })
 }
 
+@ValidatorConstraint({ name: 'hasVolumeReference', async: false })
+class HasVolumeReferenceConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const spec = args.object as VolumeSpecDto
+    return typeof spec.volume === 'string' || typeof spec.host_path === 'string'
+  }
+
+  defaultMessage(): string {
+    return 'volumes[] entries require volume (or the deprecated host_path=volume://<id>)'
+  }
+}
+
 export class VolumeSpecDto {
-  // The only way to reference a managed volume. Bare id or name, no scheme
-  // prefix — VolumeService.validateVolumes (unaffected by this rename)
-  // already resolves either against this organization's volumes.
+  // Bare id or name — VolumeService.validateVolumes (unaffected by this
+  // rename) resolves either against this organization's volumes. Optional
+  // only because `host_path` is still accepted as a deprecated alias below;
+  // HasVolumeReferenceConstraint requires at least one of the two.
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  volume: string
+  volume?: string
 
   /**
-   * Reserved for a future host-filesystem bind mount (its original meaning
-   * on this REST surface, before a since-corrected mistake briefly
-   * repurposed the same field name as a deprecated alias for referencing a
-   * managed volume).
-   * Not implemented: a REST box runs on a remote runner, so "the host
-   * filesystem" isn't the caller's machine, and there is no path a client
-   * could safely name there today. Rejected explicitly (see
-   * `resolveVolumeId` in box-to-box.mapper.ts) rather than silently ignored
-   * or misread as a volume reference.
+   * @deprecated Use `volume` instead. Kept for backward compatibility with
+   * existing /v1 clients built against the pre-rename `source` field: must
+   * still carry the `volume://<id>` scheme, resolved to the bare id in
+   * `resolveVolumeId` (box-to-box.mapper.ts). A bare host filesystem path
+   * is rejected there — a REST box runs on a remote runner, so there is no
+   * path a client could safely name there today. Will be removed in a
+   * future API version.
    */
   @IsOptional()
   @IsString()
@@ -158,7 +171,7 @@ export class VolumeSpecDto {
   host_path?: string
 
   @IsString()
-  @IsNotEmpty()
+  @Validate(HasVolumeReferenceConstraint)
   guest_path: string
 
   @ValidateIf((_, value) => value !== undefined)
