@@ -39,6 +39,21 @@ class IsNetworkAllowEntryConstraint implements ValidatorConstraintInterface {
   }
 }
 
+// Attached to `guest_path` (always validated) rather than `source`, since
+// `@IsOptional()` on `source` would skip a validator stacked on that same
+// property whenever `source` is absent - exactly the case this needs to see.
+@ValidatorConstraint({ name: 'hasVolumeSource', async: false })
+class HasVolumeSourceConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const volume = args.object as VolumeSpecDto
+    return typeof volume.source === 'string' || typeof volume.host_path === 'string'
+  }
+
+  defaultMessage(): string {
+    return 'volume requires source (or the deprecated host_path)'
+  }
+}
+
 export class OutboundNetworkSpecDto {
   @IsIn(['enabled', 'disabled'])
   mode: 'enabled' | 'disabled'
@@ -134,36 +149,19 @@ function normalizeNetworkShape(value: unknown): NetworkSpecDto | unknown {
   return plainToInstance(NetworkSpecDto, { ...rest, outbound })
 }
 
-@ValidatorConstraint({ name: 'hasVolumeReference', async: false })
-class HasVolumeReferenceConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, args: ValidationArguments): boolean {
-    const spec = args.object as VolumeSpecDto
-    return typeof spec.volume === 'string' || typeof spec.host_path === 'string'
-  }
-
-  defaultMessage(): string {
-    return 'volumes[] entries require volume (or the deprecated host_path=volume://<id>)'
-  }
-}
-
 export class VolumeSpecDto {
-  // Bare id or name — VolumeService.validateVolumes (unaffected by this
-  // rename) resolves either against this organization's volumes. Optional
-  // only because `host_path` is still accepted as a deprecated alias below;
-  // HasVolumeReferenceConstraint requires at least one of the two.
+  // IsNotEmpty (not just IsOptional + IsString) so an explicit `source: ''`
+  // is a validation error on its own rather than being treated as "absent"
+  // and silently falling through to host_path in the mapper.
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  volume?: string
+  source?: string
 
   /**
-   * @deprecated Use `volume` instead. Kept for backward compatibility with
-   * existing /v1 clients built against the pre-rename `source` field: must
-   * still carry the `volume://<id>` scheme, resolved to the bare id in
-   * `resolveVolumeId` (box-to-box.mapper.ts). A bare host filesystem path
-   * is rejected there — a REST box runs on a remote runner, so there is no
-   * path a client could safely name there today. Will be removed in a
-   * future API version.
+   * @deprecated Use `source` with the `volume://<volume_id>` scheme instead.
+   * Accepted for backward compatibility with existing /v1 clients built
+   * against the pre-managed-volumes `VolumeSpec` schema; will be removed.
    */
   @IsOptional()
   @IsString()
@@ -171,7 +169,7 @@ export class VolumeSpecDto {
   host_path?: string
 
   @IsString()
-  @Validate(HasVolumeReferenceConstraint)
+  @Validate(HasVolumeSourceConstraint)
   guest_path: string
 
   @ValidateIf((_, value) => value !== undefined)

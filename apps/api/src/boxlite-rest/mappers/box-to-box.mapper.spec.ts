@@ -35,39 +35,55 @@ describe('BoxLite lifecycle policy mapper', () => {
 
   it('maps REST volume specs to managed volume mounts', () => {
     const mapped = createBoxToCreateBox({
-      volumes: [{ volume: 'volume-123', guest_path: '/data', read_only: false }],
+      volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: false }],
     })
 
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
-  // host_path is a deprecated alias for volume, kept for backward
-  // compatibility with existing /v1 clients built against the pre-rename
-  // `source` field. It must still carry the `volume://<id>` scheme.
-  it('resolves a deprecated host_path="volume://<id>" alias to the bare id', () => {
+  it('maps the deprecated host_path field to managed volume mounts', () => {
     const mapped = createBoxToCreateBox({
-      volumes: [{ host_path: 'volume://volume-123', guest_path: '/data', read_only: false }] as any,
+      volumes: [{ host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
     })
 
     expect(mapped.volumes).toEqual([{ volumeId: 'volume-123', mountPath: '/data' }])
   })
 
-  it('rejects a bare host_path without the volume:// scheme (genuine host-filesystem bind mount, not implemented)', () => {
+  it('does not fall back to host_path when source is an empty string', () => {
+    // DTO validation (IsNotEmpty) is the primary guard against this reaching
+    // the mapper at all; this locks in that the mapper itself also fails
+    // closed rather than treating '' as absent via `??`.
     expect(() =>
       createBoxToCreateBox({
-        volumes: [{ host_path: '/some/path', guest_path: '/data', read_only: false }] as any,
+        volumes: [{ source: '', host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
       }),
-    ).toThrow('host_path must use the volume://<id> scheme')
+    ).toThrow('volume source must use the volume:// scheme')
   })
 
-  it('rejects volume and host_path both present (ambiguous, no precedence to guess)', () => {
+  it('prefers source over host_path when both are present', () => {
+    const mapped = createBoxToCreateBox({
+      volumes: [
+        { source: 'volume://source-wins', host_path: 'volume://ignored', guest_path: '/data', read_only: false },
+      ],
+    })
+
+    expect(mapped.volumes).toEqual([{ volumeId: 'source-wins', mountPath: '/data' }])
+  })
+
+  it('rejects non-volume scheme sources on the remote managed-volume mapper', () => {
     expect(() =>
       createBoxToCreateBox({
-        volumes: [
-          { volume: 'volume-123', host_path: 'volume://volume-123', guest_path: '/data', read_only: false },
-        ] as any,
+        volumes: [{ source: 'host:///tmp/data', guest_path: '/data', read_only: false }],
       }),
-    ).toThrow('must not set both volume and the deprecated host_path')
+    ).toThrow('volume source must use the volume:// scheme')
+  })
+
+  it('rejects source values without a supported scheme', () => {
+    expect(() =>
+      createBoxToCreateBox({
+        volumes: [{ source: 'volume-123', guest_path: '/data', read_only: false }],
+      }),
+    ).toThrow('volume source must use the volume:// scheme')
   })
 
   it('returns the effective second-based policy', () => {

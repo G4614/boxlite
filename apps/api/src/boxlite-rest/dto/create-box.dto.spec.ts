@@ -224,37 +224,37 @@ describe('CreateBoxDto managed volumes', () => {
   it('accepts read-write managed volume mounts', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ volume: 'volume-123', guest_path: '/data', read_only: false }],
+        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: false }],
       }),
     )
 
     expect(errors).toHaveLength(0)
   })
 
-  it('rejects volume mounts missing both volume and the deprecated host_path', async () => {
+  it('rejects volume mounts with neither source nor host_path', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
         volumes: [{ guest_path: '/data', read_only: false }],
       }),
     )
 
-    expect(JSON.stringify(errors)).toContain('hasVolumeReference')
+    expect(JSON.stringify(errors)).toContain('hasVolumeSource')
   })
 
-  it('accepts a deprecated host_path alone, with no volume (DTO shape only — see box-to-box.mapper.spec.ts for scheme validation)', async () => {
+  it('accepts the deprecated host_path in place of source', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ host_path: 'volume://volume-123', guest_path: '/data', read_only: false }],
+        volumes: [{ host_path: 'volume://volume-123', guest_path: '/data' }],
       }),
     )
 
     expect(errors).toHaveLength(0)
   })
 
-  it('rejects an empty volume', async () => {
+  it('rejects an empty source', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ volume: '', guest_path: '/data' }],
+        volumes: [{ source: '', guest_path: '/data' }],
       }),
     )
 
@@ -271,23 +271,22 @@ describe('CreateBoxDto managed volumes', () => {
     expect(JSON.stringify(errors)).toContain('isNotEmpty')
   })
 
-  it('accepts volume and host_path both present at the DTO layer (mapper rejects the ambiguity - see box-to-box.mapper.spec.ts)', async () => {
-    // host_path is a format-valid optional string here; resolveVolumeId()
-    // rejects the ambiguity of both being set as a business rule, not a DTO
-    // shape rule.
+  it('rejects an empty source even with a valid host_path fallback available', async () => {
+    // An empty string is a malformed `source`, not an absent one - it must
+    // not be silently swapped for host_path in the mapper.
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ volume: 'volume-123', host_path: '/some/path', guest_path: '/data' }],
+        volumes: [{ source: '', host_path: 'volume://volume-123', guest_path: '/data' }],
       }),
     )
 
-    expect(errors).toHaveLength(0)
+    expect(JSON.stringify(errors)).toContain('isNotEmpty')
   })
 
   it('rejects read-only cloud volume mounts until the backend supports them', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ volume: 'volume-123', guest_path: '/data', read_only: true }],
+        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: true }],
       }),
     )
 
@@ -297,7 +296,7 @@ describe('CreateBoxDto managed volumes', () => {
   it('rejects null read_only values', async () => {
     const errors = await validate(
       plainToInstance(CreateBoxDto, {
-        volumes: [{ volume: 'volume-123', guest_path: '/data', read_only: null }],
+        volumes: [{ source: 'volume://volume-123', guest_path: '/data', read_only: null }],
       }),
     )
 
