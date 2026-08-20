@@ -6,14 +6,14 @@ use boxlite_shared::{
     ContainerCapabilities as ProtoContainerCapabilities, ContainerClient,
     ContainerConfig as ProtoContainerConfig, ContainerDevice, ContainerInitErrorKind,
     ContainerInitRequest, DiskRootfs, LinuxOptions, MergedRootfs, MountOptions, OverlayRootfs,
-    ProcessOptions, RootfsInit, container_init_response,
+    RootfsInit, container_init_response,
 };
 use tonic::transport::Channel;
 
 use crate::images::ContainerImageConfig;
 use crate::runtime::advanced_options::{
-    ResolvedContainerSecurityConfig, ResolvedLinuxSecurity, ResolvedMountSecurity,
-    ResolvedProcessSecurity,
+    ContainerCapabilities, ResolvedContainerSecurityConfig, ResolvedLinuxSecurity,
+    ResolvedMountSecurity,
 };
 use crate::volumes::ContainerMount;
 
@@ -95,7 +95,7 @@ pub struct ContainerInitConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct ContainerAdvancedConfig {
-    pub process: ResolvedProcessSecurity,
+    pub capabilities: ContainerCapabilities,
     pub(crate) linux: ResolvedLinuxSecurity,
     pub(crate) mount: ResolvedMountSecurity,
 }
@@ -103,7 +103,7 @@ pub struct ContainerAdvancedConfig {
 impl From<ResolvedContainerSecurityConfig> for ContainerAdvancedConfig {
     fn from(value: ResolvedContainerSecurityConfig) -> Self {
         Self {
-            process: value.process,
+            capabilities: value.capabilities,
             linux: value.linux,
             mount: value.mount,
         }
@@ -148,11 +148,9 @@ impl ContainerInterface {
             // process it applies to (OCI `process.terminal`).
             tty,
             advanced: Some(ProtoContainerAdvancedOptions {
-                process: Some(ProcessOptions {
-                    capabilities: Some(ProtoContainerCapabilities {
-                        add: advanced.process.capabilities.add,
-                        drop: advanced.process.capabilities.drop,
-                    }),
+                capabilities: Some(ProtoContainerCapabilities {
+                    add: advanced.capabilities.add,
+                    drop: advanced.capabilities.drop,
                 }),
                 linux: Some(LinuxOptions {
                     readonly_paths: advanced.linux.readonly_paths,
@@ -471,11 +469,9 @@ mod tests {
                     file_mode: Some(0o666),
                 }],
                 advanced: ContainerAdvancedConfig {
-                    process: ResolvedProcessSecurity {
-                        capabilities: crate::runtime::advanced_options::ContainerCapabilities {
-                            add: vec!["ALL".into()],
-                            ..Default::default()
-                        },
+                    capabilities: crate::runtime::advanced_options::ContainerCapabilities {
+                        add: vec!["ALL".into()],
+                        ..Default::default()
                     },
                     linux: ResolvedLinuxSecurity {
                         readonly_paths: Vec::new(),
@@ -505,6 +501,13 @@ mod tests {
         let advanced = container_config.advanced.expect("advanced options");
         // Non-default resolved values, so they prove the fields are threaded
         // verbatim rather than defaulted or recomputed on the way to the wire.
+        // capabilities is flat on this message (not nested under a process
+        // submessage the way linux/mount are) — see ContainerAdvancedOptions
+        // in service.proto for why.
+        assert_eq!(
+            advanced.capabilities.expect("capabilities").add,
+            vec!["ALL".to_string()]
+        );
         assert!(
             advanced
                 .linux

@@ -202,11 +202,7 @@ impl ContainerService for GuestServer {
         };
         validate_mount_override(&mount_options.destination, &mount_override)
             .map_err(BoxliteError::into_validation_status)?;
-        let capability_policy = advanced
-            .process
-            .unwrap_or_default()
-            .capabilities
-            .unwrap_or_default();
+        let capability_policy = advanced.capabilities.unwrap_or_default();
         let capabilities = CapabilitySet::resolve(&capability_policy.add, &capability_policy.drop)
             .map_err(BoxliteError::into_validation_status)?;
         let readonly_paths = advanced.linux.unwrap_or_default().readonly_paths;

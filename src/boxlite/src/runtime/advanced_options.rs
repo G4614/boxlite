@@ -809,9 +809,7 @@ impl AdvancedBoxOptions {
         };
 
         Ok(ResolvedContainerSecurityConfig {
-            process: ResolvedProcessSecurity {
-                capabilities: normalized.capabilities,
-            },
+            capabilities: normalized.capabilities,
             linux: ResolvedLinuxSecurity { readonly_paths },
             mount: ResolvedMountSecurity {
                 options: mount_options(normalized.privileged),
@@ -858,25 +856,20 @@ fn mount_options(privileged: bool) -> Vec<String> {
 /// tolerated running without a private cgroup namespace view. The guest keeps
 /// applying its own oci-spec masked-path default unconditionally.
 ///
-/// Grouped under `process`/`linux`/`mount` the same way OCI runtime-spec
-/// groups the fields these resolve to — parallel top-level fields of one
-/// Spec — rather than flattened across a level of structure that doesn't
-/// exist in the source concept. Matches the wire shape
-/// (`ContainerAdvancedOptions`) it eventually becomes verbatim.
+/// `linux`/`mount` are grouped the same way OCI runtime-spec groups the
+/// fields they resolve to — parallel top-level fields of one Spec — rather
+/// than flattened across a level of structure that doesn't exist in the
+/// source concept. Matches the wire shape (`ContainerAdvancedOptions`) it
+/// eventually becomes verbatim. `capabilities` stays flat, not nested under
+/// a matching `process` field: it predates this grouping (added in #1047,
+/// guest version floor 0.9.8) as a plain field on the wire message, and
+/// wrapping it now would collide with what already-deployed guests expect
+/// there — see `ContainerAdvancedOptions.capabilities` in service.proto.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedContainerSecurityConfig {
-    pub(crate) process: ResolvedProcessSecurity,
+    pub(crate) capabilities: ContainerCapabilities,
     pub(crate) linux: ResolvedLinuxSecurity,
     pub(crate) mount: ResolvedMountSecurity,
-}
-
-// `pub`, not `pub(crate)`: `ContainerAdvancedConfig::process` (portal layer)
-// re-exposes this one publicly, matching `ContainerCapabilities`'s own
-// visibility — the same reason `ContainerAdvancedConfig::linux`/`::mount`
-// stay `pub(crate)` and so do `ResolvedLinuxSecurity`/`ResolvedMountSecurity`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ResolvedProcessSecurity {
-    pub capabilities: ContainerCapabilities,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -930,7 +923,7 @@ mod resolved_security_tests {
 
         assert!(resolved.linux.readonly_paths.is_empty());
         assert!(!resolved.mount.options.contains(&"rro".to_string()));
-        assert_eq!(resolved.process.capabilities.add, ["ALL"]);
+        assert_eq!(resolved.capabilities.add, ["ALL"]);
     }
 
     /// Capabilities and the OCI path/mount shape are resolved from the same

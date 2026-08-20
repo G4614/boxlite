@@ -383,23 +383,27 @@ message ContainerConfig {
   ContainerAdvancedOptions advanced = 6;
 }
 
-// Grouped the same way OCI runtime-spec groups them — process/linux/mounts
-// are parallel top-level fields of a Spec, so the fields that resolve to each
-// (capabilities -> process, readonly_paths -> linux, options -> one mount's
-// options) are nested under their own submessage here too, instead of
-// sitting flat as three unrelated siblings.
+// linux/mount are grouped the same way OCI runtime-spec groups them —
+// process/linux/mounts are parallel top-level fields of a Spec, so
+// readonly_paths and one mount's options are nested under their own
+// submessage here too, matching where they resolve to. capabilities is the
+// exception — see the field's own comment below for why it stays flat.
 message ContainerAdvancedOptions {
-  ProcessOptions process = 1;
+  // Flat, not nested under a ProcessOptions submessage the way linux/mount
+  // are nested below: this field predates this message (added in #1047,
+  // guest version floor 0.9.8, long since deployed) as a direct
+  // ContainerCapabilities on field 1, not wrapped. Wrapping it now would
+  // reuse field 1's tag for a different wire shape — old, already-running
+  // guests would decode the new bytes against their old field-1 layout and
+  // get garbage. linux/mount are new in this feature with no such
+  // constraint, so they get the cleaner shape capabilities can't.
+  ContainerCapabilities capabilities = 1;
   LinuxOptions linux = 2;
   MountOptions mount = 3;
 
   // No masked-path field: masked paths never varied with `privileged` in
   // practice (see docs/architecture/privileged-mode-design.md, Trade-offs) —
   // the guest keeps applying its own oci-spec default unconditionally.
-}
-
-message ProcessOptions {
-  ContainerCapabilities capabilities = 1;
 }
 
 message LinuxOptions {

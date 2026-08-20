@@ -136,7 +136,7 @@ async fn run_guest_init(
     // Step 1: Guest Init (volumes + network)
     tracing::info!("Sending guest initialization request");
     let mut guest_interface = guest_session.guest().await?;
-    if !bootstrap.container.advanced.process.capabilities.is_empty() {
+    if !bootstrap.container.advanced.capabilities.is_empty() {
         guest_interface
             .require_min_version(MIN_CAPABILITY_GUEST_VERSION)
             .await?;

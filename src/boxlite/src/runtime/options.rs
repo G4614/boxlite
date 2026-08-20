@@ -1437,8 +1437,8 @@ mod tests {
 
         assert!(resolved.linux.readonly_paths.is_empty());
         assert!(!resolved.mount.options.contains(&"rro".to_string()));
-        assert_eq!(resolved.process.capabilities.add, ["ALL"]);
-        assert!(resolved.process.capabilities.drop.is_empty());
+        assert_eq!(resolved.capabilities.add, ["ALL"]);
+        assert!(resolved.capabilities.drop.is_empty());
     }
 
     #[test]
