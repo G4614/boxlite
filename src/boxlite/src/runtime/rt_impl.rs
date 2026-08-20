@@ -3137,10 +3137,8 @@ mod tests {
             .unwrap();
         assert!(created);
 
-        let advanced = crate::runtime::advanced_options::AdvancedBoxOptions {
-            privileged: true,
-            ..Default::default()
-        };
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.set_privileged(true);
 
         let result = runtime
             .get_or_create(

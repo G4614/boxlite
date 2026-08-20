@@ -765,6 +765,18 @@ impl AdvancedBoxOptions {
         Ok(())
     }
 
+    /// Toggle privileged mode.
+    ///
+    /// A thin wrapper over the `privileged` field itself — kept as a stable
+    /// method for existing callers of this crate's public API rather than
+    /// requiring a field assignment. It no longer does anything beyond
+    /// `self.privileged = enabled`: `capabilities` isn't installed or
+    /// withdrawn here (see `resolve_container_security`, which computes the
+    /// effective capability set fresh instead).
+    pub fn set_privileged(&mut self, enabled: bool) {
+        self.privileged = enabled;
+    }
+
     /// The capability policy actually enforced, after moby-style privileged
     /// resolution — not just the caller's raw `capabilities` field.
     ///
@@ -918,15 +930,24 @@ mod resolved_security_tests {
         assert!(resolved.mount.options.contains(&"rro".to_string()));
     }
 
+    #[test]
+    fn set_privileged_toggles_the_plain_field() {
+        let mut options = AdvancedBoxOptions::default();
+
+        options.set_privileged(true);
+        assert!(options.privileged);
+
+        options.set_privileged(false);
+        assert!(!options.privileged);
+    }
+
     /// Matches moby's `TweakCapabilities`: `privileged` alone resolves every
     /// capability, the same one-flag DinD enabler Docker's `--privileged`
     /// is — no separate `capabilities.add = ["ALL"]` required.
     #[test]
     fn privileged_resolves_cleared_readonly_paths_and_writable_sys() {
-        let options = AdvancedBoxOptions {
-            privileged: true,
-            ..Default::default()
-        };
+        let mut options = AdvancedBoxOptions::default();
+        options.set_privileged(true);
 
         let resolved = options
             .resolve_container_security()
