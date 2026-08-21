@@ -1094,4 +1094,27 @@ mod resolved_security_tests {
 
         assert!(error.to_string().contains("cannot be combined"));
     }
+
+    /// The conflict guard runs on the final state at `resolve_container_security`
+    /// time, not on each setter call — so it doesn't matter which knob a caller
+    /// (e.g. CLI flags, or an SDK's builder) happens to set first. Setting an
+    /// explicit capability override and only then turning on `privileged` must
+    /// be rejected exactly like setting them in the opposite order.
+    #[test]
+    fn privileged_rejects_conflicting_override_regardless_of_setter_order() {
+        let mut options = AdvancedBoxOptions::default();
+        options
+            .set_capabilities(Some(ContainerCapabilities {
+                add: vec!["SYS_ADMIN".to_string()],
+                ..Default::default()
+            }))
+            .unwrap();
+        options.set_privileged(true);
+
+        let error = options.resolve_container_security().expect_err(
+            "capabilities-then-privileged should be rejected same as the reverse order",
+        );
+
+        assert!(error.to_string().contains("cannot be combined"));
+    }
 }
