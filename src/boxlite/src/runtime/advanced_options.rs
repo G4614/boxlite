@@ -681,7 +681,17 @@ pub struct AdvancedBoxOptions {
     /// read via `capabilities()`, write via `set_capabilities`, which also
     /// enforces that this can't change out from under an already-resolved
     /// request (see `resolved`).
-    #[serde(default)]
+    ///
+    /// `skip_serializing_if` on top of `default` is load-bearing, not
+    /// cosmetic: without it, `None` serializes as an explicit `"capabilities":
+    /// null`, which a pre-Option build's plain `ContainerCapabilities` field
+    /// rejects with "invalid type: null, expected struct
+    /// ContainerCapabilities" — `#[serde(default)]` alone only covers an
+    /// *absent* key. Omitting the key on `None` keeps an ordinary box's
+    /// exported manifest byte-for-byte what a pre-#1296 importer already
+    /// handles, which is the entire premise `archive_version_for_options`
+    /// relies on to leave that case at `ARCHIVE_VERSION` instead of bumping it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     capabilities: Option<ContainerCapabilities>,
 
     /// Security isolation options (jailer, seccomp, namespaces, resource limits).

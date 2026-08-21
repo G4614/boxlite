@@ -1108,6 +1108,27 @@ mod tests {
         );
     }
 
+    /// An ordinary box (no explicit capability policy) must serialize with
+    /// the `capabilities` key absent, not present-as-`null` — a pre-#1296
+    /// build's plain, non-Option `capabilities` field parses an absent key
+    /// via its own `#[serde(default)]`, but rejects an explicit `null` with
+    /// "invalid type: null, expected struct ContainerCapabilities" (reproduced
+    /// standalone against that exact field shape before this test was added).
+    /// `archive_version_for_options` leaves this case at `ARCHIVE_VERSION`
+    /// specifically because it assumes the wire shape matches what a v3
+    /// importer already handles; this test is what keeps that true.
+    #[test]
+    fn box_options_omits_capabilities_key_when_unspecified() {
+        let json = serde_json::to_string(&BoxOptions::default()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let advanced = parsed.get("advanced").unwrap();
+
+        assert!(
+            !advanced.as_object().unwrap().contains_key("capabilities"),
+            "unspecified capabilities must omit the key, not serialize null: {advanced}"
+        );
+    }
+
     #[test]
     fn box_options_sanitize_accepts_valid_capability_names() {
         let mut advanced = AdvancedBoxOptions::default();
