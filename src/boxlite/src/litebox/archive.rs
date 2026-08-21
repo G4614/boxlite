@@ -38,14 +38,16 @@ pub(crate) const PUBLISHED_PORTS_ARCHIVE_VERSION: u32 = 5;
 pub(crate) const MAX_SUPPORTED_VERSION: u32 = PUBLISHED_PORTS_ARCHIVE_VERSION;
 
 /// Pick the archive format an exported box needs.
+///
+/// Any explicit policy — including an explicitly empty one — is stamped v4:
+/// `capabilities()` returning `Some` means the caller configured something,
+/// which a pre-capability importer has no way to represent and must refuse
+/// rather than silently drop. Only `None` (the caller never touched the
+/// field) is indistinguishable from what a v3 importer already does.
 pub(crate) fn archive_version_for_options(options: &crate::runtime::options::BoxOptions) -> u32 {
     if !options.ports.is_empty() {
         PUBLISHED_PORTS_ARCHIVE_VERSION
-    } else if options
-        .advanced
-        .capabilities()
-        .is_none_or(|capabilities| capabilities.is_empty())
-    {
+    } else if options.advanced.capabilities().is_none() {
         ARCHIVE_VERSION
     } else {
         CAPABILITY_POLICY_ARCHIVE_VERSION
@@ -303,6 +305,25 @@ mod tests {
         };
         assert_eq!(
             archive_version_for_options(&custom),
+            CAPABILITY_POLICY_ARCHIVE_VERSION
+        );
+
+        // An explicit, empty capability policy is still an explicit policy,
+        // not the same as never touching the field — a pre-capability
+        // importer must not decide that distinction was safe to drop.
+        let mut explicit_empty_advanced =
+            crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        explicit_empty_advanced
+            .set_capabilities(Some(
+                crate::runtime::advanced_options::ContainerCapabilities::default(),
+            ))
+            .unwrap();
+        let explicit_empty = crate::runtime::options::BoxOptions {
+            advanced: explicit_empty_advanced,
+            ..Default::default()
+        };
+        assert_eq!(
+            archive_version_for_options(&explicit_empty),
             CAPABILITY_POLICY_ARCHIVE_VERSION
         );
 

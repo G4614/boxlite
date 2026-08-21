@@ -127,11 +127,10 @@ impl RuntimeBackend for RestRuntime {
 
         // A server that does not advertise the capability policy would accept
         // the request and drop the field, silently granting default privileges.
-        if options
-            .advanced
-            .capabilities()
-            .is_some_and(|capabilities| !capabilities.is_empty())
-        {
+        // `Some` alone is the trigger, even an explicitly empty policy: the
+        // caller configured something, and a server that can't represent the
+        // concept at all can't be trusted to preserve that from a no-op value.
+        if options.advanced.capabilities().is_some() {
             self.client.require_linux_capabilities_enabled().await?;
         }
 
@@ -398,6 +397,34 @@ mod tests {
         let error = match RuntimeBackend::create(&runtime, capability_options(), None).await {
             Err(error) => error,
             Ok(_) => panic!("an old server must not silently ignore a capability policy"),
+        };
+
+        assert!(matches!(error, BoxliteError::Unsupported(_)));
+        assert_eq!(server.await.unwrap(), ["GET /v1/config HTTP/1.1"]);
+    }
+
+    /// An explicitly empty policy is still explicit — the caller configured
+    /// something, even if it happens to be a no-op value. A server that
+    /// can't advertise the capability feature at all can't be trusted to
+    /// honor that distinction either, so this must still be probed for.
+    #[tokio::test]
+    async fn explicit_empty_capabilities_still_require_server_advertisement() {
+        let (port, server) = json_server(vec![r#"{"capabilities":{}}"#]).await;
+        let runtime =
+            RestRuntime::new(&BoxliteRestOptions::new(format!("http://127.0.0.1:{port}"))).unwrap();
+
+        let mut advanced = crate::AdvancedBoxOptions::default();
+        advanced
+            .set_capabilities(Some(crate::ContainerCapabilities::default()))
+            .unwrap();
+        let opts = BoxOptions {
+            advanced,
+            ..Default::default()
+        };
+
+        let error = match RuntimeBackend::create(&runtime, opts, None).await {
+            Err(error) => error,
+            Ok(_) => panic!("an explicit, even empty, capability policy must still be probed for"),
         };
 
         assert!(matches!(error, BoxliteError::Unsupported(_)));
