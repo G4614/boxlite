@@ -449,22 +449,22 @@ mod tests {
 
     #[test]
     fn box_info_conversion_preserves_network_and_publication_state() {
-        let resolved = PyBoxInfo::from(core_info(Some(NetworkInfo {
-            outbound: NetworkDirectionInfo {
+        let resolved = PyBoxInfo::from(core_info(Some(NetworkInfo::new(
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: vec!["api.example.com".to_string()],
             },
-            inbound: NetworkDirectionInfo {
+            NetworkDirectionInfo {
                 mode: NetworkMode::Disabled,
                 allow_net: Vec::new(),
             },
-            published_ports: Some(vec![PublishedPort {
+            Some(vec![PublishedPort {
                 guest_port: 3000,
                 host_ip: "127.0.0.1".to_string(),
                 host_port: 49152,
                 protocol: PortProtocol::Tcp,
             }]),
-        })));
+        ))));
 
         let network = resolved.network.expect("network metadata");
         assert_eq!(network.outbound.mode, "enabled");
@@ -477,17 +477,17 @@ mod tests {
         assert_eq!(ports[0].host_port, 49152);
         assert_eq!(ports[0].protocol, "tcp");
 
-        let resolved_empty = PyBoxInfo::from(core_info(Some(NetworkInfo {
-            outbound: NetworkDirectionInfo {
+        let resolved_empty = PyBoxInfo::from(core_info(Some(NetworkInfo::new(
+            NetworkDirectionInfo {
                 mode: NetworkMode::Disabled,
                 allow_net: Vec::new(),
             },
-            inbound: NetworkDirectionInfo {
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: Vec::new(),
             },
-            published_ports: Some(Vec::new()),
-        })));
+            Some(Vec::new()),
+        ))));
         assert!(
             resolved_empty
                 .network
@@ -497,17 +497,17 @@ mod tests {
                 .is_empty()
         );
 
-        let unresolved = PyBoxInfo::from(core_info(Some(NetworkInfo {
-            outbound: NetworkDirectionInfo {
+        let unresolved = PyBoxInfo::from(core_info(Some(NetworkInfo::new(
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: Vec::new(),
             },
-            inbound: NetworkDirectionInfo {
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: Vec::new(),
             },
-            published_ports: None,
-        })));
+            None,
+        ))));
         assert!(
             unresolved
                 .network
