@@ -553,6 +553,17 @@ impl RuntimeImpl {
                 "box '{box_name}' was created without privileged support and cannot satisfy a required privileged request; use a different name or recreate the box"
             )));
         }
+        // The mirror case: privileged governs mount hardening (readonly
+        // paths, /sys write access) as well as capabilities, so a privileged
+        // box can look capability-compatible with a non-privileged request
+        // (e.g. one that explicitly asks for `capabilities.add = ["ALL"]`)
+        // while still granting more than that request asked for. Reject
+        // instead of silently upgrading it.
+        if !requested.advanced.privileged && actual.options.advanced.privileged {
+            return Err(BoxliteError::Unsupported(format!(
+                "box '{box_name}' was created with privileged mode and would grant more than the requested non-privileged security policy; use a different name or recreate the box"
+            )));
+        }
 
         // Compare effective capabilities, not the raw field: a privileged
         // box persisted by an earlier version of this option has `add=["ALL"]`
@@ -1957,6 +1968,34 @@ mod tests {
         };
 
         assert!(RuntimeImpl::check_options_compatibility(&requested, &actual).is_ok());
+    }
+
+    #[test]
+    fn check_options_compatibility_rejects_non_privileged_request_reusing_a_privileged_box() {
+        // A privileged box's effective capabilities are `add=["ALL"]` — the
+        // same shape a non-privileged request can reach explicitly. Matching
+        // only on effective capabilities would let this request silently
+        // adopt the privileged box and inherit its cleared readonly paths
+        // and writable /sys, even though it never asked for privileged mode.
+        let mut actual = test_box_config(false);
+        actual.options.advanced.privileged = true;
+
+        let mut requested_advanced = crate::AdvancedBoxOptions::default();
+        requested_advanced
+            .set_capabilities(Some(crate::ContainerCapabilities {
+                add: vec!["ALL".to_string()],
+                ..Default::default()
+            }))
+            .unwrap();
+        let requested = BoxOptions {
+            advanced: requested_advanced,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            RuntimeImpl::check_options_compatibility(&requested, &actual),
+            Err(BoxliteError::Unsupported(_))
+        ));
     }
 
     #[tokio::test]
