@@ -758,18 +758,35 @@ struct ParsedVolumeSpec {
 pub struct VolumeFlags {
     /// Mount a volume. `hostPath:boxPath[:options]` for a local bind mount
     /// (e.g. `/data:/app/data`, `/data:/app/data:ro`); `boxPath` (or
-    /// `boxPath:ro`) for an anonymous local volume;
-    /// `volume://<idOrName>:boxPath` for a managed volume, resolved
-    /// server-side and only meaningful against a REST runtime.
+    /// `boxPath:ro`) for an anonymous local volume; `idOrName:boxPath` for a
+    /// managed volume, resolved server-side and only meaningful against a
+    /// REST runtime. The two are told apart the same way Docker's `-v`
+    /// does: `hostPath` is a managed-volume name unless it's an absolute
+    /// path (see `is_absolute_host_path`) — so a relative path (`./data`)
+    /// is read as a volume name, not a local path, matching Docker's own
+    /// behavior for `-v myvol:/data` vs `-v ./data:/data`.
     #[arg(short = 'v', long = "volume", value_name = "VOLUME")]
     pub volume: Vec<String>,
 }
 
-/// Prefix that marks a `-v` host side as a managed-volume reference rather
-/// than a local path. Explicit and unambiguous by construction — unlike
-/// guessing from what a bare token "looks like", a real path can never
-/// collide with this prefix, so there is nothing to disambiguate.
-const MANAGED_VOLUME_SCHEME: &str = "volume://";
+/// Internal wire marker for a managed-volume reference. Prepended to
+/// `ParsedVolumeSpec.host_path` once `parse_volume_spec` classifies a `-v`
+/// token as a volume name rather than a host path — never something a
+/// caller types themselves (see `is_absolute_host_path`).
+const MANAGED_VOLUME_WIRE_PREFIX: &str = "volume://";
+
+/// True if `s` looks like an absolute filesystem path — Unix (`/...`) or
+/// Windows drive-qualified (`C:\...`, `C:/...`). Anything else (a bare
+/// name, or a relative path like `./data`) is classified as a
+/// managed-volume reference instead. Mirrors Docker's own `-v myvol:/data`
+/// rule — `path.IsAbs(source)` in `moby/moby`
+/// `daemon/volume/mounts/linux_parser.go ParseMountRaw`: not absolute means
+/// volume, no exceptions — including the same accepted trade-off that a
+/// relative path like `./data` is read as a volume name rather than
+/// erroring (real-world impact: `docker/cli#1203`, `moby/moby#16132`).
+fn is_absolute_host_path(s: &str) -> bool {
+    std::path::Path::new(s).is_absolute() || is_windows_absolute_path(s)
+}
 
 /// True if the segment is a single ASCII letter (Windows drive, e.g. "C" in "C:\path").
 fn is_windows_drive(segment: &str) -> bool {
@@ -792,47 +809,42 @@ fn parse_volume_read_only(opts: &str) -> bool {
     opts.split(',').any(|o| o.trim().eq_ignore_ascii_case("ro"))
 }
 
-/// Parse the `volume://<idOrName>:boxPath` form. Split out of
-/// `parse_volume_spec` because embedding a `://` scheme breaks that
-/// function's colon-count-based grammar (`volume://x:/y`.split(':')` is
-/// three parts, not the two a bind mount would produce) — checking the
-/// scheme prefix first and handling it separately avoids that entirely
-/// rather than working around it inside the general parser.
-fn parse_managed_volume_spec(s: &str) -> anyhow::Result<ParsedVolumeSpec> {
-    let rest = s
-        .strip_prefix(MANAGED_VOLUME_SCHEME)
-        .expect("caller already matched the volume:// prefix");
-    let parts: Vec<&str> = rest.split(':').collect();
-    let (id, guest_path, read_only) = match parts.as_slice() {
-        [id, guest_path] => (*id, *guest_path, false),
-        [id, guest_path, opts] => (*id, *guest_path, parse_volume_read_only(opts)),
-        _ => anyhow::bail!(
-            "managed volume spec {s:?} must be {MANAGED_VOLUME_SCHEME}<id-or-name>:<box-path>[:ro|:rw]"
-        ),
-    };
+/// Validate and build a managed-volume `ParsedVolumeSpec` for the given
+/// volume id/name and box path — the else-branch of the classification
+/// `is_absolute_host_path` drives in `parse_volume_spec`. Mirrors the
+/// constraints a scheme-qualified reference used to carry: id non-empty,
+/// box path absolute, read-write only.
+fn managed_volume_spec(
+    id: &str,
+    guest_path: &str,
+    read_only: bool,
+    original: &str,
+) -> anyhow::Result<ParsedVolumeSpec> {
     if id.is_empty() {
-        anyhow::bail!("managed volume id or name must be non-empty (got {s:?})");
+        anyhow::bail!("managed volume id or name must be non-empty (got {original:?})");
     }
     if guest_path.is_empty() || !guest_path.starts_with('/') {
-        anyhow::bail!(
-            "managed volume box path must be absolute (e.g. {MANAGED_VOLUME_SCHEME}{id}:/data)"
-        );
+        anyhow::bail!("managed volume box path must be absolute (e.g. {id}:/data)");
     }
     if read_only {
-        anyhow::bail!("managed volume mounts are read-write only for now (remove :ro from {s:?})");
+        anyhow::bail!(
+            "managed volume mounts are read-write only for now (remove :ro from {original:?})"
+        );
     }
     Ok(ParsedVolumeSpec {
-        host_path: Some(format!("{MANAGED_VOLUME_SCHEME}{id}")),
+        host_path: Some(format!("{MANAGED_VOLUME_WIRE_PREFIX}{id}")),
         guest_path: guest_path.to_string(),
         read_only: false,
     })
 }
 
 /// Parse a single volume spec.
-/// - Managed volume: `volume://<idOrName>:boxPath` (e.g. `volume://myvolume:/data`),
-///   resolved server-side; only meaningful against a REST runtime.
-/// - Anonymous     : `boxPath` or `boxPath:ro` (e.g. `/data`, `/data:ro`).
-/// - Bind mount    : `hostPath:boxPath[:options]` (e.g. `/data:/app/data`, `/data:/app/data:ro`).
+/// - Anonymous  : `boxPath` or `boxPath:ro` (e.g. `/data`, `/data:ro`).
+/// - Bind mount : `hostPath:boxPath[:options]` (e.g. `/data:/app/data`, `/data:/app/data:ro`) —
+///   `hostPath` must be an absolute path (see `is_absolute_host_path`).
+/// - Managed volume: `idOrName:boxPath[:rw]` (e.g. `myvolume:/data`), resolved server-side and
+///   only meaningful against a REST runtime — anything in `hostPath` position that isn't an
+///   absolute path is read as a volume name, the same rule Docker's `-v` uses.
 ///
 /// Options: `ro` (read-only), `rw` (read-write, default). Other options are ignored.
 ///   Windows: host path may be a drive path like `C:\data`; the colon after the drive letter is not
@@ -841,9 +853,6 @@ fn parse_volume_spec(s: &str) -> anyhow::Result<ParsedVolumeSpec> {
     let s = s.trim();
     if s.is_empty() {
         anyhow::bail!("empty volume spec");
-    }
-    if s.starts_with(MANAGED_VOLUME_SCHEME) {
-        return parse_managed_volume_spec(s);
     }
     let parts: Vec<&str> = s.split(':').map(str::trim).collect();
 
@@ -863,7 +872,8 @@ fn parse_volume_spec(s: &str) -> anyhow::Result<ParsedVolumeSpec> {
             (None, guest, false)
         }
         2 => {
-            // Either anonymous with options (guest:ro) or bind (host:guest)
+            // Either anonymous with options (guest:ro), bind (host:guest), or
+            // managed volume (name:guest) — decided by is_absolute_host_path.
             let second = parts[1];
             if second.eq_ignore_ascii_case("ro") || second.eq_ignore_ascii_case("rw") {
                 let guest = parts[0].to_string();
@@ -871,17 +881,22 @@ fn parse_volume_spec(s: &str) -> anyhow::Result<ParsedVolumeSpec> {
                     anyhow::bail!("volume box path must be non-empty");
                 }
                 (None, guest, second.eq_ignore_ascii_case("ro"))
-            } else {
+            } else if is_absolute_host_path(parts[0]) {
                 (Some(parts[0].to_string()), parts[1].to_string(), false)
+            } else {
+                return managed_volume_spec(parts[0], parts[1], false, s);
             }
         }
         3 => {
             if is_windows_drive(parts[0]) {
                 let host = format!("{}:{}", parts[0], parts[1]);
                 (Some(host), parts[2].to_string(), false)
-            } else {
+            } else if is_absolute_host_path(parts[0]) {
                 let ro = parse_volume_read_only(parts[2]);
                 (Some(parts[0].to_string()), parts[1].to_string(), ro)
+            } else {
+                let ro = parse_volume_read_only(parts[2]);
+                return managed_volume_spec(parts[0], parts[1], ro, s);
             }
         }
         4.. => {
@@ -958,7 +973,7 @@ impl VolumeFlags {
                 // string is never touched on this host. Already fully
                 // validated (absolute guest path, no :ro) by
                 // parse_managed_volume_spec.
-                Some(host) if host.starts_with(MANAGED_VOLUME_SCHEME) => host,
+                Some(host) if host.starts_with(MANAGED_VOLUME_WIRE_PREFIX) => host,
                 Some(host) => {
                     let mut path = host;
                     if std::path::Path::new(&path).is_relative() && !is_windows_absolute_path(&path)
@@ -997,7 +1012,7 @@ impl VolumeFlags {
         self.volume.iter().any(|s| {
             parse_volume_spec(s).is_ok_and(|spec| {
                 spec.host_path
-                    .is_some_and(|host| host.starts_with(MANAGED_VOLUME_SCHEME))
+                    .is_some_and(|host| host.starts_with(MANAGED_VOLUME_WIRE_PREFIX))
             })
         })
     }
@@ -1769,25 +1784,18 @@ mod tests {
     // --- Managed volumes via -v (explicit volume:// scheme) ---
 
     #[test]
-    fn test_parse_volume_spec_scheme_is_managed() {
-        let spec = super::parse_volume_spec("volume://myvolume:/data").unwrap();
+    fn test_parse_volume_spec_bare_name_is_managed() {
+        // No scheme: a bare, non-absolute hostPath token is read as a
+        // managed-volume name — the same rule Docker's `-v myvol:/data`
+        // uses (`path.IsAbs(source)`).
+        let spec = super::parse_volume_spec("myvolume:/data").unwrap();
         assert_eq!(spec.host_path.as_deref(), Some("volume://myvolume"));
         assert_eq!(spec.guest_path, "/data");
         assert!(!spec.read_only);
     }
 
     #[test]
-    fn test_parse_volume_spec_bare_tokens_are_never_managed() {
-        // Without the scheme, everything parses exactly as it did before
-        // managed volumes existed — a bare token is a literal local path,
-        // canonicalized against this host, not guessed at as a volume name.
-        assert_eq!(
-            super::parse_volume_spec("myvolume:/data")
-                .unwrap()
-                .host_path
-                .as_deref(),
-            Some("myvolume")
-        );
+    fn test_parse_volume_spec_absolute_path_is_never_managed() {
         assert_eq!(
             super::parse_volume_spec("/host:/guest")
                 .unwrap()
@@ -1795,19 +1803,32 @@ mod tests {
                 .as_deref(),
             Some("/host")
         );
-        assert_eq!(
-            super::parse_volume_spec(r"subdir\cache:/guest")
-                .unwrap()
-                .host_path
-                .as_deref(),
-            Some(r"subdir\cache")
-        );
+    }
+
+    #[test]
+    fn test_is_absolute_host_path() {
+        assert!(super::is_absolute_host_path("/data"));
+        assert!(super::is_absolute_host_path(r"C:\data"));
+        assert!(super::is_absolute_host_path("D:/data"));
+        assert!(!super::is_absolute_host_path("myvolume"));
+        assert!(!super::is_absolute_host_path("./data"));
+        assert!(!super::is_absolute_host_path("data/sub"));
+    }
+
+    #[test]
+    fn test_parse_volume_spec_relative_path_is_managed_like_docker() {
+        // Matches Docker's own accepted trade-off: a relative host path
+        // (not absolute) is read as a volume name rather than erroring or
+        // being resolved against the local filesystem. Real-world impact
+        // on Docker itself: docker/cli#1203, moby/moby#16132.
+        let spec = super::parse_volume_spec("./data:/guest").unwrap();
+        assert_eq!(spec.host_path.as_deref(), Some("volume://./data"));
     }
 
     #[test]
     fn test_volume_flags_apply_to_managed_volume() {
         let flags = VolumeFlags {
-            volume: vec!["volume://myvolume:/data".to_string()],
+            volume: vec!["myvolume:/data".to_string()],
         };
         let mut opts = BoxOptions::default();
         flags.apply_to(&mut opts, None).unwrap();
@@ -1823,7 +1844,7 @@ mod tests {
     #[test]
     fn test_volume_flags_apply_to_managed_volume_rejects_empty_id() {
         let flags = VolumeFlags {
-            volume: vec!["volume://:/data".to_string()],
+            volume: vec![":/data".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1839,7 +1860,7 @@ mod tests {
     #[test]
     fn test_volume_flags_apply_to_managed_volume_rejects_relative_box_path() {
         let flags = VolumeFlags {
-            volume: vec!["volume://myvolume:data".to_string()],
+            volume: vec!["myvolume:data".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1855,7 +1876,7 @@ mod tests {
     #[test]
     fn test_volume_flags_apply_to_managed_volume_rejects_read_only() {
         let flags = VolumeFlags {
-            volume: vec!["volume://myvolume:/data:ro".to_string()],
+            volume: vec!["myvolume:/data:ro".to_string()],
         };
         let mut opts = BoxOptions::default();
         let err = flags
@@ -1871,7 +1892,7 @@ mod tests {
     #[test]
     fn test_volume_flags_has_managed_volumes_via_dash_v() {
         let managed = VolumeFlags {
-            volume: vec!["volume://myvolume:/data".to_string()],
+            volume: vec!["myvolume:/data".to_string()],
         };
         assert!(managed.has_managed_volumes());
 
@@ -1879,25 +1900,17 @@ mod tests {
             volume: vec!["/host:/data".to_string()],
         };
         assert!(!local.has_managed_volumes());
-
-        // A bare token — no scheme — is a local path, not a managed volume,
-        // even though that's exactly the string a volume's name might be.
-        let bare_token = VolumeFlags {
-            volume: vec!["myvolume:/data".to_string()],
-        };
-        assert!(!bare_token.has_managed_volumes());
     }
 
     #[test]
     fn test_run_parses_managed_volume_via_dash_v() {
-        let cli =
-            Cli::try_parse_from(["boxlite", "run", "-v", "volume://myvolume:/data", "alpine"])
-                .expect("run -v volume://myvolume:/data should parse");
+        let cli = Cli::try_parse_from(["boxlite", "run", "-v", "myvolume:/data", "alpine"])
+            .expect("run -v myvolume:/data should parse");
         let Commands::Run(args) = cli.command else {
             panic!("expected run command");
         };
 
-        assert_eq!(args.volume.volume, vec!["volume://myvolume:/data"]);
+        assert_eq!(args.volume.volume, vec!["myvolume:/data"]);
     }
 
     // ─── auth subcommand parse tests ───────────────────────────────────────

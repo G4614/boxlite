@@ -691,30 +691,37 @@ Used by `run` and `create` (defined at `src/cli/src/cli.rs:584-604`).
 
 ## Volume Mount Syntax
 
-`-v`/`--volume` accepts the grammar implemented at `src/cli/src/cli.rs:838-918`
-(managed-volume form: `src/cli/src/cli.rs:799-827`):
+`-v`/`--volume` accepts the grammar implemented at `src/cli/src/cli.rs:852-935`
+(managed-volume branch: `src/cli/src/cli.rs:817-839`):
 
 ```text
-VOLUME := 'volume://' VOLUME_NAME_OR_ID ':' BOX_PATH [':' 'rw']  # managed volume
-        | HOST_PATH ':' BOX_PATH [':' OPTIONS]                   # bind mount
-        | BOX_PATH [':' OPTIONS]                                 # anonymous volume
+VOLUME := HOST_PATH ':' BOX_PATH [':' OPTIONS]  # bind mount, or managed volume
+        | BOX_PATH [':' OPTIONS]                # anonymous volume
 ```
+
+`HOST_PATH` is a managed-volume name/id unless it's an absolute path — the
+same rule Docker's `-v` uses to tell `docker run -v myvol:/data` (named
+volume) apart from `docker run -v /data:/data` (bind mount): not absolute
+means volume, no exceptions.
 
 | Form | Example | Behavior |
 |------|---------|----------|
 | `BOX_PATH` | `/data` | Anonymous volume stored under `{home}/volumes/anonymous/<ulid>` |
 | `BOX_PATH:ro` / `BOX_PATH:rw` | `/data:ro` | Anonymous volume with explicit mode |
-| `HOST_PATH:BOX_PATH` | `/host/data:/data` | Bind mount (host directory must exist) |
-| `HOST_PATH:BOX_PATH:OPTIONS` | `/host/data:/data:ro` | Bind mount with options |
+| `HOST_PATH:BOX_PATH` (absolute `HOST_PATH`) | `/host/data:/data` | Bind mount (host directory must exist) |
+| `HOST_PATH:BOX_PATH:OPTIONS` (absolute `HOST_PATH`) | `/host/data:/data:ro` | Bind mount with options |
 | `C:\HOST\PATH:/BOX_PATH[:OPTIONS]` | `C:\data:/app/data:ro` | Windows drive paths are handled — the drive-letter colon is not treated as a separator |
-| `volume://VOLUME_NAME_OR_ID:BOX_PATH[:rw]` | `volume://myvolume:/data` | Managed volume, resolved server-side by name or id (REST runtime only, see `has_managed_volumes` at `src/cli/src/cli.rs:994-1001`); box path must be absolute. `:ro` is rejected — managed volumes are read-write only for now; the accepted third component is only the redundant explicit `:rw`. |
+| `VOLUME_NAME_OR_ID:BOX_PATH[:rw]` (non-absolute `HOST_PATH`) | `myvolume:/data` | Managed volume, resolved server-side by name or id (REST runtime only, see `has_managed_volumes` at `src/cli/src/cli.rs:1011-1018`); box path must be absolute. `:ro` is rejected — managed volumes are read-write only for now; the accepted third component is only the redundant explicit `:rw`. |
 
-**Options:** `ro` (read-only) or `rw` (read-write, default) for local bind mounts and anonymous volumes — managed volumes reject `:ro` outright (see above). Other options are ignored. Relative host paths are canonicalized when the mount is applied (`VolumeFlags::apply_to`, `src/cli/src/cli.rs:939-988`), not during parsing; missing host paths fail with `volume host path ...`.
+**Options:** `ro` (read-only) or `rw` (read-write, default) for local bind mounts and anonymous volumes — managed volumes reject `:ro` outright (see above). Other options are ignored. Bind-mount host paths are canonicalized when the mount is applied (`VolumeFlags::apply_to`, `src/cli/src/cli.rs:956-1005`), not during parsing; missing host paths fail with `volume host path ...`.
 
-The `volume://` prefix is required and unambiguous: without it, `-v` behaves
-exactly as it did before managed volumes existed — a bare token like
-`myvolume:/data` is always a local path (and fails if it doesn't exist), never
-guessed at as a volume name.
+There is no scheme to type — classification is purely `is_absolute_host_path`
+(`src/cli/src/cli.rs:787-789`) on `HOST_PATH`. This carries the same trade-off
+Docker itself accepts: a relative path like `./data` is not absolute, so
+`-v ./data:/data` is read as a managed-volume reference named `./data`, not a
+local bind mount (see `docker/cli#1203`, `moby/moby#16132` for the real-world
+impact on Docker). Use an absolute path (or `$(pwd)/data`) to bind-mount a
+relative directory.
 
 The anonymous-volume base directory is resolved as: `--home`, else `$BOXLITE_HOME`, else `~/.boxlite`, else the system temp dir.
 
