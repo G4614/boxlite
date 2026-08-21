@@ -187,6 +187,9 @@ const box = new SimpleBox({
       mode: 'disabled',
     },
   },
+  // The pre-split shape `network: { mode, allowNet }` still works and
+  // configures the outbound direction. Passing it together with `outbound`
+  // is rejected.
   advanced: {
     capabilities: {
       add: ['NET_ADMIN'],

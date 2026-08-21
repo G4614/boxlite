@@ -72,6 +72,15 @@ impl From<NetworkDirectionInfo> for JsNetworkDirectionInfo {
 pub struct JsNetworkInfo {
     pub outbound: JsNetworkDirectionInfo,
     pub inbound: JsNetworkDirectionInfo,
+    /// Mirrors `outbound.mode` so pre-split readers keep working.
+    ///
+    /// @deprecated Read `outbound.mode`.
+    pub mode: String,
+    /// Mirrors `outbound.allowNet` so pre-split readers keep working.
+    ///
+    /// @deprecated Read `outbound.allowNet`.
+    #[napi(js_name = "allowNet")]
+    pub allow_net: Vec<String>,
     /// `None` becomes `null` when this handle does not know the bindings; an
     /// empty array means there are no active publications.
     #[napi(js_name = "publishedPorts")]
@@ -80,8 +89,11 @@ pub struct JsNetworkInfo {
 
 impl From<NetworkInfo> for JsNetworkInfo {
     fn from(network: NetworkInfo) -> Self {
+        let outbound = JsNetworkDirectionInfo::from(network.outbound);
         Self {
-            outbound: network.outbound.into(),
+            mode: outbound.mode.clone(),
+            allow_net: outbound.allow_net.clone(),
+            outbound,
             inbound: network.inbound.into(),
             published_ports: network
                 .published_ports

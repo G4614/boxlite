@@ -273,14 +273,6 @@ typedef struct CImageInfoList {
 // Image list completion.
 typedef void (*CBoxImageListCb)(struct CImageInfoList*, CBoxliteError*, void*);
 
-// Mode and allowlist for one traffic direction. `allow_net` points to
-// `allow_net_count` owned strings, owned by the enclosing [`CNetworkInfo`].
-typedef struct CNetworkDirectionInfo {
-  enum BoxliteNetworkMode mode;
-  char **allow_net;
-  int allow_net_count;
-} CNetworkDirectionInfo;
-
 // A concrete host listener published to a guest port.
 //
 // `host_ip` is owned by the enclosing [`CBoxInfo`].
@@ -301,15 +293,35 @@ typedef struct CPublishedPortList {
   int count;
 } CPublishedPortList;
 
+// Mode and allowlist for one traffic direction. `allow_net` points to
+// `allow_net_count` owned strings, owned by the enclosing [`CNetworkInfo`].
+typedef struct CNetworkDirectionInfo {
+  enum BoxliteNetworkMode mode;
+  char **allow_net;
+  int allow_net_count;
+} CNetworkDirectionInfo;
+
 // Typed network metadata owned by an enclosing [`CBoxInfo`].
 //
 // `published_ports` is null when the current handle does not know the
 // bindings, non-null and empty when there are no active publications, and
 // otherwise contains concrete bindings.
+// The first four fields are byte-compatible with the pre-split struct
+// (`mode`, `allow_net`, `allow_net_count`, `published_ports`), so callers
+// compiled against the old header keep reading valid data at the same
+// offsets. They alias `outbound`'s allocations — never free them separately;
+// [`free_network_info`] releases each allocation exactly once through
+// `outbound`/`inbound`.
 typedef struct CNetworkInfo {
+  // Deprecated: read `outbound.mode`. Mirrors it for old callers.
+  enum BoxliteNetworkMode mode;
+  // Deprecated: read `outbound.allow_net`. Aliases it — do not free.
+  char **allow_net;
+  // Deprecated: read `outbound.allow_net_count`.
+  int allow_net_count;
+  struct CPublishedPortList *published_ports;
   struct CNetworkDirectionInfo outbound;
   struct CNetworkDirectionInfo inbound;
-  struct CPublishedPortList *published_ports;
 } CNetworkInfo;
 
 typedef struct CBoxInfo {

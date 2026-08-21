@@ -62,11 +62,23 @@ pub struct CNetworkDirectionInfo {
 /// `published_ports` is null when the current handle does not know the
 /// bindings, non-null and empty when there are no active publications, and
 /// otherwise contains concrete bindings.
+/// The first four fields are byte-compatible with the pre-split struct
+/// (`mode`, `allow_net`, `allow_net_count`, `published_ports`), so callers
+/// compiled against the old header keep reading valid data at the same
+/// offsets. They alias `outbound`'s allocations — never free them separately;
+/// [`free_network_info`] releases each allocation exactly once through
+/// `outbound`/`inbound`.
 #[repr(C)]
 pub struct CNetworkInfo {
+    /// Deprecated: read `outbound.mode`. Mirrors it for old callers.
+    pub mode: BoxliteNetworkMode,
+    /// Deprecated: read `outbound.allow_net`. Aliases it — do not free.
+    pub allow_net: *mut *mut c_char,
+    /// Deprecated: read `outbound.allow_net_count`.
+    pub allow_net_count: c_int,
+    pub published_ports: *mut CPublishedPortList,
     pub outbound: CNetworkDirectionInfo,
     pub inbound: CNetworkDirectionInfo,
-    pub published_ports: *mut CPublishedPortList,
 }
 
 #[repr(C)]
@@ -185,10 +197,16 @@ impl CNetworkInfo {
             .map(Box::into_raw)
             .unwrap_or(ptr::null_mut());
 
+        let outbound = CNetworkDirectionInfo::from_direction_info(&network.outbound);
         Self {
-            outbound: CNetworkDirectionInfo::from_direction_info(&network.outbound),
-            inbound: CNetworkDirectionInfo::from_direction_info(&network.inbound),
+            // Aliases of `outbound`, kept for pre-split callers. Ownership
+            // stays with `outbound`.
+            mode: outbound.mode,
+            allow_net: outbound.allow_net,
+            allow_net_count: outbound.allow_net_count,
             published_ports,
+            outbound,
+            inbound: CNetworkDirectionInfo::from_direction_info(&network.inbound),
         }
     }
 }
@@ -529,7 +547,75 @@ mod tests {
     use crate::options::BoxlitePortProtocol;
     use crate::{FREE_STR_CALLS, FREE_STR_LOCK};
 
-    use super::{BoxliteNetworkMode, free_network_info, network_to_c_ptr};
+    use super::{BoxliteNetworkMode, CNetworkInfo, free_network_info, network_to_c_ptr};
+    use std::ffi::c_char;
+
+    /// Callers compiled against the pre-split header read `mode`,
+    /// `allow_net`, `allow_net_count` and `published_ports` at the offsets
+    /// they had before `outbound`/`inbound` existed. Pin those offsets: moving
+    /// them is an ABI break that no recompile of the caller would reveal.
+    #[test]
+    fn legacy_network_info_fields_keep_their_pre_split_offsets() {
+        use std::mem::offset_of;
+
+        assert_eq!(offset_of!(CNetworkInfo, mode), 0);
+        assert_eq!(
+            offset_of!(CNetworkInfo, allow_net),
+            offset_of!(CNetworkInfo, mode) + size_of::<usize>()
+        );
+        assert_eq!(
+            offset_of!(CNetworkInfo, allow_net_count),
+            offset_of!(CNetworkInfo, allow_net) + size_of::<*mut *mut c_char>()
+        );
+        assert_eq!(
+            offset_of!(CNetworkInfo, published_ports),
+            offset_of!(CNetworkInfo, allow_net) + 2 * size_of::<usize>()
+        );
+        // The legacy prefix must sit ahead of the nested view, otherwise the
+        // offsets above would only hold by accident.
+        assert!(offset_of!(CNetworkInfo, outbound) > offset_of!(CNetworkInfo, published_ports));
+    }
+
+    /// The legacy scalar fields alias `outbound`'s allocations, so they must
+    /// report the same values — and the aliasing must not double-free.
+    #[test]
+    fn legacy_network_info_fields_mirror_outbound() {
+        let _guard = FREE_STR_LOCK.lock().unwrap();
+
+        let network = NonNull::new(network_to_c_ptr(&Some(NetworkInfo {
+            outbound: NetworkDirectionInfo {
+                mode: NetworkMode::Enabled,
+                allow_net: vec!["api.example.com".to_string()],
+            },
+            inbound: NetworkDirectionInfo {
+                mode: NetworkMode::Disabled,
+                allow_net: Vec::new(),
+            },
+            published_ports: None,
+        })))
+        .expect("Some network metadata must allocate CNetworkInfo");
+
+        {
+            let network = unsafe { network.as_ref() };
+            assert_eq!(network.mode, network.outbound.mode);
+            assert_eq!(network.allow_net_count, network.outbound.allow_net_count);
+            assert_eq!(network.allow_net, network.outbound.allow_net);
+            assert_eq!(
+                unsafe { CStr::from_ptr(*network.allow_net) }
+                    .to_str()
+                    .unwrap(),
+                "api.example.com"
+            );
+        }
+
+        // One free of the aliased allowlist, not two.
+        let before = FREE_STR_CALLS.load(std::sync::atomic::Ordering::SeqCst);
+        unsafe { free_network_info(network.as_ptr()) };
+        assert_eq!(
+            FREE_STR_CALLS.load(std::sync::atomic::Ordering::SeqCst) - before,
+            1
+        );
+    }
 
     #[test]
     fn typed_network_info_preserves_network_and_publication_state() {

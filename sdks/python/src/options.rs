@@ -298,11 +298,48 @@ impl PyNetworkSpec {
     #[new]
     #[pyo3(signature = (outbound=None, inbound=None, mode=None, allow_net=None))]
     fn new(
-        outbound: Option<PyOutboundNetworkSpec>,
-        inbound: Option<PyInboundNetworkSpec>,
+        outbound: Option<&Bound<'_, PyAny>>,
+        inbound: Option<&Bound<'_, PyAny>>,
         mode: Option<String>,
         allow_net: Option<Vec<String>>,
     ) -> PyResult<Self> {
+        // The pre-split signature was `NetworkSpec(mode, allow_net)`, so the
+        // first two positional slots used to hold a `str` and a list of `str`.
+        // Both legacy shapes stay callable because each is unambiguous by
+        // type: a `str` in slot 1 is a mode, a sequence in slot 2 is an
+        // allowlist. Anything else must be the nested spec objects.
+        let (outbound, positional_mode) = match outbound {
+            None => (None, None),
+            Some(value) => match value.extract::<String>() {
+                Ok(legacy_mode) => (None, Some(legacy_mode)),
+                Err(_) => (Some(value.extract::<PyOutboundNetworkSpec>()?), None),
+            },
+        };
+        let (inbound, positional_allow_net) = match inbound {
+            None => (None, None),
+            Some(value) => match value.extract::<Vec<String>>() {
+                Ok(legacy_allow_net) => (None, Some(legacy_allow_net)),
+                Err(_) => (Some(value.extract::<PyInboundNetworkSpec>()?), None),
+            },
+        };
+
+        let mode = match (positional_mode, mode) {
+            (Some(_), Some(_)) => {
+                return Err(PyValueError::new_err(
+                    "NetworkSpec got mode both positionally and by keyword",
+                ));
+            }
+            (positional, keyword) => positional.or(keyword),
+        };
+        let allow_net = match (positional_allow_net, allow_net) {
+            (Some(_), Some(_)) => {
+                return Err(PyValueError::new_err(
+                    "NetworkSpec got allow_net both positionally and by keyword",
+                ));
+            }
+            (positional, keyword) => positional.or(keyword),
+        };
+
         let legacy_outbound = if mode.is_some() || allow_net.is_some() {
             if outbound.is_some() {
                 return Err(PyValueError::new_err(
@@ -321,6 +358,30 @@ impl PyNetworkSpec {
             outbound: outbound.or(legacy_outbound),
             inbound,
         })
+    }
+
+    /// Legacy view of the outbound mode.
+    ///
+    /// Deprecated: read `spec.outbound.mode`. Kept so pre-split readers keep
+    /// working; defaults to `"enabled"` when no outbound policy is set, which
+    /// is what an unset spec meant before the split.
+    #[getter]
+    fn mode(&self) -> String {
+        self.outbound
+            .as_ref()
+            .map(|outbound| outbound.mode.clone())
+            .unwrap_or_else(|| "enabled".to_string())
+    }
+
+    /// Legacy view of the outbound allowlist.
+    ///
+    /// Deprecated: read `spec.outbound.allow_net`.
+    #[getter]
+    fn allow_net(&self) -> Vec<String> {
+        self.outbound
+            .as_ref()
+            .map(|outbound| outbound.allow_net.clone())
+            .unwrap_or_default()
     }
 
     fn __repr__(&self) -> String {

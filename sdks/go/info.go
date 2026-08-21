@@ -47,6 +47,16 @@ type NetworkDirectionInfo struct {
 type NetworkInfo struct {
 	Outbound NetworkDirectionInfo
 	Inbound  NetworkDirectionInfo
+
+	// Mode mirrors Outbound.Mode for pre-split readers.
+	//
+	// Deprecated: read Outbound.Mode.
+	Mode NetworkMode
+
+	// AllowNet mirrors Outbound.AllowNet for pre-split readers.
+	//
+	// Deprecated: read Outbound.AllowNet.
+	AllowNet []string
 	// PublishedPorts is nil when this handle does not know the bindings. A
 	// non-nil empty slice means that the box has no active publications.
 	PublishedPorts []PublishedPort
@@ -240,9 +250,12 @@ func cNetworkInfoToGo(network *C.CNetworkInfo) *NetworkInfo {
 		}
 	}
 
+	outbound := cNetworkDirectionInfoToGo(network.outbound)
 	return &NetworkInfo{
-		Outbound:       cNetworkDirectionInfoToGo(network.outbound),
+		Outbound:       outbound,
 		Inbound:        cNetworkDirectionInfoToGo(network.inbound),
+		Mode:           outbound.Mode,
+		AllowNet:       outbound.AllowNet,
 		PublishedPorts: publishedPorts,
 	}
 }

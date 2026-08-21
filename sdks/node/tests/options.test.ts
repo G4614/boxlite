@@ -197,6 +197,62 @@ describe("SimpleBoxOptions", () => {
     expect(opts.network?.outbound?.mode).toBe("disabled");
   });
 
+  test("accepts the deprecated flat network shape", async () => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+    const box = new SimpleBox({
+      network: { mode: "enabled", allowNet: ["example.com"] },
+    } as any);
+
+    // Passed through to the native layer, which folds it into outbound.
+    expect((box as any)._boxOpts.network).toEqual({
+      mode: "enabled",
+      allowNet: ["example.com"],
+    });
+  });
+
+  test("rejects mixing the flat shape with outbound", async () => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+
+    expect(
+      () =>
+        new SimpleBox({
+          network: { mode: "enabled", outbound: { mode: "disabled" } },
+        } as any),
+    ).toThrow("cannot mix outbound with the deprecated mode/allowNet");
+  });
+
+  test("still accepts the flat shape alongside inbound", async () => {
+    const { SimpleBox } = await import("../lib/simplebox.js");
+    const box = new SimpleBox({
+      network: { mode: "enabled", inbound: { mode: "disabled" } },
+    } as any);
+
+    expect((box as any)._boxOpts.network).toEqual({
+      mode: "enabled",
+      inbound: { mode: "disabled" },
+    });
+  });
+
+  test.each([
+    [
+      "mode",
+      { mode: 42 },
+      'SimpleBoxOptions.network.mode must be "enabled" or "disabled"',
+    ],
+    [
+      "allowNet",
+      { allowNet: "example.com" },
+      "SimpleBoxOptions.network.allowNet must be an array",
+    ],
+  ])(
+    "rejects malformed deprecated network.%s",
+    async (_field, network, message) => {
+      const { SimpleBox } = await import("../lib/simplebox.js");
+
+      expect(() => new SimpleBox({ network } as any)).toThrow(message);
+    },
+  );
+
   test.each([
     ["array", []],
     ["number", 42],

@@ -352,6 +352,18 @@ pub struct JsNetworkSpec {
 
     /// Inbound service access policy.
     pub inbound: Option<JsInboundNetworkSpec>,
+
+    /// Legacy outbound mode, kept so pre-split callers keep working.
+    ///
+    /// @deprecated Use `outbound.mode`. Supplying this together with
+    /// `outbound` is rejected rather than silently picking one.
+    pub mode: Option<String>,
+
+    /// Legacy outbound allowlist, kept so pre-split callers keep working.
+    ///
+    /// @deprecated Use `outbound.allowNet`.
+    #[napi(js_name = "allowNet")]
+    pub allow_net: Option<Vec<String>>,
 }
 
 #[napi(object)]
@@ -422,7 +434,29 @@ impl TryFrom<JsNetworkSpec> for (NetworkSpec, NetworkSpec) {
     type Error = boxlite_shared::errors::BoxliteError;
 
     fn try_from(js_spec: JsNetworkSpec) -> Result<Self, Self::Error> {
-        let JsNetworkSpec { outbound, inbound } = js_spec;
+        let JsNetworkSpec {
+            outbound,
+            inbound,
+            mode,
+            allow_net,
+        } = js_spec;
+
+        // Legacy flat shape (`{ mode, allowNet }`) maps onto the outbound
+        // direction, which is what it configured before the split. Mixing the
+        // two shapes is a caller error, not something to resolve silently.
+        let outbound = match (outbound, mode, allow_net) {
+            (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
+                return Err(Self::Error::InvalidArgument(
+                    "network cannot mix outbound with legacy mode/allowNet".to_string(),
+                ));
+            }
+            (Some(outbound), None, None) => Some(outbound),
+            (None, None, None) => None,
+            (None, mode, allow_net) => Some(JsOutboundNetworkSpec {
+                mode: mode.unwrap_or_else(|| "enabled".to_string()),
+                allow_net,
+            }),
+        };
 
         let outbound = match outbound {
             Some(outbound) => NetworkSpec::try_from(OutboundNetworkConfig {
@@ -860,6 +894,8 @@ mod tests {
                     mode: "enabled".into(),
                     allow_net: None,
                 }),
+                mode: None,
+                allow_net: None,
             }),
             ports: None,
             auto_remove: None,
@@ -961,6 +997,8 @@ mod tests {
                 allow_net: Some(vec!["example.com".into()]),
             }),
             inbound: None,
+            mode: None,
+            allow_net: None,
         })
         .unwrap_err();
 
@@ -978,10 +1016,47 @@ mod tests {
                 mode: "disabled".into(),
                 allow_net: None,
             }),
+            mode: None,
+            allow_net: None,
         })
         .unwrap();
 
         assert!(matches!(inbound, NetworkSpec::Disabled));
         assert!(matches!(outbound, NetworkSpec::Enabled { .. }));
+    }
+
+    /// The pre-split shape configured the outbound direction; it must keep
+    /// doing exactly that, and leave inbound at its default.
+    #[test]
+    fn legacy_flat_network_spec_converts_to_outbound() {
+        let (outbound, inbound) = <(NetworkSpec, NetworkSpec)>::try_from(JsNetworkSpec {
+            outbound: None,
+            inbound: None,
+            mode: Some("disabled".into()),
+            allow_net: None,
+        })
+        .unwrap();
+
+        assert!(matches!(outbound, NetworkSpec::Disabled));
+        assert!(matches!(inbound, NetworkSpec::Enabled { .. }));
+    }
+
+    #[test]
+    fn legacy_flat_network_spec_rejects_mixing_with_outbound() {
+        let err = <(NetworkSpec, NetworkSpec)>::try_from(JsNetworkSpec {
+            outbound: Some(JsOutboundNetworkSpec {
+                mode: "enabled".into(),
+                allow_net: None,
+            }),
+            inbound: None,
+            mode: Some("disabled".into()),
+            allow_net: None,
+        })
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("cannot mix outbound with legacy mode/allowNet")
+        );
     }
 }

@@ -257,6 +257,11 @@ Configuration options for creating a box.
 - `outbound: OutboundNetworkSpec` - Guest egress policy
 - `inbound: InboundNetworkSpec` - Service access policy
 
+The pre-split form `NetworkSpec(mode=..., allow_net=...)` still works and
+configures the outbound direction, positionally as well as by keyword.
+Supplying it together with `outbound` raises `ValueError`. `spec.mode` and
+`spec.allow_net` remain readable as views onto `outbound`.
+
 `allow_net` restricts both TCP and UDP egress. Hostname entries are enforced by
 inspecting TLS SNI / HTTP Host, which only TCP carries, so an `allow_net`
 holding only hostnames denies all UDP egress — add the IP or CIDR to keep UDP
