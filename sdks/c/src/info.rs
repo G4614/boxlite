@@ -582,17 +582,17 @@ mod tests {
     fn legacy_network_info_fields_mirror_outbound() {
         let _guard = FREE_STR_LOCK.lock().unwrap();
 
-        let network = NonNull::new(network_to_c_ptr(&Some(NetworkInfo {
-            outbound: NetworkDirectionInfo {
+        let network = NonNull::new(network_to_c_ptr(&Some(NetworkInfo::new(
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: vec!["api.example.com".to_string()],
             },
-            inbound: NetworkDirectionInfo {
+            NetworkDirectionInfo {
                 mode: NetworkMode::Disabled,
                 allow_net: Vec::new(),
             },
-            published_ports: None,
-        })))
+            None,
+        ))))
         .expect("Some network metadata must allocate CNetworkInfo");
 
         {
@@ -624,17 +624,17 @@ mod tests {
 
         assert!(network_to_c_ptr(&None).is_null());
 
-        let unresolved = NonNull::new(network_to_c_ptr(&Some(NetworkInfo {
-            outbound: NetworkDirectionInfo {
+        let unresolved = NonNull::new(network_to_c_ptr(&Some(NetworkInfo::new(
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: vec!["api.example.com".to_string()],
             },
-            inbound: NetworkDirectionInfo {
+            NetworkDirectionInfo {
                 mode: NetworkMode::Disabled,
                 allow_net: Vec::new(),
             },
-            published_ports: None,
-        })))
+            None,
+        ))))
         .expect("Some network metadata must allocate CNetworkInfo");
         let unresolved_ref = unsafe { unresolved.as_ref() };
         assert_eq!(
@@ -656,17 +656,17 @@ mod tests {
         assert!(unresolved_ref.published_ports.is_null());
         unsafe { free_network_info(unresolved.as_ptr()) };
 
-        let resolved_empty = NonNull::new(network_to_c_ptr(&Some(NetworkInfo {
-            outbound: NetworkDirectionInfo {
+        let resolved_empty = NonNull::new(network_to_c_ptr(&Some(NetworkInfo::new(
+            NetworkDirectionInfo {
                 mode: NetworkMode::Disabled,
                 allow_net: Vec::new(),
             },
-            inbound: NetworkDirectionInfo {
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: Vec::new(),
             },
-            published_ports: Some(Vec::new()),
-        })))
+            Some(Vec::new()),
+        ))))
         .expect("Some network metadata must allocate CNetworkInfo");
         let resolved_empty_ref = unsafe { resolved_empty.as_ref() };
         assert_eq!(
@@ -679,22 +679,22 @@ mod tests {
         assert_eq!(resolved_empty_ports.count, 0);
         unsafe { free_network_info(resolved_empty.as_ptr()) };
 
-        let resolved = NonNull::new(network_to_c_ptr(&Some(NetworkInfo {
-            outbound: NetworkDirectionInfo {
+        let resolved = NonNull::new(network_to_c_ptr(&Some(NetworkInfo::new(
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: Vec::new(),
             },
-            inbound: NetworkDirectionInfo {
+            NetworkDirectionInfo {
                 mode: NetworkMode::Enabled,
                 allow_net: Vec::new(),
             },
-            published_ports: Some(vec![PublishedPort {
+            Some(vec![PublishedPort {
                 guest_port: 3000,
                 host_ip: "127.0.0.1".to_string(),
                 host_port: 49152,
                 protocol: PortProtocol::Tcp,
             }]),
-        })))
+        ))))
         .expect("Some network metadata must allocate CNetworkInfo");
         let resolved_ref = unsafe { resolved.as_ref() };
         assert!(!resolved_ref.published_ports.is_null());

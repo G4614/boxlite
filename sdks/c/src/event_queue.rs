@@ -1283,22 +1283,22 @@ mod owned_ffi_ptr_nested_leak_tests {
             auto_delete: 0,
             auto_resume: 1,
             created_at: 0,
-            network: crate::info::network_to_c_ptr(&Some(NetworkInfo {
-                outbound: NetworkDirectionInfo {
+            network: crate::info::network_to_c_ptr(&Some(NetworkInfo::new(
+                NetworkDirectionInfo {
                     mode: NetworkMode::Enabled,
                     allow_net: vec!["api.example.com".to_string()],
                 },
-                inbound: NetworkDirectionInfo {
+                NetworkDirectionInfo {
                     mode: NetworkMode::Enabled,
                     allow_net: Vec::new(),
                 },
-                published_ports: Some(vec![PublishedPort {
+                Some(vec![PublishedPort {
                     guest_port: 3000,
                     host_ip: "127.0.0.1".to_string(),
                     host_port: 49152,
                     protocol: PortProtocol::Tcp,
                 }]),
-            })),
+            ))),
             started_at: 0,
         });
 
