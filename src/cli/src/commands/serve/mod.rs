@@ -789,10 +789,13 @@ fn build_box_options(req: &CreateBoxRequest) -> Result<BoxOptions, boxlite::Boxl
         tty: req.tty.unwrap_or(false),
         advanced: {
             let mut advanced = boxlite::AdvancedBoxOptions::default();
-            advanced.set_capabilities(Some(boxlite::ContainerCapabilities {
-                add: req.advanced.capabilities.add.clone(),
-                drop: req.advanced.capabilities.drop.clone(),
-            }))?;
+            let capabilities = req.advanced.capabilities.as_ref().map(|capabilities| {
+                boxlite::ContainerCapabilities {
+                    add: capabilities.add.clone(),
+                    drop: capabilities.drop.clone(),
+                }
+            });
+            advanced.set_capabilities(capabilities)?;
             advanced
         },
         auto_stop: req.auto_stop,
@@ -1368,6 +1371,23 @@ mod tests {
         let capabilities = opts.advanced.capabilities().expect("capabilities set");
         assert_eq!(capabilities.add, vec!["SYS_ADMIN"]);
         assert_eq!(capabilities.drop, vec!["CAP_NET_RAW"]);
+    }
+
+    /// A request that never mentions `advanced`/`capabilities` at all must
+    /// resolve to `None` (unspecified), not an explicit empty policy — that
+    /// distinction is what a privileged request needs, and what an older
+    /// archive importer needs (`archive_version_for_options` keys off it).
+    #[test]
+    fn build_box_options_leaves_capabilities_unspecified_when_the_wire_omits_them() {
+        let req: super::types::CreateBoxRequest =
+            serde_json::from_str(r#"{"image":"alpine:latest"}"#)
+                .expect("ordinary request must deserialize");
+
+        let opts = build_box_options(&req).expect("build ordinary options");
+        assert!(
+            opts.advanced.capabilities().is_none(),
+            "omitting capabilities on the wire must not become an explicit empty policy"
+        );
     }
 
     #[test]

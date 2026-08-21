@@ -65,7 +65,12 @@ pub(super) struct CreateBoxRequest {
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct CreateBoxAdvancedOptions {
-    pub capabilities: ContainerCapabilitiesRequest,
+    /// `None` when the wire omits `capabilities` (or sends `null`) — distinct
+    /// from `Some` of an empty policy, the same distinction the core
+    /// `AdvancedBoxOptions.capabilities` makes and for the same reason: an
+    /// explicit empty policy conflicts with `privileged`, an unspecified one
+    /// doesn't, and `archive_version_for_options` keys off which one this is.
+    pub capabilities: Option<ContainerCapabilitiesRequest>,
 }
 
 #[derive(Clone, Default, Deserialize)]
