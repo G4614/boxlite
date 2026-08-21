@@ -564,8 +564,9 @@ impl TryFrom<PyBoxOptions> for BoxOptions {
             if let Some(health_check) = advanced.health_check {
                 opts.advanced.health_check = Some(HealthCheckOptions::from(health_check));
             }
-            opts.advanced
-                .set_capabilities(Some(advanced.capabilities.into()))?;
+            if let Some(capabilities) = advanced.capabilities {
+                opts.advanced.set_capabilities(Some(capabilities.into()))?;
+            }
         }
 
         // Convert Python secrets to Rust secrets
@@ -966,6 +967,101 @@ impl From<PyBoxliteRestOptions> for BoxliteRestOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::advanced_options::{PyContainerCapabilities, PySecurityOptions};
+
+    /// Builds a `PyBoxOptions` with everything at its "untouched" default
+    /// except `advanced`, so the conversion under test is exercised without
+    /// needing the Python interpreter (plain struct literals, no
+    /// `Python::attach` — `cargo test -p boxlite-python` can't link libpython
+    /// in this sandbox, but a pure `TryFrom` call between plain Rust structs
+    /// doesn't need it).
+    fn py_box_options_with_advanced(advanced: PyAdvancedBoxOptions) -> PyBoxOptions {
+        PyBoxOptions {
+            image: None,
+            rootfs_path: None,
+            cpus: None,
+            memory_mib: None,
+            disk_size_gb: None,
+            working_dir: None,
+            env: vec![],
+            volumes: vec![],
+            network: None,
+            ports: vec![],
+            auto_remove: None,
+            auto_stop: None,
+            auto_delete: None,
+            auto_resume: None,
+            detach: None,
+            entrypoint: None,
+            cmd: None,
+            user: None,
+            advanced: Some(advanced),
+            secrets: vec![],
+        }
+    }
+
+    fn default_py_security() -> PySecurityOptions {
+        PySecurityOptions {
+            jailer_enabled: false,
+            seccomp_enabled: false,
+            max_open_files: None,
+            max_file_size: None,
+            max_processes: None,
+            max_memory: None,
+            max_cpu_time: None,
+            network_enabled: true,
+            close_fds: true,
+        }
+    }
+
+    /// A caller who only sets `security=` (never mentions `capabilities=`)
+    /// must not have `capabilities` silently become an explicit, empty
+    /// policy — that's the exact None-vs-Some(empty) distinction this PR's
+    /// core API is built to preserve (see AdvancedBoxOptions::capabilities'
+    /// own doc comment), and Some(empty) trips `archive_version_for_options`
+    /// and `RestRuntime::create`'s `require_linux_capabilities_enabled` gate
+    /// for a caller who never touched capabilities at all.
+    #[test]
+    fn security_only_advanced_options_leaves_capabilities_unspecified() {
+        let advanced = PyAdvancedBoxOptions {
+            security: Some(default_py_security()),
+            health_check: None,
+            capabilities: None,
+        };
+
+        let opts = BoxOptions::try_from(py_box_options_with_advanced(advanced))
+            .expect("security-only options should convert");
+
+        assert!(
+            opts.advanced.capabilities().is_none(),
+            "expected capabilities to stay unspecified, got {:?}",
+            opts.advanced.capabilities()
+        );
+    }
+
+    /// Mirror of the above for the case a Python caller DOES explicitly ask
+    /// for a capability policy — must still come through as `Some`.
+    #[test]
+    fn explicit_capabilities_still_convert() {
+        let advanced = PyAdvancedBoxOptions {
+            security: None,
+            health_check: None,
+            capabilities: Some(PyContainerCapabilities {
+                add: vec!["SYS_ADMIN".to_string()],
+                drop: vec![],
+            }),
+        };
+
+        let opts = BoxOptions::try_from(py_box_options_with_advanced(advanced))
+            .expect("explicit capabilities should convert");
+
+        let capabilities = opts
+            .advanced
+            .capabilities()
+            .expect("capabilities should be set");
+        assert_eq!(capabilities.add, ["SYS_ADMIN"]);
+    }
+
     #[test]
     fn py_volume_source_requires_volume_scheme() {
         Python::attach(|py| {
