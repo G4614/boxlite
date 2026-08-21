@@ -107,6 +107,10 @@ mod tests {
     /// flag the tuple as overly complex.
     type RoundTripRow = (u16, &'static str, &'static str, fn(&BoxliteError) -> bool);
 
+    /// One row of the bare-status table: `(http_status, variant_predicate)`.
+    /// Aliased for the same reason as [`RoundTripRow`].
+    type StatusRow = (u16, fn(&BoxliteError) -> bool);
+
     /// Canonical round-trip table — for every `(status, type, code)`
     /// the server can emit per `BoxliteError::http()`, the client must
     /// reconstruct a `BoxliteError` of the matching variant.
@@ -223,7 +227,7 @@ mod tests {
     /// transient lifecycle conflict both surfaced as "internal error".
     #[test]
     fn bare_4xx_without_envelope_keeps_its_class() {
-        let cases: &[(u16, fn(&BoxliteError) -> bool)] = &[
+        let cases: &[StatusRow] = &[
             (400, |e| matches!(e, BoxliteError::InvalidArgument(_))),
             (422, |e| matches!(e, BoxliteError::InvalidArgument(_))),
             (409, |e| matches!(e, BoxliteError::InvalidState(_))),
