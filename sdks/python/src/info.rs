@@ -144,6 +144,22 @@ impl PyNetworkInfo {
 
 #[pymethods]
 impl PyNetworkInfo {
+    /// Legacy view of the outbound mode.
+    ///
+    /// Deprecated: read `network.outbound.mode`.
+    #[getter]
+    fn mode(&self) -> String {
+        self.outbound.mode.clone()
+    }
+
+    /// Legacy view of the outbound allowlist.
+    ///
+    /// Deprecated: read `network.outbound.allow_net`.
+    #[getter]
+    fn allow_net(&self) -> Vec<String> {
+        self.outbound.allow_net.clone()
+    }
+
     fn __repr__(&self) -> String {
         serde_json::to_string_pretty(&self.json_value()).unwrap_or_default()
     }

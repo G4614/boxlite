@@ -95,6 +95,35 @@ type InboundNetworkSpec struct {
 type NetworkSpec struct {
 	Outbound OutboundNetworkSpec
 	Inbound  InboundNetworkSpec
+
+	// Mode is the pre-split outbound mode, kept so existing callers keep
+	// compiling and behaving the same.
+	//
+	// Deprecated: use Outbound.Mode. Setting both Mode and Outbound is
+	// rejected when the options are converted rather than resolved silently.
+	Mode NetworkMode
+
+	// AllowNet is the pre-split outbound allowlist.
+	//
+	// Deprecated: use Outbound.AllowNet.
+	AllowNet []string
+}
+
+// resolve folds the deprecated flat fields into Outbound, which is the
+// direction they configured before the outbound/inbound split. Returns an
+// error when a caller supplies both shapes.
+func (s NetworkSpec) resolve() (NetworkSpec, error) {
+	legacySet := s.Mode != "" || len(s.AllowNet) > 0
+	nestedSet := s.Outbound.Mode != "" || len(s.Outbound.AllowNet) > 0
+	if legacySet && nestedSet {
+		return NetworkSpec{}, fmt.Errorf("network cannot mix Outbound with deprecated Mode/AllowNet")
+	}
+	if legacySet {
+		s.Outbound = OutboundNetworkSpec{Mode: s.Mode, AllowNet: s.AllowNet}
+	}
+	s.Mode = ""
+	s.AllowNet = nil
+	return s, nil
 }
 
 // PortProtocol selects the transport protocol for a port forwarding rule.
@@ -207,6 +236,7 @@ type boxConfig struct {
 	autoResume *bool
 	detach     *bool
 	network    *NetworkSpec
+	networkErr error // deferred WithNetwork validation error, surfaced at conversion
 	secrets    []Secret
 	advanced   *AdvancedBoxOptions // nil = runtime defaults; non-nil = caller-owned advanced opts applied via boxlite_options_set_advanced
 }
@@ -331,6 +361,12 @@ func WithCmd(args ...string) BoxOption {
 // WithNetwork sets the structured network configuration for the box.
 func WithNetwork(spec NetworkSpec) BoxOption {
 	return func(c *boxConfig) {
+		resolved, err := spec.resolve()
+		if err != nil {
+			c.networkErr = err
+			return
+		}
+		spec = resolved
 		outboundAllowNet := append([]string(nil), spec.Outbound.AllowNet...)
 		inboundAllowNet := append([]string(nil), spec.Inbound.AllowNet...)
 		c.network = &NetworkSpec{
@@ -516,6 +552,10 @@ func buildCOptions(image string, cfg *boxConfig) (*C.CBoxliteOptions, error) {
 			C.boxlite_options_free(cOpts)
 			return nil, fmt.Errorf("add port %d:%d failed with code %d", cPort.host_port, cPort.guest_port, int(code))
 		}
+	}
+	if cfg.networkErr != nil {
+		C.boxlite_options_free(cOpts)
+		return nil, cfg.networkErr
 	}
 	if cfg.network != nil {
 		switch cfg.network.Outbound.Mode {

@@ -702,6 +702,57 @@ func TestWithNetwork(t *testing.T) {
 	}
 }
 
+// The pre-split shape was NetworkSpec{Mode, AllowNet}, which configured the
+// outbound direction. Callers that still pass it must keep working.
+func TestWithNetwork_LegacyFlatFieldsConfigureOutbound(t *testing.T) {
+	cfg := &boxConfig{}
+	WithNetwork(NetworkSpec{
+		Mode:     NetworkModeEnabled,
+		AllowNet: []string{"api.example.com"},
+	})(cfg)
+
+	if cfg.networkErr != nil {
+		t.Fatalf("unexpected error: %v", cfg.networkErr)
+	}
+	if cfg.network == nil {
+		t.Fatal("network should be set")
+	}
+	if cfg.network.Outbound.Mode != NetworkModeEnabled {
+		t.Errorf("Outbound.Mode: got %q", cfg.network.Outbound.Mode)
+	}
+	if len(cfg.network.Outbound.AllowNet) != 1 || cfg.network.Outbound.AllowNet[0] != "api.example.com" {
+		t.Errorf("Outbound.AllowNet: got %v", cfg.network.Outbound.AllowNet)
+	}
+	// A legacy spec said nothing about inbound, so inbound keeps its default.
+	if cfg.network.Inbound.Mode != "" {
+		t.Errorf("Inbound.Mode should stay unset, got %q", cfg.network.Inbound.Mode)
+	}
+	if err := buildAndFreeCOptions("alpine:latest", cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Mixing the two shapes is ambiguous — reject rather than pick one. The error
+// surfaces at conversion because BoxOption has no error channel.
+func TestWithNetwork_RejectsMixedLegacyAndNestedShapes(t *testing.T) {
+	cfg := &boxConfig{}
+	WithNetwork(NetworkSpec{
+		Mode:     NetworkModeDisabled,
+		Outbound: OutboundNetworkSpec{Mode: NetworkModeEnabled},
+	})(cfg)
+
+	if cfg.networkErr == nil {
+		t.Fatal("mixing Mode with Outbound should be rejected")
+	}
+	err := buildAndFreeCOptions("alpine:latest", cfg)
+	if err == nil {
+		t.Fatal("buildCOptions should surface the deferred network error")
+	}
+	if !strings.Contains(err.Error(), "cannot mix Outbound with deprecated Mode/AllowNet") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestWithNetwork_InboundDisabled(t *testing.T) {
 	cfg := &boxConfig{}
 	WithNetwork(NetworkSpec{

@@ -19,14 +19,23 @@ describe("SimpleBox network and secrets", { timeout: 180_000 }, () => {
     ).toThrow("SimpleBoxOptions.allowNet was removed");
   });
 
-  test("rejects legacy flat network fields", () => {
+  test("accepts legacy flat network fields as outbound", () => {
+    const box = new SimpleBox({
+      image: "alpine:latest",
+      network: { mode: "disabled" },
+    } as any);
+
+    expect((box as any)._boxOpts.network).toEqual({ mode: "disabled" });
+  });
+
+  test("rejects mixing legacy flat fields with outbound", () => {
     expect(
       () =>
         new SimpleBox({
           image: "alpine:latest",
-          network: { mode: "disabled" },
+          network: { mode: "disabled", outbound: { mode: "enabled" } },
         } as any),
-    ).toThrow("SimpleBoxOptions.network must use outbound/inbound");
+    ).toThrow("cannot mix outbound with the deprecated mode/allowNet");
   });
 
   test("disabled network removes eth0", async () => {

@@ -108,6 +108,17 @@ export interface NetworkSpec {
 
   /** Inbound service access policy. */
   inbound?: InboundNetworkSpec;
+
+  /**
+   * @deprecated Use `outbound.mode`. Accepted as a legacy alias; supplying it
+   * together with `outbound` is rejected.
+   */
+  mode?: "enabled" | "disabled";
+
+  /**
+   * @deprecated Use `outbound.allowNet`. Accepted as a legacy alias.
+   */
+  allowNet?: string[];
 }
 
 export interface OutboundNetworkSpec {
@@ -143,15 +154,27 @@ function assertNetworkSpecShape(value: unknown): void {
       "SimpleBoxOptions.network must be an object. Use network: { outbound, inbound }.",
     );
   }
-  if ("mode" in value || "allowNet" in value) {
+  // The pre-split shape was `{ mode, allowNet }`, which configured the
+  // outbound direction. Still accepted; mixing it with `outbound` is not,
+  // because there would be no single answer for what outbound should be.
+  const hasLegacyFields = "mode" in value || "allowNet" in value;
+  if (hasLegacyFields && "outbound" in value) {
     throw new TypeError(
-      "SimpleBoxOptions.network must use outbound/inbound. Use network: { outbound: { mode, allowNet }, inbound }.",
+      "SimpleBoxOptions.network cannot mix outbound with the deprecated mode/allowNet. Use network: { outbound: { mode, allowNet }, inbound }.",
     );
   }
-  if (!("outbound" in value) && !("inbound" in value)) {
+  if (!hasLegacyFields && !("outbound" in value) && !("inbound" in value)) {
     throw new TypeError(
       "SimpleBoxOptions.network must include outbound or inbound.",
     );
+  }
+  if ("mode" in value && typeof value.mode !== "string") {
+    throw new TypeError(
+      'SimpleBoxOptions.network.mode must be "enabled" or "disabled".',
+    );
+  }
+  if ("allowNet" in value && !Array.isArray(value.allowNet)) {
+    throw new TypeError("SimpleBoxOptions.network.allowNet must be an array.");
   }
   // `mode` is required on each supplied direction. Without this check an
   // empty `{}` passes here and only fails later, inside lazy native

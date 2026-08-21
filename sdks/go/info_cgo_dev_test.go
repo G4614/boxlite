@@ -21,6 +21,8 @@ func TestCNetworkInfoToGoTraversesNativeStruct(t *testing.T) {
 			want: &NetworkInfo{
 				Outbound:       NetworkDirectionInfo{Mode: NetworkModeEnabled, AllowNet: []string{"api.example.com"}},
 				Inbound:        NetworkDirectionInfo{Mode: NetworkModeDisabled, AllowNet: []string{}},
+				Mode:           NetworkModeEnabled,
+				AllowNet:       []string{"api.example.com"},
 				PublishedPorts: nil,
 			},
 		},
@@ -30,6 +32,8 @@ func TestCNetworkInfoToGoTraversesNativeStruct(t *testing.T) {
 			want: &NetworkInfo{
 				Outbound:       NetworkDirectionInfo{Mode: NetworkModeDisabled, AllowNet: []string{}},
 				Inbound:        NetworkDirectionInfo{Mode: NetworkModeEnabled, AllowNet: []string{}},
+				Mode:           NetworkModeDisabled,
+				AllowNet:       []string{},
 				PublishedPorts: []PublishedPort{},
 			},
 		},
@@ -39,6 +43,8 @@ func TestCNetworkInfoToGoTraversesNativeStruct(t *testing.T) {
 			want: &NetworkInfo{
 				Outbound: NetworkDirectionInfo{Mode: NetworkModeEnabled, AllowNet: []string{"api.example.com"}},
 				Inbound:  NetworkDirectionInfo{Mode: NetworkModeEnabled, AllowNet: []string{}},
+				Mode:     NetworkModeEnabled,
+				AllowNet: []string{"api.example.com"},
 				PublishedPorts: []PublishedPort{
 					{
 						GuestPort: 3000,

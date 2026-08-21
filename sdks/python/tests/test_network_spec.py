@@ -35,6 +35,52 @@ class TestNetworkSpec:
         assert spec.outbound.mode == "enabled"
         assert spec.outbound.allow_net == ["example.com", "*.openai.com"]
 
+    def test_legacy_positional_creation(self):
+        """The pre-split signature was NetworkSpec(mode, allow_net); callers
+        that passed those positionally must keep working."""
+        spec = boxlite.NetworkSpec("enabled", ["example.com"])
+
+        assert spec.outbound.mode == "enabled"
+        assert spec.outbound.allow_net == ["example.com"]
+        assert spec.inbound is None
+
+    def test_legacy_positional_mode_only(self):
+        spec = boxlite.NetworkSpec("disabled")
+
+        assert spec.outbound.mode == "disabled"
+        assert spec.outbound.allow_net == []
+
+    def test_nested_specs_still_accepted_positionally(self):
+        """The nested objects stay usable in the same two slots — the legacy
+        shim keys off the argument type, not the position."""
+        spec = boxlite.NetworkSpec(
+            boxlite.OutboundNetworkSpec(mode="enabled"),
+            boxlite.InboundNetworkSpec(mode="disabled"),
+        )
+
+        assert spec.outbound.mode == "enabled"
+        assert spec.inbound.mode == "disabled"
+
+    def test_legacy_mode_and_allow_net_readable_off_spec(self):
+        """Pre-split readers used spec.mode / spec.allow_net."""
+        spec = boxlite.NetworkSpec(
+            outbound=boxlite.OutboundNetworkSpec(mode="disabled", allow_net=[])
+        )
+
+        assert spec.mode == "disabled"
+        assert spec.allow_net == []
+
+    def test_legacy_mode_defaults_to_enabled_without_outbound(self):
+        """An unset spec meant "enabled, unrestricted" before the split."""
+        spec = boxlite.NetworkSpec(inbound=boxlite.InboundNetworkSpec(mode="disabled"))
+
+        assert spec.mode == "enabled"
+        assert spec.allow_net == []
+
+    def test_rejects_mode_given_both_positionally_and_by_keyword(self):
+        with pytest.raises(ValueError):
+            boxlite.NetworkSpec("enabled", mode="disabled")
+
     def test_rejects_mixed_legacy_and_nested_outbound(self):
         """NetworkSpec rejects callers that mix nested and legacy outbound fields."""
         with pytest.raises(ValueError):
