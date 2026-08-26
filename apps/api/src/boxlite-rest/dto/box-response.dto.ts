@@ -6,6 +6,35 @@
 
 import { ApiProperty, ApiPropertyOptional, ApiSchema } from '@nestjs/swagger'
 
+@ApiSchema({ name: 'NetworkDirectionInfo' })
+export class NetworkDirectionInfoDto {
+  @ApiProperty({
+    description: 'Whether this direction is enabled',
+    enum: ['enabled', 'disabled'],
+    example: 'enabled',
+  })
+  mode: 'enabled' | 'disabled'
+
+  @ApiProperty({
+    description: 'Configured allowlist; empty means unrestricted when mode is "enabled"',
+    type: [String],
+    example: [],
+  })
+  allow_net: string[]
+}
+
+@ApiSchema({ name: 'NetworkInfo' })
+export class NetworkInfoDto {
+  @ApiProperty({ description: 'Guest egress: whether the box can reach out, and to where', type: NetworkDirectionInfoDto })
+  outbound: NetworkDirectionInfoDto
+
+  @ApiProperty({
+    description: "External reachability: whether the box's exposed ports/preview are public",
+    type: NetworkDirectionInfoDto,
+  })
+  inbound: NetworkDirectionInfoDto
+}
+
 @ApiSchema({ name: 'Box' })
 export class BoxResponseDto {
   @ApiProperty({
@@ -87,6 +116,12 @@ export class BoxResponseDto {
     example: true,
   })
   auto_resume: boolean
+
+  @ApiProperty({
+    description: 'Network configuration and current visibility (inbound.mode is the source of truth for "is this box publicly reachable")',
+    type: NetworkInfoDto,
+  })
+  network: NetworkInfoDto
 }
 
 @ApiSchema({ name: 'ListBoxesResponse' })
