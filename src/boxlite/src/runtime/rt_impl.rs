@@ -3211,6 +3211,90 @@ mod tests {
         }
     }
 
+    /// The positive counterpart to `get_or_create_rejects_privileged_upgrade`:
+    /// a privileged request must actually be able to reuse an existing
+    /// privileged box of the same name, not just get rejected on mismatch.
+    #[tokio::test]
+    async fn get_or_create_reuses_matching_privileged_box() {
+        let (runtime, _dir) = create_test_runtime();
+        let name = Some("privileged-box".to_string());
+
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.set_privileged(true);
+        let (first_box, created) = runtime
+            .get_or_create(
+                BoxOptions {
+                    rootfs: RootfsSpec::Image("alpine:latest".into()),
+                    advanced,
+                    ..Default::default()
+                },
+                name.clone(),
+            )
+            .await
+            .unwrap();
+        assert!(created);
+
+        let mut advanced_again = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced_again.set_privileged(true);
+        let (reused_box, created) = runtime
+            .get_or_create(
+                BoxOptions {
+                    rootfs: RootfsSpec::Image("alpine:latest".into()),
+                    advanced: advanced_again,
+                    ..Default::default()
+                },
+                name,
+            )
+            .await
+            .unwrap();
+
+        assert!(!created);
+        assert_eq!(reused_box.id(), first_box.id());
+    }
+
+    /// A box persisted by an earlier version of this option has its
+    /// privileged shape mutated directly into `capabilities` (`add=["ALL"]`)
+    /// rather than left `None`. A fresh privileged request — which leaves
+    /// `capabilities` unset — must still recognize that box as compatible;
+    /// `check_options_compatibility` has to compare *effective* capabilities,
+    /// not the raw field, for this to hold.
+    #[tokio::test]
+    async fn get_or_create_reuses_legacy_shaped_privileged_box() {
+        let (runtime, _dir) = create_test_runtime();
+        let mut config = test_box_config_in_layout(false, &runtime);
+        config.name = Some("legacy-privileged".to_string());
+        config.options.advanced.privileged = true;
+        config
+            .options
+            .advanced
+            .set_capabilities(Some(crate::ContainerCapabilities {
+                add: vec!["ALL".to_string()],
+                ..Default::default()
+            }))
+            .unwrap();
+        runtime
+            .box_manager
+            .add_box(&config, &BoxState::new())
+            .unwrap();
+
+        let mut advanced = crate::runtime::advanced_options::AdvancedBoxOptions::default();
+        advanced.set_privileged(true);
+        let (reused_box, created) = runtime
+            .get_or_create(
+                BoxOptions {
+                    rootfs: RootfsSpec::Image("alpine:latest".into()),
+                    advanced,
+                    ..Default::default()
+                },
+                Some("legacy-privileged".to_string()),
+            )
+            .await
+            .unwrap();
+
+        assert!(!created);
+        assert_eq!(reused_box.id().as_str(), config.id.as_str());
+    }
+
     #[tokio::test]
     async fn get_or_create_allows_nested_box_for_default_request() {
         let (runtime, _dir) = create_test_runtime();

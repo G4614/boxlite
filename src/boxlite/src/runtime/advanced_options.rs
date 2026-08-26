@@ -854,6 +854,16 @@ impl AdvancedBoxOptions {
     /// `self.privileged = enabled`: `capabilities` isn't installed or
     /// withdrawn here (see `resolve_container_security`, which computes the
     /// effective capability set fresh instead).
+    ///
+    /// Deliberately not gated by `resolved` the way `set_capabilities` is:
+    /// the freeze exists to protect the *capability policy* specifically
+    /// (the thing `resolve_container_security` won't let shift out from
+    /// under an already-built request), not `privileged` itself. Every
+    /// current caller resolves a freshly constructed instance exactly once,
+    /// so this is not reachable today — but it does mean a caller who
+    /// resolves, then calls this, then resolves again would get a second,
+    /// differently-shaped result. Don't "fix" this by freezing `privileged`
+    /// too without checking with whoever owns this requirement first.
     pub fn set_privileged(&mut self, enabled: bool) {
         self.privileged = enabled;
     }
@@ -1126,5 +1136,23 @@ mod resolved_security_tests {
         );
 
         assert!(error.to_string().contains("cannot be combined"));
+    }
+
+    /// `set_capabilities` must refuse to change the policy once
+    /// `resolve_container_security` has run — a resolved request's
+    /// capabilities shouldn't shift under it before it's built.
+    #[test]
+    fn set_capabilities_rejects_mutation_after_resolve() {
+        let mut options = AdvancedBoxOptions::default();
+        options.resolve_container_security().unwrap();
+
+        let error = options
+            .set_capabilities(Some(ContainerCapabilities {
+                add: vec!["SYS_ADMIN".to_string()],
+                ..Default::default()
+            }))
+            .expect_err("capabilities must not change after resolution");
+
+        assert!(error.to_string().contains("cannot be changed after"));
     }
 }
