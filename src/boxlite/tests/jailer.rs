@@ -232,16 +232,14 @@ async fn jailer_enabled_box_starts_and_executes() {
 #[tokio::test]
 async fn host_network_grants_off_box_starts_and_executes() {
     let jh = JailerHome::new();
+    let mut advanced = AdvancedBoxOptions::default();
+    advanced.security = SecurityOptions {
+        jailer_enabled: true,
+        network_enabled: false,
+        ..SecurityOptions::default()
+    };
     let options = BoxOptions {
-        network: NetworkSpec::Disabled,
-        advanced: AdvancedBoxOptions {
-            security: SecurityOptions {
-                jailer_enabled: true,
-                network_enabled: false,
-                ..SecurityOptions::default()
-            },
-            ..Default::default()
-        },
+        advanced,
         ..common::alpine_opts()
     };
     let t = BoxTestBase::with_home(jh.home, options).await;
