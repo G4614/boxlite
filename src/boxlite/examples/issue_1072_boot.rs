@@ -38,9 +38,7 @@ async fn boot_and_exec(runtime: &BoxliteRuntime) {
     opts.cmd = Some(vec!["sleep".into(), "60".into()]);
 
     let bx = runtime.create(opts, None).await.expect("create box");
-    bx.start()
-        .await
-        .expect("box should boot (issue #1072 fix)");
+    bx.start().await.expect("box should boot (issue #1072 fix)");
 
     let mut execution = bx
         .exec(BoxCommand::new("echo").arg("hello-from-guest"))
@@ -67,7 +65,14 @@ async fn main() {
 
     for (jailer_enabled, row) in [(true, 1), (false, 2)] {
         let err = match runtime
-            .create(options(NetworkSpec::Enabled { allow_net: vec![] }, false, jailer_enabled), None)
+            .create(
+                options(
+                    NetworkSpec::Enabled { allow_net: vec![] },
+                    false,
+                    jailer_enabled,
+                ),
+                None,
+            )
             .await
         {
             Err(err) => err,
