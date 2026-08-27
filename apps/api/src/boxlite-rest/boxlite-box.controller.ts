@@ -33,10 +33,17 @@ import { BoxState } from '../box/enums/box-state.enum'
 import { BoxDesiredState } from '../box/enums/box-desired-state.enum'
 import { BoxResponseDto, ListBoxesResponseDto } from './dto/box-response.dto'
 import { CreateBoxDto } from './dto/create-box.dto'
-import { boxToBoxResponse, createBoxToCreateBox } from './mappers/box-to-box.mapper'
+import { boxToBoxResponse, createBoxToCreateBox, isAnonymouslyPublicByDefault } from './mappers/box-to-box.mapper'
 import { Audit, MASKED_AUDIT_VALUE, TypedRequest } from '../audit/decorators/audit.decorator'
 import { AuditAction } from '../audit/enums/audit-action.enum'
 import { AuditTarget } from '../audit/enums/audit-target.enum'
+// POL-205: surfaced until the default flips to token-required (see the
+// issue's migration plan) — a caller who never set network.inbound gets a
+// box that is anonymously reachable and needs to be told, not just left to
+// discover it later.
+const ANONYMOUS_PUBLIC_WARNING =
+  '199 boxlite "this box is publicly reachable because network.inbound.mode was not set; pass network.inbound.mode=\\"disabled\\" to restrict it (see POL-205)"'
+
 // Spec-first surface: the contract is openapi/box.openapi.yaml, not the
 // generated product spec (which `:prefix` routes would render invalid).
 @ApiExcludeController()
@@ -109,6 +116,7 @@ export class BoxliteBoxController {
   async createBox(
     @AuthContext() authContext: OrganizationAuthContext,
     @Body() dto: CreateBoxDto,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<BoxResponseDto> {
     const organization = authContext.organization
     const createBoxDto = createBoxToCreateBox(dto)
@@ -116,6 +124,9 @@ export class BoxliteBoxController {
     let box = await this.boxService.create(createBoxDto, organization)
     if (box.state !== BoxState.STARTED) {
       box = await this.boxStateWaiter.waitForStarted(box.id, organization.id, 30)
+    }
+    if (isAnonymouslyPublicByDefault(dto, box)) {
+      res.set('Warning', ANONYMOUS_PUBLIC_WARNING)
     }
     return boxToBoxResponse(box)
   }
