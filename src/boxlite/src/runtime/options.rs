@@ -1274,14 +1274,13 @@ mod tests {
     /// a usable box. Reject it and point at the option that does the job.
     #[test]
     fn host_network_grants_off_with_guest_network_on_is_rejected() {
+        let mut advanced = AdvancedBoxOptions::default();
+        advanced.security = SecurityOptions {
+            network_enabled: false,
+            ..SecurityOptions::default()
+        };
         let opts = BoxOptions {
-            advanced: AdvancedBoxOptions {
-                security: SecurityOptions {
-                    network_enabled: false,
-                    ..SecurityOptions::default()
-                },
-                ..Default::default()
-            },
+            advanced,
             ..Default::default()
         };
         assert!(
@@ -1306,15 +1305,14 @@ mod tests {
     #[test]
     fn network_disabled_pairs_with_either_host_grant_setting() {
         for network_enabled in [true, false] {
+            let mut advanced = AdvancedBoxOptions::default();
+            advanced.security = SecurityOptions {
+                network_enabled,
+                ..SecurityOptions::default()
+            };
             let opts = BoxOptions {
                 network: NetworkSpec::Disabled,
-                advanced: AdvancedBoxOptions {
-                    security: SecurityOptions {
-                        network_enabled,
-                        ..SecurityOptions::default()
-                    },
-                    ..Default::default()
-                },
+                advanced,
                 ..Default::default()
             };
 
