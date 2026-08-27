@@ -9,7 +9,7 @@
 mod common;
 
 use boxlite::runtime::advanced_options::{AdvancedBoxOptions, SecurityOptions};
-use boxlite::runtime::options::{BoxOptions, NetworkSpec};
+use boxlite::runtime::options::BoxOptions;
 use common::box_test::BoxTestBase;
 use std::path::PathBuf;
 
