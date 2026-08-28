@@ -80,15 +80,6 @@ export function createBoxToCreateBox(dto: RestCreateBoxDto, target?: string): Cr
   return createDto
 }
 
-// POL-205: default inbound is anonymously public, and a caller who never
-// mentions network.inbound has no way to discover that short of reading the
-// box back. Flag the case explicitly instead of only fixing it silently —
-// the goal is to make the fallback visible before we ever flip the default,
-// so this stays valid even for requests that predate this change.
-export function isAnonymouslyPublicByDefault(dto: RestCreateBoxDto, box: BoxDto): boolean {
-  return dto.network?.inbound?.mode === undefined && box.public === true
-}
-
 function mapState(state: string | BoxState | undefined): string {
   switch (state) {
     case BoxState.STARTED:

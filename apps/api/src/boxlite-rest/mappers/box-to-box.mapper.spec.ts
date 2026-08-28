@@ -4,7 +4,7 @@
  */
 
 import { BoxState } from '../../box/enums/box-state.enum'
-import { boxToBoxResponse, createBoxToCreateBox, isAnonymouslyPublicByDefault } from './box-to-box.mapper'
+import { boxToBoxResponse, createBoxToCreateBox } from './box-to-box.mapper'
 
 describe('BoxLite lifecycle policy mapper', () => {
   it.each([
@@ -96,41 +96,6 @@ describe('BoxLite lifecycle policy mapper', () => {
     } as any)
 
     expect(response.auto_resume).toBe(true)
-  })
-
-  // POL-205: the caller never asked to be public — they just never mentioned
-  // network.inbound at all — and got it anyway via the `?? true` fallback in
-  // box.service.ts. This flags exactly that case, not an explicit opt-in.
-  describe('isAnonymouslyPublicByDefault', () => {
-    it('flags a box that fell through to the public default', () => {
-      const flagged = isAnonymouslyPublicByDefault({}, { public: true } as any)
-
-      expect(flagged).toBe(true)
-    })
-
-    it('does not flag an explicit inbound.mode=enabled opt-in', () => {
-      const flagged = isAnonymouslyPublicByDefault(
-        { network: { inbound: { mode: 'enabled' } } },
-        { public: true } as any,
-      )
-
-      expect(flagged).toBe(false)
-    })
-
-    it('does not flag a box that ended up private', () => {
-      const flagged = isAnonymouslyPublicByDefault({}, { public: false } as any)
-
-      expect(flagged).toBe(false)
-    })
-
-    it('does not flag an explicit inbound.mode=disabled request', () => {
-      const flagged = isAnonymouslyPublicByDefault(
-        { network: { inbound: { mode: 'disabled' } } },
-        { public: false } as any,
-      )
-
-      expect(flagged).toBe(false)
-    })
   })
 })
 
