@@ -247,6 +247,14 @@ impl RecursiveChowner {
     }
 
     fn chown_operand(&mut self, path: &Path) {
+        // Pre-check: skip if ownership already matches.
+        // fchownat clears set-ID bits and file capabilities on owner change,
+        // so skipping unnecessary calls preserves privileged-executable metadata.
+        if let Ok(st) = fstatat(None, path, AtFlags::AT_SYMLINK_NOFOLLOW) {
+            if st.st_uid == self.uid.as_raw() && st.st_gid == self.gid.as_raw() {
+                return;
+            }
+        }
         match fchownat(
             None,
             path,
@@ -260,6 +268,12 @@ impl RecursiveChowner {
     }
 
     fn chown_entry(&mut self, parent_fd: i32, name: &std::ffi::CStr, path: &Path) {
+        // Pre-check: skip if ownership already matches (preserves set-ID bits).
+        if let Ok(st) = fstatat(Some(parent_fd), name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+            if st.st_uid == self.uid.as_raw() && st.st_gid == self.gid.as_raw() {
+                return;
+            }
+        }
         match fchownat(
             Some(parent_fd),
             name,
@@ -273,6 +287,12 @@ impl RecursiveChowner {
     }
 
     fn chown_directory(&mut self, frame: DirectoryFrame) {
+        // Pre-check: skip if ownership already matches (preserves set-ID bits).
+        if let Ok(st) = fstat(frame.entries.as_raw_fd()) {
+            if st.st_uid == self.uid.as_raw() && st.st_gid == self.gid.as_raw() {
+                return;
+            }
+        }
         match fchown(frame.entries.as_raw_fd(), Some(self.uid), Some(self.gid)) {
             Ok(()) => self.report.changed += 1,
             Err(error) => self
