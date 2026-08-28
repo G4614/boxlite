@@ -315,10 +315,10 @@ impl RecursiveChowner {
                 let _ = close(child_fd);
                 Err(nix::errno::Errno::EIO)
             } else {
-                Dir::from_fd(child_fd).map_err(nix::errno::Errno::from)
+                Dir::from_fd(child_fd)
             };
             #[cfg(not(test))]
-            let child_stream = Dir::from_fd(child_fd).map_err(nix::errno::Errno::from);
+            let child_stream = Dir::from_fd(child_fd);
             let child_dir = match child_stream {
                 Ok(dir) => dir,
                 Err(error) => {
