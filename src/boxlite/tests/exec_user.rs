@@ -132,6 +132,19 @@ async fn test_exec_user_overrides() {
 /// which is intentionally different from 472 on any normal developer machine.
 #[tokio::test]
 async fn test_non_root_image_user_exec_uid_and_inode_ownership() {
+    // The test proves that the box runs as the *image-declared* uid (472), not
+    // the host process uid.  If they happen to be equal the assertion is
+    // tautological — skip rather than give a false green.
+    const IMAGE_UID: u32 = 472;
+    let host_uid = unsafe { libc::getuid() };
+    if host_uid == IMAGE_UID {
+        eprintln!(
+            "skipping: host uid={host_uid} == image uid={IMAGE_UID}; \
+             test would be vacuous"
+        );
+        return;
+    }
+
     let home = boxlite_test_utils::home::PerTestBoxHome::new();
     let runtime = boxlite::BoxliteRuntime::new(boxlite::runtime::options::BoxliteOptions {
         home_dir: home.path.clone(),
