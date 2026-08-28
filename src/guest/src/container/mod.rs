@@ -70,7 +70,7 @@ mod lifecycle;
 #[cfg(target_os = "linux")]
 mod mount_override;
 #[cfg(target_os = "linux")]
-mod spec;
+pub(crate) mod spec;
 #[cfg(target_os = "linux")]
 mod start;
 #[cfg(target_os = "linux")]

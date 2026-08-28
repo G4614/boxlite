@@ -244,6 +244,38 @@ impl ContainerService for GuestServer {
             }));
         }
 
+        // For disk-based rootfs: verify ownership matches the exec user.
+        // The ext4 build pipeline should preserve ownership; if it regressed
+        // (producing root-owned inodes), repair and warn so the regression is
+        // visible in logs. This is a defence-in-depth guard, not the primary fix.
+        if matches!(
+            &rootfs_init.strategy,
+            Some(rootfs_init::Strategy::Disk(_))
+        ) {
+            let rootfs_str = shared_rootfs.to_string_lossy();
+            match crate::container::spec::resolve_user(&rootfs_str, &config.user) {
+                Ok((exec_uid, exec_gid)) => {
+                    if let Err(e) = crate::storage::perms::verify_and_repair_ownership(
+                        &shared_rootfs,
+                        exec_uid,
+                        exec_gid,
+                    ) {
+                        warn!(
+                            "Ownership verification failed for rootfs {}: {}",
+                            shared_rootfs.display(),
+                            e
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Could not resolve exec user '{}' for ownership check: {}",
+                        config.user, e
+                    );
+                }
+            }
+        }
+
         // Bind mount shared rootfs to bundle rootfs
         if let Err(e) = mount(
             Some(shared_rootfs.as_path()),

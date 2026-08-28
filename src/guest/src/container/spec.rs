@@ -292,7 +292,7 @@ fn canonical_destination(destination: &Path) -> PathBuf {
 /// - `"name"` → resolve from /etc/passwd
 /// - `"name:group"` → resolve from /etc/passwd + /etc/group
 /// - Mixed numeric/name formats supported
-pub(super) fn resolve_user(rootfs: &str, user: &str) -> BoxliteResult<(u32, u32)> {
+pub(crate) fn resolve_user(rootfs: &str, user: &str) -> BoxliteResult<(u32, u32)> {
     if user.is_empty() {
         return Ok((0, 0));
     }
