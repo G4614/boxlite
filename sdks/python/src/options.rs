@@ -1340,7 +1340,6 @@ mod tests {
 
         assert!(matches!(inbound, NetworkSpec::Disabled));
         assert!(matches!(outbound, NetworkSpec::Enabled { .. }));
->>>>>>> 8e16f413 (Expose inbound network policy across CLI, SDKs, serve, and NetworkInfo)
     }
 
     /// A dropped alias must fail loudly. `ro` was accepted before the rename;
