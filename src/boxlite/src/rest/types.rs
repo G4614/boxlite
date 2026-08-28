@@ -248,10 +248,38 @@ impl From<&crate::runtime::options::VolumeSpec> for CreateBoxVolumeSpec {
     }
 }
 
-#[derive(Debug, Serialize)]
+/// Wire shape sent to the server when creating a box.
+///
+/// Serializes as the legacy flat shape `{"mode","allow_net"}` when inbound is
+/// at its default (enabled, no allowlist), so servers that predate the
+/// inbound/outbound split (#1199) keep working. Serializes as the nested shape
+/// `{"outbound","inbound"}` when inbound is explicitly configured — that
+/// requires a server with #1199+ support.
+#[derive(Debug)]
 pub(crate) struct CreateBoxNetworkSpec {
     pub outbound: CreateBoxOutboundNetworkSpec,
     pub inbound: CreateBoxInboundNetworkSpec,
+    legacy: bool,
+}
+
+impl serde::Serialize for CreateBoxNetworkSpec {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        if self.legacy {
+            let len = if self.outbound.allow_net.is_empty() { 1 } else { 2 };
+            let mut map = serializer.serialize_map(Some(len))?;
+            map.serialize_entry("mode", &self.outbound.mode)?;
+            if !self.outbound.allow_net.is_empty() {
+                map.serialize_entry("allow_net", &self.outbound.allow_net)?;
+            }
+            map.end()
+        } else {
+            let mut map = serializer.serialize_map(Some(2))?;
+            map.serialize_entry("outbound", &self.outbound)?;
+            map.serialize_entry("inbound", &self.inbound)?;
+            map.end()
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -281,6 +309,13 @@ impl CreateBoxNetworkSpec {
         inbound: &crate::runtime::options::NetworkSpec,
     ) -> Self {
         let config = crate::runtime::options::NetworkConfig::from_specs(outbound, inbound);
+        // Use the legacy flat shape when inbound is at its default (Enabled,
+        // empty allowlist). Any explicit inbound configuration requires the
+        // nested shape and a server that understands it (#1199+).
+        let legacy = match inbound {
+            crate::runtime::options::NetworkSpec::Enabled { allow_net } => allow_net.is_empty(),
+            _ => false,
+        };
         Self {
             outbound: CreateBoxOutboundNetworkSpec {
                 mode: mode_str(config.outbound.mode),
@@ -290,6 +325,7 @@ impl CreateBoxNetworkSpec {
                 mode: mode_str(config.inbound.mode),
                 allow_net: config.inbound.allow_net,
             },
+            legacy,
         }
     }
 }
@@ -669,53 +705,38 @@ mod tests {
 
     #[test]
     fn test_create_box_request_serialization() {
-        let req = CreateBoxRequest {
-            name: Some("mybox".into()),
-            image: Some("python:3.11".into()),
-            rootfs_path: None,
+        use crate::runtime::options::{BoxOptions, NetworkSpec, RootfsSpec};
+
+        // inbound at default → legacy flat shape, accepted by all server versions.
+        let opts = BoxOptions {
+            rootfs: RootfsSpec::Image("python:3.11".into()),
             cpus: Some(2),
             memory_mib: Some(512),
-            disk_size_gb: None,
-            working_dir: None,
-            env: None,
-            network: Some(CreateBoxNetworkSpec {
-                outbound: CreateBoxOutboundNetworkSpec {
-                    mode: "enabled".into(),
-                    allow_net: vec!["api.openai.com".into()],
-                },
-                inbound: CreateBoxInboundNetworkSpec {
-                    mode: "enabled".into(),
-                    allow_net: vec![],
-                },
-            }),
-            entrypoint: None,
-            cmd: None,
-            user: None,
-            tty: None,
-            secrets: Some(vec![CreateBoxSecret {
-                name: "openai".into(),
-                value: "sk-test".into(),
-                hosts: vec!["api.openai.com".into()],
-                placeholder: "<BOXLITE_SECRET:openai>".into(),
-            }]),
-            volumes: None,
-            detach: None,
-            advanced: None,
-            auto_stop: Some(900),
-            auto_delete: Some(604800),
-            auto_resume: None,
+            network: NetworkSpec::Enabled {
+                allow_net: vec!["api.openai.com".into()],
+            },
+            // inbound_network left at default: Enabled { allow_net: [] }
+            ..Default::default()
         };
+        let mut req = CreateBoxRequest::from_options(&opts, Some("mybox".into()));
+        req.secrets = Some(vec![CreateBoxSecret {
+            name: "openai".into(),
+            value: "sk-test".into(),
+            hosts: vec!["api.openai.com".into()],
+            placeholder: "<BOXLITE_SECRET:openai>".into(),
+        }]);
+        req.auto_stop = Some(900);
+        req.auto_delete = Some(604800);
+
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"name\":\"mybox\""));
         assert!(json.contains("\"image\":\"python:3.11\""));
         assert!(json.contains("\"cpus\":2"));
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["network"]["outbound"]["mode"], "enabled");
-        assert_eq!(
-            value["network"]["outbound"]["allow_net"][0],
-            "api.openai.com"
-        );
-        assert_eq!(value["network"]["inbound"]["mode"], "enabled");
+        // Legacy flat shape: top-level mode/allow_net, no outbound/inbound nesting.
+        assert_eq!(value["network"]["mode"], "enabled");
+        assert_eq!(value["network"]["allow_net"][0], "api.openai.com");
+        assert!(value["network"]["outbound"].is_null());
         assert!(json.contains("\"secrets\""));
         // None fields should be skipped
         assert!(!json.contains("rootfs_path"));
@@ -763,6 +784,11 @@ mod tests {
             req.network.as_ref().map(|n| n.inbound.mode.as_str()),
             Some("disabled")
         );
+        // inbound is Disabled (non-default) → nested shape required.
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["network"]["outbound"]["mode"], "enabled");
+        assert_eq!(json["network"]["inbound"]["mode"], "disabled");
+        assert!(json["network"]["mode"].is_null());
         assert_eq!(req.secrets.as_ref().map(Vec::len), Some(1));
         let volume = &req.volumes.as_ref().unwrap()[0];
         assert_eq!(volume.managed_volume, "volume-123");
