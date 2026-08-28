@@ -2,8 +2,8 @@
 //!
 //! After mounting a container rootfs disk, ownership should match the image's
 //! exec user. If the ext4 build regresses and produces root-owned inodes,
-//! `verify_and_repair_ownership` detects the mismatch, repairs it, and emits
-//! a WARN so the regression is visible in logs.
+//! [`OwnershipFixer::fix_if_needed`] detects the mismatch, repairs it, and
+//! emits a WARN so the regression is visible in logs.
 
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
@@ -20,68 +20,74 @@ const WARNING_SAMPLE_LIMIT: usize = 8;
 /// Number of top-level entries sampled to detect ownership mismatches cheaply.
 const OWNERSHIP_SAMPLE_SIZE: usize = 5;
 
-/// Verify that `path` (a mounted rootfs) has the expected exec-user ownership.
-///
-/// A mismatch means the ext4 build regressed — ext4 should preserve ownership.
-/// When a mismatch is detected the entire tree is repaired and a WARN is logged.
-/// Root-exec containers (uid=0, gid=0) are skipped: ownership is already root.
-pub(crate) fn verify_and_repair_ownership(path: &Path, uid: u32, gid: u32) -> BoxliteResult<()> {
-    if uid == 0 && gid == 0 {
-        // Root-exec: ownership is already root everywhere. Nothing to verify.
-        return Ok(());
-    }
+/// Fixes filesystem ownership to match the expected exec user.
+pub(crate) struct OwnershipFixer;
 
-    if ownership_matches(path, uid, gid) {
-        tracing::debug!(
-            "Rootfs ownership at {} matches exec user {}:{} — no repair needed",
+impl OwnershipFixer {
+    /// Verify that `path` (a mounted rootfs) has the expected exec-user ownership,
+    /// and repair it if not.
+    ///
+    /// A mismatch means the ext4 build regressed — ext4 should preserve ownership.
+    /// When a mismatch is detected the entire tree is repaired and a WARN is logged.
+    /// Root-exec containers (uid=0, gid=0) are skipped: ownership is already root.
+    pub(crate) fn fix_if_needed(path: &Path, uid: u32, gid: u32) -> BoxliteResult<()> {
+        if uid == 0 && gid == 0 {
+            // Root-exec: ownership is already root everywhere. Nothing to verify.
+            return Ok(());
+        }
+
+        if ownership_matches(path, uid, gid) {
+            tracing::debug!(
+                "Rootfs ownership at {} matches exec user {}:{} — no repair needed",
+                path.display(),
+                uid,
+                gid
+            );
+            return Ok(());
+        }
+
+        // Ownership is wrong: the ext4 build regressed. Repair and warn.
+        tracing::warn!(
+            "Rootfs ownership at {} does not match exec user {}:{}; repairing. \
+         This indicates an ext4 build regression — ownership should be \
+         set at image-build time.",
             path.display(),
             uid,
             gid
         );
-        return Ok(());
-    }
 
-    // Ownership is wrong: the ext4 build regressed. Repair and warn.
-    tracing::warn!(
-        "Rootfs ownership at {} does not match exec user {}:{}; repairing. \
-         This indicates an ext4 build regression — ownership should be \
-         set at image-build time.",
-        path.display(),
-        uid,
-        gid
-    );
+        let start = std::time::Instant::now();
+        let report = RecursiveChowner::new(uid, gid).chown_path(path);
+        let duration = start.elapsed();
 
-    let start = std::time::Instant::now();
-    let report = RecursiveChowner::new(uid, gid).chown_path(path);
-    let duration = start.elapsed();
-
-    if report.has_warnings() {
-        tracing::warn!(
-            "Ownership repair at {} to {}:{} completed with warnings in {:?}: \
+        if report.has_warnings() {
+            tracing::warn!(
+                "Ownership repair at {} to {}:{} completed with warnings in {:?}: \
              visited={}, changed={}, failures={}, cycles={}, samples={:?}",
-            path.display(),
-            uid,
-            gid,
-            duration,
-            report.visited,
-            report.changed,
-            report.failures,
-            report.cycles,
-            report.warning_samples
-        );
-    } else {
-        tracing::info!(
-            "Repaired rootfs ownership at {} to {}:{} in {:?} (visited={}, changed={})",
-            path.display(),
-            uid,
-            gid,
-            duration,
-            report.visited,
-            report.changed
-        );
-    }
+                path.display(),
+                uid,
+                gid,
+                duration,
+                report.visited,
+                report.changed,
+                report.failures,
+                report.cycles,
+                report.warning_samples
+            );
+        } else {
+            tracing::info!(
+                "Repaired rootfs ownership at {} to {}:{} in {:?} (visited={}, changed={})",
+                path.display(),
+                uid,
+                gid,
+                duration,
+                report.visited,
+                report.changed
+            );
+        }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Sample root dir + first `OWNERSHIP_SAMPLE_SIZE` entries to cheaply detect

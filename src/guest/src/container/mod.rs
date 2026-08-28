@@ -94,7 +94,7 @@ pub use spec::{ContainerDevices, MountOverride, UserMount};
 /// Verify that a disk-strategy rootfs has the expected exec-user ownership.
 ///
 /// Resolves the exec user from the mounted rootfs's `/etc/passwd`, then
-/// delegates to [`crate::storage::perms::verify_and_repair_ownership`].
+/// delegates to [`crate::storage::perms::OwnershipFixer::fix_if_needed`].
 /// Failures are logged as warnings — they do not abort container init.
 #[cfg(target_os = "linux")]
 pub(crate) fn check_rootfs_ownership(rootfs: &std::path::Path, user: &str) {
@@ -102,7 +102,7 @@ pub(crate) fn check_rootfs_ownership(rootfs: &std::path::Path, user: &str) {
     match spec::resolve_user(&rootfs_str, user) {
         Ok((exec_uid, exec_gid)) => {
             if let Err(e) =
-                crate::storage::perms::verify_and_repair_ownership(rootfs, exec_uid, exec_gid)
+                crate::storage::perms::OwnershipFixer::fix_if_needed(rootfs, exec_uid, exec_gid)
             {
                 tracing::warn!(
                     "Ownership verification failed for rootfs {}: {}",
