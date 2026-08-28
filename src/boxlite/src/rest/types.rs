@@ -1056,8 +1056,8 @@ mod tests {
     /// way `network: None` used to be hardcoded here.
     #[test]
     fn test_box_response_to_box_info_carries_network_visibility() {
-        use crate::runtime::types::{NetworkDirectionInfo, NetworkInfo};
         use crate::runtime::options::NetworkMode;
+        use crate::runtime::types::{NetworkDirectionInfo, NetworkInfo};
 
         let resp = BoxResponse {
             box_id: "01J0000000000000000000000A".to_string(),
@@ -1088,7 +1088,9 @@ mod tests {
         };
 
         let info = resp.to_box_info().expect("valid ULID box_id should parse");
-        let network = info.network.expect("network metadata should survive conversion");
+        let network = info
+            .network
+            .expect("network metadata should survive conversion");
         assert_eq!(network.inbound.mode, NetworkMode::Disabled);
         assert_eq!(network.outbound.mode, NetworkMode::Enabled);
     }
