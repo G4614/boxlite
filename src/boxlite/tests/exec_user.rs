@@ -175,17 +175,21 @@ async fn test_non_root_image_user_exec_uid_and_inode_ownership() {
         "exec uid must be 472 (OCI User=\"472\"), got: {exec_uid:?}"
     );
 
-    // 2. /etc/grafana inode must be owned by uid=472 — normalize_inodes guarantee.
-    //    If this were uid=0 the grafana process (uid=472) could not write its config.
+    // 2. /var/lib/grafana inode must be owned by uid=472 — normalize_inodes guarantee.
+    //    The grafana image explicitly chowns this dir to uid=472 so the process
+    //    can write its database. If normalize_inodes regresses (all inodes → uid=0),
+    //    grafana gets EACCES trying to write /var/lib/grafana and crashes on startup.
+    //    Note: /etc/grafana is root-owned by design; /var/lib/grafana is the
+    //    canonical uid=472 path in the official grafana/grafana image.
     let inode_uid = exec_stdout(
         &handle,
-        BoxCommand::new("stat").args(["-c", "%u", "/etc/grafana"]),
+        BoxCommand::new("stat").args(["-c", "%u", "/var/lib/grafana"]),
     )
     .await;
     assert_eq!(
         inode_uid.trim(),
         "472",
-        "/etc/grafana inode must be uid=472 (image-declared), not uid=0 (root): \
+        "/var/lib/grafana inode must be uid=472 (image-declared), not uid=0 (root): \
          normalize_inodes_with_debugfs stamps ownership at ext4 build time"
     );
 
