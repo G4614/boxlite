@@ -18,7 +18,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::container::{
-    resolve_user, validate_mount_override, CapabilitySet, Container, ContainerDevices,
+    check_rootfs_ownership, validate_mount_override, CapabilitySet, Container, ContainerDevices,
     MountOverride, UserMount,
 };
 use crate::layout::GuestLayout;
@@ -41,35 +41,6 @@ fn init_error(context: &str, error: &BoxliteError) -> ContainerInitError {
     ContainerInitError {
         reason: format!("{context}: {error}"),
         kind: kind as i32,
-    }
-}
-
-/// Verify that a disk-based rootfs has the expected exec-user ownership.
-///
-/// Resolves the exec user from the mounted rootfs's `/etc/passwd`, then
-/// delegates to [`crate::storage::perms::verify_and_repair_ownership`].
-/// Failures are logged as warnings and do not abort container init — the exec
-/// may still succeed if the actual ownership turns out to be correct.
-fn verify_disk_rootfs_ownership(rootfs: &Path, user: &str) {
-    let rootfs_str = rootfs.to_string_lossy();
-    match resolve_user(&rootfs_str, user) {
-        Ok((exec_uid, exec_gid)) => {
-            if let Err(e) =
-                crate::storage::perms::verify_and_repair_ownership(rootfs, exec_uid, exec_gid)
-            {
-                warn!(
-                    "Ownership verification failed for rootfs {}: {}",
-                    rootfs.display(),
-                    e
-                );
-            }
-        }
-        Err(e) => {
-            warn!(
-                "Could not resolve exec user '{}' for ownership check: {}",
-                user, e
-            );
-        }
     }
 }
 
@@ -277,7 +248,7 @@ impl ContainerService for GuestServer {
         // For disk-based rootfs: verify ownership matches the exec user.
         // Defence-in-depth against ext4 build regressions; no-op on correct builds.
         if matches!(&rootfs_init.strategy, Some(rootfs_init::Strategy::Disk(_))) {
-            verify_disk_rootfs_ownership(&shared_rootfs, &config.user);
+            check_rootfs_ownership(&shared_rootfs, &config.user);
         }
 
         // Bind mount shared rootfs to bundle rootfs
