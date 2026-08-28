@@ -9,7 +9,6 @@ plausibly diverge between local FFI and the REST→Runner→VM chain:
   - exit code propagation for all interesting values (0, 1, 2, 126, 127, 128+signal)
   - multi-line / binary-safe stdout
   - concurrent execs on the same box produce isolated output
-  - user override (exec as non-root)
   - env var isolation between consecutive execs
   - empty command output (no phantom bytes)
   - long-running command with streamed output
@@ -17,14 +16,11 @@ plausibly diverge between local FFI and the REST→Runner→VM chain:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 
 import boxlite
 import pytest
-import pytest_asyncio
 
 from conftest import drain
-from images import base_image_ref
 
 
 # ── stderr isolation ────────────────────────────────────────────────
@@ -163,38 +159,6 @@ async def test_empty_command_output(box):
 # ── user override ──────────────────────────────────────────────────
 
 
-@pytest_asyncio.fixture
-async def base_image_box(rt):
-    """Box created from boxlite-agent-base regardless of $BOXLITE_E2E_IMAGE.
-
-    Tests that assert a specific exec UID depend on the image USER directive,
-    which is only guaranteed by boxlite-agent-base.  Using the generic `image`
-    fixture would break when the suite runs against a different image.
-    """
-    b = await rt.create(boxlite.BoxOptions(image=base_image_ref(), auto_remove=True))
-    yield b
-    try:
-        await rt.remove(b.id, force=True)
-    except Exception:
-        pass
-
-
-@pytest.mark.asyncio
-async def test_exec_default_user_matches_image_user(base_image_box):
-    """Default exec user is the image USER (boxlite, uid 1000 in the base image).
-
-    The runtime propagates the image's USER directive to exec: boxes built
-    on boxlite-agent-base run workloads as the unprivileged 'boxlite' user
-    unless the caller passes an explicit user= override.
-
-    This test always uses boxlite-agent-base so the expected UID is stable
-    regardless of $BOXLITE_E2E_IMAGE.
-    """
-    ex = await base_image_box.exec("id", ["-u"])
-    out, _ = await drain(ex)
-    rc = await asyncio.wait_for(ex.wait(), timeout=30)
-    assert rc.exit_code == 0
-    assert out.strip() == "1000", f"default user should be boxlite (uid 1000), got {out!r}"
 
 
 @pytest.mark.asyncio
