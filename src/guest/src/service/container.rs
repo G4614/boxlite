@@ -18,8 +18,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::container::{
-    check_rootfs_ownership, validate_mount_override, CapabilitySet, Container, ContainerDevices,
-    MountOverride, UserMount,
+    validate_mount_override, CapabilitySet, Container, ContainerDevices, MountOverride, UserMount,
 };
 use crate::layout::GuestLayout;
 use crate::storage::block_device::BlockDeviceMount;
@@ -243,12 +242,6 @@ impl ContainerService for GuestServer {
                     reason,
                 ))),
             }));
-        }
-
-        // For disk-based rootfs: verify ownership matches the exec user.
-        // Defence-in-depth against ext4 build regressions; no-op on correct builds.
-        if matches!(&rootfs_init.strategy, Some(rootfs_init::Strategy::Disk(_))) {
-            check_rootfs_ownership(&shared_rootfs, &config.user);
         }
 
         // Bind mount shared rootfs to bundle rootfs
