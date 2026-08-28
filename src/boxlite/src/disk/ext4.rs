@@ -1452,7 +1452,9 @@ mod tests {
             .expect("spawn debugfs");
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write as _;
-            stdin.write_all(b"stat /image-owned\n").expect("write debugfs cmd");
+            stdin
+                .write_all(b"stat /image-owned\n")
+                .expect("write debugfs cmd");
         }
         let result = child.wait_with_output().expect("debugfs stat");
         let all_output = format!(
