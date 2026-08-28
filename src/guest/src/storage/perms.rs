@@ -9,7 +9,6 @@ use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use boxlite_shared::errors::BoxliteResult;
 use nix::dir::{Dir, OwningIter};
 use nix::fcntl::{openat, AtFlags, OFlag};
 use nix::libc;
@@ -30,10 +29,10 @@ impl OwnershipFixer {
     /// A mismatch means the ext4 build regressed — ext4 should preserve ownership.
     /// When a mismatch is detected the entire tree is repaired and a WARN is logged.
     /// Root-exec containers (uid=0, gid=0) are skipped: ownership is already root.
-    pub(crate) fn fix_if_needed(path: &Path, uid: u32, gid: u32) -> BoxliteResult<()> {
+    pub(crate) fn fix_if_needed(path: &Path, uid: u32, gid: u32) {
         if uid == 0 && gid == 0 {
             // Root-exec: ownership is already root everywhere. Nothing to verify.
-            return Ok(());
+            return;
         }
 
         if ownership_matches(path, uid, gid) {
@@ -43,7 +42,7 @@ impl OwnershipFixer {
                 uid,
                 gid
             );
-            return Ok(());
+            return;
         }
 
         // Ownership is wrong: the ext4 build regressed. Repair and warn.
@@ -85,8 +84,6 @@ impl OwnershipFixer {
                 report.changed
             );
         }
-
-        Ok(())
     }
 }
 

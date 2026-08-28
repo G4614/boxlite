@@ -101,15 +101,7 @@ pub(crate) fn check_rootfs_ownership(rootfs: &std::path::Path, user: &str) {
     let rootfs_str = rootfs.to_string_lossy();
     match spec::resolve_user(&rootfs_str, user) {
         Ok((exec_uid, exec_gid)) => {
-            if let Err(e) =
-                crate::storage::perms::OwnershipFixer::fix_if_needed(rootfs, exec_uid, exec_gid)
-            {
-                tracing::warn!(
-                    "Ownership verification failed for rootfs {}: {}",
-                    rootfs.display(),
-                    e
-                );
-            }
+            crate::storage::perms::OwnershipFixer::fix_if_needed(rootfs, exec_uid, exec_gid);
         }
         Err(e) => {
             tracing::warn!(
