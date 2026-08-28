@@ -266,7 +266,11 @@ impl serde::Serialize for CreateBoxNetworkSpec {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
         if self.legacy {
-            let len = if self.outbound.allow_net.is_empty() { 1 } else { 2 };
+            let len = if self.outbound.allow_net.is_empty() {
+                1
+            } else {
+                2
+            };
             let mut map = serializer.serialize_map(Some(len))?;
             map.serialize_entry("mode", &self.outbound.mode)?;
             if !self.outbound.allow_net.is_empty() {
