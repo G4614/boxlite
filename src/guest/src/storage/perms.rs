@@ -40,7 +40,7 @@ impl OwnershipFixer {
     /// A mismatch means the ext4 build regressed — ext4 should preserve ownership.
     /// When a mismatch is detected the entire tree is repaired and a WARN is logged.
     fn fix_for_owner(path: &Path, uid: u32, gid: u32) {
-        if ownership_matches(path, uid, gid) {
+        if Self::ownership_matches(path, uid, gid) {
             tracing::debug!(
                 "Rootfs ownership at {} matches exec user {}:{} — no repair needed",
                 path.display(),
@@ -90,45 +90,45 @@ impl OwnershipFixer {
             );
         }
     }
-}
 
-/// Sample root dir + first `OWNERSHIP_SAMPLE_SIZE` entries to cheaply detect
-/// ownership mismatches. Uses `AT_SYMLINK_NOFOLLOW` — consistent with the
-/// repair walk — so symlinks are not followed during sampling.
-fn ownership_matches(path: &Path, expected_uid: u32, expected_gid: u32) -> bool {
-    // Check the root directory itself.
-    let Ok(root_stat) = fstatat(None, path, AtFlags::AT_SYMLINK_NOFOLLOW) else {
-        return false;
-    };
-    if root_stat.st_uid != expected_uid || root_stat.st_gid != expected_gid {
-        return false;
-    }
-
-    // Open the root dir and sample a few entries.
-    let flags = OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC;
-    let Ok(dir) = Dir::open(path, flags, Mode::empty()) else {
-        return true; // Can't open — assume correct, chowner will catch it.
-    };
-    let root_fd = dir.as_raw_fd();
-
-    let mut sampled = 0;
-    for entry in dir.into_iter().flatten() {
-        let name = entry.file_name();
-        if name.to_bytes() == b"." || name.to_bytes() == b".." {
-            continue;
+    /// Sample root dir + first `OWNERSHIP_SAMPLE_SIZE` entries to cheaply detect
+    /// ownership mismatches. Uses `AT_SYMLINK_NOFOLLOW` — consistent with the
+    /// repair walk — so symlinks are not followed during sampling.
+    fn ownership_matches(path: &Path, expected_uid: u32, expected_gid: u32) -> bool {
+        // Check the root directory itself.
+        let Ok(root_stat) = fstatat(None, path, AtFlags::AT_SYMLINK_NOFOLLOW) else {
+            return false;
+        };
+        if root_stat.st_uid != expected_uid || root_stat.st_gid != expected_gid {
+            return false;
         }
-        if sampled >= OWNERSHIP_SAMPLE_SIZE {
-            break;
-        }
-        sampled += 1;
-        if let Ok(st) = fstatat(Some(root_fd), name, AtFlags::AT_SYMLINK_NOFOLLOW) {
-            if st.st_uid != expected_uid || st.st_gid != expected_gid {
-                return false;
+
+        // Open the root dir and sample a few entries.
+        let flags = OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC;
+        let Ok(dir) = Dir::open(path, flags, Mode::empty()) else {
+            return true; // Can't open — assume correct, chowner will catch it.
+        };
+        let root_fd = dir.as_raw_fd();
+
+        let mut sampled = 0;
+        for entry in dir.into_iter().flatten() {
+            let name = entry.file_name();
+            if name.to_bytes() == b"." || name.to_bytes() == b".." {
+                continue;
+            }
+            if sampled >= OWNERSHIP_SAMPLE_SIZE {
+                break;
+            }
+            sampled += 1;
+            if let Ok(st) = fstatat(Some(root_fd), name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+                if st.st_uid != expected_uid || st.st_gid != expected_gid {
+                    return false;
+                }
             }
         }
-    }
 
-    true
+        true
+    }
 }
 
 struct RecursiveChowner {
