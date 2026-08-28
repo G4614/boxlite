@@ -127,6 +127,8 @@ struct RecursiveChowner {
     uid: Uid,
     gid: Gid,
     report: ChownReport,
+    #[cfg(test)]
+    test_faults: TestFaults,
 }
 
 impl RecursiveChowner {
@@ -135,7 +137,15 @@ impl RecursiveChowner {
             uid: Uid::from_raw(uid),
             gid: Gid::from_raw(gid),
             report: ChownReport::default(),
+            #[cfg(test)]
+            test_faults: TestFaults::default(),
         }
+    }
+
+    #[cfg(test)]
+    fn with_test_faults(mut self, test_faults: TestFaults) -> Self {
+        self.test_faults = test_faults;
+        self
     }
 
     fn chown_path(mut self, path: &Path) -> ChownReport {
@@ -171,6 +181,21 @@ impl RecursiveChowner {
 
         let mut stack = vec![DirectoryFrame::new(root, path.to_path_buf(), &root_stat)];
         while !stack.is_empty() {
+            #[cfg(test)]
+            let inject_read_error = self
+                .test_faults
+                .should_fail_read(&stack.last().expect("non-empty directory stack").path);
+            #[cfg(test)]
+            let next_entry = if inject_read_error {
+                Some(Err(nix::errno::Errno::EIO))
+            } else {
+                stack
+                    .last_mut()
+                    .expect("non-empty directory stack")
+                    .entries
+                    .next()
+            };
+            #[cfg(not(test))]
             let next_entry = stack
                 .last_mut()
                 .expect("non-empty directory stack")
@@ -217,12 +242,28 @@ impl RecursiveChowner {
                 continue;
             }
 
-            let child_fd = match openat(
+            #[cfg(test)]
+            let child_open = if self
+                .test_faults
+                .should_fail_descent(&path, TestDescentFailure::Open)
+            {
+                Err(nix::errno::Errno::EMFILE)
+            } else {
+                openat(
+                    Some(parent_fd),
+                    name,
+                    OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )
+            };
+            #[cfg(not(test))]
+            let child_open = openat(
                 Some(parent_fd),
                 name,
                 OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
                 Mode::empty(),
-            ) {
+            );
+            let child_fd = match child_open {
                 Ok(fd) => fd,
                 Err(error) => {
                     self.report.record_failure("open directory", &path, error);
@@ -230,7 +271,18 @@ impl RecursiveChowner {
                 }
             };
 
-            let child_stat = match fstat(child_fd) {
+            #[cfg(test)]
+            let child_stat_result = if self
+                .test_faults
+                .should_fail_descent(&path, TestDescentFailure::Stat)
+            {
+                Err(nix::errno::Errno::EIO)
+            } else {
+                fstat(child_fd)
+            };
+            #[cfg(not(test))]
+            let child_stat_result = fstat(child_fd);
+            let child_stat = match child_stat_result {
                 Ok(stat) => stat,
                 Err(error) => {
                     self.report.record_failure("stat directory", &path, error);
@@ -249,7 +301,19 @@ impl RecursiveChowner {
                 continue;
             }
 
-            let child_dir = match Dir::from_fd(child_fd) {
+            #[cfg(test)]
+            let child_stream = if self
+                .test_faults
+                .should_fail_descent(&path, TestDescentFailure::Stream)
+            {
+                let _ = close(child_fd);
+                Err(nix::errno::Errno::EIO)
+            } else {
+                Dir::from_fd(child_fd).map_err(nix::errno::Errno::from)
+            };
+            #[cfg(not(test))]
+            let child_stream = Dir::from_fd(child_fd).map_err(nix::errno::Errno::from);
+            let child_dir = match child_stream {
                 Ok(dir) => dir,
                 Err(error) => {
                     self.report
@@ -388,3 +452,45 @@ impl ChownReport {
         }
     }
 }
+
+#[cfg(test)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TestDescentFailure {
+    Open,
+    Stat,
+    Stream,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestFaults {
+    descent_failure: Option<(PathBuf, TestDescentFailure)>,
+    read_failure: Option<PathBuf>,
+}
+
+#[cfg(test)]
+impl TestFaults {
+    fn should_fail_descent(&mut self, path: &Path, stage: TestDescentFailure) -> bool {
+        let should_fail =
+            self.descent_failure
+                .as_ref()
+                .is_some_and(|(failure_path, failure_stage)| {
+                    failure_path == path && *failure_stage == stage
+                });
+        if should_fail {
+            self.descent_failure = None;
+        }
+        should_fail
+    }
+
+    fn should_fail_read(&mut self, path: &Path) -> bool {
+        if self.read_failure.as_deref() == Some(path) {
+            self.read_failure = None;
+            return true;
+        }
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests;
