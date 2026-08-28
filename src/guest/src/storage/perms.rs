@@ -17,6 +17,8 @@ use nix::sys::stat::{fstat, fstatat, Mode};
 use nix::unistd::{close, fchown, fchownat, Gid, Uid};
 
 const WARNING_SAMPLE_LIMIT: usize = 8;
+/// Number of top-level entries sampled to detect ownership mismatches cheaply.
+const OWNERSHIP_SAMPLE_SIZE: usize = 5;
 
 /// Verify that `path` (a mounted rootfs) has the expected exec-user ownership.
 ///
@@ -82,23 +84,38 @@ pub(crate) fn verify_and_repair_ownership(path: &Path, uid: u32, gid: u32) -> Bo
     Ok(())
 }
 
-/// Sample root dir + first few entries to cheaply detect ownership mismatches.
+/// Sample root dir + first `OWNERSHIP_SAMPLE_SIZE` entries to cheaply detect
+/// ownership mismatches. Uses `AT_SYMLINK_NOFOLLOW` — consistent with the
+/// repair walk — so symlinks are not followed during sampling.
 fn ownership_matches(path: &Path, expected_uid: u32, expected_gid: u32) -> bool {
-    use std::os::unix::fs::MetadataExt;
-
-    let Ok(meta) = std::fs::metadata(path) else {
+    // Check the root directory itself.
+    let Ok(root_stat) = fstatat(None, path, AtFlags::AT_SYMLINK_NOFOLLOW) else {
         return false;
     };
-    if meta.uid() != expected_uid || meta.gid() != expected_gid {
+    if root_stat.st_uid != expected_uid || root_stat.st_gid != expected_gid {
         return false;
     }
 
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.take(5).flatten() {
-            if let Ok(meta) = entry.metadata() {
-                if meta.uid() != expected_uid || meta.gid() != expected_gid {
-                    return false;
-                }
+    // Open the root dir and sample a few entries.
+    let flags = OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC;
+    let Ok(dir) = Dir::open(path, flags, Mode::empty()) else {
+        return true; // Can't open — assume correct, chowner will catch it.
+    };
+    let root_fd = dir.as_raw_fd();
+
+    let mut sampled = 0;
+    for entry in dir.into_iter().flatten() {
+        let name = entry.file_name();
+        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+            continue;
+        }
+        if sampled >= OWNERSHIP_SAMPLE_SIZE {
+            break;
+        }
+        sampled += 1;
+        if let Ok(st) = fstatat(Some(root_fd), name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+            if st.st_uid != expected_uid || st.st_gid != expected_gid {
+                return false;
             }
         }
     }

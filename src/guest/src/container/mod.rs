@@ -70,7 +70,7 @@ mod lifecycle;
 #[cfg(target_os = "linux")]
 mod mount_override;
 #[cfg(target_os = "linux")]
-pub(crate) mod spec;
+mod spec;
 #[cfg(target_os = "linux")]
 mod start;
 #[cfg(target_os = "linux")]
@@ -88,5 +88,7 @@ pub(crate) use command::SpawnResult;
 pub use lifecycle::Container;
 #[cfg(target_os = "linux")]
 pub(crate) use mount_override::validate_mount_override;
+#[cfg(target_os = "linux")]
+pub(crate) use spec::resolve_user;
 #[cfg(target_os = "linux")]
 pub use spec::{ContainerDevices, MountOverride, UserMount};
