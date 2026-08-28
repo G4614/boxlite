@@ -162,13 +162,18 @@ async def test_empty_command_output(box):
 
 
 @pytest.mark.asyncio
-async def test_exec_as_root_by_default(box):
-    """Default exec user should be root (uid 0)."""
+async def test_exec_default_user_matches_image_user(box):
+    """Default exec user is the image USER (boxlite, uid 1000 in the base image).
+
+    The runtime propagates the image's USER directive to exec: boxes built
+    on boxlite-agent-base run workloads as the unprivileged 'boxlite' user
+    unless the caller passes an explicit user= override.
+    """
     ex = await box.exec("id", ["-u"])
     out, _ = await drain(ex)
     rc = await asyncio.wait_for(ex.wait(), timeout=30)
     assert rc.exit_code == 0
-    assert out.strip() == "0", f"default user should be root (uid 0), got {out!r}"
+    assert out.strip() == "1000", f"default user should be boxlite (uid 1000), got {out!r}"
 
 
 @pytest.mark.asyncio
