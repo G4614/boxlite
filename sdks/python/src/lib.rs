@@ -21,7 +21,7 @@ use crate::box_handle::PyBox;
 use crate::exec::{PyExecStderr, PyExecStdin, PyExecStdout, PyExecution};
 use crate::images::{PyImageHandle, PyImageInfo, PyImagePullResult};
 use crate::info::{
-    PyBoxInfo, PyBoxStateInfo, PyHealthState, PyHealthStatus, PyNetworkDirectionInfo,
+    PyBoxInfo, PyBoxStateInfo, PyHealthState, PyHealthStatus, PyNetworkModeInfo,
     PyNetworkInfo, PyPublishedPort,
 };
 use crate::metrics::{PyBoxMetrics, PyRuntimeMetrics};
@@ -65,7 +65,7 @@ fn boxlite_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBoxInfo>()?;
     m.add_class::<PyBoxStateInfo>()?;
     m.add_class::<PyNetworkInfo>()?;
-    m.add_class::<PyNetworkDirectionInfo>()?;
+    m.add_class::<PyNetworkModeInfo>()?;
     m.add_class::<PyPublishedPort>()?;
     m.add_class::<PyHealthState>()?;
     m.add_class::<PyHealthStatus>()?;

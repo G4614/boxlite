@@ -295,11 +295,11 @@ typedef struct CPublishedPortList {
 
 // Mode and allowlist for one traffic direction. `allow_net` points to
 // `allow_net_count` owned strings, owned by the enclosing [`CNetworkInfo`].
-typedef struct CNetworkDirectionInfo {
+typedef struct CNetworkModeInfo {
   enum BoxliteNetworkMode mode;
   char **allow_net;
   int allow_net_count;
-} CNetworkDirectionInfo;
+} CNetworkModeInfo;
 
 // Typed network metadata owned by an enclosing [`CBoxInfo`].
 //
@@ -320,8 +320,8 @@ typedef struct CNetworkInfo {
   // Deprecated: read `outbound.allow_net_count`.
   int allow_net_count;
   struct CPublishedPortList *published_ports;
-  struct CNetworkDirectionInfo outbound;
-  struct CNetworkDirectionInfo inbound;
+  struct CNetworkModeInfo outbound;
+  struct CNetworkModeInfo inbound;
 } CNetworkInfo;
 
 typedef struct CBoxInfo {
