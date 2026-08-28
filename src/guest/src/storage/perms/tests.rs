@@ -1,8 +1,7 @@
 use super::*;
-use nix::unistd::{mkfifo, Uid};
+use nix::unistd::mkfifo;
 use std::ffi::OsString;
 use std::fs::{self, File, Permissions};
-use std::io;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
@@ -238,7 +237,3 @@ fn supports_file_fifo_and_socket_operands() {
         assert_eq!(report.failures, 0);
     }
 }
-
-// Suppress unused-import warning for Uid (used only on some platforms).
-#[allow(unused_imports)]
-use nix::unistd::Uid as _;
