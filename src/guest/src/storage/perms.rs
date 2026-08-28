@@ -26,15 +26,20 @@ impl OwnershipFixer {
     /// Verify that `path` (a mounted rootfs) has the expected exec-user ownership,
     /// and repair it if not.
     ///
-    /// A mismatch means the ext4 build regressed — ext4 should preserve ownership.
-    /// When a mismatch is detected the entire tree is repaired and a WARN is logged.
     /// Root-exec containers (uid=0, gid=0) are skipped: ownership is already root.
     pub(crate) fn fix_if_needed(path: &Path, uid: u32, gid: u32) {
         if uid == 0 && gid == 0 {
             // Root-exec: ownership is already root everywhere. Nothing to verify.
             return;
         }
+        Self::fix_for_owner(path, uid, gid);
+    }
 
+    /// Check ownership against `(uid, gid)` and repair the entire tree if mismatched.
+    ///
+    /// A mismatch means the ext4 build regressed — ext4 should preserve ownership.
+    /// When a mismatch is detected the entire tree is repaired and a WARN is logged.
+    fn fix_for_owner(path: &Path, uid: u32, gid: u32) {
         if ownership_matches(path, uid, gid) {
             tracing::debug!(
                 "Rootfs ownership at {} matches exec user {}:{} — no repair needed",
