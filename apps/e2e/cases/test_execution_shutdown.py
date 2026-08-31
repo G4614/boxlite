@@ -55,15 +55,18 @@ async def test_exec_on_stopped_box_auto_starts_it(rt, image):
 
         # The auto-start is async on the server side; poll until the
         # reported status converges instead of asserting immediately.
+        # `rt.get()` returns a `Box` handle (no `status`); the metadata
+        # snapshot with status lives on `BoxInfo.state.status` via
+        # `rt.get_info()`.
         for _ in range(10):
-            info = await rt.get(box.id)
-            if info is not None and str(info.status).lower() == "running":
+            info = await rt.get_info(box.id)
+            if info is not None and str(info.state.status).lower() == "running":
                 break
             await asyncio.sleep(1)
         else:
             pytest.fail(
                 f"box status did not converge to running after exec "
-                f"auto-started it: last status={info.status if info else None!r}"
+                f"auto-started it: last status={info.state.status if info else None!r}"
             )
     finally:
         try:
