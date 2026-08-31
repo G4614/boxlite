@@ -11,7 +11,7 @@ import { CombinedAuthGuard } from '../auth/combined-auth.guard'
 import { OrganizationResourceActionGuard } from '../organization/guards/organization-resource-action.guard'
 import { AuthContext } from '../common/decorators/auth-context.decorator'
 import { OrganizationAuthContext } from '../common/interfaces/auth-context.interface'
-import { RunnerService } from '../sandbox/services/runner.service'
+import { RunnerService } from '../box/services/runner.service'
 
 /**
  * Wire-compatible with the SDK's `RestImageBackend::pull_image`
