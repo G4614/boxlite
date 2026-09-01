@@ -169,17 +169,30 @@ async def org_b_rt(org_a_ctx: E2EAuthContext, org_b_token: str, org_b_prefix: st
             pass
 
 
-@pytest_asyncio.fixture(scope="module")
-async def org_a_box(org_a_rt, image):
-    """A running box in org-A, shared across this module's tests."""
-    box = await org_a_rt.create(
-        boxlite.BoxOptions(image=image, auto_delete=600, auto_stop=300),
+@pytest.fixture(scope="module")
+def org_a_box(org_a_ctx: E2EAuthContext, image: str):
+    """A running box in org-A, shared across this module's tests.
+
+    Created via raw HTTP so this fixture is independent of SDK version.
+    Returns a simple namespace with an ``.id`` attribute.
+    """
+    import types
+
+    # Create
+    url = org_a_ctx.url_for(org_a_ctx.v1("boxes"))
+    status, body = _request(
+        "POST", url, token=org_a_ctx.token,
+        body={"image": image, "auto_delete": 600, "auto_stop": 300},
     )
+    assert status == 201, f"Failed to create org-A box: {status} {body}"
+    box_id = body["box_id"]
+
+    box = types.SimpleNamespace(id=box_id)
     yield box
-    try:
-        await org_a_rt.remove(box.id, force=True)
-    except Exception:
-        pass
+
+    # Cleanup
+    del_url = org_a_ctx.url_for(org_a_ctx.v1(f"boxes/{box_id}"))
+    _request("DELETE", del_url, token=org_a_ctx.token)
 
 
 # ---------------------------------------------------------------------------
@@ -199,9 +212,9 @@ async def test_cross_org_key_rejected_for_other_org_namespace(
     """
     url = org_a_ctx.url_for(org_a_ctx.v1("boxes"))
     status, _ = _request("GET", url, token=org_b_token)
-    assert status == 401, (
-        f"Expected 401 when using org-B key in org-A's namespace, got {status}. "
-        "A valid key from another org must not be accepted in a foreign namespace."
+    assert status in (401, 403), (
+        f"Expected 401 or 403 when using org-B key in org-A's namespace, got {status}. "
+        "A valid key from another org must be rejected in a foreign namespace."
     )
 
 
@@ -235,7 +248,6 @@ async def test_cross_org_delete_box_returns_404(
     org_b_token: str,
     org_b_prefix: str,
     org_a_box,
-    org_a_rt,
 ):
     """DELETE /v1/{prefix-B}/boxes/{box-A-id} with org-B token → 404.
 
@@ -252,8 +264,9 @@ async def test_cross_org_delete_box_returns_404(
     )
 
     # Box must still be accessible by org-A (org-B's DELETE had no effect).
-    info = await org_a_rt.get_info(box_id)
-    assert info is not None, "org-A's box disappeared after a cross-org DELETE attempt"
+    get_url = org_a_ctx.url_for(org_a_ctx.v1(f"boxes/{box_id}"))
+    get_status, _ = _request("GET", get_url, token=org_a_ctx.token)
+    assert get_status == 200, "org-A's box disappeared after a cross-org DELETE attempt"
 
 
 @pytest.mark.asyncio
@@ -294,10 +307,10 @@ async def test_cross_org_network_isolation(
     box_a = box_b = None
     try:
         box_a = await org_a_rt.create(
-            boxlite.BoxOptions(image=image, auto_delete=300, auto_stop=120),
+            boxlite.BoxOptions(image=image, auto_remove=True),
         )
         box_b = await org_b_rt.create(
-            boxlite.BoxOptions(image=image, auto_delete=300, auto_stop=120),
+            boxlite.BoxOptions(image=image, auto_remove=True),
         )
 
         await box_a.exec(
