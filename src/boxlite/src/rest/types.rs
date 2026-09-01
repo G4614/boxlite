@@ -1057,7 +1057,7 @@ mod tests {
     #[test]
     fn test_box_response_to_box_info_carries_network_visibility() {
         use crate::runtime::options::NetworkMode;
-        use crate::runtime::types::{NetworkDirectionInfo, NetworkInfo};
+        use crate::runtime::types::{InboundNetworkInfo, NetworkInfo, OutboundNetworkInfo};
 
         let resp = BoxResponse {
             box_id: "01J0000000000000000000000A".to_string(),
@@ -1075,11 +1075,11 @@ mod tests {
             auto_delete: 0,
             auto_resume: true,
             network: Some(NetworkInfo::new(
-                NetworkDirectionInfo {
+                OutboundNetworkInfo {
                     mode: NetworkMode::Enabled,
                     allow_net: vec![],
                 },
-                NetworkDirectionInfo {
+                InboundNetworkInfo {
                     mode: NetworkMode::Disabled,
                     allow_net: vec![],
                 },

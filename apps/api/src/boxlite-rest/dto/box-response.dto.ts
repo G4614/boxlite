@@ -6,10 +6,10 @@
 
 import { ApiProperty, ApiPropertyOptional, ApiSchema } from '@nestjs/swagger'
 
-@ApiSchema({ name: 'NetworkDirectionInfo' })
-export class NetworkDirectionInfoDto {
+@ApiSchema({ name: 'OutboundNetworkInfo' })
+export class OutboundNetworkInfoDto {
   @ApiProperty({
-    description: 'Whether this direction is enabled',
+    description: 'Whether outbound (guest → internet) traffic is enabled',
     enum: ['enabled', 'disabled'],
     example: 'enabled',
   })
@@ -23,16 +23,33 @@ export class NetworkDirectionInfoDto {
   allow_net: string[]
 }
 
+@ApiSchema({ name: 'InboundNetworkInfo' })
+export class InboundNetworkInfoDto {
+  @ApiProperty({
+    description: 'Whether inbound (internet → guest) traffic is enabled',
+    enum: ['enabled', 'disabled'],
+    example: 'disabled',
+  })
+  mode: 'enabled' | 'disabled'
+
+  @ApiProperty({
+    description: 'Configured allowlist; empty means unrestricted when mode is "enabled"',
+    type: [String],
+    example: [],
+  })
+  allow_net: string[]
+}
+
 @ApiSchema({ name: 'NetworkInfo' })
 export class NetworkInfoDto {
-  @ApiProperty({ description: 'Guest egress: whether the box can reach out, and to where', type: NetworkDirectionInfoDto })
-  outbound: NetworkDirectionInfoDto
+  @ApiProperty({ description: 'Guest egress: whether the box can reach out, and to where', type: OutboundNetworkInfoDto })
+  outbound: OutboundNetworkInfoDto
 
   @ApiProperty({
     description: "External reachability: whether the box's exposed ports/preview are public",
-    type: NetworkDirectionInfoDto,
+    type: InboundNetworkInfoDto,
   })
-  inbound: NetworkDirectionInfoDto
+  inbound: InboundNetworkInfoDto
 }
 
 @ApiSchema({ name: 'Box' })
