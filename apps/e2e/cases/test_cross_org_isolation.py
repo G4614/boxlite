@@ -1,8 +1,7 @@
-"""POL-257 cross-org isolation tests (automated).
+"""Cross-organisation resource isolation tests.
 
 Verifies that one organisation's credentials cannot observe or manipulate
-another organisation's resources — the launchgate security requirement tracked
-in POL-257 (cases 257-1c, 257-3, 257-3a, 257-3b, 257-4).
+another organisation's resources.
 
 ## Setup
 
@@ -20,15 +19,15 @@ secret injection; locally use a second boxlite account.
 
 ## What is tested
 
-* 257-1c  A valid key from org-B is rejected (401) for org-A's namespace.
-* 257-3   GET  /v1/{prefix-A}/boxes/{box-A-id}  with org-B key → 404.
-* 257-3a  DELETE /v1/{prefix-A}/boxes/{box-A-id} with org-B key → 404.
-* 257-3b  POST /v1/{prefix-A}/boxes/{box-A-id}/exec with org-B key → 404.
-* 257-4   A box launched by org-B cannot reach org-A's box on its internal
-          address (bidirectional network isolation).
+* A valid key from org-B is rejected (401) for org-A's namespace.
+* GET  /v1/{prefix-A}/boxes/{box-A-id}  with org-B key → 404.
+* DELETE /v1/{prefix-A}/boxes/{box-A-id} with org-B key → 404; box survives.
+* POST /v1/{prefix-A}/boxes/{box-A-id}/exec with org-B key → 404.
+* A box launched by org-B cannot reach org-A's box on its internal address
+  (bidirectional network isolation).
 
-The 404 (not 403/401) requirement for 257-3/3a/3b is deliberate: the API must
-not leak the existence of resources belonging to another org.
+The 404 (not 403/401) requirement for cross-org resource access is deliberate:
+the API must not leak the existence of resources belonging to another org.
 """
 from __future__ import annotations
 
@@ -184,16 +183,16 @@ async def org_a_box(org_a_rt, image):
 
 
 # ---------------------------------------------------------------------------
-# 257-1c  A valid org-B key is rejected for org-A's namespace
+# Tests
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_257_1c_cross_org_key_rejected_for_other_org_namespace(
+async def test_cross_org_key_rejected_for_other_org_namespace(
     org_a_ctx: E2EAuthContext,
     org_b_token: str,
     org_a_box,
 ):
-    """org-B's API key must not be accepted in org-A's URL namespace (257-1c).
+    """org-B's API key must not be accepted in org-A's URL namespace.
 
     The endpoint under test is org-A's box list.  A different-org key must get
     401 — not 200 — because the key resolves to a different tenant scope.
@@ -206,25 +205,19 @@ async def test_257_1c_cross_org_key_rejected_for_other_org_namespace(
     )
 
 
-# ---------------------------------------------------------------------------
-# 257-3  Cross-org GET on another org's box → 404
-# ---------------------------------------------------------------------------
-
 @pytest.mark.asyncio
-async def test_257_3_cross_org_get_box_returns_404(
+async def test_cross_org_get_box_returns_404(
     org_a_ctx: E2EAuthContext,
     org_b_token: str,
     org_b_prefix: str,
     org_a_box,
 ):
-    """GET /v1/{prefix-B}/boxes/{box-A-id} with org-B token → 404 (257-3).
+    """GET /v1/{prefix-B}/boxes/{box-A-id} with org-B token → 404.
 
     The response must be 404, not 403/401, to avoid leaking the existence of
     org-A's resources to org-B.
     """
     box_id = org_a_box.id
-    # Use org-B's prefix in the URL so the key is valid for the route, but
-    # request a box that belongs to org-A.
     if org_b_prefix:
         url = org_a_ctx.url_for(f"/v1/{org_b_prefix}/boxes/{box_id}")
     else:
@@ -236,19 +229,15 @@ async def test_257_3_cross_org_get_box_returns_404(
     )
 
 
-# ---------------------------------------------------------------------------
-# 257-3a  Cross-org DELETE on another org's box → 404
-# ---------------------------------------------------------------------------
-
 @pytest.mark.asyncio
-async def test_257_3a_cross_org_delete_box_returns_404(
+async def test_cross_org_delete_box_returns_404(
     org_a_ctx: E2EAuthContext,
     org_b_token: str,
     org_b_prefix: str,
     org_a_box,
     org_a_rt,
 ):
-    """DELETE /v1/{prefix-B}/boxes/{box-A-id} with org-B token → 404 (257-3a).
+    """DELETE /v1/{prefix-B}/boxes/{box-A-id} with org-B token → 404.
 
     The box must still be alive in org-A after the attempt.
     """
@@ -267,18 +256,14 @@ async def test_257_3a_cross_org_delete_box_returns_404(
     assert info is not None, "org-A's box disappeared after a cross-org DELETE attempt"
 
 
-# ---------------------------------------------------------------------------
-# 257-3b  Cross-org exec on another org's box → 404
-# ---------------------------------------------------------------------------
-
 @pytest.mark.asyncio
-async def test_257_3b_cross_org_exec_returns_404(
+async def test_cross_org_exec_returns_404(
     org_a_ctx: E2EAuthContext,
     org_b_token: str,
     org_b_prefix: str,
     org_a_box,
 ):
-    """POST …/exec on org-A's box with org-B token → 404 (257-3b)."""
+    """POST …/exec on org-A's box with org-B token → 404."""
     box_id = org_a_box.id
     if org_b_prefix:
         url = org_a_ctx.url_for(f"/v1/{org_b_prefix}/boxes/{box_id}/exec")
@@ -293,24 +278,18 @@ async def test_257_3b_cross_org_exec_returns_404(
     )
 
 
-# ---------------------------------------------------------------------------
-# 257-4  Network isolation: org-B box cannot reach org-A box internally
-# ---------------------------------------------------------------------------
-
 @pytest.mark.asyncio
-async def test_257_4_cross_org_network_isolation(
+async def test_cross_org_network_isolation(
     image,
     org_a_rt,
     org_b_rt,
 ):
-    """Boxes in different orgs cannot reach each other over the internal
-    network (257-4).
+    """Boxes in different orgs cannot reach each other over the internal network.
 
     Start a simple HTTP server in an org-A box; attempt to connect to it from
-    an org-B box using the box-id-based DNS pattern and common private
-    addresses. All attempts must time out or fail.
+    an org-B box using the box-id-based DNS pattern. All attempts must fail.
     """
-    PORT = 9527  # arbitrary; unlikely to conflict
+    PORT = 9527
 
     box_a = box_b = None
     try:
@@ -321,7 +300,6 @@ async def test_257_4_cross_org_network_isolation(
             boxlite.BoxOptions(image=image, auto_delete=300, auto_stop=120),
         )
 
-        # Start a trivial HTTP server in org-A's box.
         await box_a.exec(
             "/bin/sh",
             ["-c", f"printf 'HTTP/1.0 200 OK\\r\\n\\r\\nORG_A_DATA' | nc -l -p {PORT} &>/dev/null &"],
@@ -329,8 +307,6 @@ async def test_257_4_cross_org_network_isolation(
         )
         time.sleep(1)
 
-        # Try to reach it from org-B's box via several address patterns.
-        # All should fail (DNS resolution failure or connection refused).
         reach_attempts = [
             f"http://{box_a.id}.box:{PORT}/",
             f"http://{box_a.id}.box.internal:{PORT}/",
@@ -338,12 +314,7 @@ async def test_257_4_cross_org_network_isolation(
         for target_url in reach_attempts:
             result = await box_b.exec(
                 "/bin/sh",
-                [
-                    "-c",
-                    (
-                        f"curl -s --max-time 3 {target_url!r} 2>&1 || echo 'BLOCKED'"
-                    ),
-                ],
+                ["-c", f"curl -s --max-time 3 {target_url!r} 2>&1 || echo 'BLOCKED'"],
                 None,
             )
             import asyncio
@@ -352,8 +323,6 @@ async def test_257_4_cross_org_network_isolation(
                 out_chunks.append(chunk)
             out = b"".join(out_chunks).decode("utf-8", "replace")
 
-            # Either the connection fails (BLOCKED / curl exit non-zero) or
-            # org-A's distinct marker never appears.
             assert "ORG_A_DATA" not in out, (
                 f"org-B box reached org-A box at {target_url}: "
                 f"network isolation breach. Output: {out!r}"
