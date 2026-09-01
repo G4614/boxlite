@@ -78,6 +78,48 @@ export const handlers = [
     const box = MOCK_BOXES.find((b) => b.id === params.boxIdOrName) ?? MOCK_BOXES[0]
     return box ? HttpResponse.json(box) : new HttpResponse(null, { status: 404 })
   }),
+  // Network / preview surface. `public` is mutated in place so the detail page
+  // reflects the toggle after its query is invalidated, the way it does against
+  // a real API.
+  http.post(`${API_URL}/box/:boxIdOrName/public/:isPublic`, ({ params }) => {
+    const box = MOCK_BOXES.find((b) => b.id === params.boxIdOrName)
+    if (!box) return new HttpResponse(null, { status: 404 })
+    box.public = params.isPublic === 'true'
+    return HttpResponse.json(box)
+  }),
+  http.get(`${API_URL}/box/:boxIdOrName/ports/:port/preview-url`, ({ params }) => {
+    const boxId = String(params.boxIdOrName)
+    // Mirrors the real hex-encoded direct-preview host shape. Hand-rolled
+    // rather than via Buffer, which does not exist in the browser.
+    const encodedBoxId = [...boxId].map((char) => char.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+    return HttpResponse.json({
+      boxId,
+      url: `https://${params.port}-d-${encodedBoxId}.proxy.mock.boxlite.ai`,
+      token: 'mock0boxauthtoken0000000000000000',
+    })
+  }),
+  http.get(`${API_URL}/box/:boxIdOrName/ports/:port/signed-preview-url`, ({ params, request }) => {
+    // The real service only signs the terminal port today; keeping that
+    // restriction in mock is what surfaces the fallback message in the UI.
+    const port = Number(params.port)
+    if (port !== 22222) {
+      return HttpResponse.json(
+        { statusCode: 400, message: 'Signed port preview is only supported for terminal port 22222' },
+        { status: 400 },
+      )
+    }
+    const expiresIn = new URL(request.url).searchParams.get('expiresInSeconds') ?? '60'
+    const token = `mock${Math.random().toString(36).slice(2, 14)}`
+    return HttpResponse.json({
+      boxId: String(params.boxIdOrName),
+      port,
+      token,
+      url: `https://${port}-${token}.proxy.mock.boxlite.ai?ttl=${expiresIn}`,
+    })
+  }),
+  http.post(`${API_URL}/box/:boxIdOrName/ports/:port/signed-preview-url/:token/expire`, () => {
+    return new HttpResponse(null, { status: 201 })
+  }),
   // Volumes. Deletion mirrors the real service (volume.service.ts:74-113):
   // a volume still mounted by a live box is refused with 409, and a successful
   // delete only moves the row to `pending_delete` — the reconciler finishes it
