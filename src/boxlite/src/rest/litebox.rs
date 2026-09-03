@@ -14,7 +14,7 @@ use crate::BoxInfo;
 use crate::litebox::copy::CopyOptions;
 use crate::litebox::snapshot_mgr::SnapshotInfo;
 use crate::litebox::{
-    BoxCommand, BoxTunnel, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution,
+    AttachOptions, BoxCommand, BoxTunnel, ExecResult, ExecStderr, ExecStdin, ExecStdout, Execution,
 };
 use crate::metrics::BoxMetrics;
 use crate::runtime::backend::{BoxBackend, BoxNetworkBackend, SnapshotBackend};
@@ -72,11 +72,21 @@ impl RestBox {
     /// Callers open the socket themselves, and do it synchronously, so a
     /// 404/409 surfaces at *their* await point rather than arriving later
     /// as a synthesized `ExecResult`.
-    fn wire_attach(&self, box_id: String, execution_id: String, stream: WsStream) -> Execution {
+    fn wire_attach(
+        &self,
+        box_id: String,
+        execution_id: String,
+        stream: WsStream,
+        wire_stdin: bool,
+    ) -> Execution {
         let (stdout_tx, stdout_rx) = mpsc::unbounded_channel::<String>();
         let (stderr_tx, stderr_rx) = mpsc::unbounded_channel::<String>();
-        let (stdin_tx, stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (result_tx, result_rx) = mpsc::unbounded_channel::<ExecResult>();
+        let stdin = wire_stdin.then(mpsc::unbounded_channel::<Vec<u8>>);
+        let (stdin_tx, stdin_rx) = match stdin {
+            Some((tx, rx)) => (Some(tx), Some(rx)),
+            None => (None, None),
+        };
 
         let ws_client = self.client.clone();
         let ws_box_id = box_id.clone();
@@ -100,7 +110,7 @@ impl RestBox {
             execution_id,
             Box::new(control),
             result_rx,
-            Some(ExecStdin::new(stdin_tx)),
+            stdin_tx.map(ExecStdin::new),
             Some(ExecStdout::new(stdout_rx)),
             Some(ExecStderr::new(stderr_rx)),
         )
@@ -198,15 +208,24 @@ impl BoxBackend for RestBox {
     /// Either way the returned `Execution` is a fully ordinary one — signal,
     /// resize and kill go out over the same `/executions/{id}/…` routes, and the
     /// pump reconnects through them too.
-    async fn attach(&self, execution_id: Option<&str>) -> BoxliteResult<Execution> {
+    async fn attach(&self, options: AttachOptions) -> BoxliteResult<Execution> {
         let box_id = self.box_id_str();
 
         // Open the WebSocket synchronously so a rejection (404 no-such-box /
         // reaped, 409 another client already attached) surfaces here, at the
         // caller's `await box.attach(..)`, not in a later ExecResult from `wait()`.
-        match execution_id {
+        // Read-only is asked for on the wire, not just honored locally: the
+        // socket is bidirectional, so the server has to be the one refusing
+        // writes.
+        let query = if options.wants_stdin() {
+            ""
+        } else {
+            "?stdin=0"
+        };
+
+        match options.execution_id() {
             None => {
-                let path = format!("/boxes/{}/attach", box_id);
+                let path = format!("/boxes/{}/attach{}", box_id, query);
                 let (stream, handshake) = self
                     .client
                     .connect_ws_with_response(&path)
@@ -233,10 +252,13 @@ impl BoxBackend for RestBox {
                     })?
                     .to_string();
 
-                Ok(self.wire_attach(box_id, execution_id, stream))
+                Ok(self.wire_attach(box_id, execution_id, stream, options.wants_stdin()))
             }
             Some(execution_id) => {
-                let path = format!("/boxes/{}/executions/{}/attach", box_id, execution_id);
+                let path = format!(
+                    "/boxes/{}/executions/{}/attach{}",
+                    box_id, execution_id, query
+                );
                 let stream = self.client.connect_ws(&path).await.map_err(|e| match e {
                     BoxliteError::NotFound(msg) => BoxliteError::SessionReaped(format!(
                         "session {} not found — likely reaped after disconnect timeout: {}",
@@ -249,7 +271,12 @@ impl BoxBackend for RestBox {
                     other => other,
                 })?;
 
-                Ok(self.wire_attach(box_id, execution_id.to_string(), stream))
+                Ok(self.wire_attach(
+                    box_id,
+                    execution_id.to_string(),
+                    stream,
+                    options.wants_stdin(),
+                ))
             }
         }
     }
@@ -626,7 +653,9 @@ async fn attach_ws(
         box_id,
         execution_id,
         stream,
-        stdin_rx,
+        // exec() creates the session it attaches to, so it is always writable;
+        // read-only is only reachable through attach().
+        Some(stdin_rx),
         stdout_tx,
         stderr_tx,
         result_tx,
@@ -649,7 +678,8 @@ async fn attach_ws_pump(
     box_id: &str,
     execution_id: &str,
     initial_stream: WsStream,
-    mut stdin_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    // `None` for a read-only attach: there is no writer, so no channel exists.
+    mut stdin_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
     stdout_tx: mpsc::UnboundedSender<String>,
     stderr_tx: mpsc::UnboundedSender<String>,
     result_tx: mpsc::UnboundedSender<ExecResult>,
@@ -658,7 +688,19 @@ async fn attach_ws_pump(
     use std::time::Instant;
     use tokio_tungstenite::tungstenite::Message;
 
-    let path = format!("/boxes/{}/executions/{}/attach", box_id, execution_id);
+    // One source of truth for read-only, so the query and the stdin gates below
+    // cannot drift from whether a channel actually exists.
+    let wire_stdin = stdin_rx.is_some();
+
+    // The query rides every reconnect: a replacement socket opened without it
+    // would be writable, and the server's refusal only binds the socket it was
+    // asked for.
+    let path = format!(
+        "/boxes/{}/executions/{}/attach{}",
+        box_id,
+        execution_id,
+        if wire_stdin { "" } else { "?stdin=0" }
+    );
 
     // State persisted across reconnects:
     //
@@ -693,7 +735,7 @@ async fn attach_ws_pump(
 
         // If the user closed stdin during a previous attach, propagate the
         // EOF to this fresh server-side handler immediately. Best-effort.
-        if user_closed_stdin {
+        if wire_stdin && user_closed_stdin {
             let _ = sink
                 .send(Message::Text(r#"{"type":"stdin_eof"}"#.to_string()))
                 .await;
@@ -711,7 +753,8 @@ async fn attach_ws_pump(
                 // Forward stdin bytes from the SDK consumer to the WS sink.
                 // Disabled once we've observed stdin EOF — the WS reader is
                 // still running so we keep waiting for the exit frame.
-                stdin_msg = stdin_rx.recv(), if !user_closed_stdin => {
+                stdin_msg = async { stdin_rx.as_mut().expect("guarded by wire_stdin").recv().await },
+                    if wire_stdin && !user_closed_stdin => {
                     match stdin_msg {
                         Some(bytes) => {
                             if sink.send(Message::Binary(bytes)).await.is_err() {
@@ -1243,6 +1286,8 @@ mod tests {
         status_calls: u32,
         /// Request-line paths the client asked for, in order.
         requested_paths: Vec<String>,
+        /// Text (control) frames the server received from the client.
+        received_text: Vec<String>,
         /// Headers to add to the WS handshake response — how the real
         /// server hands back the main session's execution id.
         ws_response_headers: Vec<(String, String)>,
@@ -1728,6 +1773,89 @@ mod tests {
     // The attach must address the container route (exec-attach cannot
     // reach init: the client has no id for it), adopt the execution id the
     // server hands back on the upgrade, and stream init's output and exit code.
+    /// A read-only attach must survive a dropped socket still read-only.
+    ///
+    /// Its stdin sender is dropped by construction, which the pump used to read
+    /// as the consumer closing stdin — so it announced `stdin_eof`, and the
+    /// reconnect rebuilt the URL without the query, giving that EOF a writable
+    /// socket to land on.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn read_only_attach_stays_read_only_across_a_reconnect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let state: SharedState = Arc::new(Mutex::new(ServerState::default()));
+        state.lock().await.ws_response_headers = vec![(
+            "x-boxlite-execution-id".to_string(),
+            "container-1".to_string(),
+        )];
+
+        let state_clone = state.clone();
+        let server = tokio::spawn(async move {
+            run_server(listener, state_clone, None, |mut ws, state| async move {
+                // Record whatever the pump volunteers, then drop the socket so
+                // it has to reconnect.
+                let _ = tokio::time::timeout(Duration::from_millis(300), async {
+                    while let Some(Ok(msg)) = ws.next().await {
+                        if let Message::Text(text) = msg {
+                            state.lock().await.received_text.push(text.to_string());
+                        }
+                    }
+                })
+                .await;
+                let _ = ws.close(None).await;
+            })
+            .await;
+        });
+
+        let rest_box = rest_box_for(port, "box1");
+        let _execution = tokio::time::timeout(
+            Duration::from_secs(3),
+            rest_box.attach(AttachOptions::main().read_only()),
+        )
+        .await
+        .expect("attach timed out")
+        .expect("a read-only attach must connect");
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(8);
+        loop {
+            let seen = state
+                .lock()
+                .await
+                .requested_paths
+                .iter()
+                .filter(|p| p.contains("/attach"))
+                .count();
+            if seen >= 2 || std::time::Instant::now() > deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let seen = state.lock().await;
+        let attaches: Vec<&String> = seen
+            .requested_paths
+            .iter()
+            .filter(|p| p.contains("/attach"))
+            .collect();
+        assert!(
+            attaches.len() >= 2,
+            "the pump must reconnect after the drop; saw {attaches:?}"
+        );
+        for path in &attaches {
+            assert!(
+                path.contains("stdin=0"),
+                "every attach of a read-only session must carry the query, got {path:?}"
+            );
+        }
+        assert!(
+            seen.received_text.is_empty(),
+            "a read-only attach has no stdin to close and must never announce one, got {:?}",
+            seen.received_text
+        );
+
+        server.abort();
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn attach_streams_main_session_over_container_route() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1753,10 +1881,13 @@ mod tests {
         });
 
         let rest_box = rest_box_for(port, "box1");
-        let mut execution = tokio::time::timeout(Duration::from_secs(3), rest_box.attach(None))
-            .await
-            .expect("attach timed out")
-            .expect("the REST backend must support attaching to the main command session");
+        let mut execution = tokio::time::timeout(
+            Duration::from_secs(3),
+            rest_box.attach(AttachOptions::main()),
+        )
+        .await
+        .expect("attach timed out")
+        .expect("the REST backend must support attaching to the main command session");
 
         assert_eq!(
             execution.id(),
@@ -1818,11 +1949,13 @@ mod tests {
         });
 
         let rest_box = rest_box_for(port, "box1");
-        let mut execution =
-            tokio::time::timeout(Duration::from_secs(3), rest_box.attach(Some("exec-9")))
-                .await
-                .expect("attach timed out")
-                .expect("the REST backend must support reattaching to an exec by id");
+        let mut execution = tokio::time::timeout(
+            Duration::from_secs(3),
+            rest_box.attach(AttachOptions::execution("exec-9")),
+        )
+        .await
+        .expect("attach timed out")
+        .expect("the REST backend must support reattaching to an exec by id");
 
         assert_eq!(
             execution.id(),
@@ -1875,7 +2008,12 @@ mod tests {
         });
 
         let rest_box = rest_box_for(port, "box1");
-        let err = match tokio::time::timeout(Duration::from_secs(3), rest_box.attach(None)).await {
+        let err = match tokio::time::timeout(
+            Duration::from_secs(3),
+            rest_box.attach(AttachOptions::main()),
+        )
+        .await
+        {
             Ok(Ok(_)) => {
                 panic!("attach(None) must fail when the server names no main session id")
             }
@@ -1913,16 +2051,18 @@ mod tests {
             });
 
             let rest_box = rest_box_for(port, "box1");
-            let err =
-                match tokio::time::timeout(Duration::from_secs(3), rest_box.attach(Some("exec-x")))
-                    .await
-                {
-                    Ok(Ok(_)) => {
-                        panic!("a rejected upgrade ({status}) must not yield an Execution")
-                    }
-                    Ok(Err(e)) => e,
-                    Err(_) => panic!("attach timed out"),
-                };
+            let err = match tokio::time::timeout(
+                Duration::from_secs(3),
+                rest_box.attach(AttachOptions::execution("exec-x")),
+            )
+            .await
+            {
+                Ok(Ok(_)) => {
+                    panic!("a rejected upgrade ({status}) must not yield an Execution")
+                }
+                Ok(Err(e)) => e,
+                Err(_) => panic!("attach timed out"),
+            };
 
             if expect_reaped {
                 assert!(

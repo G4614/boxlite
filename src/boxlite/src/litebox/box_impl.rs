@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use boxlite_shared::errors::{BoxliteError, BoxliteResult};
 
+use super::attach::AttachOptions;
 use super::config::BoxConfig;
 use super::exec::{BoxCommand, ExecStderr, ExecStdin, ExecStdout, Execution};
 use super::state::BoxState;
@@ -504,7 +505,7 @@ impl BoxImpl {
             components.execution_id,
             Box::new(exec_interface),
             components.result_rx,
-            Some(ExecStdin::new(components.stdin_tx)),
+            components.stdin_tx.map(ExecStdin::new),
             Some(ExecStdout::new(components.stdout_rx)),
             Some(ExecStderr::new(components.stderr_rx)),
         ))
@@ -594,8 +595,8 @@ impl BoxImpl {
     /// then `start()`, so a command that finishes instantly cannot outrun the
     /// stream. Because attaching never runs the user's command, it needs no
     /// re-run guard (unlike `exec`/`cp`, which do start it).
-    pub(crate) async fn attach(&self, execution_id: Option<&str>) -> BoxliteResult<Execution> {
-        if execution_id.is_some() {
+    pub(crate) async fn attach(&self, options: AttachOptions) -> BoxliteResult<Execution> {
+        if options.execution_id().is_some() {
             return Err(BoxliteError::Unsupported(
                 "the local backend does not support reattaching to executions by id".into(),
             ));
@@ -626,7 +627,11 @@ impl BoxImpl {
         let live = self.ensure_booted().await?;
         let mut exec_interface = live.guest_session.execution().await?;
         let components = exec_interface
-            .attach_existing(self.container_id(), self.shutdown_token.clone())
+            .attach_existing(
+                self.container_id(),
+                options.wants_stdin(),
+                self.shutdown_token.clone(),
+            )
             .await?;
 
         let result_rx = self.exit_code_from_file_when_portal_has_none(components.result_rx);
@@ -635,7 +640,7 @@ impl BoxImpl {
             components.execution_id,
             Box::new(exec_interface),
             result_rx,
-            Some(ExecStdin::new(components.stdin_tx)),
+            components.stdin_tx.map(ExecStdin::new),
             Some(ExecStdout::new(components.stdout_rx)),
             Some(ExecStderr::new(components.stderr_rx)),
         ))
@@ -1443,8 +1448,8 @@ impl crate::runtime::backend::BoxBackend for BoxImpl {
         self.exec(command).await
     }
 
-    async fn attach(&self, execution_id: Option<&str>) -> BoxliteResult<Execution> {
-        self.attach(execution_id).await
+    async fn attach(&self, options: AttachOptions) -> BoxliteResult<Execution> {
+        self.attach(options).await
     }
 
     async fn metrics(&self) -> BoxliteResult<BoxMetrics> {
