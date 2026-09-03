@@ -69,7 +69,7 @@ export class TunnelLiveWsService {
 
     let organizationId: string
     try {
-      const apiKey = await this.apiKeyService.getKeyByValue(token)
+      const apiKey = await this.apiKeyService.getApiKeyByValue(token)
       if (!apiKey) throw new Error('invalid key')
       organizationId = apiKey.organizationId
     } catch {
