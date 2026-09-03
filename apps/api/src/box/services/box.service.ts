@@ -1248,6 +1248,120 @@ export class BoxService {
     }
   }
 
+  /**
+   * Mark boxes whose creation never finished for destruction.
+   *
+   * The create endpoint destroys the box itself when startup fails, but that
+   * only covers a live request. Two cases it cannot cover:
+   *
+   *   - the API process dies between `create()` and the failure;
+   *   - the caller's wait expires while the box is still CREATING, where
+   *     `destroy()` refuses the box because `create()` left it pending.
+   *
+   * Neither did `cleanupStaleErrorBoxes`, which only matches boxes already
+   * marked for destruction — a box that never came up is left at
+   * `desiredState = STARTED`, so it matched nothing and stayed forever.
+   *
+   * The decision here is made entirely from persisted state, so it does not
+   * depend on the request, or the API process that served it, still existing.
+   */
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'reap-failed-box-startups' })
+  @LogExecution('reap-failed-box-startups')
+  @WithInstrumentation()
+  async reapFailedBoxStartups() {
+    const stallSeconds: number = this.configService.getOrThrow('boxSync.startConfirmationStallSeconds')
+    const stalledBefore = new Date(Date.now() - stallSeconds * 1000)
+
+    const candidates = await this.boxRepository.find({
+      where: [
+        // Still coming up, and has not been touched for a stall window.
+        {
+          state: BoxState.CREATING,
+          desiredState: Not(BoxDesiredState.DESTROYED),
+          updatedAt: LessThan(stalledBefore),
+        },
+        // Failed. Whether it failed *during creation* is what matters, so this
+        // is narrowed by the CREATE_BOX job below rather than by state alone —
+        // a box that errored after serving traffic is the user's to see and to
+        // delete, not ours to reap.
+        {
+          state: BoxState.ERROR,
+          desiredState: Not(BoxDesiredState.DESTROYED),
+        },
+      ],
+    })
+
+    let reaped = 0
+
+    for (const box of candidates) {
+      try {
+        if (await this.hasCompletedCreateJob(box)) {
+          continue
+        }
+        if (box.state === BoxState.CREATING && (await this.hasProgressingCreateJob(box, stalledBefore))) {
+          continue
+        }
+
+        // `create()` leaves the box pending, so destroy() would refuse it.
+        // Writing the desired state directly is the point of this loop: the
+        // destroy action is the only thing that can still release whatever the
+        // runner allocated, so the box has to reach it even from CREATING.
+        const updatedBox = await this.boxRepository.updateWhere(box.id, {
+          updateData: Box.getSoftDeleteUpdate(box),
+          whereCondition: { state: box.state, desiredState: box.desiredState },
+        })
+
+        this.eventEmitter.emit(BoxEvents.DESTROYED, new BoxDestroyedEvent(updatedBox))
+        reaped++
+      } catch (error) {
+        // A box modified underneath us (its own request finally winning the
+        // race, a concurrent destroy) is the expected miss, not a failure of
+        // the sweep. Log it and keep going; the next run re-evaluates.
+        this.logger.warn(`Failed to reap box ${box.id} after failed startup:`, error)
+      }
+    }
+
+    if (reaped > 0) {
+      this.logger.log(`Marked ${reaped} boxes with a failed startup for destruction`)
+    }
+  }
+
+  /**
+   * Whether the box ever finished being created. Distinguishes "failed on the
+   * way up" from "came up, and failed later".
+   */
+  private async hasCompletedCreateJob(box: Box): Promise<boolean> {
+    const count = await this.jobRepository.count({
+      where: {
+        resourceType: ResourceType.BOX,
+        resourceId: box.id,
+        type: JobType.CREATE_BOX,
+        status: JobStatus.COMPLETED,
+      },
+    })
+
+    return count > 0
+  }
+
+  /**
+   * Whether a CREATE_BOX job could still move this box on its own. An
+   * unclaimed (PENDING) job is waiting for a runner and a recently claimed one
+   * is presumed to be running normally; only a job claimed before the stall
+   * window — or no open job at all — means nothing is coming.
+   */
+  private async hasProgressingCreateJob(box: Box, stalledBefore: Date): Promise<boolean> {
+    const openJobs = await this.jobRepository.find({
+      where: {
+        resourceType: ResourceType.BOX,
+        resourceId: box.id,
+        type: JobType.CREATE_BOX,
+        status: In([JobStatus.PENDING, JobStatus.IN_PROGRESS]),
+      },
+    })
+
+    return openJobs.some((job) => job.status === JobStatus.PENDING || !job.startedAt || job.startedAt >= stalledBefore)
+  }
+
   async setAutostopInterval(boxIdOrName: string, interval: number, organizationId?: string): Promise<Box> {
     const box = await this.findOneByIdOrName(boxIdOrName, organizationId)
 

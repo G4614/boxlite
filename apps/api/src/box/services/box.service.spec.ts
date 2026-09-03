@@ -370,3 +370,145 @@ describe('BoxService public defaults', () => {
     )
   })
 })
+
+// The reaper only touches boxRepository + jobRepository + configService +
+// eventEmitter, and decides purely from persisted state — which is what makes
+// it able to clean up after a request, or a whole API process, that is gone.
+function makeReaperService() {
+  const boxRepository = {
+    find: jest.fn().mockResolvedValue([]),
+    updateWhere: jest.fn(async (id: string, { updateData }: any) => ({ id, ...updateData })),
+  } as any
+  const jobRepository = {
+    count: jest.fn().mockResolvedValue(0),
+    find: jest.fn().mockResolvedValue([]),
+  } as any
+  const configService = {
+    getOrThrow: jest.fn((key: string) => {
+      if (key === 'boxSync.startConfirmationStallSeconds') return 60
+      throw new Error(`unexpected config key ${key}`)
+    }),
+  } as any
+  const eventEmitter = { emit: jest.fn(), emitAsync: jest.fn() } as any
+  const noop = {} as any
+  const service = new BoxService(
+    boxRepository, // boxRepository
+    noop, // runnerRepository
+    noop, // runnerService
+    noop, // volumeService
+    configService, // configService
+    noop, // warmPoolService
+    eventEmitter, // eventEmitter
+    noop, // organizationService
+    noop, // runnerAdapterFactory
+    noop, // redisLockProvider
+    noop, // redis
+    noop, // regionService
+    noop, // boxLookupCacheInvalidationService
+    noop, // boxActivityService
+    jobRepository, // jobRepository
+    noop, // jobService
+  )
+  return { service, boxRepository, jobRepository, eventEmitter }
+}
+
+// A box as create() leaves it: pending, so destroy() refuses it.
+const stuckCreatingBox = {
+  id: 'box-stuck',
+  name: 'cozy-otter',
+  state: BoxState.CREATING,
+  desiredState: BoxDesiredState.STARTED,
+  pending: true,
+}
+
+const failedStartupBox = {
+  id: 'box-errored',
+  name: 'brave-otter',
+  state: BoxState.ERROR,
+  desiredState: BoxDesiredState.STARTED,
+  pending: false,
+}
+
+describe('BoxService.reapFailedBoxStartups', () => {
+  it('marks a box stuck in CREATING for destruction when nothing can still move it', async () => {
+    const { service, boxRepository, eventEmitter } = makeReaperService()
+    boxRepository.find.mockResolvedValue([stuckCreatingBox])
+
+    await service.reapFailedBoxStartups()
+
+    expect(boxRepository.updateWhere).toHaveBeenCalledWith('box-stuck', {
+      updateData: expect.objectContaining({
+        pending: true,
+        desiredState: BoxDesiredState.DESTROYED,
+      }),
+      whereCondition: { state: BoxState.CREATING, desiredState: BoxDesiredState.STARTED },
+    })
+    expect(eventEmitter.emit).toHaveBeenCalledWith(BoxEvents.DESTROYED, expect.anything())
+  })
+
+  it('reaps a box that errored on the way up', async () => {
+    const { service, boxRepository } = makeReaperService()
+    boxRepository.find.mockResolvedValue([failedStartupBox])
+
+    await service.reapFailedBoxStartups()
+
+    expect(boxRepository.updateWhere).toHaveBeenCalledWith(
+      'box-errored',
+      expect.objectContaining({
+        updateData: expect.objectContaining({ desiredState: BoxDesiredState.DESTROYED }),
+      }),
+    )
+  })
+
+  it('leaves a box that came up before it errored to the user', async () => {
+    const { service, boxRepository, jobRepository } = makeReaperService()
+    boxRepository.find.mockResolvedValue([failedStartupBox])
+    jobRepository.count.mockResolvedValue(1)
+
+    await service.reapFailedBoxStartups()
+
+    expect(boxRepository.updateWhere).not.toHaveBeenCalled()
+  })
+
+  it('leaves a CREATING box alone while its create job is unclaimed', async () => {
+    const { service, boxRepository, jobRepository } = makeReaperService()
+    boxRepository.find.mockResolvedValue([stuckCreatingBox])
+    jobRepository.find.mockResolvedValue([{ status: 'PENDING', startedAt: null }])
+
+    await service.reapFailedBoxStartups()
+
+    expect(boxRepository.updateWhere).not.toHaveBeenCalled()
+  })
+
+  it('leaves a CREATING box alone while its create job is still progressing', async () => {
+    const { service, boxRepository, jobRepository } = makeReaperService()
+    boxRepository.find.mockResolvedValue([stuckCreatingBox])
+    jobRepository.find.mockResolvedValue([{ status: 'IN_PROGRESS', startedAt: new Date() }])
+
+    await service.reapFailedBoxStartups()
+
+    expect(boxRepository.updateWhere).not.toHaveBeenCalled()
+  })
+
+  it('reaps a CREATING box whose create job was claimed and then stalled', async () => {
+    const { service, boxRepository, jobRepository } = makeReaperService()
+    boxRepository.find.mockResolvedValue([stuckCreatingBox])
+    jobRepository.find.mockResolvedValue([{ status: 'IN_PROGRESS', startedAt: new Date(Date.now() - 10 * 60 * 1000) }])
+
+    await service.reapFailedBoxStartups()
+
+    expect(boxRepository.updateWhere).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps sweeping when one box loses the race', async () => {
+    const { service, boxRepository } = makeReaperService()
+    boxRepository.find.mockResolvedValue([stuckCreatingBox, failedStartupBox])
+    boxRepository.updateWhere
+      .mockRejectedValueOnce(new Error('box was modified by another operation'))
+      .mockResolvedValueOnce({ id: 'box-errored' })
+
+    await service.reapFailedBoxStartups()
+
+    expect(boxRepository.updateWhere).toHaveBeenCalledTimes(2)
+  })
+})

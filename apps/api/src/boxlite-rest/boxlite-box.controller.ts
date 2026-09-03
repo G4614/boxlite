@@ -116,7 +116,13 @@ export class BoxliteBoxController {
         // Box failed to start. Destroy the orphan record so it does not
         // accumulate in the user's box list — the caller already gets a 400
         // (or timeout) for this request and has no way to clean it up.
-        // Best-effort: if destroy also fails (rare race), log and move on.
+        //
+        // Best-effort by design, and it is expected to miss: on the timeout
+        // path the box is still CREATING and pending, which destroy() refuses.
+        // Cleaning up here is the fast path for the common case (the box
+        // reached ERROR, which clears pending); everything it misses — that
+        // timeout, and this process dying before the catch runs — is reaped
+        // from persisted state by BoxService.reapFailedBoxStartups.
         await this.boxService.destroy(box.id, organization.id).catch((destroyError: unknown) => {
           this.logger.warn(
             `Failed to destroy orphan box ${box.id} after creation failure: ${(destroyError as Error)?.message}`,
