@@ -305,6 +305,10 @@ paths:
           $ref: "#/components/responses/ConflictError"
         "422":
           $ref: "#/components/responses/UnprocessableEntityError"
+        "429":
+          $ref: "#/components/responses/ResourceExhaustedError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
 
     get:
       operationId: listBoxes
@@ -1323,8 +1327,29 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
 
+    ResourceExhaustedError:
+      description: The organization has reached its plan's non-finalized Box limit
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            path: /api/v1/org/boxes
+            timestamp: "2026-09-02T06:55:28.000Z"
+            statusCode: 429
+            error: Too Many Requests
+            message: "Organization box creation limit reached: 2 of 2 boxes are already counted"
+            code: resource_exhausted
+
     ServiceUnavailableError:
       description: A required backend service is not configured or available
+      headers:
+        Retry-After:
+          description: Seconds to wait when Box creation admission is temporarily contended
+          schema:
+            type: integer
+            minimum: 1
+            example: 5
       content:
         application/json:
           schema:
