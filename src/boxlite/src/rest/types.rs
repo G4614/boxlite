@@ -262,28 +262,14 @@ impl From<&crate::runtime::options::VolumeSpec> for CreateBoxVolumeSpec {
 
 /// Wire shape sent to the server when creating a box.
 ///
-/// `Legacy` is the pre-split flat shape `{"mode","allow_net"}`, accepted by
-/// all server versions. `Nested` carries explicit inbound/outbound directions
-/// and requires a server with #1199+ support.
+/// Always uses the nested `{outbound, inbound}` shape (requires #1199+).
+/// The legacy flat `{mode, allow_net}` shape was emitted when inbound was at
+/// its default (Enabled), but the server's default inbound changed from public
+/// to private in #1370, making the flat shape silently create private boxes
+/// even when the user intended public. Always sending the explicit shape
+/// removes the ambiguity.
 #[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub(crate) enum CreateBoxNetworkSpec {
-    /// Pre-split shape — sent when inbound is at its default so servers that
-    /// predate the inbound/outbound split (#1199) keep working.
-    Legacy(CreateBoxLegacyNetworkSpec),
-    /// Inbound/outbound shape — sent when inbound is explicitly configured.
-    Nested(CreateBoxNestedNetworkSpec),
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct CreateBoxLegacyNetworkSpec {
-    pub mode: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub allow_net: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct CreateBoxNestedNetworkSpec {
+pub(crate) struct CreateBoxNetworkSpec {
     pub outbound: CreateBoxOutboundNetworkSpec,
     pub inbound: CreateBoxInboundNetworkSpec,
 }
@@ -315,26 +301,15 @@ impl CreateBoxNetworkSpec {
         inbound: &crate::runtime::options::NetworkSpec,
     ) -> Self {
         let config = crate::runtime::options::NetworkConfig::from_specs(outbound, inbound);
-        // Use the legacy flat shape when inbound is at its default (Enabled,
-        // empty allowlist). Any explicit inbound configuration requires the
-        // nested shape and a server that understands it (#1199+).
-        match inbound {
-            crate::runtime::options::NetworkSpec::Enabled { allow_net } if allow_net.is_empty() => {
-                Self::Legacy(CreateBoxLegacyNetworkSpec {
-                    mode: mode_str(config.outbound.mode),
-                    allow_net: config.outbound.allow_net,
-                })
-            }
-            _ => Self::Nested(CreateBoxNestedNetworkSpec {
-                outbound: CreateBoxOutboundNetworkSpec {
-                    mode: mode_str(config.outbound.mode),
-                    allow_net: config.outbound.allow_net,
-                },
-                inbound: CreateBoxInboundNetworkSpec {
-                    mode: mode_str(config.inbound.mode),
-                    allow_net: config.inbound.allow_net,
-                },
-            }),
+        Self {
+            outbound: CreateBoxOutboundNetworkSpec {
+                mode: mode_str(config.outbound.mode),
+                allow_net: config.outbound.allow_net,
+            },
+            inbound: CreateBoxInboundNetworkSpec {
+                mode: mode_str(config.inbound.mode),
+                allow_net: config.inbound.allow_net,
+            },
         }
     }
 }
@@ -716,7 +691,7 @@ mod tests {
     fn test_create_box_request_serialization() {
         use crate::runtime::options::{BoxOptions, NetworkSpec, RootfsSpec};
 
-        // inbound at default → legacy flat shape, accepted by all server versions.
+        // inbound at default (Enabled) → nested shape with explicit inbound.mode.
         let opts = BoxOptions {
             rootfs: RootfsSpec::Image("python:3.11".into()),
             cpus: Some(2),
@@ -742,10 +717,11 @@ mod tests {
         assert!(json.contains("\"image\":\"python:3.11\""));
         assert!(json.contains("\"cpus\":2"));
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        // Legacy flat shape: top-level mode/allow_net, no outbound/inbound nesting.
-        assert_eq!(value["network"]["mode"], "enabled");
-        assert_eq!(value["network"]["allow_net"][0], "api.openai.com");
-        assert!(value["network"]["outbound"].is_null());
+        // Nested shape: outbound/inbound keys present; no legacy top-level mode.
+        assert_eq!(value["network"]["outbound"]["mode"], "enabled");
+        assert_eq!(value["network"]["outbound"]["allow_net"][0], "api.openai.com");
+        assert_eq!(value["network"]["inbound"]["mode"], "enabled");
+        assert!(value["network"]["mode"].is_null());
         assert!(json.contains("\"secrets\""));
         // None fields should be skipped
         assert!(!json.contains("rootfs_path"));
@@ -962,12 +938,11 @@ mod tests {
         };
 
         let req = CreateBoxRequest::from_options(&opts, None);
-        // inbound at default → legacy flat shape.
+        // Always nested shape: outbound disabled, inbound at default (enabled).
         let json = serde_json::to_value(&req).unwrap();
-        assert_eq!(json["network"]["mode"], "disabled");
-        // NetworkSpec::Disabled only overrides outbound; inbound keeps its
-        // default (Enabled/public) — not present in the legacy flat shape.
-        assert!(json["network"]["outbound"].is_null());
+        assert_eq!(json["network"]["outbound"]["mode"], "disabled");
+        assert_eq!(json["network"]["inbound"]["mode"], "enabled");
+        assert!(json["network"]["mode"].is_null());
     }
 
     /// REST is intentionally a "the server picks the security policy"
