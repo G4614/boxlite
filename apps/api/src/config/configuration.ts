@@ -508,6 +508,15 @@ const configuration = {
     // a backstop for a lost job-completion callback, not a fast path: raise it
     // if legitimate startups ever get closed out ahead of their own callback.
     startConfirmationStallSeconds: parseInt(process.env.BOX_SYNC_START_CONFIRMATION_STALL_SECONDS || '60', 10),
+    // How long a box may sit in CREATING before it is treated as a creation
+    // that will never finish and destroyed. Deliberately much larger than
+    // startConfirmationStallSeconds: the cost of being wrong there is closing
+    // out a job the runner already finished, here it is destroying a box that
+    // is still legitimately coming up, so this has to clear the slowest
+    // realistic create (large image pull included) by a wide margin. It also
+    // has to outlast job.service's stale-job timeout, which is what turns a
+    // create abandoned by a dead runner into a closed job in the first place.
+    failedStartupReapSeconds: parseInt(process.env.BOX_SYNC_FAILED_STARTUP_REAP_SECONDS || '1800', 10),
   },
   encryption: {
     key: process.env.ENCRYPTION_KEY,

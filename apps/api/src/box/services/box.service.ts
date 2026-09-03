@@ -55,7 +55,7 @@ import { customAlphabet as customNanoid, nanoid, urlAlphabet } from 'nanoid'
 import { WithInstrumentation } from '../../common/decorators/otel.decorator'
 import { validateMountPaths, validateSubpaths } from '../utils/volume-mount-path-validation.util'
 import { BoxRepository } from '../repositories/box.repository'
-import { getRunnerAssignmentLockKey } from '../utils/lock-key.util'
+import { getRunnerAssignmentLockKey, getStateChangeLockKey } from '../utils/lock-key.util'
 import { Job } from '../entities/job.entity'
 import { JobService } from './job.service'
 import { JobStatus, JobType, ResourceType } from '../dto/job.dto'
@@ -93,6 +93,15 @@ const DEFAULT_BOX_MEM = 1
 const DEFAULT_BOX_DISK = 10
 const DEFAULT_BOX_GPU = 0
 const TERMINAL_PREVIEW_PORT = 22222
+
+// How long an errored box stays readable before it is cleaned up. Errored
+// boxes are kept deliberately: the box list is where a user reads errorReason
+// and recoverable after a failure.
+const ERROR_BOX_TOMBSTONE_DAYS = 7
+
+// Boxes reaped per sweep. The cap matters on the first run after this ships,
+// which inherits every box that leaked while nothing could reap them.
+const REAP_FAILED_STARTUPS_BATCH_SIZE = 100
 
 @Injectable()
 export class BoxService {
@@ -1235,7 +1244,7 @@ export class BoxService {
   @WithInstrumentation()
   async cleanupStaleErrorBoxes() {
     const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - ERROR_BOX_TOMBSTONE_DAYS)
 
     const result = await this.boxRepository.delete({
       state: BoxState.ERROR,
@@ -1269,16 +1278,23 @@ export class BoxService {
   @LogExecution('reap-failed-box-startups')
   @WithInstrumentation()
   async reapFailedBoxStartups() {
-    const stallSeconds: number = this.configService.getOrThrow('boxSync.startConfirmationStallSeconds')
-    const stalledBefore = new Date(Date.now() - stallSeconds * 1000)
+    const reapSeconds: number = this.configService.getOrThrow('boxSync.failedStartupReapSeconds')
+    const stuckBefore = new Date(Date.now() - reapSeconds * 1000)
+
+    // Errored boxes keep the tombstone window they have always had. Reaping
+    // them sooner would be a user-visible regression: an errored box stays in
+    // the box list so its errorReason and recoverable flag can be read, and
+    // that window is what `cleanupStaleErrorBoxes` was already built around.
+    // The bug being fixed is only that they never became reapable at all.
+    const erroredBefore = new Date(Date.now() - ERROR_BOX_TOMBSTONE_DAYS * 24 * 60 * 60 * 1000)
 
     const candidates = await this.boxRepository.find({
       where: [
-        // Still coming up, and has not been touched for a stall window.
+        // Still coming up, and has not been touched for a full reap window.
         {
           state: BoxState.CREATING,
           desiredState: Not(BoxDesiredState.DESTROYED),
-          updatedAt: LessThan(stalledBefore),
+          updatedAt: LessThan(stuckBefore),
         },
         // Failed. Whether it failed *during creation* is what matters, so this
         // is narrowed by the CREATE_BOX job below rather than by state alone —
@@ -1287,18 +1303,32 @@ export class BoxService {
         {
           state: BoxState.ERROR,
           desiredState: Not(BoxDesiredState.DESTROYED),
+          updatedAt: LessThan(erroredBefore),
         },
       ],
+      // Oldest first, capped: the first run after this ships has every box
+      // that ever leaked to work through, and draining that over several
+      // minutes is preferable to one tick issuing thousands of writes and
+      // destroy events at once.
+      order: { updatedAt: 'ASC' },
+      take: REAP_FAILED_STARTUPS_BATCH_SIZE,
     })
 
     let reaped = 0
 
     for (const box of candidates) {
+      // Same lock the sync loop takes before moving a box, so a reap cannot
+      // interleave with an in-flight state transition for the same box.
+      const lockKey = getStateChangeLockKey(box.id)
+      if (!(await this.redisLockProvider.lock(lockKey, 30))) {
+        continue
+      }
+
       try {
         if (await this.hasCompletedCreateJob(box)) {
           continue
         }
-        if (box.state === BoxState.CREATING && (await this.hasProgressingCreateJob(box, stalledBefore))) {
+        if (box.state === BoxState.CREATING && (await this.hasProgressingCreateJob(box))) {
           continue
         }
 
@@ -1318,6 +1348,8 @@ export class BoxService {
         // race, a concurrent destroy) is the expected miss, not a failure of
         // the sweep. Log it and keep going; the next run re-evaluates.
         this.logger.warn(`Failed to reap box ${box.id} after failed startup:`, error)
+      } finally {
+        await this.redisLockProvider.unlock(lockKey)
       }
     }
 
@@ -1329,6 +1361,11 @@ export class BoxService {
   /**
    * Whether the box ever finished being created. Distinguishes "failed on the
    * way up" from "came up, and failed later".
+   *
+   * This reads a completed job as proof of a past success, so it depends on
+   * CREATE_BOX jobs being kept for the lifetime of the box — nothing prunes
+   * the job table today. Adding a job retention window without revisiting
+   * this would make long-lived boxes look like they never started.
    */
   private async hasCompletedCreateJob(box: Box): Promise<boolean> {
     const count = await this.jobRepository.count({
@@ -1345,12 +1382,13 @@ export class BoxService {
 
   /**
    * Whether a CREATE_BOX job could still move this box on its own. An
-   * unclaimed (PENDING) job is waiting for a runner and a recently claimed one
-   * is presumed to be running normally; only a job claimed before the stall
-   * window — or no open job at all — means nothing is coming.
+   * unclaimed (PENDING) job is waiting for a runner, and a claimed one is
+   * presumed to be working — a claim is stamped once, at claim time, so its
+   * age says nothing about progress and is not used to condemn the box. Only
+   * the complete absence of an open job means nothing is coming.
    */
-  private async hasProgressingCreateJob(box: Box, stalledBefore: Date): Promise<boolean> {
-    const openJobs = await this.jobRepository.find({
+  private async hasProgressingCreateJob(box: Box): Promise<boolean> {
+    const openJobs = await this.jobRepository.count({
       where: {
         resourceType: ResourceType.BOX,
         resourceId: box.id,
@@ -1359,7 +1397,7 @@ export class BoxService {
       },
     })
 
-    return openJobs.some((job) => job.status === JobStatus.PENDING || !job.startedAt || job.startedAt >= stalledBefore)
+    return openJobs > 0
   }
 
   async setAutostopInterval(boxIdOrName: string, interval: number, organizationId?: string): Promise<Box> {
