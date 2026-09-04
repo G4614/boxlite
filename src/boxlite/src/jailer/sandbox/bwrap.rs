@@ -66,6 +66,19 @@ impl Sandbox for BwrapSandbox {
             return Err(BoxliteError::Config(diagnostic.into_client()));
         }
 
+        // Deliberately does not refuse the box, unlike the root arm below.
+        //
+        // `THREAT_MODEL.md` lists resource fairness under *Guaranteed*, so a
+        // host that can enforce limits and fails must fail closed. Rootless
+        // cannot enforce them at all yet — there is no path to refuse *into*.
+        // Refusing here would reject the ordinary case (any `boxlite` run from
+        // SSH, a tty login, WSL or a CI container) to guard against a risk that
+        // no configuration can currently avoid.
+        //
+        // The rootless enforcement path is POL-469 / #619, which adopts the
+        // shim into a systemd transient scope. Once that lands this arm becomes
+        // that call, and its failure goes through the same fail-closed check
+        // (`SecurityOptions::allow_unlimited_host_resources`) as the root arm.
         if !cgroup::is_root() {
             tracing::info!(id = %ctx.id,
                 "Rootless: no per-box host cgroup limits (cgroup v2 delegation cannot migrate the shim in)");
