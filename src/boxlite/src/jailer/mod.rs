@@ -417,7 +417,7 @@ impl<S: Sandbox> Jail for Jailer<S> {
         // creating the cgroup only writes to /sys/fs/cgroup and needs no user
         // namespace, so it runs even when jailer_enabled is false.
         #[cfg(target_os = "linux")]
-        self.setup_host_cgroup();
+        self.setup_host_cgroup()?;
 
         if !self.security.jailer_enabled {
             return Ok(());
@@ -669,17 +669,44 @@ impl<S: Sandbox> Jailer<S> {
     /// a box that can't be cgroup-limited (e.g. no systemd user delegation) is
     /// still better than no box (matches prior bwrap behavior).
     #[cfg(target_os = "linux")]
-    fn setup_host_cgroup(&self) {
+    /// Create the box's host cgroup and write its limits.
+    ///
+    /// Fails the box when the cgroup cannot be set up. `THREAT_MODEL.md` lists
+    /// resource fairness ("one guest cannot starve others", enforced by
+    /// cgroups and rlimits) under *Guaranteed* properties, not best-effort,
+    /// and a guaranteed property must not degrade silently. This mirrors the
+    /// bwrap user-namespace preflight in `BwrapSandbox::setup`, which also
+    /// fails closed and names its escape hatch in the error.
+    ///
+    /// `SecurityOptions::allow_unlimited_host_resources` is that escape hatch,
+    /// for hosts where the limits genuinely cannot be had — a container with
+    /// no systemd, a CI image with no `busctl`. It downgrades the refusal to a
+    /// loud log rather than removing it.
+    fn setup_host_cgroup(&self) -> BoxliteResult<()> {
         let config = self.cgroup_config();
         if !config.has_limits() {
-            return;
+            return Ok(());
         }
         match cgroup::setup_cgroup(&self.box_id, &config) {
             Ok(path) => {
-                tracing::info!(box_id = %self.box_id, path = %path.display(), "Host cgroup created")
+                tracing::info!(box_id = %self.box_id, path = %path.display(), "Host cgroup created");
+                Ok(())
             }
-            Err(e) => tracing::warn!(box_id = %self.box_id, error = %e,
-                "Host cgroup setup failed (continuing without limits)"),
+            Err(e) if self.security.allow_unlimited_host_resources => {
+                // Opted in, so the box starts — but this is the state an
+                // operator must be able to find later, hence error! not warn!.
+                tracing::error!(box_id = %self.box_id, error = %e,
+                    "Host cgroup setup failed; starting WITHOUT per-box limits because \
+                     allow_unlimited_host_resources is set");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(box_id = %self.box_id, error = %e,
+                    "Host cgroup setup failed — refusing to start the box unconfined. \
+                     Fix the host cgroup delegation, or set \
+                     SecurityOptions::allow_unlimited_host_resources (development only).");
+                Err(e.into())
+            }
         }
     }
 
