@@ -2991,8 +2991,8 @@ mod tests {
     /// exited"; a main session under test must stay running.
     #[allow(dead_code)]
     struct StubChannels(
-        tokio::sync::mpsc::UnboundedSender<String>,
-        tokio::sync::mpsc::UnboundedSender<String>,
+        tokio::sync::mpsc::Sender<String>,
+        tokio::sync::mpsc::Sender<String>,
         tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
         tokio::sync::mpsc::UnboundedSender<boxlite::ExecResult>,
     );

@@ -1446,10 +1446,8 @@ mod tests {
                 total_bytes: None,
             })),
         };
-        ExecProtocol::route_output(output(b"hello ".to_vec()), &mut stdout, &mut stderr)
-            .await;
-        ExecProtocol::route_output(output(b"world".to_vec()), &mut stdout, &mut stderr)
-            .await;
+        ExecProtocol::route_output(output(b"hello ".to_vec()), &mut stdout, &mut stderr).await;
+        ExecProtocol::route_output(output(b"world".to_vec()), &mut stdout, &mut stderr).await;
 
         assert_eq!(stdout_rx.try_recv().ok(), Some("hello ".to_string()));
         assert_eq!(stdout_rx.try_recv().ok(), Some("world".to_string()));
