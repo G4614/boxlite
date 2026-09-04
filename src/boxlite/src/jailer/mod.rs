@@ -738,21 +738,33 @@ impl<S: Sandbox> Jailer<S> {
     /// by setup_host_cgroup + the pre_exec join) or when no limit is configured.
     /// Non-fatal — an unscoped box beats no box.
     #[cfg(target_os = "linux")]
-    pub(crate) fn place_shim_in_scope(&self, pid: u32) {
+    pub(crate) fn place_shim_in_scope(&self, pid: u32) -> BoxliteResult<()> {
         let config = self.cgroup_config();
         if !config.has_limits() || cgroup::is_root() {
-            return;
+            return Ok(());
         }
         match cgroup::adopt_pid_into_scope(&self.box_id, pid, &config) {
             Ok(()) => {
-                tracing::info!(box_id = %self.box_id, pid, "Shim adopted into host cgroup scope")
+                tracing::info!(box_id = %self.box_id, pid, "Shim adopted into host cgroup scope");
+                Ok(())
             }
-            // Same as setup_host_cgroup above: best-effort by design, but the
-            // failure must be LOUD so operators notice (missing busctl,
-            // no systemd user manager, dbus errors, etc. are all real
-            // causes a silent warn would hide).
-            Err(e) => tracing::error!(box_id = %self.box_id, pid, error = %e,
-                "Host cgroup scope adoption failed — shim runs WITHOUT host limits; check busctl / systemd --user availability"),
+            // Same policy as `setup_host_cgroup`, for the same reason: this is
+            // the rootless enforcement path, so its failure means a guaranteed
+            // property is unavailable, not that a best-effort one degraded.
+            // Refuse rather than run the shim uncapped, and name the opt-out.
+            Err(e) if self.security.allow_unlimited_host_resources => {
+                tracing::error!(box_id = %self.box_id, pid, error = %e,
+                    "Host cgroup scope adoption failed; shim runs WITHOUT host limits because \
+                     allow_unlimited_host_resources is set");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(box_id = %self.box_id, pid, error = %e,
+                    "Host cgroup scope adoption failed — refusing to run the shim uncapped. \
+                     Check busctl / systemd --user availability, or set \
+                     SecurityOptions::allow_unlimited_host_resources (development only).");
+                Err(e.into())
+            }
         }
     }
 }

@@ -169,8 +169,17 @@ impl<'a> ShimSpawner<'a> {
         // across the root-owned user.slice — and doing it post-spawn keeps the
         // shim's PID identity that the watchdog and recovery rely on. No-op for
         // root and when no limit is configured.
+        //
+        // Fails closed: if the scope cannot carry the limits, the shim is
+        // already running, so kill it before returning rather than leaking an
+        // uncapped VM. `SecurityOptions::allow_unlimited_host_resources` is the
+        // opt-out and is checked inside `place_shim_in_scope`.
         #[cfg(target_os = "linux")]
-        jail.place_shim_in_scope(child.id());
+        if let Err(e) = jail.place_shim_in_scope(child.id()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
 
         // 8. Write config to stdin, then close (shim reads until EOF).
         // The child is already spawned and will read from stdin, so this is a
