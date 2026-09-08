@@ -32,8 +32,9 @@ function makeHarness() {
     findOne: jest.fn().mockResolvedValue({ apiUrl: 'http://runner.local', apiKey: 'runner-key' }),
   }
   const autoResume = { ensureReady: jest.fn().mockResolvedValue(undefined) }
+  const tunnelRes = { setHeader: jest.fn() }
   const controller = new BoxliteProxyController(boxService as never, runnerService as never, autoResume as never)
-  return { controller, boxService, autoResume }
+  return { controller, boxService, autoResume, tunnelRes }
 }
 
 describe('BoxliteProxyController', () => {
@@ -71,16 +72,16 @@ describe('BoxliteProxyController', () => {
   })
 
   it('returns the public endpoint for JSON tunnel requests', async () => {
-    const { controller, boxService } = makeHarness()
+    const { controller, boxService, tunnelRes } = makeHarness()
 
-    const result = await controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)
+    const result = await controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never)
 
     expect(boxService.getNetworkTunnelUrl).toHaveBeenCalledWith('public-box', 'org-1', 3000)
     expect(result).toEqual({ uri: 'https://3000-box.proxy.test' })
   })
 
   it('rejects a tunnel request for a private box with 409', async () => {
-    const { controller, boxService } = makeHarness()
+    const { controller, boxService, tunnelRes } = makeHarness()
     boxService.findOneByIdOrName.mockResolvedValue({
       id: 'box-uuid',
       runnerId: 'runner-1',
@@ -89,7 +90,9 @@ describe('BoxliteProxyController', () => {
       public: false,
     })
 
-    await expect(controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)).rejects.toMatchObject({
+    await expect(
+      controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+    ).rejects.toMatchObject({
       status: 409,
     })
     expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
@@ -100,7 +103,7 @@ describe('BoxliteProxyController', () => {
     // reject it here for being private wastes a real resume (and briefly
     // makes a private box's state observable) for a request that was always
     // going to be denied.
-    const { controller, boxService, autoResume } = makeHarness()
+    const { controller, boxService, autoResume, tunnelRes } = makeHarness()
     boxService.findOneByIdOrName.mockResolvedValue({
       id: 'box-uuid',
       runnerId: 'runner-1',
@@ -109,7 +112,9 @@ describe('BoxliteProxyController', () => {
       public: false,
     })
 
-    await expect(controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)).rejects.toMatchObject({
+    await expect(
+      controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+    ).rejects.toMatchObject({
       status: 409,
     })
     expect(autoResume.ensureReady).not.toHaveBeenCalled()
@@ -117,7 +122,7 @@ describe('BoxliteProxyController', () => {
   })
 
   it('rejects a tunnel request for a stopped, non-autoResume box with 409', async () => {
-    const { controller, boxService, autoResume } = makeHarness()
+    const { controller, boxService, autoResume, tunnelRes } = makeHarness()
     boxService.findOneByIdOrName.mockResolvedValue({
       id: 'box-uuid',
       runnerId: 'runner-1',
@@ -125,7 +130,9 @@ describe('BoxliteProxyController', () => {
       state: 'stopped',
     })
 
-    await expect(controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)).rejects.toMatchObject({
+    await expect(
+      controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+    ).rejects.toMatchObject({
       status: 409,
     })
     expect(autoResume.ensureReady).not.toHaveBeenCalled()
@@ -133,7 +140,7 @@ describe('BoxliteProxyController', () => {
   })
 
   it('wakes a stopped autoResume box before minting the tunnel URI (POL-352)', async () => {
-    const { controller, boxService, autoResume } = makeHarness()
+    const { controller, boxService, autoResume, tunnelRes } = makeHarness()
     boxService.findOneByIdOrName.mockResolvedValue({
       id: 'box-uuid',
       runnerId: 'runner-1',
@@ -142,7 +149,7 @@ describe('BoxliteProxyController', () => {
       public: true,
     })
 
-    const result = await controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)
+    const result = await controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never)
 
     expect(autoResume.ensureReady).toHaveBeenCalledWith('box-uuid', activeAuth.organization)
     expect(boxService.getNetworkTunnelUrl).toHaveBeenCalledWith('public-box', 'org-1', 3000)
@@ -154,8 +161,10 @@ describe('BoxliteProxyController', () => {
     expect(result).toEqual({ uri: 'https://3000-box.proxy.test' })
   })
 
-  it('propagates the resume timeout instead of minting a tunnel URI', async () => {
-    const { controller, boxService, autoResume } = makeHarness()
+  it('maps a resume timeout to 504 with Retry-After instead of minting a tunnel URI', async () => {
+    // POL-352: the start is still in flight, so this is a "come back later",
+    // not the 408 client-side timeout ensureReady raises internally.
+    const { controller, boxService, autoResume, tunnelRes } = makeHarness()
     boxService.findOneByIdOrName.mockResolvedValue({
       id: 'box-uuid',
       runnerId: 'runner-1',
@@ -163,17 +172,105 @@ describe('BoxliteProxyController', () => {
       state: 'stopped',
       public: true,
     })
-    const timeout = new RequestTimeoutException('Timed out waiting to resume box box-uuid')
-    autoResume.ensureReady.mockRejectedValue(timeout)
+    autoResume.ensureReady.mockRejectedValue(new RequestTimeoutException('Timed out waiting to resume box box-uuid'))
 
-    await expect(controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)).rejects.toBe(timeout)
+    await expect(
+      controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+    ).rejects.toMatchObject({ status: 504 })
+    expect(tunnelRes.setHeader).toHaveBeenCalledWith('Retry-After', '30')
     expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
   })
+
+  it('surfaces a non-timeout resume failure unchanged', async () => {
+    const { controller, boxService, autoResume, tunnelRes } = makeHarness()
+    boxService.findOneByIdOrName.mockResolvedValue({
+      id: 'box-uuid',
+      runnerId: 'runner-1',
+      autoResume: true,
+      state: 'stopped',
+      public: true,
+    })
+    const failure = new Error('start failed')
+    autoResume.ensureReady.mockRejectedValue(failure)
+
+    await expect(
+      controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+    ).rejects.toBe(failure)
+    expect(tunnelRes.setHeader).not.toHaveBeenCalled()
+    expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
+  })
+
+  it('counts a tunnel request as activity so AutoStop does not reap the box', async () => {
+    // POL-326: without this the box we just handed out (or woke) stays
+    // eligible for the idle sweeper, so the caller's tunnel dies under it.
+    const { controller, boxService, tunnelRes } = makeHarness()
+
+    await controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never)
+
+    expect(boxService.updateLastActivityAt).toHaveBeenCalledWith('box-uuid', expect.any(Date))
+  })
+
+  it('does not record activity for a box it refuses to expose', async () => {
+    const { controller, boxService, tunnelRes } = makeHarness()
+    boxService.findOneByIdOrName.mockResolvedValue({
+      id: 'box-uuid',
+      runnerId: 'runner-1',
+      autoResume: true,
+      state: 'started',
+      public: false,
+    })
+
+    await expect(
+      controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(boxService.updateLastActivityAt).not.toHaveBeenCalled()
+  })
+
+  it.each(['error', 'archived', 'archiving', 'destroying', 'resizing', 'unknown'])(
+    'rejects state %s with 409 instead of waiting out the resume timeout, even with autoResume',
+    async (state) => {
+      // These never reach STARTED on their own, so ensureReady would just
+      // block for its full 30s window before failing the caller anyway.
+      const { controller, boxService, autoResume, tunnelRes } = makeHarness()
+      boxService.findOneByIdOrName.mockResolvedValue({
+        id: 'box-uuid',
+        runnerId: 'runner-1',
+        autoResume: true,
+        state,
+        public: true,
+      })
+
+      await expect(
+        controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+      ).rejects.toMatchObject({ status: 409 })
+      expect(autoResume.ensureReady).not.toHaveBeenCalled()
+      expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['stopping', 'starting', 'creating', 'restoring'])(
+    'waits out state %s for an autoResume box',
+    async (state) => {
+      const { controller, boxService, autoResume, tunnelRes } = makeHarness()
+      boxService.findOneByIdOrName.mockResolvedValue({
+        id: 'box-uuid',
+        runnerId: 'runner-1',
+        autoResume: true,
+        state,
+        public: true,
+      })
+
+      await controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never)
+
+      expect(autoResume.ensureReady).toHaveBeenCalledWith('box-uuid', activeAuth.organization)
+      expect(boxService.getNetworkTunnelUrl).toHaveBeenCalled()
+    },
+  )
 
   it.each(['creating', 'starting', 'error', 'archived', 'unknown'])(
     'rejects a tunnel request for a non-started box in state %s',
     async (state) => {
-      const { controller, boxService } = makeHarness()
+      const { controller, boxService, tunnelRes } = makeHarness()
       boxService.findOneByIdOrName.mockResolvedValue({
         id: 'box-uuid',
         runnerId: 'runner-1',
@@ -181,7 +278,9 @@ describe('BoxliteProxyController', () => {
         state,
       })
 
-      await expect(controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)).rejects.toMatchObject({
+      await expect(
+        controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
+      ).rejects.toMatchObject({
         status: 409,
       })
       expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()

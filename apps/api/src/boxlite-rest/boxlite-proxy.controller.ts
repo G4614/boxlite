@@ -18,6 +18,8 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  GatewayTimeoutException,
+  RequestTimeoutException,
   HttpCode,
   HttpStatus,
   ParseIntPipe,
@@ -33,12 +35,26 @@ import { AuthContext } from '../common/decorators/auth-context.decorator'
 import { OrganizationAuthContext } from '../common/interfaces/auth-context.interface'
 import { BoxService } from '../box/services/box.service'
 import { RunnerService } from '../box/services/runner.service'
-import { BoxAutoResumeService } from './box-auto-resume.service'
+import { AUTO_RESUME_TIMEOUT_SECONDS, BoxAutoResumeService } from './box-auto-resume.service'
 import { BoxState } from '../box/enums/box-state.enum'
 
 type ProxyActivityPolicy = { activity: boolean; autoResume: boolean }
 const USER_OPERATION: ProxyActivityPolicy = { activity: true, autoResume: true }
 const OBSERVATION_ONLY: ProxyActivityPolicy = { activity: false, autoResume: false }
+
+// States a tunnel request may wait out: either the box is stopped (or on its
+// way there) and can be started again, or it is already on its way up. Every
+// other non-STARTED state — ERROR, ARCHIVED/ARCHIVING, DESTROYED/DESTROYING,
+// RESIZING, UNKNOWN — either never reaches STARTED on its own or needs an
+// explicit operator action, so waiting 30s to time out is strictly worse for
+// the caller than an immediate 409.
+const TUNNEL_RESUMABLE_STATES: readonly BoxState[] = [
+  BoxState.STOPPED,
+  BoxState.STOPPING,
+  BoxState.STARTING,
+  BoxState.CREATING,
+  BoxState.RESTORING,
+]
 
 // Spec-first surface (openapi/box.openapi.yaml). Must stay out of the product
 // spec: @All() expands to the SEARCH verb, which OpenAPI 3.0 cannot express.
@@ -207,6 +223,7 @@ export class BoxliteProxyController {
     @AuthContext() authContext: OrganizationAuthContext,
     @Param('boxId') boxId: string,
     @Query('port', ParseIntPipe) port: number,
+    @Res({ passthrough: true }) res: Response,
   ) {
     // findOneByIdOrName already 404s for a missing/destroyed box. Unlike
     // proxyToRunner's other routes, this endpoint just resolves a URL — it
@@ -227,20 +244,44 @@ export class BoxliteProxyController {
       throw new ConflictException(`Box ${boxId} is not public; set public: true before opening a tunnel`)
     }
 
+    // POL-326/POL-352: opening a tunnel is user activity, exactly like the
+    // proxyToRunner routes. Persist it before the readiness gate so the
+    // AutoStop sweeper cannot reap the box we are about to hand out (or just
+    // woke up); the sweeper rechecks this Redis-buffered timestamp after
+    // taking its state lock.
+    await this.boxService
+      .updateLastActivityAt(box.id, new Date())
+      .catch((err) => this.logger.warn(`updateLastActivityAt failed for ${box.id}: ${err}`))
+
     // POL-352: mirror proxyToRunner's policy — a stopped box that opted into
     // autoResume gets woken here rather than rejected, since minting the
     // tunnel URI is the caller's only touchpoint before the CONNECT itself
-    // (which has no box row to check against). ensureReady throws a 408 if
-    // the box never reaches STARTED within its timeout.
+    // (which has no box row to check against).
     if (box.state !== BoxState.STARTED) {
-      if (!box.autoResume) {
+      if (!box.autoResume || !TUNNEL_RESUMABLE_STATES.includes(box.state)) {
         throw new ConflictException(`Box ${boxId} is not running (state: ${box.state})`)
       }
-      await this.autoResume.ensureReady(box.id, authContext.organization)
+      await this.resumeForTunnel(box.id, authContext, res)
     }
 
     const uri = await this.boxService.getNetworkTunnelUrl(boxId, authContext.organizationId, port)
     return { uri }
+  }
+
+  // A resume that outlives its window is a "come back later", not a client
+  // error: POL-352 asks for 504 + Retry-After so a caller (or an SDK mapping
+  // this to BoxResumeTimeoutError) can retry the same request instead of
+  // treating the box as broken. The underlying start is still in flight.
+  private async resumeForTunnel(boxId: string, authContext: OrganizationAuthContext, res: Response): Promise<void> {
+    try {
+      await this.autoResume.ensureReady(boxId, authContext.organization)
+    } catch (err) {
+      if (err instanceof RequestTimeoutException) {
+        res.setHeader('Retry-After', String(AUTO_RESUME_TIMEOUT_SECONDS))
+        throw new GatewayTimeoutException(`Timed out waiting to resume box ${boxId}`)
+      }
+      throw err
+    }
   }
 
   private async proxyToRunner(
