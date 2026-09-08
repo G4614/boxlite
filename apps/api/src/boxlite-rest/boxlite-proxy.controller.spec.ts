@@ -128,12 +128,16 @@ describe('BoxliteProxyController', () => {
       runnerId: 'runner-1',
       autoResume: false,
       state: 'stopped',
+      public: true,
     })
 
     await expect(
       controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
     ).rejects.toMatchObject({
       status: 409,
+      // Pin the reason: without public: true this 409s at the visibility
+      // gate instead, and the state policy under test never runs.
+      message: expect.stringContaining('is not running'),
     })
     expect(autoResume.ensureReady).not.toHaveBeenCalled()
     expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
@@ -276,12 +280,14 @@ describe('BoxliteProxyController', () => {
         runnerId: 'runner-1',
         autoResume: false,
         state,
+        public: true,
       })
 
       await expect(
         controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000, tunnelRes as never),
       ).rejects.toMatchObject({
         status: 409,
+        message: expect.stringContaining('is not running'),
       })
       expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
     },
