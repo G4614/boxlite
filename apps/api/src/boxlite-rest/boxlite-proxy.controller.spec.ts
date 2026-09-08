@@ -95,6 +95,27 @@ describe('BoxliteProxyController', () => {
     expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
   })
 
+  it('rejects a stopped, autoResume, private box without waking it', async () => {
+    // The visibility gate must run before the resume: waking a box only to
+    // reject it here for being private wastes a real resume (and briefly
+    // makes a private box's state observable) for a request that was always
+    // going to be denied.
+    const { controller, boxService, autoResume } = makeHarness()
+    boxService.findOneByIdOrName.mockResolvedValue({
+      id: 'box-uuid',
+      runnerId: 'runner-1',
+      autoResume: true,
+      state: 'stopped',
+      public: false,
+    })
+
+    await expect(controller.proxyNetworkTunnel(activeAuth as never, 'public-box', 3000)).rejects.toMatchObject({
+      status: 409,
+    })
+    expect(autoResume.ensureReady).not.toHaveBeenCalled()
+    expect(boxService.getNetworkTunnelUrl).not.toHaveBeenCalled()
+  })
+
   it('rejects a tunnel request for a stopped, non-autoResume box with 409', async () => {
     const { controller, boxService, autoResume } = makeHarness()
     boxService.findOneByIdOrName.mockResolvedValue({
@@ -125,6 +146,11 @@ describe('BoxliteProxyController', () => {
 
     expect(autoResume.ensureReady).toHaveBeenCalledWith('box-uuid', activeAuth.organization)
     expect(boxService.getNetworkTunnelUrl).toHaveBeenCalledWith('public-box', 'org-1', 3000)
+    // Order matters: minting the URI before the box is actually STARTED
+    // would hand out an address that CONNECTs into a still-stopped box.
+    expect(autoResume.ensureReady.mock.invocationCallOrder[0]).toBeLessThan(
+      boxService.getNetworkTunnelUrl.mock.invocationCallOrder[0],
+    )
     expect(result).toEqual({ uri: 'https://3000-box.proxy.test' })
   })
 
