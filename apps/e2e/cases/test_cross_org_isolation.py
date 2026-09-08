@@ -307,6 +307,41 @@ async def _fetch_marker_over_tunnel(box, port: int) -> bytes:
         await connection.close()
 
 
+async def _await_marker_over_tunnel(box, port: int, *, timeout: float = 30.0) -> bytes:
+    """Poll `_fetch_marker_over_tunnel` until the marker shows up.
+
+    `_start_marker_service` returns as soon as `sh` reports the background
+    pid, which is before `python3` has bound *port*.  A single fetch can
+    therefore connect to a closed port and read nothing, failing the positive
+    control for a timing reason rather than a reachability one.
+
+    The last response and the last error are both carried out so a genuine
+    failure (tunnel refused, service crashed) stays diagnosable instead of
+    surfacing as an empty read.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    response = b""
+    last_error: BaseException | None = None
+    while True:
+        try:
+            response = await _fetch_marker_over_tunnel(box, port)
+            last_error = None
+            if _TUNNEL_MARKER in response:
+                return response
+        except (OSError, asyncio.TimeoutError, RuntimeError) as exc:
+            last_error = exc
+            response = b""
+        if asyncio.get_running_loop().time() >= deadline:
+            break
+        await asyncio.sleep(0.5)
+    if last_error is not None:
+        raise AssertionError(
+            f"marker service in box {box.id} never became reachable over its "
+            f"own tunnel within {timeout}s; last error: {last_error!r}"
+        ) from last_error
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Tests — foreign namespace (403)
 # ---------------------------------------------------------------------------
@@ -482,25 +517,44 @@ async def test_cross_org_cannot_tunnel_into_org_a_box(
         await _start_marker_service(box_a)
 
         # 1. Positive control: the service is up and reachable by its owner.
-        response = await _fetch_marker_over_tunnel(box_a, _TUNNEL_PORT)
+        #    Polled: the fixture binds the port after `_start_marker_service`
+        #    has already returned the pid.
+        response = await _await_marker_over_tunnel(box_a, _TUNNEL_PORT)
         assert _TUNNEL_MARKER in response, (
             "positive control failed: org-A could not reach its own service in "
             f"box {box_a.id} over its own tunnel, so the denial below would "
             f"prove nothing. Response: {response[:512]!r}"
         )
 
-        # 2a. org-B's runtime cannot even resolve the box: `get` is org-scoped
-        #     and returns None rather than a handle.
-        assert await org_b_rt.get(box_a.id) is None, (
-            f"org-B's runtime resolved org-A's box {box_a.id} to a handle"
-        )
+        # 2a. org-B's runtime cannot even resolve the box: `get` is org-scoped,
+        #     so it must not hand back a usable handle.  The REST runtime
+        #     signals this by raising rather than returning None, so both
+        #     shapes are accepted — what matters is that no handle comes back.
+        try:
+            resolved = await org_b_rt.get(box_a.id)
+        except Exception as exc:  # noqa: BLE001 — SDK raises a bare RuntimeError
+            assert "not found" in str(exc).lower(), (
+                f"org-B's `get` on org-A's box {box_a.id} failed for an "
+                f"unexpected reason, so this proves nothing about scoping: {exc!r}"
+            )
+        else:
+            assert resolved is None, (
+                f"org-B's runtime resolved org-A's box {box_a.id} to a handle"
+            )
 
         # 2b. Raw tunnel endpoint, both vectors.
+        #     `port` is a query parameter, not a body field
+        #     (`boxlite-proxy.controller.ts:208` — `@Query('port', ParseIntPipe)`,
+        #     matching `openapi/box.openapi.yaml:952`).  Sending it in the body
+        #     makes `ParseIntPipe` reject the request with 400 *before*
+        #     `findOneByIdOrName` runs, so the ownership check would never be
+        #     exercised at all.
+        tunnel_path = f"boxes/{box_a.id}/network/tunnel?port={_TUNNEL_PORT}"
+
         own_ns = _request(
             "POST",
-            _prefixed(org_a_ctx, org_b_prefix, f"boxes/{box_a.id}/network/tunnel"),
+            _prefixed(org_a_ctx, org_b_prefix, tunnel_path),
             token=org_b_token,
-            body={"port": _TUNNEL_PORT},
         )[0]
         assert own_ns == 404, (
             f"tunnel to org-A's box from org-B's namespace should 404, got {own_ns}"
@@ -508,9 +562,8 @@ async def test_cross_org_cannot_tunnel_into_org_a_box(
 
         foreign_ns = _request(
             "POST",
-            _prefixed(org_a_ctx, org_a_prefix, f"boxes/{box_a.id}/network/tunnel"),
+            _prefixed(org_a_ctx, org_a_prefix, tunnel_path),
             token=org_b_token,
-            body={"port": _TUNNEL_PORT},
         )[0]
         assert foreign_ns in (401, 403), (
             f"tunnel in org-A's namespace with org-B's key should 401/403, got "
