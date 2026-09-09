@@ -117,6 +117,18 @@ pub struct CgroupConfig {
     pub pids_max: Option<u64>,
 }
 
+impl CgroupConfig {
+    /// True if any cgroup limit is set. When false, creating a cgroup buys
+    /// nothing — callers should skip cgroup setup entirely.
+    pub fn has_limits(&self) -> bool {
+        self.memory_max.is_some()
+            || self.memory_high.is_some()
+            || self.cpu_weight.is_some()
+            || self.cpu_max.is_some()
+            || self.pids_max.is_some()
+    }
+}
+
 /// Check if cgroup v2 is available and unified hierarchy is used.
 pub fn is_cgroup_v2_available() -> bool {
     // Check if cgroup2 is mounted
@@ -374,6 +386,33 @@ impl From<&ResourceLimits> for CgroupConfig {
     }
 }
 
+/// Default host process cap. Baseline box uses ~22 host tasks (libkrun vCPUs +
+/// gvproxy + tokio); 1024 leaves wide headroom while still catching a runaway
+/// thread/fork leak in the VMM stack.
+pub(crate) const DEFAULT_HOST_PIDS_MAX: u64 = 1024;
+
+/// Apply default DoS caps in place: `memory.max = 2× VM RAM + 512 MiB`,
+/// `pids.max = 1024`, `cpu.max = host_cores × 1_000_000`.
+///
+/// `host_cores` is injected (rather than queried from `available_parallelism`
+/// inside this function) so the defaults are pure and unit-testable.
+pub(crate) fn apply_cgroup_defaults(
+    config: &mut CgroupConfig,
+    vm_memory_mib: u64,
+    host_cores: u64,
+) {
+    if config.memory_max.is_none() {
+        config.memory_max = Some(vm_memory_mib * 2 * 1024 * 1024 + 512 * 1024 * 1024);
+    }
+    if config.pids_max.is_none() {
+        config.pids_max = Some(DEFAULT_HOST_PIDS_MAX);
+    }
+    let host_cpu_us_per_sec = host_cores.saturating_mul(1_000_000);
+    if config.cpu_max.is_none() {
+        config.cpu_max = Some((host_cpu_us_per_sec, 1_000_000));
+    }
+}
+
 // ============================================================================
 // Async-Signal-Safe Cgroup (for pre_exec)
 // ============================================================================
@@ -449,6 +488,23 @@ pub fn add_self_to_cgroup_raw(cgroup_procs_path: &std::ffi::CStr) -> Result<(), 
     }
 
     Ok(())
+}
+
+/// Return a `pre_exec` closure that joins the cgroup and propagates failure.
+///
+/// When the closure returns `Err`, `Command::spawn()` surfaces the errno as
+/// an `io::Error` and the child never reaches `execve` — the join is
+/// fail-closed. Callers install it with `cmd.pre_exec(cgroup_join_pre_exec(…))`.
+///
+/// # Safety
+/// The closure performs only async-signal-safe operations (open, write,
+/// close, getpid — no allocation, no locks). Caller must declare the
+/// `pre_exec` block `unsafe` per `CommandExt::pre_exec`.
+#[cfg(target_os = "linux")]
+pub fn cgroup_join_pre_exec(
+    cgroup_procs: std::ffi::CString,
+) -> impl FnMut() -> std::io::Result<()> {
+    move || add_self_to_cgroup_raw(&cgroup_procs).map_err(std::io::Error::from_raw_os_error)
 }
 
 /// Build the cgroup.procs path for a box.
@@ -594,6 +650,43 @@ mod tests {
         assert!(
             msg.contains("none of cpu/memory/pids"),
             "error must spell out the missing controllers; got {msg:?}"
+        );
+    }
+
+    /// `apply_cgroup_defaults` fills every cap when none was set explicitly:
+    /// memory.max = 2× VM + 512 MiB, pids.max = 1024, cpu.max = host_cores ×
+    /// 1_000_000. Pins the default values themselves — a regression that quietly
+    /// lowers any of them would land here.
+    #[test]
+    fn apply_defaults_fills_every_cap_when_none_explicit() {
+        let mut config = CgroupConfig::default();
+        apply_cgroup_defaults(&mut config, 128, 8);
+
+        let expected_mem = 128u64 * 2 * 1024 * 1024 + 512 * 1024 * 1024;
+        assert_eq!(config.memory_max, Some(expected_mem));
+        assert_eq!(config.pids_max, Some(DEFAULT_HOST_PIDS_MAX));
+        assert_eq!(config.cpu_max, Some((8 * 1_000_000, 1_000_000)));
+    }
+
+    /// Explicit `memory_max` / `pids_max` / `cpu_max` must NOT be clobbered by
+    /// the defaults — the user knows what they want, the defaults are
+    /// fallbacks only.
+    #[test]
+    fn apply_defaults_does_not_override_explicit_values() {
+        let mut config = CgroupConfig {
+            memory_max: Some(42),
+            pids_max: Some(7),
+            cpu_max: Some((13_000_000, 1_000_000)),
+            ..Default::default()
+        };
+        apply_cgroup_defaults(&mut config, 128, 8);
+
+        assert_eq!(config.memory_max, Some(42), "explicit memory_max preserved");
+        assert_eq!(config.pids_max, Some(7), "explicit pids_max preserved");
+        assert_eq!(
+            config.cpu_max,
+            Some((13_000_000, 1_000_000)),
+            "explicit cpu_max preserved"
         );
     }
 }
