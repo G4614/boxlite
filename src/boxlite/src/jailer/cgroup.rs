@@ -60,8 +60,10 @@ fn is_root() -> bool {
 
 /// Get the user's systemd cgroup base path for rootless operation.
 ///
-/// On systemd systems, users can create cgroups under their user service:
-/// `/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/`
+/// Uses `access(W_OK)` rather than `path.exists()` — existence does not imply
+/// write permission. A path that exists but isn't writable means systemd has
+/// not delegated the subtree to this user; creating sub-cgroups would fail
+/// with EACCES.
 #[cfg(target_os = "linux")]
 fn get_user_cgroup_base() -> Option<PathBuf> {
     let uid = unsafe { libc::getuid() };
@@ -69,12 +71,9 @@ fn get_user_cgroup_base() -> Option<PathBuf> {
         "/sys/fs/cgroup/user.slice/user-{}.slice/user@{}.service",
         uid, uid
     ));
-    if path.exists() {
-        Some(path)
-    } else {
-        // Fallback: try to find any writable cgroup path from /proc/self/cgroup
-        None
-    }
+    let c_path = std::ffi::CString::new(path.to_string_lossy().as_bytes()).ok()?;
+    let writable = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) == 0 };
+    if writable { Some(path) } else { None }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -82,16 +81,51 @@ fn get_user_cgroup_base() -> Option<PathBuf> {
     None
 }
 
+/// Get the cgroup base path from `/proc/self/cgroup` (cgroup v2 unified hierarchy).
+///
+/// Covers environments without a systemd user manager — OCI containers, rootless
+/// Podman, non-systemd distros — where the container runtime has already placed
+/// the process inside a writable cgroup subtree.
+#[cfg(target_os = "linux")]
+fn get_container_cgroup_base() -> Option<PathBuf> {
+    let content = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    let rel = content
+        .lines()
+        .find(|l| l.starts_with("0::"))?
+        .strip_prefix("0::")?
+        .trim()
+        .trim_start_matches('/');
+
+    // An empty rel means the process is at the cgroup root (on the host, not in
+    // a container). The systemd delegation path handles that case — skip here.
+    if rel.is_empty() {
+        return None;
+    }
+
+    let path = PathBuf::from(CGROUP_ROOT).join(rel);
+    let c_path = std::ffi::CString::new(path.to_string_lossy().as_bytes()).ok()?;
+    let writable = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) == 0 };
+    if writable { Some(path) } else { None }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_container_cgroup_base() -> Option<PathBuf> {
+    None
+}
+
 /// Get the cgroup base path for the current user.
 ///
-/// - Root: returns `/sys/fs/cgroup`
-/// - Non-root (systemd): returns `/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service`
-/// - Non-root (no systemd): falls back to `/sys/fs/cgroup` (will likely fail)
+/// - Root: `/sys/fs/cgroup`
+/// - Non-root, systemd delegation: `/sys/fs/cgroup/user.slice/…/user@{uid}.service`
+/// - Non-root, container: subtree from `/proc/self/cgroup` (rootless Podman, OCI)
+/// - Otherwise: falls back to `/sys/fs/cgroup` (setup will warn and continue)
 fn get_cgroup_base() -> PathBuf {
     if is_root() {
         PathBuf::from(CGROUP_ROOT)
     } else {
-        get_user_cgroup_base().unwrap_or_else(|| PathBuf::from(CGROUP_ROOT))
+        get_user_cgroup_base()
+            .or_else(get_container_cgroup_base)
+            .unwrap_or_else(|| PathBuf::from(CGROUP_ROOT))
     }
 }
 
@@ -462,6 +496,13 @@ pub fn build_cgroup_procs_path(box_id: &str) -> Option<std::ffi::CString> {
     }
 
     let path = cgroup_path(box_id).join("cgroup.procs");
+    // Guard: only return Some when setup_cgroup actually created the directory.
+    // Without this, the hook would be installed even when setup_cgroup failed
+    // (delegation absent, cgroup v2 unavailable, etc.), causing spawn() to
+    // abort with ENOENT in pre_exec.
+    if !path.exists() {
+        return None;
+    }
     std::ffi::CString::new(path.to_string_lossy().as_bytes()).ok()
 }
 

@@ -156,6 +156,12 @@ impl Sandbox for BwrapSandbox {
         *cmd = bwrap_cmd.build(std::path::Path::new(&binary), &args);
 
         // Add cgroup join as a pre_exec hook (async-signal-safe).
+        // Join errors are silently ignored: pre_exec runs after fork in a
+        // signal-safe context where tracing is unavailable. A failed join is
+        // non-fatal — the box starts without per-box resource limits rather
+        // than aborting. The path.exists() guard in build_cgroup_procs_path
+        // ensures the hook is only installed when setup_cgroup succeeded, so
+        // ENOENT from a missing cgroup.procs cannot reach here.
         if let Some(cgroup_procs) = cgroup::build_cgroup_procs_path(ctx.id) {
             use std::os::unix::process::CommandExt;
             unsafe {
