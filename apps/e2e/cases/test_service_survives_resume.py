@@ -62,6 +62,24 @@ async def _restart(box) -> None:
     raise AssertionError(f"could not start the box again: {last}")
 
 
+async def _wait_exec_ready(box, timeout: float = 60.0) -> bool:
+    """Poll a trivial exec until the box accepts one.
+
+    Needed before the negative assertion: `_is_serving` reports a failing exec
+    as "not serving", so a box that never becomes usable at all would make the
+    absence check pass without measuring anything.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            if await _run(box, "true") == 0:
+                return True
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+    return False
+
+
 async def _wait_serving(box, timeout: float = 45.0) -> bool:
     """Poll rather than sleep a fixed amount: a cold boot re-runs init, and how
     long the service needs is the box's business, not a constant we can pick."""
@@ -113,6 +131,14 @@ async def test_exec_started_service_does_not_survive_stop_start(rt, image):
         assert await _wait_serving(box), "exec-started service never came up before the stop"
 
         await _restart(box)
+
+        # Establish that the box can run commands again *before* reading
+        # anything into a failed probe — otherwise "no service" and "no box"
+        # are the same observation and the assertion below proves nothing.
+        assert await _wait_exec_ready(box), (
+            "box never accepted an exec after the restart, so its service "
+            "state could not be measured"
+        )
 
         # Give it at least as long as the positive case gets, so a pass here
         # means "still absent", not "we did not wait long enough".
