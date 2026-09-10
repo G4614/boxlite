@@ -14,11 +14,15 @@ import {
   Logger,
   UseGuards,
   HttpCode,
+  HttpStatus,
+  NotFoundException,
   UseInterceptors,
   Put,
 } from '@nestjs/common'
 import { CombinedAuthGuard } from '../../auth/combined-auth.guard'
 import { BoxService } from '../services/box.service'
+import { BoxAutoResumeService } from '../services/box-auto-resume.service'
+import { OrganizationService } from '../../organization/services/organization.service'
 import {
   ApiOAuth2,
   ApiResponse,
@@ -78,6 +82,8 @@ export class BoxController {
   constructor(
     private readonly runnerService: RunnerService,
     private readonly boxService: BoxService,
+    private readonly autoResume: BoxAutoResumeService,
+    private readonly organizationService: OrganizationService,
     @InjectRedis() private readonly redis: Redis,
   ) {
     this.redisSubscriber = this.redis.duplicate()
@@ -446,6 +452,51 @@ export class BoxController {
   @UseGuards(OrGuard([BoxAccessGuard, ProxyGuard, RegionBoxAccessGuard]))
   async updateLastActivity(@Param('boxId') boxId: string): Promise<void> {
     await this.boxService.updateLastActivityAt(boxId, new Date())
+  }
+
+  // The wake counterpart of last-activity, for the same class of caller: the
+  // proxy holds a box-scoped identity and no organization, but resuming a box
+  // needs the Organization entity (suspension check, state waiter). Rather
+  // than widen the proxy's identity, resolve the organization here from the
+  // box row — the box already carries organizationId — and reuse the same
+  // BoxAutoResumeService the SDK-facing routes go through, so both paths
+  // share one lock, one join-in-flight-start and one readiness definition.
+  //
+  // Who is *allowed* to wake a box is decided before this call, by the caller
+  // that authenticated the incoming request: the proxy resumes only for a
+  // request carrying a valid box auth key, never for anonymous public traffic,
+  // so a shared preview URL cannot spend the owner's compute.
+  @Post(':boxId/ensure-ready')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Resume a stopped box and wait until it is running',
+    operationId: 'ensureBoxReady',
+  })
+  @ApiParam({
+    name: 'boxId',
+    description: 'ID of the box',
+    type: 'string',
+  })
+  @ApiResponse({
+    status: 204,
+    description: 'Box is running',
+  })
+  @ApiResponse({
+    status: 408,
+    description: 'Box did not reach a running state before the resume timeout',
+  })
+  @UseGuards(OrGuard([BoxAccessGuard, ProxyGuard, RegionBoxAccessGuard]))
+  async ensureBoxReady(@Param('boxId') boxId: string): Promise<void> {
+    const box = await this.boxService.findOne(boxId)
+    const organization = await this.organizationService.findOne(box.organizationId)
+    if (!organization) {
+      // The box outliving its organization is not a caller error, and it is
+      // not something a retry fixes; say so rather than reporting a timeout
+      // after waiting out the full resume window.
+      throw new NotFoundException(`Organization for box ${boxId} not found`)
+    }
+
+    await this.autoResume.ensureReady(box.id, organization)
   }
 
   @Post(':boxIdOrName/autostop/:interval')
