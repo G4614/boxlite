@@ -10,6 +10,12 @@ That asymmetry is a contract users have to design around — auto_resume returns
 a running *box*, not a running *service* — so it is pinned here in both
 directions. The negative case is as load-bearing as the positive one: if
 exec-started processes ever do survive, the guidance built on this changes.
+
+The declared service is checked twice after the resume: from inside the box,
+which isolates "did the process come back" from proxy wiring, and over the
+box's own network tunnel, which is how a user actually reaches it. Only the
+second one answers the question users ask — a service that is listening but
+unreachable through the exposed port is not back as far as they are concerned.
 """
 from __future__ import annotations
 
@@ -91,6 +97,37 @@ async def _wait_serving(box, timeout: float = 45.0) -> bool:
     return False
 
 
+async def _fetch_over_tunnel(box, timeout: float = 45.0) -> bytes:
+    """Reach the service the way a user does: through the box's network tunnel.
+
+    Retries for the same reason the in-box probe polls — the port is not
+    listening the instant the box reports running, and opening a tunnel to a
+    box that just came up can lose the race.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    last: Exception | None = None
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            tunnel = await box.network.tunnel(PORT)
+            connection = await tunnel.connect()
+            try:
+                await connection.write(b"GET / HTTP/1.0\r\nHost: resume.test\r\n\r\n")
+                response = bytearray()
+                while len(response) < 64 * 1024:
+                    chunk = await asyncio.wait_for(connection.read(8192), timeout=5)
+                    if not chunk:
+                        break
+                    response.extend(chunk)
+                if response:
+                    return bytes(response)
+            finally:
+                await connection.close()
+        except Exception as exc:
+            last = exc
+        await asyncio.sleep(2)
+    raise AssertionError(f"nothing answered over the tunnel within {timeout}s (last error: {last})")
+
+
 @pytest.mark.asyncio
 async def test_entrypoint_declared_service_survives_stop_start(rt, image):
     """A service declared as entrypoint/cmd is serving again after a resume,
@@ -101,16 +138,30 @@ async def test_entrypoint_declared_service_survives_stop_start(rt, image):
             auto_remove=False,
             entrypoint=["python3"],
             cmd=SERVICE_ARGV,
+            # Inbound must be open for the tunnel probe below; the exposed
+            # port is half of what this test is about.
+            network=boxlite.NetworkSpec(
+                outbound=boxlite.OutboundNetworkSpec(mode="enabled"),
+                inbound=boxlite.InboundNetworkSpec(mode="enabled"),
+            ),
         )
     )
     try:
         assert await _wait_serving(box), "declared service never came up before the stop"
+        before = await _fetch_over_tunnel(box)
+        assert b"200" in before.split(b"\r\n", 1)[0], f"unexpected pre-stop response: {before[:120]!r}"
 
         await _restart(box)
 
         assert await _wait_serving(box), (
             "a service declared via entrypoint/cmd did not come back after "
             "stop→start; container init is expected to replay it"
+        )
+
+        after = await _fetch_over_tunnel(box)
+        assert b"200" in after.split(b"\r\n", 1)[0], (
+            "the service is listening inside the box but the exposed port did "
+            f"not serve it after the resume: {after[:120]!r}"
         )
     finally:
         await rt.remove(box.id, force=True)
