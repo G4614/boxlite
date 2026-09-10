@@ -17,6 +17,8 @@ import { BoxAccessGuard } from '../guards/box-access.guard'
 import { RunnerService } from '../services/runner.service'
 import { BoxService } from '../services/box.service'
 import { BoxController } from './box.controller'
+import { BoxAutoResumeService } from '../services/box-auto-resume.service'
+import { OrganizationService } from '../../organization/services/organization.service'
 
 function productBoxControllerPaths(): unknown[] {
   return Object.getOwnPropertyNames(BoxController.prototype)
@@ -67,6 +69,8 @@ describe('Box resource resize removal', () => {
       providers: [
         { provide: RunnerService, useValue: {} },
         { provide: BoxService, useValue: boxService },
+        { provide: BoxAutoResumeService, useValue: {} },
+        { provide: OrganizationService, useValue: {} },
         { provide: getRedisConnectionToken(), useValue: redis },
       ],
     })
