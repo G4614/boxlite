@@ -156,12 +156,15 @@ impl Sandbox for BwrapSandbox {
         *cmd = bwrap_cmd.build(std::path::Path::new(&binary), &args);
 
         // Add cgroup join as a pre_exec hook (async-signal-safe).
+        // Fail closed: if the cgroup directory was set up but the join fails,
+        // propagate the error so spawn() aborts rather than starting the box
+        // outside its resource limits.
         if let Some(cgroup_procs) = cgroup::build_cgroup_procs_path(ctx.id) {
             use std::os::unix::process::CommandExt;
             unsafe {
                 cmd.pre_exec(move || {
-                    let _ = cgroup::add_self_to_cgroup_raw(&cgroup_procs);
-                    Ok(())
+                    cgroup::add_self_to_cgroup_raw(&cgroup_procs)
+                        .map_err(std::io::Error::from_raw_os_error)
                 });
             }
         }

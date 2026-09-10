@@ -462,6 +462,14 @@ pub fn build_cgroup_procs_path(box_id: &str) -> Option<std::ffi::CString> {
     }
 
     let path = cgroup_path(box_id).join("cgroup.procs");
+    // Guard: only return Some when setup_cgroup actually created the directory.
+    // cgroup.procs is a kernel-synthesised file; its presence means the cgroup
+    // directory exists and was successfully set up. Without this check, the hook
+    // would be installed even when setup_cgroup failed (delegation absent, cgroup
+    // v2 unavailable, etc.), causing spawn() to abort with ENOENT in pre_exec.
+    if !path.exists() {
+        return None;
+    }
     std::ffi::CString::new(path.to_string_lossy().as_bytes()).ok()
 }
 
