@@ -31,8 +31,16 @@ SERVICE_ARGV = ["-m", "http.server", str(PORT), "--bind", "0.0.0.0"]
 
 
 async def _run(box, script: str, timeout: int = 30) -> int:
-    ex = await box.exec("sh", ["-c", script])
-    await drain(ex)
+    """Run a command in the box, with every step bounded.
+
+    `drain` in particular: an exec whose orphaned grandchild still holds the
+    stdout pipe never EOFs and `wait()` hangs (guest-side root cause in #910,
+    which is why exec-timeout is ignored on cloud). An unbounded drain here
+    would hang inside a single poll iteration and defeat every deadline in
+    this file, since the callers only check theirs between iterations.
+    """
+    ex = await asyncio.wait_for(box.exec("sh", ["-c", script]), timeout=timeout)
+    await asyncio.wait_for(drain(ex), timeout=timeout)
     rc = await asyncio.wait_for(ex.wait(), timeout=timeout)
     return rc.exit_code
 
@@ -45,7 +53,7 @@ async def _is_serving(box) -> bool:
     our purposes — the caller polls.
     """
     try:
-        code = await _run(box, f"curl -sf --max-time 5 http://127.0.0.1:{PORT}/ >/dev/null")
+        code = await _run(box, f"curl -sf --max-time 5 http://127.0.0.1:{PORT}/ >/dev/null", timeout=15)
     except Exception:
         return False
     return code == 0
@@ -78,7 +86,7 @@ async def _wait_exec_ready(box, timeout: float = 60.0) -> bool:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
         try:
-            if await _run(box, "true") == 0:
+            if await _run(box, "true", timeout=15) == 0:
                 return True
         except Exception:
             pass
