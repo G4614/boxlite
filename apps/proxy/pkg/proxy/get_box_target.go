@@ -230,21 +230,26 @@ func (p *Proxy) dialGuestPort(ctx context.Context, network string, address strin
 	// resume there is no way around that wait, so absorb it here instead of
 	// handing the client a 502 the moment it wakes something up. A box that is
 	// simply not serving this port still fails, just a few seconds later.
-	deadline := time.Now().Add(guestDialRetryWindow)
+	// The window bounds the whole wait, not just the gaps between attempts: a
+	// dial started just before the deadline would otherwise run out its own
+	// setup timeout on top of it.
+	retryCtx, cancelRetry := context.WithTimeout(ctx, guestDialRetryWindow)
+	defer cancelRetry()
+
 	var lastErr error
 	for attempt := 0; ; attempt++ {
-		conn, err := dialRunnerTunnel(ctx, runnerInfo, boxID, uint16(port))
+		conn, err := dialRunnerTunnel(retryCtx, runnerInfo, boxID, uint16(port))
 		if err == nil {
 			return conn, nil
 		}
 		lastErr = err
-		if ctx.Err() != nil || !time.Now().Before(deadline) {
+		if retryCtx.Err() != nil {
 			break
 		}
 		backoff := guestDialRetryBase << min(attempt, 3)
 		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		case <-retryCtx.Done():
+			return nil, lastErr
 		case <-time.After(backoff):
 		}
 	}

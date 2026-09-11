@@ -1,3 +1,6 @@
+// Copyright 2025 BoxLite AI
+// SPDX-License-Identifier: AGPL-3.0
+
 package proxy
 
 import (
@@ -73,6 +76,38 @@ func TestEnsureBoxReadySuppressesRepeatCallsForOneBox(t *testing.T) {
 	}
 	if got := calls.Load(); got != 2 {
 		t.Fatalf("api called %d times after a second box, want 2", got)
+	}
+}
+
+func TestEnsureBoxReadyDoesNotSuppressRetriesAfterAFailedResume(t *testing.T) {
+	// Caching an in-flight call would report a resume that later timed out as
+	// readiness, and every request for the rest of the dedup window would skip
+	// the retry it needed. Only a completed success may suppress.
+	var calls atomic.Int32
+	proxy, _ := newEnsureReadyProxy(t, func(writer http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			writer.WriteHeader(http.StatusRequestTimeout)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
+
+	if err := proxy.ensureBoxReady(context.Background(), "box-1"); !errors.Is(err, errEnsureReadyTimedOut) {
+		t.Fatalf("first ensureBoxReady() error = %v, want errEnsureReadyTimedOut", err)
+	}
+	if err := proxy.ensureBoxReady(context.Background(), "box-1"); err != nil {
+		t.Fatalf("second ensureBoxReady() error = %v, want the retry to reach the API", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("api called %d times, want 2 — the failure must not be cached", got)
+	}
+
+	// And the success that followed does suppress.
+	if err := proxy.ensureBoxReady(context.Background(), "box-1"); err != nil {
+		t.Fatalf("third ensureBoxReady() error = %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("api called %d times after a success, want 2", got)
 	}
 }
 
