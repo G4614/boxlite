@@ -4,7 +4,7 @@
  */
 
 import { NotFoundException, RequestTimeoutException } from '@nestjs/common'
-import { BoxController } from './box.controller'
+import { PreviewController } from './preview.controller'
 
 jest.mock('uuid', () => ({ v4: jest.fn(() => 'mock-uuid'), validate: jest.fn(() => true) }))
 
@@ -15,18 +15,17 @@ function makeHarness() {
   const boxService = { findOne: jest.fn().mockResolvedValue(BOX) }
   const autoResume = { ensureReady: jest.fn().mockResolvedValue(undefined) }
   const organizationService = { findOne: jest.fn().mockResolvedValue(ORG) }
-  const redis = { duplicate: jest.fn(() => ({ subscribe: jest.fn(), on: jest.fn() })) }
-  const controller = new BoxController(
-    {} as never,
+  const controller = new PreviewController(
+    {} as never, // redis, unused by this route
     boxService as never,
+    {} as never, // organizationUserService, unused by this route
     autoResume as never,
     organizationService as never,
-    redis as never,
   )
   return { controller, boxService, autoResume, organizationService }
 }
 
-describe('BoxController.ensureBoxReady', () => {
+describe('PreviewController.ensureBoxReady', () => {
   beforeEach(() => jest.clearAllMocks())
 
   it('resolves the organization from the box row rather than the caller', async () => {
