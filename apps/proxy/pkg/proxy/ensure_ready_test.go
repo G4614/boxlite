@@ -43,8 +43,8 @@ func TestEnsureBoxReadyCallsTheApiWithTheProxyCredential(t *testing.T) {
 	if err := proxy.ensureBoxReady(context.Background(), "box-1"); err != nil {
 		t.Fatalf("ensureBoxReady() error = %v", err)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/box/box-1/ensure-ready" {
-		t.Fatalf("called %s %s, want POST /box/box-1/ensure-ready", gotMethod, gotPath)
+	if gotMethod != http.MethodPost || gotPath != "/preview/box-1/ensure-ready" {
+		t.Fatalf("called %s %s, want POST /preview/box-1/ensure-ready", gotMethod, gotPath)
 	}
 	// The proxy authenticates as itself; no box key is forwarded, and no
 	// organization identity is involved.

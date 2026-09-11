@@ -45,12 +45,16 @@ var errEnsureReadyTimedOut = errors.New("box did not become ready in time")
 // box state of its own, and adding a state lookup would cost the same round
 // trip this call already makes.
 //
+// It sits on the preview controller, with the proxy's other calls, rather than
+// on the product API — a wake RPC has no business in the spec-first v1/boxes
+// surface the SDKs are generated from.
+//
 // Written against the generated client's configuration rather than a generated
 // method: api-client-go is regenerated from the API's OpenAPI output, which
 // needs a toolchain this change does not, so the typed method does not exist
 // yet. Reusing GetConfig keeps the base URL, the proxy's Authorization header
 // and the instrumented HTTP client in one place; swap this for
-// BoxAPI.EnsureBoxReady once the client catches up.
+// PreviewAPI.EnsureBoxReady once the client catches up.
 func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
 	if p.boxEnsureReadyCache != nil {
 		recent, err := p.boxEnsureReadyCache.Has(ctx, boxId)
@@ -68,7 +72,7 @@ func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
 	if len(cfg.Servers) == 0 {
 		return errors.New("no API server configured")
 	}
-	url := fmt.Sprintf("%s/box/%s/ensure-ready", strings.TrimRight(cfg.Servers[0].URL, "/"), boxId)
+	url := fmt.Sprintf("%s/preview/%s/ensure-ready", strings.TrimRight(cfg.Servers[0].URL, "/"), boxId)
 
 	callCtx, cancel := context.WithTimeout(ctx, ensureReadyHold)
 	defer cancel()
