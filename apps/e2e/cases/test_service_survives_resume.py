@@ -39,9 +39,17 @@ async def _run(box, script: str, timeout: int = 30) -> int:
     would hang inside a single poll iteration and defeat every deadline in
     this file, since the callers only check theirs between iterations.
     """
-    ex = await asyncio.wait_for(box.exec("sh", ["-c", script]), timeout=timeout)
-    await asyncio.wait_for(drain(ex), timeout=timeout)
-    rc = await asyncio.wait_for(ex.wait(), timeout=timeout)
+    # One budget across all three stages, not one each: three stages at their
+    # own limit would let a 15s call take 45s, and the pollers cannot check
+    # their deadline until this returns.
+    deadline = asyncio.get_running_loop().time() + timeout
+
+    def remaining() -> float:
+        return max(0.0, deadline - asyncio.get_running_loop().time())
+
+    ex = await asyncio.wait_for(box.exec("sh", ["-c", script]), timeout=remaining())
+    await asyncio.wait_for(drain(ex), timeout=remaining())
+    rc = await asyncio.wait_for(ex.wait(), timeout=remaining())
     return rc.exit_code
 
 
