@@ -1,3 +1,6 @@
+// Copyright 2025 BoxLite AI
+// SPDX-License-Identifier: AGPL-3.0
+
 package proxy
 
 import (
@@ -17,10 +20,16 @@ const (
 	// let the client time out on a blank page.
 	ensureReadyHold = 20 * time.Second
 
-	// Suppresses repeat calls for the same box: one page load is dozens of
-	// requests, and each would otherwise ask the API to resume again. The
-	// entry is written before the call, so concurrent requests skip straight
-	// to the dial and let its retry cover the remaining cold-start window.
+	// Suppresses repeat calls for the same box once one has actually
+	// succeeded: one page load is dozens of requests, and each would
+	// otherwise ask the API to resume again. Written only after a success —
+	// caching an in-flight call would report a resume that later timed out as
+	// readiness, and every request for the rest of the window would skip the
+	// retry it needed.
+	//
+	// Concurrent misses before that first success are therefore possible and
+	// harmless: ensureReady takes the box's state-change lock and joins an
+	// already-submitted start, so the API collapses them into one resume.
 	ensureReadyDedupTTL = 30 * time.Second
 )
 
@@ -49,9 +58,6 @@ func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
 			slog.ErrorContext(ctx, "failed to check ensure-ready cache", "box", boxId, "error", err)
 		} else if recent {
 			return nil
-		}
-		if err := p.boxEnsureReadyCache.Set(ctx, boxId, true, ensureReadyDedupTTL); err != nil {
-			slog.ErrorContext(ctx, "failed to cache ensure-ready", "box", boxId, "error", err)
 		}
 	}
 
@@ -92,6 +98,11 @@ func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
 
 	switch {
 	case response.StatusCode < 300:
+		if p.boxEnsureReadyCache != nil {
+			if err := p.boxEnsureReadyCache.Set(ctx, boxId, true, ensureReadyDedupTTL); err != nil {
+				slog.ErrorContext(ctx, "failed to cache ensure-ready", "box", boxId, "error", err)
+			}
+		}
 		return nil
 	case response.StatusCode == http.StatusRequestTimeout, response.StatusCode == http.StatusGatewayTimeout:
 		return errEnsureReadyTimedOut
