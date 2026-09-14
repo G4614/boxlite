@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -49,12 +48,10 @@ var errEnsureReadyTimedOut = errors.New("box did not become ready in time")
 // on the product API — a wake RPC has no business in the spec-first v1/boxes
 // surface the SDKs are generated from.
 //
-// Written against the generated client's configuration rather than a generated
-// method: api-client-go is regenerated from the API's OpenAPI output, which
-// needs a toolchain this change does not, so the typed method does not exist
-// yet. Reusing GetConfig keeps the base URL, the proxy's Authorization header
-// and the instrumented HTTP client in one place; swap this for
-// PreviewAPI.EnsureBoxReady once the client catches up.
+// The hold lives here rather than in the API: the endpoint waits out the
+// resume for its own 30s, which outlasts what a browser (or anything in front
+// of the proxy) will sit through, so the request context bounds it at 20s and
+// the caller answers 503 first.
 func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
 	if p.boxEnsureReadyCache != nil {
 		recent, err := p.boxEnsureReadyCache.Has(ctx, boxId)
@@ -68,37 +65,23 @@ func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
 	if p.apiclient == nil {
 		return errors.New("no API client configured")
 	}
-	cfg := p.apiclient.GetConfig()
-	if len(cfg.Servers) == 0 {
-		return errors.New("no API server configured")
-	}
-	url := fmt.Sprintf("%s/preview/%s/ensure-ready", strings.TrimRight(cfg.Servers[0].URL, "/"), boxId)
 
 	callCtx, cancel := context.WithTimeout(ctx, ensureReadyHold)
 	defer cancel()
 
-	request, err := http.NewRequestWithContext(callCtx, http.MethodPost, url, nil)
-	if err != nil {
-		return err
+	response, err := p.apiclient.PreviewAPI.EnsureBoxReady(callCtx, boxId).Execute()
+	if response != nil {
+		defer response.Body.Close()
 	}
-	for key, value := range cfg.DefaultHeader {
-		request.Header.Set(key, value)
-	}
-
-	client := cfg.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		// A deadline here means the box is still starting, not that the
-		// request was malformed — keep it retryable.
+	if err != nil && response == nil {
+		// No response at all: a transport failure, or our own deadline. The
+		// deadline means the box is still starting rather than that anything
+		// is wrong, so keep that case retryable.
 		if errors.Is(err, context.DeadlineExceeded) {
 			return errEnsureReadyTimedOut
 		}
 		return err
 	}
-	defer response.Body.Close()
 
 	switch {
 	case response.StatusCode < 300:
