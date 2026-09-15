@@ -41,6 +41,7 @@ import {
   RESUMABLE_STATES,
 } from '../box/services/box-auto-resume.service'
 import { BoxState } from '../box/enums/box-state.enum'
+import { BoxDesiredState } from '../box/enums/box-desired-state.enum'
 
 type ProxyActivityPolicy = { activity: boolean; autoResume: boolean }
 const USER_OPERATION: ProxyActivityPolicy = { activity: true, autoResume: true }
@@ -249,8 +250,15 @@ export class BoxliteProxyController {
     // autoResume gets woken here rather than rejected, since minting the
     // tunnel URI is the caller's only touchpoint before the CONNECT itself
     // (which has no box row to check against).
-    if (box.state !== BoxState.STARTED) {
-      if (!box.autoResume || !RESUMABLE_STATES.includes(box.state)) {
+    // "Running" here means settled: a box that is STARTED with a stop already
+    // submitted would otherwise skip the resume and be handed a URL whose
+    // runner goes away underneath the client. ensureReady handles that case by
+    // waiting out the stop and starting it again, so route it there too — and
+    // do not apply the whitelist to it, since STARTED is not in it.
+    const settledRunning = box.state === BoxState.STARTED && box.desiredState === BoxDesiredState.STARTED
+    if (!settledRunning) {
+      const resumable = box.state === BoxState.STARTED || RESUMABLE_STATES.includes(box.state)
+      if (!box.autoResume || !resumable) {
         throw new ConflictException(`Box ${boxId} is not running (state: ${box.state})`)
       }
       await this.resumeForTunnel(box.id, authContext, res)
