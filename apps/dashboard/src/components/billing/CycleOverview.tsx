@@ -4,7 +4,7 @@
  */
 
 import { OrganizationPlan, OrganizationWallet, Plan } from '@/billing-api'
-import { AsciiButton, BRAND, Metric, Panel, PanelNote, SectionTitle, SegmentedBar } from '@/components/ascii'
+import { AsciiButton, Metric, Panel, PanelNote, SectionTitle, SegmentedBar } from '@/components/ascii'
 import { ScheduledChange, scheduledChange } from '@/components/billing/planChange'
 import { Spinner } from '@/components/ui/spinner'
 import { useKeepPlanMutation } from '@/hooks/mutations/useKeepPlanMutation'
@@ -61,7 +61,6 @@ export function CycleOverview({
   wallet,
   organizationPlan,
   catalogPlan,
-  catalogIndex,
   catalog = [],
   organizationId,
   plansAnchorId,
@@ -69,14 +68,12 @@ export function CycleOverview({
   wallet: OrganizationWallet
   organizationPlan?: OrganizationPlan | null
   catalogPlan?: Plan
-  catalogIndex?: number
   /** The whole catalog, so a queued plan can be named rather than shown as an id. */
   catalog?: Plan[]
   organizationId?: string
   plansAnchorId?: string
 }) {
   const mode = billingMode(wallet, organizationPlan)
-  const tierLabel = catalogIndex === undefined ? 'Plan' : `T${catalogIndex + 1}`
   const scheduled = scheduledChange({ plan: organizationPlan, catalog })
 
   return (
@@ -85,32 +82,32 @@ export function CycleOverview({
       <Panel>
         <div className="flex flex-wrap items-center gap-4 px-[22px] py-5">
           <div className="flex items-center gap-3">
-            {mode.kind === 'plan' && (
-              <span className="font-mono text-[10px] uppercase tracking-[1.5px] text-muted-foreground">
-                <span style={{ color: BRAND }}>▸</span> {tierLabel}
-              </span>
-            )}
+            {/* The section heading above already says this is the active
+                plan, so the row states the plan and what it costs — the two
+                facts the heading does not carry — and the price sits beside
+                the name rather than pushed to the far edge, where at 11px it
+                read as a footnote to the largest figure on the page. */}
             <span className="font-mono text-[18px] font-semibold tracking-tight text-foreground">
               {mode.kind === 'plan' ? mode.plan.planName : mode.kind === 'free-trial' ? 'Free trial' : 'Pay as you go'}
-              <span className="ml-1 animate-pulse text-muted-foreground">▮</span>
             </span>
-            {mode.kind === 'plan' && (
-              <span className="bg-foreground px-2 py-0.5 font-mono text-[10px] uppercase tracking-[1px] text-background">
+            {mode.kind === 'plan' && catalogPlan?.priceMonthlyCents != null && (
+              <span className="font-mono text-em text-muted-foreground">
+                {formatWholeDollars(catalogPlan.priceMonthlyCents)}/mo
+              </span>
+            )}
+            {mode.kind === 'plan' && mode.plan.status.toLowerCase() !== 'active' && (
+              <span className="border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[1px] text-muted-foreground">
                 {mode.plan.status}
               </span>
             )}
           </div>
-          {mode.kind === 'plan' && catalogPlan?.priceMonthlyCents != null ? (
-            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-              {formatWholeDollars(catalogPlan.priceMonthlyCents)}/mo
-            </span>
-          ) : mode.kind !== 'plan' ? (
+          {mode.kind !== 'plan' ? (
             <span className="ml-auto font-mono text-[11px] text-muted-foreground">no subscription</span>
           ) : null}
         </div>
 
         {mode.kind === 'plan' ? (
-          <PlanFigures plan={mode.plan} wallet={wallet} catalogPlan={catalogPlan} />
+          <PlanFigures plan={mode.plan} wallet={wallet} />
         ) : mode.kind === 'free-trial' ? (
           <FreeTrialFigures mode={mode} wallet={wallet} />
         ) : (
@@ -183,24 +180,9 @@ function ScheduledChangeNote({
 
 const FIGURES = 'grid grid-cols-2 gap-5 border-t border-border px-[22px] py-5 sm:flex sm:flex-row sm:gap-14'
 
-function PlanFigures({
-  plan,
-  wallet,
-  catalogPlan,
-}: {
-  plan: OrganizationPlan
-  wallet: OrganizationWallet
-  catalogPlan?: Plan
-}) {
+function PlanFigures({ plan, wallet }: { plan: OrganizationPlan; wallet: OrganizationWallet }) {
   return (
     <div className={FIGURES}>
-      <Metric
-        label="Subscription"
-        value={plan.planName}
-        sub={
-          catalogPlan?.priceMonthlyCents != null ? `${formatWholeDollars(catalogPlan.priceMonthlyCents)}/mo` : undefined
-        }
-      />
       <Metric label="Wallet balance" value={formatAmount(wallet.ongoingBalanceCents)} />
       <Metric
         label="Quota consumed"

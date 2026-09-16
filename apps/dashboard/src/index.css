@@ -274,10 +274,43 @@ body {
     }
   }
 
+  /* A box assembling: one face's outline draws in, holds while its siblings
+     arrive, then all three clear together for the next pass. */
+  @keyframes box-draw {
+    0% {
+      stroke-dashoffset: 140;
+    }
+    28%,
+    82% {
+      stroke-dashoffset: 0;
+    }
+    100% {
+      stroke-dashoffset: 140;
+    }
+  }
+
+  /* The top face catches the light once the three faces have met. */
+  @keyframes box-lit {
+    0%,
+    22% {
+      fill-opacity: 0;
+    }
+    42% {
+      fill-opacity: 0.18;
+    }
+    70%,
+    100% {
+      fill-opacity: 0;
+    }
+  }
+
+  /* A brand segment travelling through a neutral track. Rest is `--border`,
+     not a pale brand tint: an empty segment is empty — the same rule the
+     quota and concurrency bars follow. */
   @keyframes seg-wave {
     0%,
     100% {
-      background-color: hsl(var(--brand) / 0.1);
+      background-color: hsl(var(--border));
     }
     45% {
       background-color: hsl(var(--brand));

@@ -14,6 +14,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { Switch } from '@/components/ui/switch'
 import { useState, type ReactNode } from 'react'
 
 /**
@@ -30,7 +31,7 @@ const STATUS = { idle: '#e0b341' } as const
 function SectionHeader({ title, right }: { title: string; right?: ReactNode }) {
   return (
     <div className="mb-[10px] mt-[34px] flex items-center gap-[9px] first:mt-0">
-      <span className="size-[6px] flex-none bg-brand" />
+      <span className="text-label leading-none text-brand">▸</span>
       <span className="text-[11px] uppercase tracking-[2px]">{title}</span>
       <span className="flex-1 border-t border-dashed border-border" />
       {right}
@@ -63,10 +64,12 @@ function InlineAction({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      // The two actions on this sheet are the ones that make a box reachable
+      // from outside; they get a button's weight, not a footnote's.
       className={cn(
-        'text-[11px] uppercase tracking-[1px] text-muted-foreground underline decoration-dotted underline-offset-[3px]',
-        'transition-colors hover:text-foreground hover:decoration-solid',
-        'disabled:pointer-events-none disabled:no-underline disabled:opacity-40',
+        'border border-border px-[9px] py-[3px] font-mono text-[10px] uppercase tracking-[1px] text-foreground',
+        'transition-colors hover:border-brand',
+        'disabled:pointer-events-none disabled:opacity-40',
       )}
     >
       {children}
@@ -124,12 +127,13 @@ export function BoxNetworkPanel({
           {isPublic ? 'anyone' : 'your organization'}
         </span>
         {canManage ? (
-          <InlineAction
+          <Switch
+            aria-label="Public"
+            checked={isPublic}
             disabled={isPublicPending}
-            onClick={() => (isPublic ? onTogglePublic(false) : setConfirmingPublic(true))}
-          >
-            {isPublicPending ? '…' : 'change'}
-          </InlineAction>
+            onCheckedChange={(next) => (next ? setConfirmingPublic(true) : onTogglePublic(false))}
+            className="ml-1 scale-90"
+          />
         ) : null}
       </div>
 

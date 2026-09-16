@@ -103,10 +103,23 @@ describe('CreateBoxDialog per-org resource cap', () => {
     vi.restoreAllMocks()
   })
 
+  // Volumes and Lifecycle live behind one "Advanced" disclosure; these tests
+  // are about the controls, so they open it first.
+  async function openAdvanced() {
+    const toggle = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+      /^[▸▾]\s*Advanced/.test((b.textContent ?? '').trim()),
+    )
+    if (toggle && toggle.getAttribute('aria-expanded') !== 'true') {
+      await act(async () => toggle.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+      await flush()
+    }
+  }
+
   async function renderOpen() {
     const host = document.createElement('div')
     document.body.appendChild(host)
     await rerenderOpen(host)
+    await openAdvanced()
     // Reveal the CPU/Memory/Disk steppers: Size defaults to the "Small" chip,
     // and "Custom" is what exposes the raw fields. Scoped to the Size group —
     // Lifecycle has its own identically-labelled "Custom" chip.
@@ -497,6 +510,7 @@ describe('CreateBoxDialog per-org resource cap', () => {
   // the id, so that is what a click must submit.
   it('submits the volume id, never the display name', async () => {
     await rerenderOpen()
+    await openAdvanced()
 
     const addMount = [...document.querySelectorAll('button')].find((b) => /Mount a volume/.test(b.textContent ?? ''))
     await act(async () => addMount?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
@@ -517,6 +531,7 @@ describe('CreateBoxDialog per-org resource cap', () => {
 
   it('explains a volume without restating what Disk above already says', async () => {
     await rerenderOpen()
+    await openAdvanced()
     expect(document.body.textContent).toContain('A volume persists independently of this box')
     expect(document.body.textContent).not.toContain('scratch space')
   })

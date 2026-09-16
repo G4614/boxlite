@@ -91,31 +91,36 @@ export function BoxTerminalTab({ box, refreshSignal = 0 }: { box: Box; refreshSi
     )
   }
 
-  // Not yet activated - show connect button
+  // Not yet activated. The panel already looks like a terminal, so the way in
+  // is a prompt line, not a poster with an icon and a paragraph.
   if (!activated) {
     return (
-      <div className="flex-1 flex flex-col p-2 sm:p-4">
-        <div className="flex-1 min-h-0 flex">
-          <Empty className="border-0">
-            <EmptyHeader>
-              <EmptyMedia>
-                <TerminalSquare className="size-12 text-muted-foreground" />
-              </EmptyMedia>
-              <EmptyTitle>Terminal</EmptyTitle>
-              <EmptyDescription>
-                Connect to an interactive terminal session in your box.{' '}
-                <a href={`${BOXLITE_DOCS_URL}/en/web-terminal`} target="_blank" rel="noopener noreferrer">
-                  Learn more
-                </a>
-                .
-              </EmptyDescription>
-            </EmptyHeader>
-            <Button onClick={handleConnect}>
-              <Play className="size-4" />
-              Connect
-            </Button>
-          </Empty>
-        </div>
+      <div className="flex flex-1 flex-col p-5 font-mono text-body">
+        <button
+          type="button"
+          onClick={handleConnect}
+          className="group flex w-full items-center gap-3 text-left text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <span className="text-brand">&gt;</span>
+          <span>
+            connect to <span className="text-foreground">{box.name ?? box.id}</span>
+          </span>
+          <span
+            className="ml-1 inline-block h-[14px] w-[7px] bg-brand/70 group-hover:bg-brand"
+            style={{ animation: 'blink 1.1s steps(1) infinite' }}
+          />
+        </button>
+        <p className="mt-3 text-meta text-muted-foreground/70">
+          opens an interactive shell inside the box ·{' '}
+          <a
+            href={`${BOXLITE_DOCS_URL}/en/web-terminal`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            about the terminal
+          </a>
+        </p>
       </div>
     )
   }
@@ -123,11 +128,11 @@ export function BoxTerminalTab({ box, refreshSignal = 0 }: { box: Box; refreshSi
   // Loading / fetching
   if (isLoading || isFetching) {
     return (
-      <div className="flex-1 flex flex-col p-2 sm:p-4">
-        <div className="flex-1 min-h-0 flex items-center justify-center gap-2 text-muted-foreground">
-          <Spinner className="size-4" />
-          <span className="text-sm">Connecting...</span>
-        </div>
+      <div className="flex flex-1 flex-col p-5 font-mono text-body text-muted-foreground">
+        <span className="flex items-center gap-3">
+          <span className="text-brand">&gt;</span> connecting to {box.name ?? box.id}
+          <Spinner className="size-3.5" />
+        </span>
       </div>
     )
   }

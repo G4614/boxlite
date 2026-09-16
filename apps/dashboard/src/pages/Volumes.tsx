@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
+import { VolumeGlyph, volumeGlyphState } from '@/components/VolumeGlyph'
 import { PanelNote, StatusMark } from '@/components/ascii'
 import { CreateBoxDialog } from '@/components/Box/CreateBoxDialog'
 import {
@@ -185,7 +186,7 @@ const Volumes: React.FC = () => {
   return (
     <div className="flex h-[calc(100svh-60px)] min-h-0 flex-col px-4 pt-5 sm:px-6 lg:px-[40px] lg:pt-[26px]">
       <div className="mb-[18px] flex items-end justify-between lg:mb-[22px]">
-        <h1 className="font-mono text-[22px] font-medium leading-none tracking-[-0.5px]">Volumes</h1>
+        <h1 className="font-display text-page font-semibold text-foreground">Volumes</h1>
       </div>
 
       {showEmpty ? (
@@ -247,7 +248,10 @@ const Volumes: React.FC = () => {
               return (
                 <div key={volume.id} className="border-b border-border/60">
                   <div className={cn(ROW_GRID, 'py-[13px] text-[13px]')}>
-                    <span className="truncate font-mono font-medium text-foreground">{volume.name}</span>
+                    <span className="flex min-w-0 items-center gap-3">
+                      <VolumeGlyph state={volumeGlyphState(volume.state)} size={28} className="text-muted-foreground" />
+                      <span className="truncate font-mono font-medium text-foreground">{volume.name}</span>
+                    </span>
                     <button
                       type="button"
                       onClick={async () => {

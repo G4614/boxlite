@@ -5,7 +5,18 @@
  */
 
 import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+import { extendTailwindMerge } from 'tailwind-merge'
+
+// The console's type scale is six named sizes (tailwind.config.js). Without
+// telling tailwind-merge about them it files `text-page` under text *colour*,
+// so a component's default `text-lg` survives the merge and wins the cascade.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      'font-size': [{ text: ['label', 'meta', 'body', 'em', 'section', 'page'] }],
+    },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

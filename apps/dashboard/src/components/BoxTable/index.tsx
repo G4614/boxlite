@@ -6,6 +6,8 @@
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { getBoxDisplayName, getBoxPublicIdLabel } from '@/lib/box-identity'
+import { BoxCube } from '@/components/BoxCube'
+import { boxCubeState } from '@/lib/box-shape'
 import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import { cn, getRelativeTimeString } from '@/lib/utils'
 import { isRecoverable, isStartable, isStoppable, isTransitioning } from '@/lib/utils/box'
@@ -270,10 +272,10 @@ export function BoxTable({
           ))
         ) : data.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
-            <Container className="mb-4 size-8 text-muted-foreground" strokeWidth={1.3} />
-            <div className="text-sm font-medium">No boxes yet.</div>
-            <div className="mt-2 max-w-sm text-[13px] text-muted-foreground">
-              Spin up a Box with the BoxLite SDK or CLI, or hit “New Box”.
+            <BoxCube state="empty" size={56} className="mb-4 text-muted-foreground" />
+            <div className="font-display text-em font-semibold">No boxes yet.</div>
+            <div className="mt-2 max-w-sm text-body text-muted-foreground">
+              Your agent creates them through the SDK. Hand it the prompt above, or make one by hand.
             </div>
           </div>
         ) : (
@@ -294,12 +296,14 @@ export function BoxTable({
                   onRowClick ? 'cursor-pointer' : ''
                 } ${busy ? 'pointer-events-none opacity-70' : ''} ${transitioning ? 'animate-pulse' : ''}`}
               >
-                {/* name */}
-                <span className="inline-flex min-w-0 items-center gap-2 font-semibold">
-                  <span style={{ color: 'hsl(var(--brand))' }} className="text-[10px]">
-                    ▸
-                  </span>
-                  <span className="truncate">{name}</span>
+                {/* the box: its shape drawn, then its name */}
+                <span className="inline-flex min-w-0 items-center gap-3 font-semibold">
+                  <BoxCube
+                    state={boxCubeState(box)}
+                    size={28}
+                    className={cn(box.public ? 'text-foreground' : 'text-muted-foreground')}
+                  />
+                  <span className="truncate text-em">{name}</span>
                   <CopyNameButton name={name} className="opacity-0 group-hover:opacity-100" />
                 </span>
 
