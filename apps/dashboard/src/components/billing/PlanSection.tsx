@@ -64,7 +64,6 @@ export function PlanSection() {
               wallet={wallet}
               organizationPlan={organizationPlan}
               catalogPlan={activeCatalogPlan}
-              catalogIndex={activeCatalogIndex >= 0 ? activeCatalogIndex : undefined}
               // Unfiltered: a queued plan should still be named even when it is
               // not one the organization could have picked itself.
               catalog={plansQuery.data}

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { BRAND, Panel, SectionTitle } from '@/components/ascii'
+import { Panel, SectionTitle } from '@/components/ascii'
 import { Button } from '@/components/ui/button'
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -138,8 +138,8 @@ export function ConcurrencyTimeline() {
               </LineChart>
             </ChartContainer>
             <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-              <span style={{ color: BRAND }}>▸</span> Daily snapshots from compute-bearing usage periods · the plan
-              limit is informational; excess starts are not rejected yet
+              Daily snapshots from compute-bearing usage periods · the plan limit is informational; excess starts are
+              not rejected yet
             </p>
           </div>
         )}

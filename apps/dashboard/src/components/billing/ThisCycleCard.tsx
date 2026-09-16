@@ -7,7 +7,7 @@ import { OrganizationPlan, Plan } from '@/billing-api'
 import { Metric, Panel, PanelNote, SectionTitle, SegmentedBar } from '@/components/ascii'
 import { queuedChange } from '@/components/billing/planChange'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useOwnerPlanQuery, useOwnerWalletQuery } from '@/hooks/queries/billingQueries'
+import { useOwnerPlanQuery } from '@/hooks/queries/billingQueries'
 import { usePlansQuery } from '@/hooks/queries/usePlansQuery'
 import { useRunningBoxCountQuery } from '@/hooks/queries/useRunningBoxCountQuery'
 import { planConcurrencyLimit } from '@/lib/plan-concurrency'
@@ -21,7 +21,11 @@ import { differenceInCalendarDays, format } from 'date-fns'
  * testable without a DOM.
  */
 export function cycleFacts(plan: OrganizationPlan, now: Date, catalog: Plan[] = []) {
-  const daysLeft = Math.max(0, differenceInCalendarDays(plan.cycleTo, now))
+  // Clamping to 0 swallowed "already over": a cycle whose roll date has
+  // passed rendered a large `0` beside "ends in", which reads as "today".
+  const rawDaysLeft = differenceInCalendarDays(plan.cycleTo, now)
+  const daysLeft = Math.max(0, rawDaysLeft)
+  const ended = rawDaysLeft < 0
   const rollDay = format(plan.cycleTo, 'MMM d')
   // Shared with the Overview panel: a scheduled cancellation outranks the
   // downgrade queued behind it, so this tab cannot promise a roll the other
@@ -34,6 +38,8 @@ export function cycleFacts(plan: OrganizationPlan, now: Date, catalog: Plan[] = 
   return {
     unlimited: plan.includedQuotaCents === null,
     daysLeft,
+    ended,
+    rollDay,
     window: `${format(plan.cycleFrom, 'MMM d')} – ${rollDay}`,
     note:
       plan.status === 'canceled'
@@ -56,7 +62,6 @@ export function cycleFacts(plan: OrganizationPlan, now: Date, catalog: Plan[] = 
  */
 export function ThisCycleCard() {
   const { data: plan, isLoading } = useOwnerPlanQuery()
-  const { data: wallet } = useOwnerWalletQuery()
   const { data: plans } = usePlansQuery()
   const { selectedOrganization } = useSelectedOrganization()
 
@@ -81,7 +86,7 @@ export function ThisCycleCard() {
   }
   if (!plan) return null
 
-  const { unlimited, daysLeft, window, note } = cycleFacts(plan, new Date(), plans ?? [])
+  const { unlimited, daysLeft, ended, rollDay, window, note } = cycleFacts(plan, new Date(), plans ?? [])
 
   return (
     <section>
@@ -93,10 +98,11 @@ export function ThisCycleCard() {
             value={formatAmount(plan.quotaRemainingCents ?? 0)}
             sub={unlimited ? 'unlimited quota' : `of ${formatAmount(plan.includedQuotaCents ?? 0)} included`}
           />
-          {wallet && (
-            <Metric label="Wallet balance" value={formatAmount(wallet.ongoingBalanceCents)} sub="drawn after quota" />
+          {ended ? (
+            <Metric label="Cycle" value="Ended" sub={`rolled ${rollDay}`} />
+          ) : (
+            <Metric label="Cycle ends in" value={String(daysLeft)} sub={daysLeft === 1 ? 'day' : 'days'} />
           )}
-          <Metric label="Cycle ends in" value={String(daysLeft)} sub={daysLeft === 1 ? 'day' : 'days'} />
         </div>
 
         {!unlimited && (
@@ -104,7 +110,7 @@ export function ThisCycleCard() {
             <div className="flex items-center gap-4 font-mono text-[12px]">
               <span className="w-[100px] shrink-0 uppercase tracking-[0.5px] text-muted-foreground">Quota used</span>
               <span className="w-[140px] shrink-0 tabular-nums text-foreground">
-                {formatAmount(plan.quotaConsumedCents)} / {formatAmount(plan.includedQuotaCents ?? 0)}
+                {formatAmount(plan.quotaConsumedCents)} used
               </span>
               <SegmentedBar used={plan.quotaConsumedCents} limit={plan.includedQuotaCents ?? 0} />
             </div>
@@ -115,16 +121,15 @@ export function ThisCycleCard() {
         {concurrencyLimit != null && runningBoxes != null && (
           <div className="border-t border-border px-[22px] py-4">
             <div className="flex items-center gap-4 font-mono text-[12px]">
-              <span className="w-[100px] shrink-0 uppercase tracking-[0.5px] text-muted-foreground">Concurrent</span>
+              <span className="w-[100px] shrink-0 uppercase tracking-[0.5px] text-muted-foreground">
+                Concurrent boxes
+              </span>
               <span className="w-[140px] shrink-0 tabular-nums text-foreground">
                 {runningBoxes} / {concurrencyLimit}
               </span>
               <SegmentedBar used={runningBoxes} limit={concurrencyLimit} />
             </div>
-            <PanelNote>
-              Boxes running now, against the plan&apos;s ceiling · not yet enforced, so this reports what is used rather
-              than what is refused
-            </PanelNote>
+            <PanelNote>Running now, against the plan&apos;s ceiling · not yet enforced</PanelNote>
           </div>
         )}
 

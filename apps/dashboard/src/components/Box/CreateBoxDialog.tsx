@@ -613,6 +613,9 @@ export const CreateBoxDialog = ({
   const [stopSeconds, setStopSeconds] = useState(DEFAULTS.autoStopIntervalSeconds)
   const [deleteDelaySeconds, setDeleteDelaySeconds] = useState(0)
   const [autoResume, setAutoResumeEnabled] = useState(true)
+  // A mount handed in by the caller (Volumes → "+ Box") is the reason the
+  // dialog opened, so the section it lives in starts open.
+  const [showAdvanced, setShowAdvanced] = useState(() => Boolean(prefillVolume))
   const [mounts, setMounts] = useState<BoxVolumeMount[]>([])
   const [sizePreset, setSizePreset] = useState<SizePresetId>('small')
   const [submitting, setSubmitting] = useState(false)
@@ -878,7 +881,29 @@ export const CreateBoxDialog = ({
             )}
           </div>
 
-          {/* volumes — the only moment a box and a volume can be connected:
+          {/* Volumes and lifecycle are real controls, but they are the third
+              and fourth decision on a screen whose promise is "a box for your
+              agent" — most boxes take the defaults, and the agent that made the
+              box already chose. One disclosure, both sections, collapsed. */}
+          <div className="border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              aria-expanded={showAdvanced}
+              className="flex w-full items-center justify-between font-mono text-label uppercase tracking-[1.2px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <span>
+                <span style={{ color: BRAND }}>{showAdvanced ? '▾' : '▸'}</span> Advanced
+                <span className="ml-2 normal-case tracking-normal text-muted-foreground/70">
+                  volumes · lifecycle
+                  {mounts.length > 0 ? ` · ${mounts.length} mount${mounts.length > 1 ? 's' : ''}` : ''}
+                </span>
+              </span>
+            </button>
+          </div>
+          {showAdvanced && (
+            <>
+              {/* volumes — the only moment a box and a volume can be connected:
               there is no attach/detach endpoint, so a running box can never
               gain or lose one. That fact used to be spelled out in a note
               below the list, but Size is equally locked at create time (no
@@ -886,104 +911,106 @@ export const CreateBoxDialog = ({
               Volumes out implied a false asymmetry. Dropped; "+ Mount a
               volume" moved into the header row instead, saving the row it
               cost. */}
-          <div className="flex flex-col gap-[11px] border-t border-border pt-5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-mono text-[10px] uppercase tracking-[1.2px] text-muted-foreground">
-                <span style={{ color: BRAND }}>▸</span> Volumes
-              </div>
-              <button
-                type="button"
-                onClick={() => setMounts((prev) => [...prev, { volumeId: '', mountPath: '/data' }])}
-                className="border border-border px-[10px] py-[4px] font-mono text-[11px] transition-colors hover:border-brand"
-              >
-                + Mount a volume
-              </button>
-            </div>
+              <div className="flex flex-col gap-[11px] border-t border-border pt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-mono text-[10px] uppercase tracking-[1.2px] text-muted-foreground">
+                    <span style={{ color: BRAND }}>▸</span> Volumes
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMounts((prev) => [...prev, { volumeId: '', mountPath: '/data' }])}
+                    className="border border-border px-[10px] py-[4px] font-mono text-[11px] transition-colors hover:border-brand"
+                  >
+                    + Mount a volume
+                  </button>
+                </div>
 
-            {/* Disk above is scratch space that dies with the box; a volume is
+                {/* Disk above is scratch space that dies with the box; a volume is
                 the opposite of that, which is the one fact worth stating here. */}
-            <PanelNote>
-              A volume persists independently of this box and can be mounted into another box later.
-            </PanelNote>
+                <PanelNote>
+                  A volume persists independently of this box and can be mounted into another box later.
+                </PanelNote>
 
-            {mounts.length > 0 && (
-              <div className="flex flex-col gap-[9px]">
-                {mounts.map((mount, index) => (
-                  <MountRow
-                    key={index}
-                    mount={mount}
-                    volumes={availableVolumes}
-                    onChange={(next) => setMounts((prev) => prev.map((m, i) => (i === index ? next : m)))}
-                    onRemove={() => setMounts((prev) => prev.filter((_, i) => i !== index))}
-                  />
-                ))}
+                {mounts.length > 0 && (
+                  <div className="flex flex-col gap-[9px]">
+                    {mounts.map((mount, index) => (
+                      <MountRow
+                        key={index}
+                        mount={mount}
+                        volumes={availableVolumes}
+                        onChange={(next) => setMounts((prev) => prev.map((m, i) => (i === index ? next : m)))}
+                        onRemove={() => setMounts((prev) => prev.filter((_, i) => i !== index))}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* lifecycle — decides when the box disappears (and whether its disk
+              {/* lifecycle — decides when the box disappears (and whether its disk
               goes with it); placed last so it sits directly above the price it
               changes. Three flat rows, always visible: no presets to learn,
               no "Custom" panel hiding the real controls. */}
-          <div className="flex flex-col gap-[13px] border-t border-border pt-5">
-            <div className="font-mono text-[10px] uppercase tracking-[1.2px] text-muted-foreground">
-              <span style={{ color: BRAND }}>▸</span> Lifecycle
-            </div>
+              <div className="flex flex-col gap-[13px] border-t border-border pt-5">
+                <div className="font-mono text-[10px] uppercase tracking-[1.2px] text-muted-foreground">
+                  <span style={{ color: BRAND }}>▸</span> Lifecycle
+                </div>
 
-            <div className="flex flex-col gap-[9px]">
-              <SelectField
-                label="Stop when idle"
-                ariaLabel="Stop when idle"
-                value={stopSeconds}
-                options={STOP_OPTIONS}
-                onChange={setStopSeconds}
-              />
-              {/* The single most surprising part of the feature: only the
+                <div className="flex flex-col gap-[9px]">
+                  <SelectField
+                    label="Stop when idle"
+                    ariaLabel="Stop when idle"
+                    value={stopSeconds}
+                    options={STOP_OPTIONS}
+                    onChange={setStopSeconds}
+                  />
+                  {/* The single most surprising part of the feature: only the
                   three request paths that refresh `lastActivityAt` count as
                   activity (the REST proxy, the WS attach and the preview
                   proxy's last-activity ping). Nothing running *inside* the box
                   touches it, so a long job is not self-protecting. */}
-              {stopSeconds > 0 && (
-                <PanelNote>
-                  Idle means no SDK, terminal or preview traffic. Work running inside the box does not count — a long
-                  job can be stopped mid-run.
-                </PanelNote>
-              )}
+                  {stopSeconds > 0 && (
+                    <PanelNote>
+                      Idle means no SDK, terminal or preview traffic. Work running inside the box does not count — a
+                      long job can be stopped mid-run.
+                    </PanelNote>
+                  )}
 
-              {/* Not indented under Stop: a manually-stopped box still needs
+                  {/* Not indented under Stop: a manually-stopped box still needs
                   waking even with auto-stop off, so this is its own row, not a
                   modifier of one. */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-mono text-[10px] uppercase tracking-[1px]">Wake on access</span>
-                <Switch aria-label="Wake on access" checked={autoResume} onCheckedChange={setAutoResumeEnabled} />
-              </div>
-              {/* Wake is served by the API's own REST/WS proxy
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-[10px] uppercase tracking-[1px]">Wake on access</span>
+                    <Switch aria-label="Wake on access" checked={autoResume} onCheckedChange={setAutoResumeEnabled} />
+                  </div>
+                  {/* Wake is served by the API's own REST/WS proxy
                   (box-auto-resume.service). The preview proxy only pings
                   last-activity, so preview traffic keeps a *running* box alive
                   but cannot bring a stopped one back. */}
-              <PanelNote>
-                SDK exec, file operations and terminal attach wake a stopped box. Preview URL traffic keeps a running
-                box alive but cannot wake a stopped one.
-              </PanelNote>
+                  <PanelNote>
+                    SDK exec, file operations and terminal attach wake a stopped box. Preview URL traffic keeps a
+                    running box alive but cannot wake a stopped one.
+                  </PanelNote>
 
-              {/* Expressed relative to the stop it follows, not as its own
+                  {/* Expressed relative to the stop it follows, not as its own
                   absolute threshold — see the `autoDelete` derivation above. */}
-              <SelectField
-                label={stopSeconds > 0 ? 'Delete after stopping' : 'Delete when idle'}
-                ariaLabel="Delete after stopping"
-                value={deleteDelaySeconds}
-                options={DELETE_DELAY_OPTIONS}
-                onChange={setDeleteDelaySeconds}
-              />
-              {/* Same shape as CappedResourcesNote above — left rule, tinted
+                  <SelectField
+                    label={stopSeconds > 0 ? 'Delete after stopping' : 'Delete when idle'}
+                    ariaLabel="Delete after stopping"
+                    value={deleteDelaySeconds}
+                    options={DELETE_DELAY_OPTIONS}
+                    onChange={setDeleteDelaySeconds}
+                  />
+                  {/* Same shape as CappedResourcesNote above — left rule, tinted
                   ground, mono 11px — in the destructive tone. */}
-              {deleteDelaySeconds > 0 && (
-                <p className="border-l-2 border-destructive/60 bg-destructive/5 px-3 py-2 font-mono text-[11px] leading-relaxed text-destructive">
-                  Permanent. The box and everything on its disk are gone — this cannot be undone.
-                </p>
-              )}
-            </div>
-          </div>
+                  {deleteDelaySeconds > 0 && (
+                    <p className="border-l-2 border-destructive/60 bg-destructive/5 px-3 py-2 font-mono text-[11px] leading-relaxed text-destructive">
+                      Permanent. The box and everything on its disk are gone — this cannot be undone.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* price — quoted from Commerce's published rates for the size above */}

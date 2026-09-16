@@ -20,10 +20,23 @@ module.exports = {
         xs: '480px',
       },
       fontFamily: {
-        // ASCII/terminal restyle: IBM Plex Mono everywhere (sans, mono, and display).
+        // Two faces, two jobs: words are set in Inter, values in Plex Mono. The
+        // marketing site already pairs them this way; the console spoke only
+        // mono, which made every heading read as terminal output.
         sans: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'SF Mono', 'monospace'],
         mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'SF Mono', 'monospace'],
-        display: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'SF Mono', 'monospace'],
+        display: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      fontSize: {
+        // The console's type scale — six steps, nothing in between. Arbitrary
+        // `text-[Npx]` values had grown to twenty-one distinct sizes, ten of
+        // them within a 5px band; nothing on a page could line up with anything.
+        label: ['10px', { lineHeight: '1.2', letterSpacing: '0.12em' }],
+        meta: ['12px', { lineHeight: '1.45' }],
+        body: ['13px', { lineHeight: '1.5' }],
+        em: ['15px', { lineHeight: '1.4' }],
+        section: ['20px', { lineHeight: '1.25', letterSpacing: '-0.01em' }],
+        page: ['28px', { lineHeight: '1.15', letterSpacing: '-0.02em' }],
       },
       borderRadius: {
         // Square corners are a load-bearing part of the design; only pills/dots stay round.

@@ -16,7 +16,7 @@ function SidebarContext({ children }: { children: ReactNode }) {
   return (
     <div className="w-[340px] bg-background px-4 py-4 font-mono text-[13px] text-foreground">
       <div className="mb-[10px] mt-0 flex items-center gap-[9px]">
-        <span className="size-[6px] flex-none bg-brand" />
+        <span className="text-label leading-none text-brand">▸</span>
         <span className="text-[11px] uppercase tracking-[2px]">general</span>
         <span className="flex-1 border-t border-dashed border-border" />
       </div>
@@ -33,7 +33,7 @@ function SidebarContext({ children }: { children: ReactNode }) {
       ))}
       {children}
       <div className="mb-[10px] mt-[34px] flex items-center gap-[9px]">
-        <span className="size-[6px] flex-none bg-brand" />
+        <span className="text-label leading-none text-brand">▸</span>
         <span className="text-[11px] uppercase tracking-[2px]">activity</span>
         <span className="flex-1 border-t border-dashed border-border" />
       </div>

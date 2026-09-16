@@ -20,6 +20,16 @@ const CUSTOM_PLAN_CONTACT_URL =
  * attributes, not a resource-ceiling ladder.
  */
 
+// The four cards are read across, not one at a time, so their bands are fixed:
+// the badge row holds its height with or without a badge, and the price band
+// holds the tallest of them (a price, or a price above a line of prose). Left
+// to `flex-1` the leftover height collected in the middle of the short cards
+// instead, so no two rows lined up and each card carried ~100px of nothing.
+const CARD_BADGE_ROW = 'mb-4 flex h-[18px] items-center justify-between gap-3'
+const CARD_BADGE =
+  'border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[1px] text-muted-foreground'
+const CARD_PRICE_BAND = 'mb-4 flex h-[64px] flex-col justify-start'
+
 function SpecRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2 font-mono text-[12px]">
@@ -29,127 +39,100 @@ function SpecRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-/** PR 829's cosmetic tier label and quota leverage, derived from catalog order and money. */
-export function planCardDisplay(plan: Plan, catalogIndex: number): { tierLabel: string; leverage: string } {
-  const leverage =
-    plan.priceMonthlyCents && plan.includedQuotaCents
-      ? `${(Math.floor((plan.includedQuotaCents / plan.priceMonthlyCents) * 100) / 100)
-          .toFixed(2)
-          .replace(/0+$/, '')
-          .replace(/\.$/, '')}×`
-      : '—'
-
-  return { tierLabel: `T${catalogIndex + 1}`, leverage }
-}
-
 function PlanCard({
   plan,
   organizationPlan,
   currentPriceCents,
-  catalogIndex,
   onSwitch,
 }: {
   plan: Plan
   organizationPlan?: OrganizationPlan | null
   currentPriceCents: number | null
-  catalogIndex: number
   onSwitch: (plan: Plan) => void
 }) {
   const cta = planCardCta({ plan, organizationPlan, currentPriceCents })
   const isActive = cta.kind === 'current'
-  const display = planCardDisplay(plan, catalogIndex)
 
   return (
     <div
       className={`flex flex-col border bg-card px-[22px] py-5 transition-transform hover:-translate-y-0.5 ${
-        isActive ? 'border-brand/60' : 'border-border hover:border-brand/40'
+        isActive ? 'border-foreground/45' : 'border-border hover:border-foreground/25'
       }`}
     >
-      <div className="mb-4 flex items-center justify-between">
+      <div className={CARD_BADGE_ROW}>
         <span className="font-mono text-[10px] uppercase tracking-[1.5px] text-muted-foreground">
-          <span style={{ color: BRAND }}>▸</span> {display.tierLabel} · {plan.name}
+          <span style={{ color: BRAND }}>▸</span> {plan.name}
         </span>
-        {isActive && (
-          <span className="bg-foreground px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[1px] text-background">
-            current
-          </span>
-        )}
-        {/* Outlined, not filled: this plan is coming, not active — the same
-            distinction CustomPlanCard's "by request" badge draws. */}
-        {cta.kind === 'scheduled' && (
-          <span className="border border-brand/30 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[1px] text-brand">
-            scheduled
-          </span>
-        )}
+        {isActive && <span className={CARD_BADGE}>current</span>}
+        {cta.kind === 'scheduled' && <span className={CARD_BADGE}>scheduled</span>}
       </div>
 
-      <div className="mb-4">
+      <div className={CARD_PRICE_BAND}>
         <span className="font-mono text-[26px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
           {plan.priceMonthlyCents != null ? `${formatWholeDollars(plan.priceMonthlyCents)}/mo` : 'Custom'}
         </span>
       </div>
 
-      <div className="mb-5 flex-1 divide-y divide-border/40">
+      <div className="mb-5 divide-y divide-border/40">
         <SpecRow
           label="Quota"
           value={plan.includedQuotaCents != null ? formatWholeDollars(plan.includedQuotaCents) : 'Unlimited'}
         />
-        <SpecRow label="Leverage" value={display.leverage} />
         <SpecRow
           label="Concurrency"
           value={plan.concurrencyLimit != null ? `${plan.concurrencyLimit} boxes` : 'Unlimited'}
         />
       </div>
 
-      {cta.disabled ? (
-        <AsciiButton disabled className="w-full text-muted-foreground">
-          {cta.label}
-        </AsciiButton>
-      ) : (
-        <AsciiButton
-          variant={cta.kind === 'upgrade' ? 'primary' : 'secondary'}
-          className="w-full"
-          onClick={() => onSwitch(plan)}
-        >
-          {cta.label}
-        </AsciiButton>
-      )}
+      {/* Switching plans is one lateral choice, so every card's action carries
+          the same weight — an upgrade is not a different kind of act from a
+          downgrade. */}
+      <div className="mt-auto">
+        {cta.disabled ? (
+          <AsciiButton disabled className="w-full text-muted-foreground">
+            {cta.label}
+          </AsciiButton>
+        ) : (
+          <AsciiButton className="w-full" onClick={() => onSwitch(plan)}>
+            {cta.label}
+          </AsciiButton>
+        )}
+      </div>
     </div>
   )
 }
 
 /**
- * The open-ended plan belongs beside the fixed catalogue, but its dashed
- * border makes clear that its limits and price are scoped rather than preset.
+ * The open-ended plan belongs beside the fixed catalogue, and reads like one:
+ * a plain border, with "by request" carrying the difference. A dashed border
+ * would have said something else — elsewhere in the console dashes mean an
+ * isolation boundary or a placeholder.
  */
-export function CustomPlanCard({ catalogIndex = 3 }: { catalogIndex?: number }) {
+export function CustomPlanCard() {
   return (
-    <div className="flex flex-col border border-dashed border-brand/50 bg-card px-[22px] py-5 transition-colors hover:border-brand">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="flex flex-col border border-border bg-card px-[22px] py-5 transition-colors hover:border-foreground/25">
+      <div className={CARD_BADGE_ROW}>
         <span className="font-mono text-[10px] uppercase tracking-[1.5px] text-muted-foreground">
-          <span style={{ color: BRAND }}>▸</span> T{catalogIndex + 1} · Custom
+          <span style={{ color: BRAND }}>▸</span> Custom
         </span>
-        <span className="border border-brand/30 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[1px] text-brand">
-          by request
-        </span>
+        <span className={CARD_BADGE}>by request</span>
       </div>
 
-      <div className="mb-4">
+      <div className={CARD_PRICE_BAND}>
         <span className="font-mono text-[26px] font-semibold leading-none tracking-tight text-foreground">Custom</span>
         <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
-          Talk with sales about a plan for your workload.
+          Talk with sales about your workload.
         </p>
       </div>
 
-      <div className="mb-5 flex-1 divide-y divide-border/40">
+      <div className="mb-5 divide-y divide-border/40">
         <SpecRow label="Quota" value="—" />
-        <SpecRow label="Leverage" value="—" />
         <SpecRow label="Concurrency" value="—" />
       </div>
 
       <a
         href={CUSTOM_PLAN_CONTACT_URL}
-        className="inline-flex w-full items-center justify-center border border-brand/40 px-4 py-2 font-mono text-[12px] text-foreground transition-colors hover:border-brand hover:bg-brand/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+        className="mt-auto inline-flex w-full items-center justify-center border border-border px-4 py-2 font-mono text-[12px] text-foreground transition-colors hover:border-foreground/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
         Contact sales →
       </a>
@@ -187,17 +170,16 @@ export function PlanCards({ plans, organizationPlan }: { plans: Plan[]; organiza
 
   return (
     <div className="grid grid-cols-1 gap-[14px] md:grid-cols-2 xl:grid-cols-4">
-      {plans.map((plan, catalogIndex) => (
+      {plans.map((plan) => (
         <PlanCard
           key={plan.id}
           plan={plan}
           organizationPlan={organizationPlan}
           currentPriceCents={currentPriceCents}
-          catalogIndex={catalogIndex}
           onSwitch={(target) => navigate(generatePath(RoutePath.BILLING_PLAN_CHANGE, { planId: target.id }))}
         />
       ))}
-      <CustomPlanCard catalogIndex={plans.length} />
+      <CustomPlanCard />
     </div>
   )
 }

@@ -156,7 +156,9 @@ export function SegmentedBar({ used, limit, segments = 40 }: { used: number; lim
         <span
           key={i}
           className="h-1.5 flex-1"
-          style={{ background: i < filled ? color : 'hsl(var(--brand) / 0.15)' }}
+          // Empty track is neutral: a pale tint of the fill colour read as
+          // "filled, faintly", so the bar had no visible edge.
+          style={{ background: i < filled ? color : 'hsl(var(--border))' }}
         />
       ))}
     </div>
@@ -218,9 +220,13 @@ export function AsciiChip({
       type="button"
       className={cn(
         'border px-4 py-2 font-mono text-[13px] tabular-nums transition-colors',
+        // What is not chosen recedes; the chosen one is simply at full value
+        // with a heavier label. A brand hairline is the weakest mark available
+        // and it measured 2.49:1 on the light theme, so brand is kept for
+        // things that are live rather than for marking a click.
         selected
-          ? 'border-foreground bg-foreground text-background'
-          : 'border-border text-foreground hover:border-brand',
+          ? 'border-foreground/45 bg-card font-semibold text-foreground'
+          : 'border-border text-muted-foreground hover:text-foreground',
         className,
       )}
       {...props}

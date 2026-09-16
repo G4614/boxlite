@@ -92,7 +92,7 @@ function ThemeMenuItems({ theme, setTheme }: { theme: Theme; setTheme: (theme: T
             key={option.value}
             value={option.value}
             aria-label={`Use ${option.label.toLowerCase()} theme`}
-            className="h-9 justify-center gap-1.5 rounded-none border-0 border-r border-border text-xs text-muted-foreground transition-colors last:border-r-0 hover:text-foreground data-[state=on]:bg-card data-[state=on]:font-semibold data-[state=on]:text-foreground"
+            className="h-9 justify-center gap-1.5 rounded-none border-0 border-r border-border text-xs text-muted-foreground transition-colors last:border-r-0 hover:text-foreground data-[state=on]:bg-card data-[state=on]:font-semibold data-[state=on]:text-foreground data-[state=on]:shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.45)]"
           >
             {option.icon}
             <span>{option.label}</span>
@@ -210,12 +210,18 @@ export function Sidebar({ isBannerVisible }: SidebarProps) {
       .join('')
       .toUpperCase() || 'U'
 
-  // One full-height nav cell. Selection is conveyed purely by value/grayscale — no hue:
-  // active = neutral grey fill + brightest (foreground) label; inactive = dimmer muted text.
+  // One full-height nav cell. No edge of its own: the header is a continuous
+  // strip and a bright rule around one cell would cut it. The chosen cell is
+  // the surface that differs from the strip, and its label is the only one at
+  // full weight and full value.
+  //
+  // `bg-accent` used to carry this alone. It measures 1.18:1 against the
+  // header on the light theme, and it is also this console's hover tint, so
+  // "you are here" and "your pointer is here" were the same grey.
   const navCellClass = (active: boolean, extra?: string) =>
     cn(
-      'relative h-full items-center gap-2 px-[18px] text-[13px] font-medium transition-colors',
-      active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-card hover:text-foreground',
+      'relative h-full items-center gap-2 px-[18px] text-[13px] transition-colors',
+      active ? 'bg-card font-semibold text-foreground' : 'font-medium text-muted-foreground hover:text-foreground',
       extra,
     )
 
