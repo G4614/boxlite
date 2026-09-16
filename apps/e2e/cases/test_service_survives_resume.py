@@ -20,6 +20,7 @@ unreachable through the exposed port is not back as far as they are concerned.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import boxlite
 import pytest
@@ -28,6 +29,13 @@ from conftest import drain
 
 PORT = 3000
 SERVICE_ARGV = ["-m", "http.server", str(PORT), "--bind", "0.0.0.0"]
+
+# How long "has the service come back" is allowed to take, shared by both
+# directions on purpose. The negative case has to wait at least as long as the
+# positive one or it stops being an observation: a service revived at 30s under
+# a 20s window reads as "never came back" and the test passes for exactly the
+# reason it exists to rule out. One constant makes that impossible to drift.
+SERVICE_REVIVAL_TIMEOUT = 45.0
 
 
 async def _run(box, script: str, timeout: int = 30) -> int:
@@ -67,21 +75,30 @@ async def _is_serving(box) -> bool:
     return code == 0
 
 
-async def _restart(box) -> None:
+async def _restart(box, timeout: float = 60.0) -> None:
     """stop→start, tolerating the window where the state change is still in
     flight — `start` right after `stop` can be refused, and the retry is the
-    point of the test, not something to paper over with a fixed sleep."""
-    await box.stop()
-    deadline = asyncio.get_running_loop().time() + 60
+    point of the test, not something to paper over with a fixed sleep.
+
+    One budget covering the stop as well, for the same reason `_run` and
+    `_fetch_over_tunnel` carry one: a `stop` or `start` that never returns
+    hangs inside a single iteration, where no deadline in this file is looking.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+
+    def remaining() -> float:
+        return max(0.0, deadline - asyncio.get_running_loop().time())
+
+    await asyncio.wait_for(box.stop(), timeout=remaining())
     last: Exception | None = None
-    while asyncio.get_running_loop().time() < deadline:
+    while remaining() > 0:
         try:
-            await box.start()
+            await asyncio.wait_for(box.start(), timeout=remaining())
             return
         except Exception as exc:  # state change in progress
             last = exc
-            await asyncio.sleep(2)
-    raise AssertionError(f"could not start the box again: {last}")
+            await asyncio.sleep(min(2.0, remaining()))
+    raise AssertionError(f"could not start the box again within {timeout}s: {last}")
 
 
 async def _wait_exec_ready(box, timeout: float = 60.0) -> bool:
@@ -102,7 +119,7 @@ async def _wait_exec_ready(box, timeout: float = 60.0) -> bool:
     return False
 
 
-async def _wait_serving(box, timeout: float = 45.0) -> bool:
+async def _wait_serving(box, timeout: float = SERVICE_REVIVAL_TIMEOUT) -> bool:
     """Poll rather than sleep a fixed amount: a cold boot re-runs init, and how
     long the service needs is the box's business, not a constant we can pick."""
     deadline = asyncio.get_running_loop().time() + timeout
@@ -113,34 +130,52 @@ async def _wait_serving(box, timeout: float = 45.0) -> bool:
     return False
 
 
-async def _fetch_over_tunnel(box, timeout: float = 45.0) -> bytes:
+async def _fetch_over_tunnel(box, timeout: float = SERVICE_REVIVAL_TIMEOUT) -> bytes:
     """Reach the service the way a user does: through the box's network tunnel.
 
     Retries for the same reason the in-box probe polls — the port is not
     listening the instant the box reports running, and opening a tunnel to a
     box that just came up can lose the race.
+
+    One budget across every stage, like `_run`: checking the deadline only
+    between attempts bounds nothing, because an attempt is four unbounded
+    awaits plus a read loop. The per-read cap alone does not help — a peer
+    dribbling one byte inside each 5s read keeps the loop alive for 64Ki reads,
+    long past any deadline the caller thinks it set.
     """
     deadline = asyncio.get_running_loop().time() + timeout
+
+    def remaining() -> float:
+        return max(0.0, deadline - asyncio.get_running_loop().time())
+
     last: Exception | None = None
-    while asyncio.get_running_loop().time() < deadline:
+    while remaining() > 0:
         try:
-            tunnel = await box.network.tunnel(PORT)
-            connection = await tunnel.connect()
+            tunnel = await asyncio.wait_for(box.network.tunnel(PORT), timeout=remaining())
+            connection = await asyncio.wait_for(tunnel.connect(), timeout=remaining())
             try:
-                await connection.write(b"GET / HTTP/1.0\r\nHost: resume.test\r\n\r\n")
+                await asyncio.wait_for(
+                    connection.write(b"GET / HTTP/1.0\r\nHost: resume.test\r\n\r\n"),
+                    timeout=remaining(),
+                )
                 response = bytearray()
                 while len(response) < 64 * 1024:
-                    chunk = await asyncio.wait_for(connection.read(8192), timeout=5)
+                    # Still capped per read so a silent peer is noticed early,
+                    # but never past what is left of the whole budget.
+                    chunk = await asyncio.wait_for(connection.read(8192), timeout=min(5.0, remaining()))
                     if not chunk:
                         break
                     response.extend(chunk)
                 if response:
                     return bytes(response)
             finally:
-                await connection.close()
+                # Bounded like everything else, and suppressed: a close that
+                # hangs or fails must not discard a response already read.
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(connection.close(), timeout=remaining())
         except Exception as exc:
             last = exc
-        await asyncio.sleep(2)
+        await asyncio.sleep(min(2.0, remaining()))
     raise AssertionError(f"nothing answered over the tunnel within {timeout}s (last error: {last})")
 
 
@@ -207,9 +242,9 @@ async def test_exec_started_service_does_not_survive_stop_start(rt, image):
             "state could not be measured"
         )
 
-        # Give it at least as long as the positive case gets, so a pass here
-        # means "still absent", not "we did not wait long enough".
-        assert not await _wait_serving(box, timeout=20.0), (
+        # The same budget the positive case gets, so a pass here means "still
+        # absent" and not "we did not wait long enough".
+        assert not await _wait_serving(box, timeout=SERVICE_REVIVAL_TIMEOUT), (
             "an exec-started process survived stop→start — box restart is "
             "expected to kill it; if this is now intended, the auto-resume "
             "guidance and the service-revival design need revisiting"
