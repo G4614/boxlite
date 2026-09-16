@@ -75,7 +75,7 @@ const Keys: React.FC = () => {
     <div className="flex h-[calc(100svh-60px)] min-h-0 flex-col px-[34px] pt-[26px] lg:px-[40px]">
       {/* header — same hierarchy as the Boxes page */}
       <div className="mb-[22px] flex items-end justify-between">
-        <h1 className="font-mono text-[22px] font-medium leading-none tracking-[-0.5px]">API Keys</h1>
+        <h1 className="font-display text-page font-semibold text-foreground">API Keys</h1>
         <CreateApiKeyDialog
           availablePermissions={availablePermissions}
           apiUrl={apiUrl}

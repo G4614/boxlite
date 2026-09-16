@@ -8,11 +8,23 @@ import goIcon from '@/assets/go.svg'
 import pythonIcon from '@/assets/python.svg'
 import { RustIcon } from '@/assets/RustIcon'
 import typescriptIcon from '@/assets/typescript.svg'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { QuickstartAgentHandoff } from '@/components/QuickstartAgentHandoff'
+import { CODING_AGENT_MARKS } from '@/assets/AgentLogos'
+import { QuickstartCopyButton } from '@/components/QuickstartCopyButton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogOverlay,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FileText, KeyRound, Server, Terminal } from '@/components/ui/icon'
 import { useApi } from '@/hooks/useApi'
 import { useConfig } from '@/hooks/useConfig'
 import { getRestApiUrl } from '@/lib/environment'
+import { copyToClipboard } from '@/lib/copy-text'
 import { useSelectedOrganization } from '@/hooks/useSelectedOrganization'
 import { handleApiError } from '@/lib/error-handling'
 import { createApiKeyWithFallbackName, DEFAULT_QUICKSTART_API_KEY_NAME } from '@/lib/quickstart-api-key'
@@ -30,7 +42,7 @@ import {
   OrganizationRolePermissionsEnum,
   type ApiKeyResponse,
 } from '@boxlite-ai/api-client'
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState, type ReactElement } from 'react'
 import { toast } from 'sonner'
 
 // Lazy so prism-react-renderer (syntax highlighting, ~130KB) stays out of the
@@ -51,19 +63,209 @@ const STAGES = [
   { tag: 'STEP 03', label: 'Execute code in box' },
 ] as const
 
-// Quickstart scenarios. Today there is one; future scenarios slot in here and route to
-// their own guided flow. (For now every scenario uses the SDK 3-step flow below.)
+// The two jobs an account arrives with, carried as equals. `publish` hands the
+// work to the user's own coding agent; `untrusted-code` is the SDK walkthrough
+// that has always lived here, unchanged.
 const SCENARIOS = [
   {
+    id: 'publish',
+    tab: 'Build an app online',
+    promise: 'Get a public URL',
+    title: 'Hand the job to your coding agent.',
+    sub: 'One prompt. Your agent builds it, BoxLite puts it online.',
+  },
+  {
     id: 'untrusted-code',
-    tag: 'Box',
-    title: 'Box as your untrusted code container',
-    description:
-      'Run AI-generated or untrusted code in an isolated, disposable Box. Create a key, choose an interface, then execute code safely inside a box.',
+    tab: 'Run untrusted code',
+    promise: 'An isolated box for your code',
+    title: 'Run untrusted code in a box.',
+    sub: 'A key, an SDK, and a box that runs whatever you give it.',
   },
 ] as const
 
 type ScenarioId = (typeof SCENARIOS)[number]['id']
+
+// One subject per card, with mass. The first pass drew the whole story —
+// window chrome, page layout, a globe, a three-step pipeline — at one stroke
+// weight, so twenty equal lines competed and nothing led. These keep a single
+// filled object as the figure, one recessive frame as the ground, and spend
+// brand exactly once, on the detail that names the job.
+const ART_CLASS = 'h-[92px] w-full'
+const SURFACE = 'hsl(var(--background))'
+const BRAND = 'hsl(var(--brand))'
+
+/** A browser window, and the one lit thing on it: its address. */
+function PublishArt() {
+  return (
+    <svg viewBox="0 0 256 96" className={ART_CLASS} aria-hidden>
+      <rect x="54" y="10" width="148" height="76" fill={SURFACE} stroke="currentColor" strokeWidth={1.75} />
+      <path d="M54 32h148" stroke="currentColor" strokeWidth={1.25} opacity={0.7} />
+      <circle cx="64" cy="21" r="1.75" fill="currentColor" opacity={0.45} />
+      <circle cx="72" cy="21" r="1.75" fill="currentColor" opacity={0.45} />
+      <circle cx="80" cy="21" r="1.75" fill="currentColor" opacity={0.45} />
+      {/* the address: the only element that is lit, because a public URL is
+          the whole point of this job */}
+      <rect x="92" y="15.5" width="98" height="11" fill="hsl(var(--brand) / 0.16)" />
+      <path d="M98 21h62" stroke={BRAND} strokeWidth={2.25} strokeLinecap="round" />
+      {/* the page, as weight rather than drawing */}
+      <rect x="68" y="44" width="120" height="7" fill="currentColor" opacity={0.16} />
+      <rect x="68" y="58" width="84" height="7" fill="currentColor" opacity={0.16} />
+      <rect x="68" y="72" width="52" height="7" fill="currentColor" opacity={0.16} />
+    </svg>
+  )
+}
+
+/** A solid box standing inside a boundary, with code running in it. */
+function UntrustedCodeArt() {
+  return (
+    <svg viewBox="0 0 256 96" className={ART_CLASS} aria-hidden>
+      {/* the boundary recedes: it is the condition, not the subject */}
+      <rect
+        x="70"
+        y="8"
+        width="116"
+        height="80"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.25}
+        strokeDasharray="4 4"
+        opacity={0.4}
+      />
+      {/* the box, with volume — it occludes the boundary behind it */}
+      {/* Volume comes from three neutral values, not from hue: brand marks what
+          is live, and a face of a box is material, not state. */}
+      <path
+        d="M128 18L162 35L128 52L94 35Z"
+        fill="currentColor"
+        fillOpacity={0.14}
+        stroke="currentColor"
+        strokeWidth={1.75}
+      />
+      <path d="M94 35L128 52L128 80L94 63Z" fill={SURFACE} stroke="currentColor" strokeWidth={1.75} />
+      <path
+        d="M128 52L162 35L162 63L128 80Z"
+        fill="currentColor"
+        fillOpacity={0.07}
+        stroke="currentColor"
+        strokeWidth={1.75}
+      />
+      {/* code, running inside it */}
+      <path
+        d="M103 60l5 4-5 4"
+        fill="none"
+        stroke={BRAND}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M112 68h9" stroke={BRAND} strokeWidth={2.25} strokeLinecap="round" opacity={0.75} />
+    </svg>
+  )
+}
+
+const SCENARIO_ART: Record<ScenarioId, () => ReactElement> = {
+  publish: PublishArt,
+  'untrusted-code': UntrustedCodeArt,
+}
+
+/**
+ * The chosen job is the headline, so the biggest text on the screen is the
+ * user's own decision; the two cards beneath stay equal peers. Radix Tabs
+ * underneath, so keyboard and screen-reader behaviour is the console's own.
+ */
+function ScenarioHeader({
+  scenario,
+  onSelect,
+  compact = false,
+  onExpand,
+}: {
+  scenario: ScenarioId
+  onSelect: (id: ScenarioId) => void
+  /** Once a step is underway the cards have done their job; a full header
+   *  would push the step's own content — the code — below the fold. */
+  compact?: boolean
+  onExpand?: () => void
+}) {
+  const current = SCENARIOS.find((sc) => sc.id === scenario) ?? SCENARIOS[0]
+  if (compact) {
+    return (
+      <div className="flex shrink-0 items-baseline gap-3 px-8 pt-7">
+        <DialogHeader className="space-y-0 text-left">
+          <DialogTitle className="font-display text-em font-semibold text-foreground">{current.title}</DialogTitle>
+          <DialogDescription className="sr-only">{current.sub}</DialogDescription>
+        </DialogHeader>
+        <button
+          type="button"
+          onClick={onExpand}
+          className="text-[11.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          Change
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="shrink-0 px-8 pt-8">
+      <DialogHeader className="space-y-0 text-left">
+        <DialogTitle className="font-display text-page font-semibold text-foreground">{current.title}</DialogTitle>
+        <DialogDescription className="mt-2 text-body text-muted-foreground">{current.sub}</DialogDescription>
+      </DialogHeader>
+
+      {/* Compatibility stated in one glance instead of a sentence: the agents
+          the prompt is written for, or the interfaces the walkthrough covers. */}
+      <div className="mt-5 flex h-[22px] items-center gap-6 text-foreground/70">
+        {scenario === 'publish'
+          ? CODING_AGENT_MARKS.map(({ label, Mark }) => <Mark key={label} className="size-[22px]" />)
+          : QUICKSTART_INTERFACES.map((item) => (
+              <QuickstartInterfaceIcon key={item.id} item={item} className="size-[22px] grayscale" />
+            ))}
+      </div>
+
+      <Tabs value={scenario} onValueChange={(v) => onSelect(v as ScenarioId)} className="mt-6">
+        {/* The segmented variant's strip is a container the active segment shows
+            through; these are free-standing cards with a gutter between them,
+            so the strip itself carries neither ground nor border. */}
+        <TabsList variant="segmented" className="grid h-auto w-full grid-cols-2 gap-4 border-0 bg-transparent">
+          {SCENARIOS.map((sc) => {
+            const Art = SCENARIO_ART[sc.id]
+            return (
+              <TabsTrigger
+                key={sc.id}
+                value={sc.id}
+                className={cn(
+                  'h-auto flex-col items-stretch gap-0 overflow-hidden border border-border p-0 text-left hover:bg-transparent',
+                  // One rule across the console: the chosen thing is the
+                  // surface that differs from its container, and the ones not
+                  // chosen recede into it. Here the container is the dialog,
+                  // so the chosen card lifts onto `card` and the others sit
+                  // flat on the dialog's own ground.
+                  sc.id === scenario
+                    ? 'border-foreground/45 bg-card opacity-100'
+                    : 'bg-transparent text-muted-foreground',
+                )}
+              >
+                {/* Thumbnail on a dotted field, flush to the card's edges — the
+                    drawing is the card's first line, not an icon beside its title. */}
+                <span
+                  className={cn(
+                    'flex h-[104px] items-center justify-center border-b border-border/60',
+                    sc.id === scenario ? 'text-foreground' : 'text-muted-foreground',
+                  )}
+                >
+                  <Art />
+                </span>
+                <span className="flex flex-col gap-1 px-5 pb-3.5 pt-3">
+                  <span className="font-display text-em font-semibold">{sc.tab}</span>
+                  <span className="text-meta font-normal text-muted-foreground">{sc.promise}</span>
+                </span>
+              </TabsTrigger>
+            )
+          })}
+        </TabsList>
+      </Tabs>
+    </div>
+  )
+}
 
 const QUICKSTART_INTERFACES = getOnboardingInterfaces()
 const DEFAULT_INTERFACE = QUICKSTART_INTERFACES[0]?.id ?? 'python'
@@ -86,13 +288,19 @@ const GROUPS: ReadonlyArray<{ id: QuickstartGroup; label: string }> = [
   { id: 'direct', label: 'Direct' },
 ]
 
-function QuickstartInterfaceIcon({ item }: { item: QuickstartInterfaceDefinition }) {
+function QuickstartInterfaceIcon({
+  item,
+  className = 'size-3.5',
+}: {
+  item: QuickstartInterfaceDefinition
+  className?: string
+}) {
   const iconSrc = ICON_ASSETS[item.icon]
   if (iconSrc) {
-    return <img src={iconSrc} alt="" className="size-3.5" />
+    return <img src={iconSrc} alt="" className={className} />
   }
   const Icon = ICON_COMPONENTS[item.icon]
-  return Icon ? <Icon className="size-3.5" /> : null
+  return Icon ? <Icon className={className} /> : null
 }
 
 /**
@@ -127,8 +335,8 @@ function InterfacePicker({
                     className={cn(
                       'flex min-h-[34px] items-center justify-center gap-2 border px-[12px] py-[7px] text-[12px] transition-colors',
                       on
-                        ? 'border-brand bg-[hsl(var(--brand)/0.12)] font-semibold text-brand'
-                        : 'border-border text-muted-foreground hover:border-brand/70 hover:text-foreground',
+                        ? 'border-foreground/45 bg-card font-semibold text-foreground'
+                        : 'border-border text-muted-foreground hover:text-foreground',
                     )}
                   >
                     <QuickstartInterfaceIcon item={item} />
@@ -156,35 +364,6 @@ function PrimaryBtn({ children, onClick }: { children: React.ReactNode; onClick:
   )
 }
 
-function QuickstartCopyButton({
-  copied,
-  onClick,
-  className,
-}: {
-  copied: boolean
-  onClick: () => void
-  className?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        boxShadow: copied ? '3px 3px 0 hsl(var(--success) / 0.35)' : '3px 3px 0 hsl(var(--border))',
-      }}
-      className={cn(
-        'flex h-7 min-w-[76px] flex-none items-center justify-center border-2 bg-[hsl(var(--code-background))] px-[10px] text-[10px] font-semibold uppercase tracking-[1px] transition-[color,border-color,background-color,transform,box-shadow] active:translate-x-px active:translate-y-px active:shadow-none',
-        copied
-          ? 'border-success bg-[hsl(var(--success)/0.14)] text-success'
-          : 'border-border text-muted-foreground hover:border-brand hover:text-foreground',
-        className,
-      )}
-    >
-      {copied ? '✓ Copied' : 'Copy'}
-    </button>
-  )
-}
-
 type CopyTarget = 'api-key' | 'install' | 'code'
 
 export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: OnboardingGuideDialogProps) {
@@ -194,7 +373,14 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
   const { selectedOrganization, authenticatedUserHasPermission } = useSelectedOrganization()
   const canCreateApiKey = authenticatedUserHasPermission(OrganizationRolePermissionsEnum.WRITE_BOXES)
 
-  const [scenario, setScenario] = useState<ScenarioId | null>(null)
+  // The two jobs are peers, but one of them has to be showing on open: a new
+  // account has nothing to base the choice on, so it lands on the guided one.
+  //
+  // Changing tabs only changes tabs. It used to reset the walkthrough as well,
+  // so a user who created a key, looked at the other job and came back found it
+  // gone from their snippets — and the plaintext value is returned once, so it
+  // was gone for good. The `open` effect below still resets on each opening.
+  const [scenario, setScenario] = useState<ScenarioId>('publish')
   const [step, setStep] = useState(0)
   const [done, setDone] = useState<[boolean, boolean, boolean]>([false, false, false])
   const [language, setLanguage] = useState<OnboardingInterface>(DEFAULT_INTERFACE)
@@ -221,7 +407,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
 
   useEffect(() => {
     if (open) {
-      setScenario(null)
+      setScenario('publish')
       setStep(0)
       setDone([false, false, false])
       setCreatedKey(null)
@@ -229,23 +415,6 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
       setCopiedTarget(null)
     }
   }, [open])
-
-  const activeScenario = SCENARIOS.find((s) => s.id === scenario)
-  const enterScenario = (id: ScenarioId) => {
-    setScenario(id)
-    setStep(0)
-    setDone([false, false, false])
-    setCreatedKey(null)
-    setKeyName('')
-    setCopiedTarget(null)
-  }
-  const backToScenarios = () => {
-    setScenario(null)
-    setStep(0)
-    setDone([false, false, false])
-    setCreatedKey(null)
-    setKeyName('')
-  }
 
   const finished = done.every(Boolean)
 
@@ -283,12 +452,8 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
     }
   }
 
-  const copyText = (value: string, target: CopyTarget) => {
-    try {
-      navigator.clipboard?.writeText(value)
-    } catch {
-      /* clipboard may be unavailable */
-    }
+  const copyText = async (value: string, target: CopyTarget) => {
+    if (!(await copyToClipboard(value))) return
     setCopiedTarget(target)
     setTimeout(() => setCopiedTarget(null), 1400)
   }
@@ -296,56 +461,27 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        // The page behind is a live inventory — pulsing counts, a refreshing
+        // table. Dimming alone leaves it legible, and an onboarding screen
+        // should not compete with the thing it is onboarding you into.
+        overlay={<DialogOverlay className="bg-background/70 backdrop-blur-md" />}
         className={cn(
-          'flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 font-mono sm:max-w-[860px]',
-          scenario !== null && step === 2 && 'h-[88vh]',
+          'flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 font-mono sm:max-w-[720px]',
+          scenario === 'untrusted-code' && step === 2 && 'h-[92vh]',
         )}
       >
-        {scenario === null ? (
+        {scenario === 'publish' ? (
           <>
-            <DialogHeader className="shrink-0 px-5 pb-2 pt-[18px]">
-              <DialogTitle className="text-[18px] font-bold tracking-[-0.3px]">Quickstart</DialogTitle>
-              <DialogDescription className="font-mono text-[11px] uppercase tracking-[1.5px] text-muted-foreground">
-                {SCENARIOS.length} scenario{SCENARIOS.length === 1 ? '' : 's'} available
-              </DialogDescription>
-            </DialogHeader>
-            <div className="scrollbar-elevated min-h-0 flex-1 overflow-y-auto border-t border-border px-5 pb-3 pt-[24px]">
-              <div className="grid grid-cols-2 gap-[20px]">
-                {SCENARIOS.map((sc) => (
-                  <button
-                    key={sc.id}
-                    type="button"
-                    onClick={() => enterScenario(sc.id)}
-                    className="group relative flex min-h-[168px] flex-col border border-dashed border-border bg-[hsl(var(--code-background))] p-[16px] text-left transition-colors hover:border-brand"
-                  >
-                    <div className="text-[13px] font-semibold leading-snug">{sc.title}</div>
-                    <div className="mt-[6px] font-mono text-[10px] uppercase tracking-[1px] text-muted-foreground">
-                      3 steps · sdk/api
-                    </div>
-                    <div className="mt-auto flex items-center gap-[7px] pt-4 font-mono text-[11px] uppercase tracking-[1.5px]">
-                      Start
-                      <span className="transition-transform group-hover:translate-x-1">▸</span>
-                      <span
-                        className="inline-block h-[12px] w-[7px] bg-brand opacity-0 transition-opacity group-hover:opacity-100"
-                        style={{ animation: 'blink 1s steps(1) infinite' }}
-                      />
-                    </div>
-                  </button>
-                ))}
+            <ScenarioHeader scenario={scenario} onSelect={setScenario} />
 
-                {/* coming-soon tile — keeps the grid alive + hints extensibility (ASCII shimmer) */}
-                <div className="relative flex min-h-[168px] flex-col border border-dashed border-border/60 p-[16px] opacity-70">
-                  <div className="text-[13px] font-semibold leading-snug text-muted-foreground">
-                    Box as your agent security runtime
-                  </div>
-                  <div className="mt-[6px] font-mono text-[10px] uppercase tracking-[1px] text-muted-foreground/70">
-                    coming soon
-                  </div>
-                  <div className="halftone-brand mt-auto h-[34px] w-full opacity-60" />
-                </div>
-              </div>
+            <div className="scrollbar-elevated min-h-0 flex-1 overflow-y-auto">
+              <QuickstartAgentHandoff
+                restApiUrl={restApiUrl}
+                onProgressChange={onProgressChange}
+                onLeave={() => onOpenChange(false)}
+              />
             </div>
-            <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-[14px]">
+            <div className="flex shrink-0 items-center border-t border-border px-8 py-4">
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}
@@ -357,24 +493,10 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
           </>
         ) : (
           <>
-            <DialogHeader className="shrink-0 px-5 pb-4 pt-[18px]">
-              <button
-                type="button"
-                onClick={backToScenarios}
-                className="mb-[6px] flex w-fit items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                ‹ Quickstart
-              </button>
-              <DialogTitle className="text-[15px] font-bold leading-snug tracking-[-0.3px]">
-                {activeScenario?.title}
-              </DialogTitle>
-              <DialogDescription className="text-[11.5px] text-muted-foreground">
-                Three steps, straight from code.
-              </DialogDescription>
-            </DialogHeader>
+            <ScenarioHeader scenario={scenario} onSelect={setScenario} compact={step > 0} onExpand={() => setStep(0)} />
 
             {/* stage rail */}
-            <div className="flex shrink-0 items-center px-5 pb-4">
+            <div className="flex shrink-0 items-center px-8 pb-4 pt-6">
               {STAGES.map((s, i) => {
                 const isDone = done[i]
                 const active = step === i
@@ -420,7 +542,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
 
             {/* interface picker — spans steps 2 and 3, so it lives outside the step body */}
             {step > 0 && (
-              <div className="shrink-0 border-t border-border px-5 py-[14px]">
+              <div className="shrink-0 border-t border-border px-8 py-4">
                 <InterfacePicker selected={language} onSelect={setLanguage} />
               </div>
             )}
@@ -433,7 +555,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
               )}
             >
               {step === 0 && (
-                <div className="px-5 py-[18px]" style={{ animation: 'stat-in .25s ease' }}>
+                <div className="px-8 py-6" style={{ animation: 'stat-in .25s ease' }}>
                   <div className="mb-[9px] text-[9px] uppercase tracking-[1.5px] text-muted-foreground">
                     {createdKey ? 'Your API key' : 'Key name'}
                   </div>
@@ -461,7 +583,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
                     {createdKey ? (
                       <QuickstartCopyButton
                         copied={copiedTarget === 'api-key'}
-                        onClick={() => copyText(createdKey.value, 'api-key')}
+                        onClick={() => void copyText(createdKey.value, 'api-key')}
                       />
                     ) : null}
                   </div>
@@ -504,7 +626,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
               )}
 
               {step === 1 && (
-                <div className="px-5 py-[18px]" style={{ animation: 'stat-in .25s ease' }}>
+                <div className="px-8 py-6" style={{ animation: 'stat-in .25s ease' }}>
                   <div className="mb-[9px] text-[9px] uppercase tracking-[1.5px] text-muted-foreground">
                     {activeExample.setupLabel ?? 'Run in your local terminal'}
                   </div>
@@ -515,7 +637,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
                     </pre>
                     <QuickstartCopyButton
                       copied={copiedTarget === 'install'}
-                      onClick={() => copyText(activeExample.install, 'install')}
+                      onClick={() => void copyText(activeExample.install, 'install')}
                     />
                   </div>
                   <div className="mt-[11px] flex items-start gap-2 text-[11.5px] leading-relaxed text-muted-foreground">
@@ -539,7 +661,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
               )}
 
               {step === 2 && (
-                <div className="flex h-full min-h-0 flex-col px-5 py-[18px]" style={{ animation: 'stat-in .25s ease' }}>
+                <div className="flex h-full min-h-0 flex-col px-8 py-6" style={{ animation: 'stat-in .25s ease' }}>
                   <div className="mb-[9px] text-[9px] uppercase tracking-[1.5px] text-muted-foreground">
                     Run this from your local machine
                   </div>
@@ -561,7 +683,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
                     </Suspense>
                     <QuickstartCopyButton
                       copied={copiedTarget === 'code'}
-                      onClick={() => copyText(renderedExample, 'code')}
+                      onClick={() => void copyText(renderedExample, 'code')}
                       className="absolute right-2 top-2.5"
                     />
                   </div>
@@ -580,7 +702,7 @@ export function OnboardingGuideDialog({ open, onOpenChange, onProgressChange }: 
             </div>
 
             {/* footer */}
-            <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-[14px]">
+            <div className="flex shrink-0 items-center justify-between border-t border-border px-8 py-4">
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}

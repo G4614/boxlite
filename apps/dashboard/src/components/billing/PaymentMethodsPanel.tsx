@@ -105,7 +105,7 @@ export function PaymentMethodsPanel({
                 >
                   <div className="min-w-0">
                     <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-3">
-                      <span className="inline-flex h-[52px] min-w-[82px] shrink-0 items-center justify-center border border-border bg-foreground px-3 font-mono text-[15px] font-bold italic tracking-tight text-background">
+                      <span className="inline-flex h-[52px] min-w-[82px] shrink-0 items-center justify-center border border-border px-3 font-mono text-[13px] font-semibold tracking-tight text-foreground">
                         {display.brand}
                       </span>
                       <span className="font-mono text-[20px] tracking-[2px] tabular-nums text-foreground">
