@@ -401,29 +401,125 @@ impl From<&ResourceLimits> for CgroupConfig {
 }
 
 // ============================================================================
-// Async-Signal-Safe Cgroup (for pre_exec)
+// Cgroup join: async-signal-safe write in the child, verified from the parent
 // ============================================================================
+//
+// The join has to happen in `pre_exec`, between `fork()` and `exec()`. Writing
+// the PID from the parent after `spawn()` returns leaves a window in which the
+// child is already running: `cgroup.procs` moves the one PID it is given, and
+// anything the child forked inside that window stays outside the limits. There
+// is no synchronisation available to close it, so the write stays in the child
+// where it is ordered before the box does anything at all.
+//
+// The cost of that placement is that `pre_exec` cannot report: it runs in a
+// forked child of a threaded process, where allocation and locks are not
+// guaranteed to work, so there is no `tracing`, and even `io::Error::new`
+// allocates. Returning `Err` is possible but fatal — it aborts the spawn, which
+// is the wrong answer for "limits could not be applied". Hence the split below:
+// the child writes, the parent reads `cgroup.procs` back and warns.
 
-/// Add current process to cgroup - async-signal-safe version for pre_exec.
+/// Pre-compute the `cgroup.procs` path for [`add_self_to_cgroup_raw`].
 ///
-/// This function is designed to be called from a `pre_exec` hook, which runs
-/// after `fork()` but before `exec()`. Only async-signal-safe operations are
-/// allowed in this context.
-/// Join a process into the box's cgroup by writing its PID to `cgroup.procs`.
-///
-/// Called from the parent process after `spawn()`, so tracing and allocation
-/// are available. Returns an error if the cgroup directory was not created
-/// (setup failed or cgroup v2 unavailable) or if the write fails.
+/// Done in the parent, where allocation is allowed, so the `pre_exec` hook only
+/// has to hand an already-built C string to `open(2)`.
 #[cfg(target_os = "linux")]
-pub fn join_cgroup(box_id: &str, pid: u32) -> Result<(), std::io::Error> {
+pub fn build_cgroup_procs_path(box_id: &str) -> Option<std::ffi::CString> {
+    if !is_cgroup_v2_available() {
+        return None;
+    }
     let path = cgroup_path(box_id).join("cgroup.procs");
-    if !path.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "cgroup directory was not created (setup may have failed)",
+    std::ffi::CString::new(path.to_string_lossy().as_bytes()).ok()
+}
+
+/// Add the calling process to a cgroup — async-signal-safe, for `pre_exec`.
+///
+/// Only `open`/`write`/`close` and stack memory: no allocation, no locks, no
+/// `tracing`. The error is a bare errno because constructing anything richer
+/// would allocate. The caller cannot report it from here — that is what
+/// [`verify_joined`] is for.
+#[cfg(target_os = "linux")]
+pub fn add_self_to_cgroup_raw(cgroup_procs_path: &std::ffi::CStr) -> Result<(), i32> {
+    // Format the PID by hand: `write!`/`format!` may allocate.
+    let mut pid_buf = [0u8; 24];
+    let mut pid = unsafe { libc::getpid() } as u64;
+    let mut len = 0usize;
+    if pid == 0 {
+        pid_buf[0] = b'0';
+        len = 1;
+    } else {
+        let mut digits = [0u8; 20];
+        let mut n = 0;
+        while pid > 0 {
+            digits[n] = b'0' + (pid % 10) as u8;
+            pid /= 10;
+            n += 1;
+        }
+        while n > 0 {
+            n -= 1;
+            pid_buf[len] = digits[n];
+            len += 1;
+        }
+    }
+    pid_buf[len] = b'\n';
+    len += 1;
+
+    let fd = unsafe { libc::open(cgroup_procs_path.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(last_errno());
+    }
+    let written =
+        unsafe { libc::write(fd, pid_buf.as_ptr() as *const libc::c_void, len) };
+    let err = if written < 0 { Some(last_errno()) } else { None };
+    unsafe { libc::close(fd) };
+    match err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Read `errno` without allocating — safe to call from `pre_exec`.
+///
+/// `io::Error::last_os_error()` only wraps the raw value; unlike `Error::new`
+/// it does not allocate, so it is usable in the post-fork context.
+#[cfg(target_os = "linux")]
+fn last_errno() -> i32 {
+    std::io::Error::last_os_error().raw_os_error().unwrap_or(-1)
+}
+
+/// Confirm from the parent that the child actually landed in the box's cgroup.
+///
+/// Reads `cgroup.procs` back. This is the reporting half of the join: the child
+/// could not tell anyone it failed, so the parent checks and warns. It also
+/// catches the case the write itself cannot — a cgroup directory that exists
+/// but whose limit files were never written (the rootless `EACCES` path), since
+/// a box in a cgroup with no limits is indistinguishable from an unconfined one
+/// until something reads the hierarchy back.
+///
+/// Caller and `pid` must share a PID namespace. The jailer runs on the host and
+/// writes host PIDs, so that holds here; read from inside another namespace the
+/// kernel projects unmappable PIDs as `0` and this would report a false miss.
+#[cfg(target_os = "linux")]
+pub fn verify_joined(box_id: &str, pid: u32) -> Result<(), String> {
+    let path = cgroup_path(box_id).join("cgroup.procs");
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+
+    // The outer PID is the one `pre_exec` wrote. bwrap execs in place, so it is
+    // still the process we spawned; descendants it forked afterwards inherit
+    // the cgroup and appear alongside it.
+    if contents.split_whitespace().any(|entry| entry == pid.to_string()) {
+        return Ok(());
+    }
+    if contents.trim().is_empty() {
+        return Err(format!(
+            "cgroup {} is empty: the pre_exec join did not take effect",
+            path.display()
         ));
     }
-    fs::write(&path, format!("{pid}\n"))
+    Err(format!(
+        "pid {pid} is not in {}; the box is running outside its cgroup",
+        path.display()
+    ))
 }
 
 #[cfg(test)]
