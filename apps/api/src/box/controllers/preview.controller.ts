@@ -83,7 +83,18 @@ export class PreviewController {
     status: 409,
     description: 'Box is not running and cannot be resumed (auto-resume off, or a state it cannot leave)',
   })
-  @UseGuards(OrGuard([BoxAccessGuard, ProxyGuard, RegionBoxAccessGuard]))
+  // CombinedAuthGuard first, and not optional: OrGuard's arms only *inspect*
+  // `request.user`, they never populate it. Without a strategy having run,
+  // ProxyGuard sees `undefined`, every arm refuses, and the route answers 403
+  // to the one caller it exists for — the proxy then falls back to dialing a
+  // stopped box, which is the bare 502 this PR is meant to remove.
+  //
+  // The siblings on this controller hide the gap, which is why it survived
+  // review: `:boxId/public` declares no guards at all, and `:boxId/access`
+  // brings its own CombinedAuthGuard. There is no class-level guard here to
+  // inherit, unlike BoxController, whose `last-activity` works for exactly
+  // that reason.
+  @UseGuards(CombinedAuthGuard, OrGuard([BoxAccessGuard, ProxyGuard, RegionBoxAccessGuard]))
   async ensureBoxReady(@Param('boxId') boxId: string): Promise<void> {
     const box = await this.boxService.findOne(boxId)
 
