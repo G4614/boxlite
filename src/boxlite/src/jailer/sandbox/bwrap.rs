@@ -157,15 +157,7 @@ impl Sandbox for BwrapSandbox {
         // Replace the command with bwrap-wrapped version.
         *cmd = bwrap_cmd.build(std::path::Path::new(&binary), &args);
 
-        // Join the cgroup here, not after spawn(): `cgroup.procs` moves only the
-        // PID it is handed, so a join performed once the child is already
-        // running leaves whatever it forked in the meantime outside the limits.
-        // In pre_exec the write is ordered before the box executes anything.
-        //
-        // The failure is unreportable from here (no allocation, no locks, no
-        // tracing after fork) and must not be fatal — a box that cannot be
-        // limited should still start. Jailer::post_spawn reads cgroup.procs
-        // back from the parent and warns.
+        // Add cgroup join as a pre_exec hook (async-signal-safe).
         if let Some(cgroup_procs) = cgroup::build_cgroup_procs_path(ctx.id) {
             use std::os::unix::process::CommandExt;
             unsafe {

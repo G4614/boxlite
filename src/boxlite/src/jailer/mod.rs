@@ -163,16 +163,6 @@ pub trait Jail: Send + Sync {
     /// Returns a `Command` with sandbox wrapping and pre_exec hook
     /// (PID file, FD cleanup, rlimits, cgroup join).
     fn command(&self, binary: &Path, args: &[String]) -> Command;
-
-    /// Post-spawn hook. Call immediately after `cmd.spawn()` with the child PID.
-    ///
-    /// On Linux: confirms the child landed in the box's cgroup — the join itself
-    /// happens in `pre_exec`, where it is ordered before the box runs, but where
-    /// nothing can be reported. This is the half that can report: it warns when
-    /// the box is running unconfined, and does not abort, since a box that
-    /// cannot be limited should still start.
-    /// On macOS / jailer disabled: no-op.
-    fn post_spawn(&self, _pid: u32) {}
 }
 
 // ============================================================================
@@ -529,20 +519,6 @@ impl<S: Sandbox> Jail for Jailer<S> {
             self.detach,
         );
         cmd
-    }
-
-    fn post_spawn(&self, #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] pid: u32) {
-        #[cfg(target_os = "linux")]
-        if self.security.jailer_enabled {
-            cgroup::verify_joined(&self.box_id, pid).unwrap_or_else(|e| {
-                tracing::warn!(
-                    box_id = %self.box_id,
-                    pid,
-                    reason = %e,
-                    "Box is not in its cgroup; it will run without resource limits"
-                );
-            });
-        }
     }
 }
 
