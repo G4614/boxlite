@@ -15,6 +15,21 @@ import { Organization } from '../../organization/entities/organization.entity'
 
 export const AUTO_RESUME_TIMEOUT_SECONDS = 30
 
+// States a stopped-ish box can still reach STARTED from on its own. Anything
+// outside this list (ERROR, ARCHIVED, DESTROYING, ...) never will, so a caller
+// must reject it now instead of holding the request for the full resume
+// window. Lives here rather than next to one caller because every route that
+// wakes a box needs the same answer — the tunnel-open route and the
+// proxy-facing ensure-ready route drifting apart is exactly how a box that
+// opted out of autoResume ended up wakeable from a preview URL.
+export const RESUMABLE_STATES: readonly BoxState[] = [
+  BoxState.STOPPED,
+  BoxState.STOPPING,
+  BoxState.STARTING,
+  BoxState.CREATING,
+  BoxState.RESTORING,
+]
+
 @Injectable()
 export class BoxAutoResumeService {
   constructor(

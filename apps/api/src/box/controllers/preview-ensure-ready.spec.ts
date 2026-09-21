@@ -3,16 +3,18 @@
  * SPDX-License-Identifier: AGPL-3.0
  */
 
-import { NotFoundException, RequestTimeoutException } from '@nestjs/common'
+import { ConflictException, NotFoundException, RequestTimeoutException } from '@nestjs/common'
 import { PreviewController } from './preview.controller'
+import { BoxState } from '../enums/box-state.enum'
 
 jest.mock('uuid', () => ({ v4: jest.fn(() => 'mock-uuid'), validate: jest.fn(() => true) }))
 
-const BOX = { id: 'box-uuid', organizationId: 'org-1' }
+// A box the endpoint is allowed to wake: stopped, and opted into autoResume.
+const BOX = { id: 'box-uuid', organizationId: 'org-1', state: BoxState.STOPPED, autoResume: true }
 const ORG = { id: 'org-1', suspended: false }
 
-function makeHarness() {
-  const boxService = { findOne: jest.fn().mockResolvedValue(BOX) }
+function makeHarness(box: Record<string, unknown> = BOX) {
+  const boxService = { findOne: jest.fn().mockResolvedValue(box) }
   const autoResume = { ensureReady: jest.fn().mockResolvedValue(undefined) }
   const organizationService = { findOne: jest.fn().mockResolvedValue(ORG) }
   const controller = new PreviewController(
@@ -68,5 +70,44 @@ describe('PreviewController.ensureBoxReady', () => {
 
     await expect(controller.ensureBoxReady('ghost')).rejects.toBe(missing)
     expect(autoResume.ensureReady).not.toHaveBeenCalled()
+  })
+})
+
+describe('PreviewController.ensureBoxReady — who may be woken', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('refuses to wake a box that opted out of autoResume', async () => {
+    // `auto_resume: false` is one of the two switches an owner has against a
+    // published URL starting their box on someone else's request, so inbound
+    // traffic must not override it. The tunnel-open route has always honoured
+    // it; this route drifting from that is what let a preview URL start a box
+    // whose owner had opted out.
+    const { controller, autoResume, organizationService } = makeHarness({ ...BOX, autoResume: false })
+
+    await expect(controller.ensureBoxReady('public-box')).rejects.toBeInstanceOf(ConflictException)
+    expect(autoResume.ensureReady).not.toHaveBeenCalled()
+    // Rejected ahead of the organization lookup: one query, not two.
+    expect(organizationService.findOne).not.toHaveBeenCalled()
+  })
+
+  it.each([BoxState.ERROR, BoxState.ARCHIVED])(
+    'refuses %s immediately instead of holding the request for the resume window',
+    async (state) => {
+      // These never reach STARTED on their own, so waiting out the window
+      // would cost the caller 30s to learn what the box row already says.
+      const { controller, autoResume } = makeHarness({ ...BOX, state })
+
+      await expect(controller.ensureBoxReady('public-box')).rejects.toBeInstanceOf(ConflictException)
+      expect(autoResume.ensureReady).not.toHaveBeenCalled()
+    },
+  )
+
+  it('still serves a running box whatever its autoResume setting', async () => {
+    // A running box is ready by definition; the opt-out governs starting one,
+    // not reaching one that is already up.
+    const { controller, autoResume } = makeHarness({ ...BOX, state: BoxState.STARTED, autoResume: false })
+
+    await expect(controller.ensureBoxReady('public-box')).resolves.toBeUndefined()
+    expect(autoResume.ensureReady).toHaveBeenCalledWith('box-uuid', ORG)
   })
 })

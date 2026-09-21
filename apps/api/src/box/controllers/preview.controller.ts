@@ -12,13 +12,15 @@ import {
   Param,
   Logger,
   NotFoundException,
+  ConflictException,
   UseGuards,
   Req,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common'
 import { BoxService } from '../services/box.service'
-import { BoxAutoResumeService } from '../services/box-auto-resume.service'
+import { BoxAutoResumeService, RESUMABLE_STATES } from '../services/box-auto-resume.service'
+import { BoxState } from '../enums/box-state.enum'
 import { OrganizationService } from '../../organization/services/organization.service'
 import { OrGuard } from '../../auth/or.guard'
 import { BoxAccessGuard } from '../guards/box-access.guard'
@@ -77,9 +79,30 @@ export class PreviewController {
     status: 408,
     description: 'Box did not reach a running state before the resume timeout',
   })
+  @ApiResponse({
+    status: 409,
+    description: 'Box is not running and cannot be resumed (auto-resume off, or a state it cannot leave)',
+  })
   @UseGuards(OrGuard([BoxAccessGuard, ProxyGuard, RegionBoxAccessGuard]))
   async ensureBoxReady(@Param('boxId') boxId: string): Promise<void> {
     const box = await this.boxService.findOne(boxId)
+
+    // Mirror the tunnel-open gate in BoxLiteProxyController, and for the same
+    // two reasons. `auto_resume: false` is one of the two switches an owner
+    // has against a published URL starting their box on someone else's
+    // request, so inbound traffic must not override it — waking a box that
+    // opted out is the one outcome this endpoint's caller cannot undo. And a
+    // state that never reaches STARTED on its own has to fail now rather than
+    // hold the request for the full resume window to learn nothing.
+    //
+    // Ahead of the organization lookup so a rejected box costs one query, not
+    // two.
+    if (box.state !== BoxState.STARTED) {
+      if (!box.autoResume || !RESUMABLE_STATES.includes(box.state)) {
+        throw new ConflictException(`Box ${boxId} is not running (state: ${box.state})`)
+      }
+    }
+
     const organization = await this.organizationService.findOne(box.organizationId)
     if (!organization) {
       // A box outliving its organization is not a caller error and no retry
