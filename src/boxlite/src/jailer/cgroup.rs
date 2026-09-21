@@ -467,9 +467,12 @@ pub fn add_self_to_cgroup_raw(cgroup_procs_path: &std::ffi::CStr) -> Result<(), 
     if fd < 0 {
         return Err(last_errno());
     }
-    let written =
-        unsafe { libc::write(fd, pid_buf.as_ptr() as *const libc::c_void, len) };
-    let err = if written < 0 { Some(last_errno()) } else { None };
+    let written = unsafe { libc::write(fd, pid_buf.as_ptr() as *const libc::c_void, len) };
+    let err = if written < 0 {
+        Some(last_errno())
+    } else {
+        None
+    };
     unsafe { libc::close(fd) };
     match err {
         Some(e) => Err(e),
@@ -501,13 +504,16 @@ fn last_errno() -> i32 {
 #[cfg(target_os = "linux")]
 pub fn verify_joined(box_id: &str, pid: u32) -> Result<(), String> {
     let path = cgroup_path(box_id).join("cgroup.procs");
-    let contents = fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let contents =
+        fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
 
     // The outer PID is the one `pre_exec` wrote. bwrap execs in place, so it is
     // still the process we spawned; descendants it forked afterwards inherit
     // the cgroup and appear alongside it.
-    if contents.split_whitespace().any(|entry| entry == pid.to_string()) {
+    if contents
+        .split_whitespace()
+        .any(|entry| entry == pid.to_string())
+    {
         return Ok(());
     }
     if contents.trim().is_empty() {
