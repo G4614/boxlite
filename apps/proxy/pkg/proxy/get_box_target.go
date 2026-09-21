@@ -247,6 +247,7 @@ func (p *Proxy) dialGuestPort(ctx context.Context, network string, address strin
 	retryCtx, cancelRetry := context.WithTimeout(ctx, guestDialRetryWindow)
 	defer cancelRetry()
 
+	started := time.Now()
 	var lastErr error
 	for attempt := 0; ; attempt++ {
 		conn, err := dialRunnerTunnel(retryCtx, runnerInfo, boxID, uint16(port))
@@ -255,6 +256,19 @@ func (p *Proxy) dialGuestPort(ctx context.Context, network string, address strin
 		}
 		lastErr = err
 		if retryCtx.Err() != nil {
+			// Whether the window ran out or the caller went away decides who
+			// owns the failure, and the two are indistinguishable from the
+			// bare 502 the client ends up with. Say which, with how long was
+			// actually spent: a window that closes early means the request
+			// context died under us, not that the box is slow to boot.
+			slog.WarnContext(ctx, "guest dial window ended",
+				"box", boxID, "port", port,
+				"attempts", attempt+1,
+				"elapsed", time.Since(started),
+				"window", guestDialRetryWindow,
+				"retry_ctx_err", retryCtx.Err(),
+				"caller_ctx_err", ctx.Err(),
+				"last_error", lastErr)
 			break
 		}
 		backoff := guestDialRetryBase << min(attempt, 3)
