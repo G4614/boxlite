@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -19,18 +18,6 @@ const (
 	// up long before that, so answer with a retryable 503 first rather than
 	// let the client time out on a blank page.
 	ensureReadyHold = 20 * time.Second
-
-	// Suppresses repeat calls for the same box once one has actually
-	// succeeded: one page load is dozens of requests, and each would
-	// otherwise ask the API to resume again. Written only after a success —
-	// caching an in-flight call would report a resume that later timed out as
-	// readiness, and every request for the rest of the window would skip the
-	// retry it needed.
-	//
-	// Concurrent misses before that first success are therefore possible and
-	// harmless: ensureReady takes the box's state-change lock and joins an
-	// already-submitted start, so the API collapses them into one resume.
-	ensureReadyDedupTTL = 30 * time.Second
 )
 
 // errEnsureReadyTimedOut is the one failure the caller renders differently: the
@@ -49,22 +36,48 @@ var errEnsureReadyTimedOut = errors.New("box did not become ready in time")
 // on the product API — a wake RPC has no business in the spec-first v1/boxes
 // surface the SDKs are generated from.
 //
+// One page load is dozens of requests, so the call is de-duplicated — but only
+// while it is in flight, never after it returns. A readiness answer kept for a
+// fixed window is wrong the moment the box stops inside that window: every
+// later request would skip the wake it needed and dial a stopped box, which is
+// the bare 502 this path exists to remove. Nothing here outlives the call, so
+// the proxy can never believe a box is up merely because it was up a moment
+// ago.
+func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
+	// Two lifetimes, deliberately separate. The shared call drops this
+	// caller's cancellation, because the first arrival owns the request every
+	// joiner is waiting on and a browser closing one tab must not cancel the
+	// resume for the rest; it stays bounded by ensureReadyHold. Each caller
+	// still leaves on its own ctx, so giving up on the wake costs the caller
+	// its own deadline and nobody else's.
+	shared := context.WithoutCancel(ctx)
+	result := p.ensureReadyGroup.DoChan(boxId, func() (any, error) {
+		return nil, p.doEnsureBoxReady(shared, boxId)
+	})
+
+	select {
+	case outcome := <-result:
+		return outcome.Err
+	case <-ctx.Done():
+		// The resume is still running for whoever else is waiting; from this
+		// caller's side that is the same "still starting" a hold timeout
+		// means, so it renders as the retryable 503 rather than a failure.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return errEnsureReadyTimedOut
+		}
+		return ctx.Err()
+	}
+}
+
+// doEnsureBoxReady is the single un-deduplicated call.
+//
 // Written against the generated client's configuration rather than a generated
 // method: api-client-go is regenerated from the API's OpenAPI output, which
 // needs a toolchain this change does not, so the typed method does not exist
 // yet. Reusing GetConfig keeps the base URL, the proxy's Authorization header
 // and the instrumented HTTP client in one place; swap this for
 // PreviewAPI.EnsureBoxReady once the client catches up.
-func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
-	if p.boxEnsureReadyCache != nil {
-		recent, err := p.boxEnsureReadyCache.Has(ctx, boxId)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to check ensure-ready cache", "box", boxId, "error", err)
-		} else if recent {
-			return nil
-		}
-	}
-
+func (p *Proxy) doEnsureBoxReady(ctx context.Context, boxId string) error {
 	if p.apiclient == nil {
 		return errors.New("no API client configured")
 	}
@@ -102,11 +115,6 @@ func (p *Proxy) ensureBoxReady(ctx context.Context, boxId string) error {
 
 	switch {
 	case response.StatusCode < 300:
-		if p.boxEnsureReadyCache != nil {
-			if err := p.boxEnsureReadyCache.Set(ctx, boxId, true, ensureReadyDedupTTL); err != nil {
-				slog.ErrorContext(ctx, "failed to cache ensure-ready", "box", boxId, "error", err)
-			}
-		}
 		return nil
 	case response.StatusCode == http.StatusRequestTimeout, response.StatusCode == http.StatusGatewayTimeout:
 		return errEnsureReadyTimedOut
