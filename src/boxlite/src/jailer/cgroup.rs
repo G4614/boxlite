@@ -30,6 +30,7 @@
 //!         └── cgroup.procs      # Add process here
 //! ```
 
+use super::common;
 use super::error::JailerError;
 use crate::runtime::advanced_options::ResourceLimits;
 use crate::runtime::id::BoxID;
